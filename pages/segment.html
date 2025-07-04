@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neocenka - Анализ сегмента</title>
+    <link rel="stylesheet" href="../libs/tailwind/tailwind.min.css">
+    <link rel="stylesheet" href="../libs/datatables/datatables.min.css">
+    <link rel="stylesheet" href="../assets/styles/main.css">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="../libs/leaflet/leaflet.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Навигация -->
+    <div id="navigation-container"></div>
+
+    <!-- Основной контент -->
+    <div id="page-content" class="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-lg p-6">
+        <!-- Контент будет перенесен сюда -->
+    </div>
+
+    <!-- Скрытый контент для переноса -->
+    <div id="segment-content" class="hidden max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- Хлебные крошки -->
+        <div id="breadcrumbs-container"></div>
+
+        <!-- Заголовок сегмента -->
+        <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 id="segmentTitle" class="text-lg leading-6 font-medium text-gray-900">Загрузка...</h2>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500" id="segmentDescription">
+                        Анализ сегмента недвижимости с фильтрацией по конструктиву
+                    </p>
+                </div>
+                <div class="flex space-x-3">
+                    <button type="button" id="editSegmentBtn" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                        Редактировать
+                    </button>
+                    <button type="button" id="exportDataBtn" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        Экспорт
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Статистика сегмента -->
+        <div class="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <svg class="h-6 w-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 7a2 2 0 012-2h10a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                        </div>
+                        <div class="ml-5 w-0 flex-1">
+                            <dl>
+                                <dt class="text-sm font-medium text-gray-500 truncate">Подсегментов</dt>
+                                <dd id="subsegmentsCount" class="text-lg font-medium text-gray-900">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <svg class="h-6 w-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                            </svg>
+                        </div>
+                        <div class="ml-5 w-0 flex-1">
+                            <dl>
+                                <dt class="text-sm font-medium text-gray-500 truncate">Объектов</dt>
+                                <dd id="objectsCount" class="text-lg font-medium text-gray-900">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <svg class="h-6 w-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                        </div>
+                        <div class="ml-5 w-0 flex-1">
+                            <dl>
+                                <dt class="text-sm font-medium text-gray-500 truncate">Объявлений</dt>
+                                <dd id="listingsCount" class="text-lg font-medium text-gray-900">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <svg class="h-6 w-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+                            </svg>
+                        </div>
+                        <div class="ml-5 w-0 flex-1">
+                            <dl>
+                                <dt class="text-sm font-medium text-gray-500 truncate">Средняя цена</dt>
+                                <dd id="avgPrice" class="text-lg font-medium text-gray-900">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Карта и фильтры -->
+        <div class="mt-8 grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Карта сегмента -->
+            <div class="lg:col-span-3">
+                <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                    <div class="px-4 py-5 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Карта сегмента</h3>
+                        <p class="mt-1 text-sm text-gray-500">Объекты недвижимости в области сегмента</p>
+                    </div>
+                    <div class="px-4 pb-5">
+                        <div id="map" style="height: 400px; width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Фильтры -->
+            <div class="lg:col-span-1">
+                <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                    <div class="px-4 py-5 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Фильтры</h3>
+                    </div>
+                    <div class="px-4 pb-5 space-y-4">
+                        <!-- Фильтр подсегмента -->
+                        <div>
+                            <label for="subsegmentFilter" class="block text-sm font-medium text-gray-700">Подсегмент</label>
+                            <select id="subsegmentFilter" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                                <option value="">Все подсегменты</option>
+                            </select>
+                        </div>
+
+                        <!-- Фильтр типа недвижимости -->
+                        <div>
+                            <label for="propertyTypeFilter" class="block text-sm font-medium text-gray-700">Тип недвижимости</label>
+                            <select id="propertyTypeFilter" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                                <option value="">Все типы</option>
+                                <option value="studio">Студия</option>
+                                <option value="1k">1-комнатная</option>
+                                <option value="2k">2-комнатная</option>
+                                <option value="3k">3-комнатная</option>
+                                <option value="4k+">4+ комнатная</option>
+                            </select>
+                        </div>
+
+                        <!-- Фильтр по цене -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Цена</label>
+                            <div class="mt-1 grid grid-cols-2 gap-2">
+                                <input type="number" id="priceMinFilter" placeholder="От" class="block w-full pl-3 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                                <input type="number" id="priceMaxFilter" placeholder="До" class="block w-full pl-3 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                            </div>
+                        </div>
+
+                        <!-- Фильтр по площади -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Площадь, м²</label>
+                            <div class="mt-1 grid grid-cols-2 gap-2">
+                                <input type="number" id="areaMinFilter" placeholder="От" class="block w-full pl-3 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                                <input type="number" id="areaMaxFilter" placeholder="До" class="block w-full pl-3 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                            </div>
+                        </div>
+
+                        <!-- Кнопки -->
+                        <div class="pt-4 space-y-2">
+                            <button type="button" id="applyFiltersBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                                Применить фильтры
+                            </button>
+                            <button type="button" id="resetFiltersBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                Сбросить
+                            </button>
+                            <button type="button" id="createSubsegmentBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Создать подсегмент
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Панель отчетов -->
+        <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+            <div class="px-4 py-5 sm:px-6 flex items-center justify-between">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Аналитические отчеты</h3>
+                <div class="flex space-x-2">
+                    <button type="button" id="togglePriceChart" class="report-toggle-btn active inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200" data-chart="price">
+                        Динамика цен
+                    </button>
+                    <button type="button" id="toggleLiquidityChart" class="report-toggle-btn inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" data-chart="liquidity">
+                        Ликвидность
+                    </button>
+                    <button type="button" id="toggleCorridorChart" class="report-toggle-btn inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" data-chart="corridor">
+                        Коридор цен
+                    </button>
+                    <button type="button" id="toggleComparisonReport" class="report-toggle-btn inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" data-chart="comparison">
+                        Сравнение
+                    </button>
+                </div>
+            </div>
+            <div class="px-4 pb-5">
+                <!-- График динамики цен -->
+                <div id="priceChartContainer" class="chart-container">
+                    <div id="priceChart" style="height: 350px;"></div>
+                </div>
+
+                <!-- График ликвидности -->
+                <div id="liquidityChartContainer" class="chart-container hidden">
+                    <div id="liquidityChart" style="height: 350px;"></div>
+                </div>
+
+                <!-- График коридора цен -->
+                <div id="corridorChartContainer" class="chart-container hidden">
+                    <div id="corridorChart" style="height: 350px;"></div>
+                </div>
+
+                <!-- Отчет сравнения -->
+                <div id="comparisonContainer" class="chart-container hidden">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h4 class="text-lg font-medium text-gray-900 mb-4">Сравнительный анализ объектов</h4>
+                        <p class="text-sm text-gray-500">Сравнительный анализ будет реализован позже</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Таблица объектов недвижимости -->
+        <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+            <div class="px-4 py-5 sm:px-6 flex items-center justify-between">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Объекты недвижимости</h3>
+                <div class="text-sm text-gray-500">
+                    Показано: <span id="filteredObjectsCount">0</span> из <span id="totalObjectsCount">0</span>
+                </div>
+            </div>
+            <div class="px-4 pb-5">
+                <table id="objectsTable" class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Адрес</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Тип</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Площадь</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена за м²</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Объявлений</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <!-- Данные будут загружены через JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно редактирования сегмента -->
+    <div id="editSegmentModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full modal-content z-50">
+                <form id="editSegmentForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">
+                                    Редактировать сегмент
+                                </h3>
+                                <div class="mt-4 space-y-4">
+                                    <div>
+                                        <label for="editSegmentName" class="block text-sm font-medium text-gray-700">Название сегмента</label>
+                                        <input type="text" name="name" id="editSegmentName" required
+                                               class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                    </div>
+
+                                    <div>
+                                        <label for="editHouseSeries" class="block text-sm font-medium text-gray-700">Серия дома</label>
+                                        <input type="text" name="house_series" id="editHouseSeries"
+                                               class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                    </div>
+
+                                    <div>
+                                        <label for="editCeilingMaterial" class="block text-sm font-medium text-gray-700">Материал перекрытий</label>
+                                        <input type="text" name="ceiling_material" id="editCeilingMaterial"
+                                               class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                    </div>
+
+                                    <div>
+                                        <label for="editWallMaterial" class="block text-sm font-medium text-gray-700">Материал стен</label>
+                                        <input type="text" name="wall_material" id="editWallMaterial"
+                                               class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 sm:ml-3 sm:w-auto sm:text-sm">
+                            Сохранить
+                        </button>
+                        <button type="button" id="cancelEditSegment" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно создания подсегмента -->
+    <div id="createSubsegmentModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full modal-content z-50">
+                <form id="createSubsegmentForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">
+                                    Создать подсегмент
+                                </h3>
+                                <div class="mt-4 space-y-4">
+                                    <div>
+                                        <label for="subsegmentName" class="block text-sm font-medium text-gray-700">Название подсегмента</label>
+                                        <input type="text" name="name" id="subsegmentName" required
+                                               class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                                               placeholder="Например: Студии от собственников">
+                                    </div>
+
+                                    <div>
+                                        <label for="subsegmentPropertyType" class="block text-sm font-medium text-gray-700">Тип недвижимости</label>
+                                        <select name="property_type" id="subsegmentPropertyType" required
+                                                class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                            <option value="">Выберите тип</option>
+                                            <option value="studio">Студия</option>
+                                            <option value="1k">1-комнатная</option>
+                                            <option value="2k">2-комнатная</option>
+                                            <option value="3k">3-комнатная</option>
+                                            <option value="4k+">4+ комнатная</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label for="subsegmentContactType" class="block text-sm font-medium text-gray-700">Тип контакта</label>
+                                        <select name="contact_type" id="subsegmentContactType"
+                                                class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                                            <option value="">Любой</option>
+                                            <option value="owner">Собственник</option>
+                                            <option value="agent">Агент</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 sm:ml-3 sm:w-auto sm:text-sm">
+                            Создать
+                        </button>
+                        <button type="button" id="cancelCreateSubsegment" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div id="notifications" class="fixed top-4 right-4 z-50 space-y-4">
+        <!-- Уведомления будут добавляться динамически -->
+    </div>
+
+    <!-- Футер -->
+    <div id="footer-container"></div>
+
+    <!-- Скрипты -->
+    <script src="../libs/jquery/jquery-3.7.1.min.js"></script>
+    <script src="../libs/datatables/datatables.min.js"></script>
+    
+    <!-- Leaflet JS -->
+    <script src="../libs/leaflet/leaflet.js"></script>
+    
+    <!-- ApexCharts -->
+    <script src="../libs/apexcharts/apexcharts.js"></script>
+    
+    <script src="../components/navigation.js"></script>
+    <script src="../components/breadcrumbs.js"></script>
+    <script src="../components/footer.js"></script>
+    <script src="../data/database.js"></script>
+    <script src="../data/models.js"></script>
+    <script src="../utils/geometry-utils.js"></script>
+    <script src="segment.js"></script>
+    <script src="segment_init.js"></script>
+</body>
+</html>

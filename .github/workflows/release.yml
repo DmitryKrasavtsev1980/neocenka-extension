@@ -1,0 +1,131 @@
+name: Release Extension
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build CSS
+      run: npm run build
+      
+    - name: Validate manifest.json
+      run: |
+        # Проверяем корректность manifest.json
+        node -e "
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          
+          // Проверяем обязательные поля
+          const required = ['manifest_version', 'name', 'version', 'permissions'];
+          for (const field of required) {
+            if (!manifest[field]) {
+              throw new Error(\`Missing required field: \${field}\`);
+            }
+          }
+          
+          // Проверяем версию
+          if (!/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+            throw new Error('Invalid version format');
+          }
+          
+          console.log('✓ manifest.json validation passed');
+        "
+        
+    - name: Check file structure
+      run: |
+        # Проверяем наличие ключевых файлов
+        required_files=(
+          'manifest.json'
+          'popup/popup.html'
+          'background/background.js'
+          'icons/icon16.png'
+          'icons/icon32.png'
+          'icons/icon48.png'
+          'icons/icon128.png'
+        )
+        
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "❌ Missing required file: $file"
+            exit 1
+          fi
+        done
+        
+        echo "✓ File structure validation passed"
+      
+    - name: Extract version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+    - name: Update manifest version
+      run: |
+        sed -i 's/"version": ".*"/"version": "${{ steps.get_version.outputs.VERSION }}"/' manifest.json
+        
+    - name: Create extension package
+      run: |
+        mkdir -p dist
+        cp -r * dist/ 2>/dev/null || true
+        rm -rf dist/.git dist/.github dist/node_modules dist/dist
+        cd dist
+        zip -r ../neocenka-extension-${{ steps.get_version.outputs.VERSION }}.zip . -x "*.git*" "node_modules/*" "dist/*"
+        
+    - name: Generate updates.xml
+      run: |
+        cat > updates.xml << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <gupdate xmlns="http://www.google.com/update2/response" protocol="2.0">
+          <app appid="neocenka-extension">
+            <updatecheck codebase="https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/neocenka-extension-${{ steps.get_version.outputs.VERSION }}.zip" version="${{ steps.get_version.outputs.VERSION }}" />
+          </app>
+        </gupdate>
+        EOF
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          neocenka-extension-${{ steps.get_version.outputs.VERSION }}.zip
+          updates.xml
+        name: Release v${{ steps.get_version.outputs.VERSION }}
+        body: |
+          ## Neocenka Extension v${{ steps.get_version.outputs.VERSION }}
+          
+          ${{ contains(steps.get_version.outputs.VERSION, '0.') && '⚠️ **Это тестовая версия для разработки**' || '' }}
+          
+          ### 🔧 Установка
+          1. Скачайте файл `neocenka-extension-${{ steps.get_version.outputs.VERSION }}.zip`
+          2. Разархивируйте файл
+          3. Откройте Chrome и перейдите в `chrome://extensions/`
+          4. Включите "Режим разработчика" в правом верхнем углу
+          5. Нажмите "Загрузить распакованное расширение"
+          6. Выберите папку с распакованным расширением
+          
+          ### 🔄 Автоматические обновления
+          - Расширение будет автоматически проверять обновления
+          - Updates XML: [updates.xml](https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/updates.xml)
+          
+          ### 📋 Changelog
+          - Улучшения производительности
+          - Исправления ошибок
+          - Новые функции анализа недвижимости
+        draft: false
+        prerelease: ${{ contains(steps.get_version.outputs.VERSION, '0.') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

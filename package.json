@@ -1,0 +1,18 @@
+{
+  "name": "neocenka-extension",
+  "version": "0.1.0",
+  "description": "Chrome extension for real estate market analysis",
+  "scripts": {
+    "build-css": "npx @tailwindcss/cli -i ./libs/tailwind/tailwind.css -o ./libs/tailwind/tailwind.min.css --watch",
+    "build": "npx @tailwindcss/cli -i ./libs/tailwind/tailwind.css -o ./libs/tailwind/tailwind.min.css --minify",
+    "build-extension": "node scripts/build.js",
+    "package": "npm run build && npm run build-extension"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.1.8",
+    "@tailwindcss/cli": "^4.1.8"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.31"
+  }
+}

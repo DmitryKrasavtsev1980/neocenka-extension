@@ -1,0 +1,396 @@
+/**
+ * Стили для content scripts парсеров
+ * Добавляют визуальные индикаторы на страницы Avito и Cian
+ */
+
+/* Индикатор парсинга */
+.neocenka-parsing-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  background: #1f2937;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  max-width: 280px;
+  animation: neocenka-slide-in 0.3s ease-out;
+}
+
+.neocenka-parsing-indicator.success {
+  background: #059669;
+}
+
+.neocenka-parsing-indicator.error {
+  background: #dc2626;
+}
+
+.neocenka-parsing-indicator .title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.neocenka-parsing-indicator .message {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* Анимация появления */
+@keyframes neocenka-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Индикатор загрузки */
+.neocenka-loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: neocenka-spin 1s ease-in-out infinite;
+  margin-right: 8px;
+}
+
+@keyframes neocenka-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Подсветка обработанных объявлений */
+.neocenka-processed-listing {
+  position: relative;
+}
+
+.neocenka-processed-listing::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 2px solid #10b981;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.neocenka-processed-listing::after {
+  content: '✓ Добавлено в Neocenka';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #10b981;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  z-index: 2;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Кнопка быстрого добавления на странице объявления */
+.neocenka-quick-add-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10000;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.neocenka-quick-add-btn:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.5);
+}
+
+.neocenka-quick-add-btn:active {
+  transform: translateY(0);
+}
+
+.neocenka-quick-add-btn.loading {
+  background: #6b7280;
+  cursor: not-allowed;
+}
+
+.neocenka-quick-add-btn.success {
+  background: #059669;
+}
+
+.neocenka-quick-add-btn.error {
+  background: #dc2626;
+}
+
+/* Модальное окно выбора сегмента */
+.neocenka-segment-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.neocenka-segment-modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.neocenka-segment-modal h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.neocenka-segment-modal select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.neocenka-segment-modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.neocenka-segment-modal button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.neocenka-segment-modal .btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.neocenka-segment-modal .btn-primary:hover {
+  background: #2563eb;
+}
+
+.neocenka-segment-modal .btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.neocenka-segment-modal .btn-secondary:hover {
+  background: #e5e7eb;
+}
+
+/* Прогресс бар для массового парсинга */
+.neocenka-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  background: #1f2937;
+  color: white;
+  padding: 12px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.neocenka-progress-text {
+  font-size: 14px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.neocenka-progress-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.neocenka-progress-fill {
+  height: 100%;
+  background: #10b981;
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+/* Статус объявления на странице */
+.neocenka-listing-status {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 10000;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.neocenka-listing-status.tracked {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+
+.neocenka-listing-status.archived {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.neocenka-listing-status .status-icon {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.neocenka-listing-status.tracked .status-icon {
+  background: #10b981;
+}
+
+.neocenka-listing-status.archived .status-icon {
+  background: #f59e0b;
+}
+
+/* Кнопки действий в списке объявлений */
+.neocenka-listing-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.neocenka-listing-item:hover .neocenka-listing-actions {
+  opacity: 1;
+}
+
+.neocenka-listing-actions button {
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border: none;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.neocenka-listing-actions button:hover {
+  background: rgba(0, 0, 0, 0.9);
+}
+
+/* Уведомления */
+.neocenka-notification {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  z-index: 10000;
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  max-width: 300px;
+  animation: neocenka-slide-in 0.3s ease-out;
+}
+
+.neocenka-notification.success {
+  border-left: 4px solid #10b981;
+}
+
+.neocenka-notification.error {
+  border-left: 4px solid #ef4444;
+}
+
+.neocenka-notification.warning {
+  border-left: 4px solid #f59e0b;
+}
+
+.neocenka-notification .notification-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #1f2937;
+}
+
+.neocenka-notification .notification-message {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+/* Скрытие элементов по умолчанию */
+.neocenka-hidden {
+  display: none !important;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+  .neocenka-parsing-indicator,
+  .neocenka-notification {
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+  
+  .neocenka-quick-add-btn {
+    bottom: 10px;
+    right: 10px;
+    left: 10px;
+    border-radius: 6px;
+  }
+  
+  .neocenka-segment-modal-content {
+    width: 95%;
+    margin: 0 10px;
+  }
+  
+  .neocenka-listing-status {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    text-align: center;
+  }
+}

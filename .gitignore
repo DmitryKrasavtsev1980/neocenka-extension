@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Test files
+tests/
+example/
+
+# Individual test files
+test_*.js
+debug_*.html
+debug-toggle.js
+
+# Development files
+TODO.md
+safelist.html
+
+# Build files
+dist/
+*.zip
+*.crx
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code files
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

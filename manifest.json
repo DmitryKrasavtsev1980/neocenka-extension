@@ -1,0 +1,86 @@
+{
+  "manifest_version": 3,
+  "name": "Neocenka - Анализ рынка недвижимости",
+  "version": "0.1.0",
+  "description": "Расширение для анализа и мониторинга рынка недвижимости",
+  "update_url": "https://raw.githubusercontent.com/DmitryKrasavtsev1980/neocenka-extension/main/updates.xml",
+
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "scripting",
+    "unlimitedStorage"
+  ],
+
+  "host_permissions": [
+    "https://www.avito.ru/*",
+    "https://avito.ru/*",
+    "https://www.cian.ru/*",
+    "https://cian.ru/*",
+    "https://inpars.ru/*",
+    "https://api.inpars.ru/*",
+    "https://overpass-api.de/*"
+  ],
+
+  "background": {
+    "service_worker": "background/background.js"
+  },
+
+  "content_scripts": [
+    {
+    "matches": ["https://www.avito.ru/*", "https://avito.ru/*"],
+    "js": [
+      "data/database.js",
+      "utils/error-reporter.js",
+      "content-scripts/avito-parser.js"
+    ],
+    "css": ["content-scripts/parser-styles.css"],
+    "run_at": "document_end"
+  },
+    {
+      "matches": ["https://www.cian.ru/*", "https://cian.ru/*"],
+      "js": ["data/database.js", "utils/error-reporter.js", "content-scripts/cian-parser.js"],
+      "css": ["content-scripts/parser-styles.css"],
+      "run_at": "document_end"
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Neocenka",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "pages/*",
+        "libs/*",
+        "assets/*",
+        "components/*",
+        "data/*",
+        "utils/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://inpars.ru https://api.inpars.ru https://overpass-api.de;"
+  },
+
+  "options_page": "pages/settings.html"
+}

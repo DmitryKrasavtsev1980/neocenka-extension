@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="100px" height="92px" version="1.1"
+    style="shape-rendering:geometricPrecision; text-rendering:geometricPrecision; image-rendering:optimizeQuality; fill-rule:evenodd; clip-rule:evenodd"
+    viewBox="0 0 29.44 27.05" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <defs>
+        <style type="text/css">
+            <![CDATA[
+            .fil0 {
+                fill: #FEFEFE
+            }
+
+            .fil1 {
+                fill: skyblue
+            }
+            ]]>
+        </style>
+    </defs>
+    <g id="Слой_x0020_1">
+        <metadata />
+        <g id="_2099203770160">
+            <path class="fil0"
+                d="M1.36 0l3.89 0c0.06,0 0.12,0 0.18,0.01 0.34,0.01 0.68,0.14 0.94,0.4l16.46 16.46 0 -5.52c0,-0.75 0.62,-1.36 1.37,-1.36l3.88 0c0.75,0 1.36,0.61 1.36,1.36l0 14.33c0,0.75 -0.61,1.36 -1.36,1.36l-3.69 0c-0.18,0.02 -0.36,0.01 -0.53,-0.04 -0.31,-0.08 -0.58,-0.27 -0.76,-0.52l-16.49 -16.49 0 15.69c0,0.75 -0.61,1.36 -1.36,1.36l-3.89 0c-0.75,0 -1.36,-0.61 -1.36,-1.36l0 -24.32c0,-0.75 0.61,-1.36 1.36,-1.36z" />
+            <rect class="fil1" x="22.83" width="6.61" height="6.11" rx="1.36" ry="0.31" />
+        </g>
+    </g>
+</svg>

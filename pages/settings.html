@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neocenka - Настройки</title>
+    <link rel="stylesheet" href="../libs/tailwind/tailwind.min.css">
+    <link rel="stylesheet" href="../assets/styles/main.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Навигация -->
+    <div id="navigation-container"></div>
+
+    <!-- Основной контент -->
+    <div id="page-content" class="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-lg p-6">
+        <!-- Контент будет перенесен сюда -->
+    </div>
+
+    <!-- Скрытый контент настроек -->
+    <div class="hidden" id="settings-content">
+        <!-- Настройки парсинга -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Настройки парсинга</h3>
+                <p class="mt-1 text-sm text-gray-500">Параметры сбора данных с сайтов</p>
+            </div>
+            <form id="settingsForm" class="p-6">
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
+                    <div>
+                        <label for="avitoDelay" class="block text-sm font-medium text-gray-700">Задержка для Avito
+                            (секунды)</label>
+                        <input type="number" id="avitoDelay" name="parsing_delay_avito" min="10" max="300"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <p class="mt-1 text-xs text-gray-500">Рекомендуется 30-60 секунд для избежания блокировки
+                        </p>
+                    </div>
+
+                    <div>
+                        <label for="cianDelay" class="block text-sm font-medium text-gray-700">Задержка для Cian
+                            (секунды)</label>
+                        <input type="number" id="cianDelay" name="parsing_delay_cian" min="10" max="300"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <p class="mt-1 text-xs text-gray-500">Рекомендуется 30-60 секунд для избежания блокировки
+                        </p>
+                    </div>
+
+                    <div>
+                        <label for="updateDays" class="block text-sm font-medium text-gray-700">Количество дней для
+                            обновления объявлений</label>
+                        <input type="number" id="updateDays" name="update_days" min="1" max="365" value="7"
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <p class="mt-1 text-xs text-gray-500">Обновлять объявления не чаще чем указанное количество
+                            дней</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 space-y-4">
+                    <div class="flex items-start">
+                        <div class="flex items-center h-5">
+                            <input id="autoProcessDuplicates" name="auto_process_duplicates" type="checkbox"
+                                class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                        </div>
+                        <div class="ml-3 text-sm">
+                            <label for="autoProcessDuplicates" class="font-medium text-gray-700">Автоматическая
+                                обработка дублей</label>
+                            <p class="text-gray-500">Автоматически объединять похожие объявления в объекты
+                                недвижимости</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-start">
+                        <div class="flex items-center h-5">
+                            <input id="autoArchive" name="auto_archive_listings" type="checkbox"
+                                class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                        </div>
+                        <div class="ml-3 text-sm">
+                            <label for="autoArchive" class="font-medium text-gray-700">Автоархивирование</label>
+                            <p class="text-gray-500">Автоматически переводить снятые с публикации объявления в архив
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6">
+                    <button type="button" id="saveSettingsBtn"
+                        class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
+                        </svg>
+                        Сохранить настройки
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Управление данными -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Управление данными</h3>
+                <p class="mt-1 text-sm text-gray-500">Экспорт, импорт и обработка данных</p>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Обработка данных</h4>
+                        <div class="space-y-3">
+                            <button type="button" id="processDuplicatesBtn"
+                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2v0M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2">
+                                    </path>
+                                </svg>
+                                Обработать дубли
+                            </button>
+
+                            <button type="button" id="clearDataBtn"
+                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                                    </path>
+                                </svg>
+                                Очистить все данные
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Экспорт/Импорт</h4>
+                        <div class="space-y-3">
+                            <button type="button" id="exportDataBtn"
+                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                                    </path>
+                                </svg>
+                                Экспорт данных
+                            </button>
+
+                            <button type="button" id="importDataBtn"
+                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10">
+                                    </path>
+                                </svg>
+                                Импорт данных
+                            </button>
+                            <input type="file" id="importFileInput" accept=".json" class="hidden">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Статистика базы данных -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Статистика базы данных</h3>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-2 gap-6 md:grid-cols-4">
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-blue-600" id="statsSegments">0</div>
+                        <div class="text-sm text-gray-500">Сегментов</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-green-600" id="statsListings">0</div>
+                        <div class="text-sm text-gray-500">Объявлений</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-purple-600" id="statsObjects">0</div>
+                        <div class="text-sm text-gray-500">Объектов</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-orange-600" id="statsReports">0</div>
+                        <div class="text-sm text-gray-500">Отчетов</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Синхронизация -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Синхронизация</h3>
+                <p class="mt-1 text-sm text-gray-500">Синхронизация данных между устройствами</p>
+            </div>
+            <div class="p-6">
+                <div class="space-y-4">
+                    <div class="flex items-start">
+                        <div class="flex items-center h-5">
+                            <input id="syncEnabled" name="sync_enabled" type="checkbox"
+                                class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                        </div>
+                        <div class="ml-3 text-sm">
+                            <label for="syncEnabled" class="font-medium text-gray-700">Включить
+                                синхронизацию</label>
+                            <p class="text-gray-500">Синхронизировать данные между устройствами через Chrome Sync
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="syncKeyContainer" class="hidden">
+                        <label for="syncKey" class="block text-sm font-medium text-gray-700">Ключ
+                            синхронизации</label>
+                        <div class="mt-1 flex rounded-md shadow-sm">
+                            <input type="text" id="syncKey" name="sync_key"
+                                class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-l-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                placeholder="Введите или сгенерируйте ключ">
+                            <button type="button" id="generateSyncKey"
+                                class="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 rounded-r-md bg-gray-50 text-gray-500 text-sm hover:bg-gray-100">
+                                Сгенерировать
+                            </button>
+                        </div>
+                        <p class="mt-1 text-xs text-gray-500">Используйте один и тот же ключ на всех устройствах для
+                            синхронизации</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Статус подписки -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Статус подписки</h3>
+                <p class="mt-1 text-sm text-gray-500">Управление подпиской и API ключом</p>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    <div>
+                        <label for="apiKey" class="block text-sm font-medium text-gray-700">API ключ</label>
+                        <div class="mt-1 flex rounded-md shadow-sm">
+                            <input type="password" id="apiKey" name="api_key"
+                                class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-l-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                placeholder="Введите API ключ с сайта neocenka.ru">
+                            <button type="button" id="checkSubscriptionBtn"
+                                class="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 rounded-r-md bg-gray-50 text-gray-500 text-sm hover:bg-gray-100">
+                                Проверить
+                            </button>
+                        </div>
+                        <p class="mt-1 text-xs text-gray-500">Получите ключ в личном кабинете на <a
+                                href="https://neocenka.ru" target="_blank"
+                                class="text-blue-600 hover:text-blue-800">neocenka.ru</a></p>
+                    </div>
+
+                    <div id="subscriptionStatus" class="hidden">
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Статус подписки</h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600">Статус:</span>
+                                <span id="subscriptionStatusText"
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    Активна
+                                </span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600">План:</span>
+                                <span id="subscriptionPlan" class="text-sm font-medium text-gray-900">Premium</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600">Осталось дней:</span>
+                                <span id="subscriptionDays" class="text-sm font-medium text-gray-900">15</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-gray-600">Запросов сегодня:</span>
+                                <span id="apiRequestsToday" class="text-sm text-gray-600">45 / 1000</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="subscriptionFeatures" class="mt-6 hidden">
+                    <h4 class="text-sm font-medium text-gray-900 mb-3">Доступные функции</h4>
+                    <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
+                        <div class="flex items-center">
+                            <svg class="h-4 w-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-sm text-gray-700">Парсинг данных</span>
+                        </div>
+                        <div class="flex items-center">
+                            <svg class="h-4 w-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-sm text-gray-700">Расширенная аналитика</span>
+                        </div>
+                        <div class="flex items-center">
+                            <svg class="h-4 w-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-sm text-gray-700">Экспорт данных</span>
+                        </div>
+                        <div class="flex items-center">
+                            <svg class="h-4 w-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-sm text-gray-700">Уведомления</span>
+                        </div>
+                        <div class="flex items-center">
+                            <svg class="h-4 w-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-sm text-gray-700">Отслеживание цен</span>
+                        </div>
+                        <div class="flex items-center">
+                            <svg class="h-4 w-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-sm text-gray-700">Безлимитные сегменты</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Интеграция с Inpars.ru -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Интеграция с Inpars.ru</h3>
+                <p class="mt-1 text-sm text-gray-500">Настройки подключения к сервису данных недвижимости</p>
+            </div>
+            <div class="p-6">
+                <div class="space-y-6">
+                    <!-- Токен API -->
+                    <div>
+                        <label for="inparsToken" class="block text-sm font-medium text-gray-700">Токен API Inpars</label>
+                        <div class="mt-1 flex rounded-md shadow-sm">
+                            <input type="password" id="inparsToken" name="inpars_token"
+                                class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-l-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                placeholder="Введите токен API с сайта inpars.ru">
+                            <button type="button" id="saveInparsToken"
+                                class="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 rounded-r-md bg-gray-50 text-gray-500 text-sm hover:bg-gray-100">
+                                Сохранить
+                            </button>
+                        </div>
+                        <p class="mt-1 text-xs text-gray-500">Получите токен в личном кабинете на <a
+                                href="https://inpars.ru" target="_blank"
+                                class="text-blue-600 hover:text-blue-800">inpars.ru</a></p>
+                    </div>
+
+                    <!-- Статус подписки -->
+                    <div id="inparsSubscriptionStatus" class="hidden">
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Статус подписки Inpars</h4>
+                        <div class="flex items-center space-x-3">
+                            <div id="inparsStatusIndicator" class="flex items-center">
+                                <div class="h-3 w-3 rounded-full bg-gray-400"></div>
+                                <span id="inparsStatusText" class="ml-2 text-sm text-gray-600">Проверка...</span>
+                            </div>
+                            <button type="button" id="checkInparsSubscription"
+                                class="text-sm text-blue-600 hover:text-blue-800">
+                                Обновить статус
+                            </button>
+                        </div>
+                        <div id="inparsSubscriptionDetails" class="mt-3 text-sm text-gray-600 hidden">
+                            <!-- Детали подписки будут добавлены через JS -->
+                        </div>
+                    </div>
+
+                    <!-- Импорт справочников -->
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Справочники</h4>
+                        <div class="space-y-3">
+                            <button type="button" id="importInparsCategories"
+                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10">
+                                    </path>
+                                </svg>
+                                Импорт справочников Inpars
+                            </button>
+                            <div id="categoriesImportStatus" class="text-sm text-gray-600 hidden">
+                                <!-- Статус импорта будет добавлен через JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Источники данных -->
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Источники данных для импорта</h4>
+                        <div class="space-y-3">
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="sourceAvito" name="inpars_source_avito" type="checkbox" checked
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="sourceAvito" class="font-medium text-gray-700">Avito</label>
+                                    <p class="text-gray-500">Импортировать объявления с сайта Avito.ru</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="sourceCian" name="inpars_source_cian" type="checkbox" checked
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="sourceCian" class="font-medium text-gray-700">CIAN</label>
+                                    <p class="text-gray-500">Импортировать объявления с сайта Cian.ru</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Статистика API -->
+                    <div id="inparsApiStats" class="hidden">
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Статистика API</h4>
+                        <div class="bg-gray-50 rounded-md p-3">
+                            <div class="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                    <span class="text-gray-600">Запросов выполнено:</span>
+                                    <span id="apiRequestCount" class="font-medium text-gray-900 ml-1">0</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-600">В очереди:</span>
+                                    <span id="apiQueueLength" class="font-medium text-gray-900 ml-1">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Настройки отладки -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Настройки отладки</h3>
+                <p class="mt-1 text-sm text-gray-500">Параметры для разработчиков и диагностики</p>
+            </div>
+            <div class="p-6">
+                <div class="space-y-4">
+                    <div class="flex items-start">
+                        <div class="flex items-center h-5">
+                            <input id="debugMode" name="debug_mode" type="checkbox" autocomplete="off"
+                                class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                        </div>
+                        <div class="ml-3 text-sm">
+                            <label for="debugMode" class="font-medium text-gray-700">Включить отладочные
+                                сообщения</label>
+                            <p class="text-gray-500">Выводить подробные сообщения в консоль браузера для диагностики
+                                работы приложения</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd"
+                                        d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                        clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm text-yellow-700">
+                                    <strong>Внимание:</strong> Отладочные сообщения видны только в консоли
+                                    разработчика (F12).
+                                    Включайте эту опцию только при возникновении проблем или по просьбе службы
+                                    поддержки.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- О программе -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">О программе</h3>
+            </div>
+            <div class="p-6">
+                <div class="flex items-center space-x-4">
+                    <img src="../components/logo.svg" alt="Neocenka" class="h-12 w-12">
+                    <div>
+                        <h4 class="text-lg font-medium text-gray-900">Neocenka</h4>
+                        <p class="text-sm text-gray-500">Версия 1.0.0</p>
+                        <p class="text-sm text-gray-500">Анализ рынка недвижимости для Avito и Cian</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                        <h5 class="text-sm font-medium text-gray-900 mb-2">Возможности</h5>
+                        <ul class="text-sm text-gray-500 space-y-1">
+                            <li>• Автоматический сбор объявлений</li>
+                            <li>• Обработка дублирующихся объявлений</li>
+                            <li>• Аналитика и отчеты</li>
+                            <li>• Отслеживание изменения цен</li>
+                            <li>• Экспорт данных</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <h5 class="text-sm font-medium text-gray-900 mb-2">Поддержка</h5>
+                        <div class="text-sm text-gray-500 space-y-1">
+                            <p>Если у вас есть вопросы или предложения:</p>
+                            <p>Email: support@neocenka.ru</p>
+                            <p>GitHub: github.com/neocenka</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно подтверждения очистки данных -->
+    <div id="clearDataModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title"
+        role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity modal-backdrop" aria-hidden="true">
+            </div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div
+                class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full modal-content">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div
+                            class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                            <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z">
+                                </path>
+                            </svg>
+                        </div>
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">Очистить все данные</h3>
+                            <div class="mt-2">
+                                <p class="text-sm text-gray-500">
+                                    Вы уверены, что хотите удалить ВСЕ данные расширения? Это действие удалит:
+                                </p>
+                                <ul class="mt-2 text-sm text-gray-500 list-disc list-inside">
+                                    <li>Все сегменты</li>
+                                    <li>Все объявления</li>
+                                    <li>Все объекты недвижимости</li>
+                                    <li>Все отчеты</li>
+                                    <li>Все настройки</li>
+                                </ul>
+                                <p class="mt-2 text-sm text-red-600 font-medium">Это действие нельзя отменить!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button type="button" id="confirmClearData"
+                        class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 sm:ml-3 sm:w-auto sm:text-sm">
+                        Удалить все данные
+                    </button>
+                    <button type="button" id="cancelClearData"
+                        class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        Отмена
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div id="notifications" class="fixed top-4 right-4 z-50 space-y-4">
+        <!-- Уведомления будут добавляться динамически -->
+    </div>
+
+    <!-- Футер -->
+    <div id="footer-container"></div>
+
+    <!-- Скрипты -->
+    <script src="../components/navigation.js"></script>
+    <script src="../components/breadcrumbs.js"></script>
+    <script src="../components/footer.js"></script>
+    <script src="../data/database.js"></script>
+    <script src="../utils/subscription-service.js"></script>
+    <script src="../utils/debug-logger.js"></script>
+    <script src="../utils/inpars-api.js"></script>
+    <script src="settings_script.js"></script>
+
+    <script src="settings_init.js"></script>
+</body>
+
+</html>
