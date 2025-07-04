@@ -63,12 +63,17 @@ class UpdateNotificationComponent {
         updateLink.addEventListener('click', async (e) => {
             e.preventDefault();
             
-            // При обычном клике - проверка обновлений
-            if (!e.shiftKey) {
-                await this.checkForUpdatesManually();
-            } else {
+            if (e.shiftKey) {
                 // При Shift+клик - показ информации о версии
                 this.showVersionInfo();
+            } else if (e.ctrlKey || e.metaKey) {
+                // При Ctrl+клик - автоматическое обновление одной кнопкой
+                if (window.autoUpdater) {
+                    await window.autoUpdater.performFullAutoUpdate();
+                }
+            } else {
+                // При обычном клике - проверка обновлений
+                await this.checkForUpdatesManually();
             }
         });
     }
