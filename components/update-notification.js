@@ -18,68 +18,61 @@ class UpdateNotificationComponent {
         if (this.updateManager) {
             await this.updateManager.init();
             this.addUpdateCheckButton();
-            this.addVersionDisplay();
         }
         
         this.isInitialized = true;
     }
 
     /**
-     * Добавляет кнопку проверки обновлений в навигацию
+     * Добавляет информацию об обновлениях в навигацию как последний пункт меню
      */
     addUpdateCheckButton() {
-        // Ищем навигационное меню
-        const nav = document.querySelector('.navigation-container, nav, .header-nav');
-        if (!nav) return;
+        // Проверяем, что кнопка еще не создана
+        if (document.getElementById('check-updates-btn')) {
+            return;
+        }
 
-        // Создаем кнопку проверки обновлений
-        const updateButton = document.createElement('button');
-        updateButton.id = 'check-updates-btn';
-        updateButton.className = 'flex items-center space-x-2 px-3 py-1 text-sm text-gray-600 hover:text-blue-600 transition-colors';
-        updateButton.innerHTML = `
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-            </svg>
-            <span>Обновления</span>
+        // Ищем навигационное меню (div с ссылками)
+        const navLinksContainer = document.querySelector('nav .sm\\:flex.sm\\:-my-px, .sm\\:space-x-8');
+        if (!navLinksContainer) return;
+
+        // Получаем текущую версию
+        const version = chrome.runtime.getManifest().version;
+
+        // Создаем ссылку для обновлений в стиле существующих ссылок
+        const updateLink = document.createElement('a');
+        updateLink.href = '#';
+        updateLink.id = 'check-updates-btn';
+        updateLink.className = 'inline-flex items-center border-b-2 border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 px-1 pt-1 text-sm font-medium';
+        updateLink.innerHTML = `
+            <div class="flex items-center space-x-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                <div class="flex flex-col">
+                    <span>Обновления</span>
+                    <span class="text-xs text-gray-400">v${version}</span>
+                </div>
+            </div>
         `;
-
-        // Добавляем в навигацию
-        nav.appendChild(updateButton);
+        
+        // Добавляем как последний элемент в навигацию
+        navLinksContainer.appendChild(updateLink);
 
         // Обработчик клика
-        updateButton.addEventListener('click', async (e) => {
+        updateLink.addEventListener('click', async (e) => {
             e.preventDefault();
-            await this.checkForUpdatesManually();
+            
+            // При обычном клике - проверка обновлений
+            if (!e.shiftKey) {
+                await this.checkForUpdatesManually();
+            } else {
+                // При Shift+клик - показ информации о версии
+                this.showVersionInfo();
+            }
         });
     }
 
-    /**
-     * Добавляет отображение текущей версии
-     */
-    addVersionDisplay() {
-        // Ищем футер или подходящее место
-        const footer = document.querySelector('footer, .footer, .version-info');
-        if (!footer) return;
-
-        const version = chrome.runtime.getManifest().version;
-        const versionDisplay = document.createElement('div');
-        versionDisplay.className = 'text-xs text-gray-500 flex items-center space-x-2';
-        versionDisplay.innerHTML = `
-            <span>Версия ${version}</span>
-            <button id="version-info-btn" class="hover:text-blue-600 transition-colors">
-                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-                </svg>
-            </button>
-        `;
-
-        footer.appendChild(versionDisplay);
-
-        // Обработчик для показа информации о версии
-        document.getElementById('version-info-btn').addEventListener('click', () => {
-            this.showVersionInfo();
-        });
-    }
 
     /**
      * Ручная проверка обновлений

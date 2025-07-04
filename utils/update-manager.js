@@ -5,7 +5,7 @@
 class UpdateManager {
     constructor() {
         this.currentVersion = chrome.runtime.getManifest().version;
-        this.updateCheckUrl = 'https://api.github.com/repos/DmitryKrasavtsev1980/neocenka-extension/releases/latest';
+        this.updateCheckUrl = 'https://api.github.com/repos/DmitryKrasavtsev1980/neocenka-extension/releases';
         this.storageKey = 'neocenka_update_info';
         this.lastCheckKey = 'neocenka_last_update_check';
         this.checkInterval = 24 * 60 * 60 * 1000; // 24 часа в миллисекундах
@@ -43,10 +43,22 @@ class UpdateManager {
             
             const response = await fetch(this.updateCheckUrl);
             if (!response.ok) {
+                if (response.status === 404) {
+                    console.log('ℹ️ Релизы пока не созданы');
+                    return null;
+                }
                 throw new Error(`HTTP ${response.status}`);
             }
 
-            const releaseData = await response.json();
+            const releases = await response.json();
+            
+            // Находим последний релиз (включая pre-release)
+            if (!releases || releases.length === 0) {
+                console.log('ℹ️ Релизы не найдены');
+                return null;
+            }
+            
+            const releaseData = releases[0]; // Первый в списке - самый новый
             const latestVersion = releaseData.tag_name.replace('v', '');
             
             // Сохраняем время последней проверки

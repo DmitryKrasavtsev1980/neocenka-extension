@@ -20,7 +20,10 @@
     "https://cian.ru/*",
     "https://inpars.ru/*",
     "https://api.inpars.ru/*",
-    "https://overpass-api.de/*"
+    "https://overpass-api.de/*",
+    "https://api.github.com/*",
+    "https://github.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
 
   "background": {
@@ -79,7 +82,7 @@
   ],
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://inpars.ru https://api.inpars.ru https://overpass-api.de;"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://inpars.ru https://api.inpars.ru https://overpass-api.de https://api.github.com https://github.com https://raw.githubusercontent.com;"
   },
 
   "options_page": "pages/settings.html"
