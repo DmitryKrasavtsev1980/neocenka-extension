@@ -8,7 +8,6 @@ class AreaPage {
         this.currentArea = null;
         this.map = null;
         this.drawnPolygon = null;
-        this.isEditingPolygon = false;
         this.drawControl = null;
 
         // Слои для карты
@@ -23,6 +22,11 @@ class AreaPage {
 
         this.addressesTable = null;
         this.duplicatesTable = null;
+        
+        // Данные для работы
+        this.addresses = [];
+        this.listings = [];
+        this.segments = [];
 
         // Состояние обработки данных
         this.processing = {
@@ -47,6 +51,7 @@ class AreaPage {
 
         // Состояние выбранных элементов в таблице дублей
         this.selectedDuplicates = new Set();
+        
 
         // SlimSelect instance для категорий Inpars
         this.inparsCategoriesSlimSelect = null;
@@ -144,6 +149,9 @@ class AreaPage {
             // Восстанавливаем состояние панели Inpars
             this.restoreInparsPanelState();
 
+            // Восстанавливаем состояние таблицы адресов
+            this.restoreAddressTableState();
+
             // Восстанавливаем состояние прогресса
             this.restoreProgressState();
 
@@ -234,6 +242,14 @@ class AreaPage {
             return;
         }
 
+        // Если полигон уже существует, не создаем его повторно
+        if (this.areaPolygonLayer) {
+            console.log('🔷 Полигон области уже отображен, пропускаем повторное создание');
+            return;
+        }
+
+        console.log('🔷 Создаем полигон области на карте');
+
         // Конвертируем координаты в формат Leaflet
         const latLngs = this.currentArea.polygon.map(point => [point.lat, point.lng]);
 
@@ -248,6 +264,15 @@ class AreaPage {
         // Сохраняем ссылку на полигон для редактирования
         this.drawnPolygon = this.areaPolygonLayer;
 
+        // Добавляем полигон в группу для редактирования (если группа уже создана)
+        // Если группа еще не создана, полигон будет добавлен в неё позже в initDrawControls()
+        if (this.drawnItems) {
+            this.drawnItems.addLayer(this.areaPolygonLayer);
+        } else {
+            // Если группа еще не создана, добавляем полигон напрямую на карту
+            this.map.addLayer(this.areaPolygonLayer);
+        }
+
         // Центрируем карту на полигоне
         this.map.fitBounds(this.areaPolygonLayer.getBounds());
     }
@@ -257,8 +282,18 @@ class AreaPage {
      */
     initDrawControls() {
         // Создаем группу для рисования
-        const drawnItems = new L.FeatureGroup();
-        this.map.addLayer(drawnItems);
+        this.drawnItems = new L.FeatureGroup();
+        this.map.addLayer(this.drawnItems);
+
+        // Если есть существующий полигон, добавляем его в группу для редактирования
+        if (this.areaPolygonLayer) {
+            // Сначала удаляем полигон с карты (если он был добавлен напрямую)
+            if (this.map.hasLayer(this.areaPolygonLayer)) {
+                this.map.removeLayer(this.areaPolygonLayer);
+            }
+            // Добавляем полигон в группу редактирования (это автоматически добавит его на карту)
+            this.drawnItems.addLayer(this.areaPolygonLayer);
+        }
 
         // Настройки инструментов рисования
         const drawControl = new L.Control.Draw({
@@ -283,36 +318,60 @@ class AreaPage {
                 circlemarker: false
             },
             edit: {
-                featureGroup: drawnItems,
+                featureGroup: this.drawnItems,
                 remove: true
             }
         });
 
         this.drawControl = drawControl;
+        this.map.addControl(drawControl);
 
         // Обработчики событий рисования
         this.map.on(L.Draw.Event.CREATED, (e) => {
             const layer = e.layer;
 
-            // Удаляем предыдущий полигон
-            if (this.drawnPolygon) {
+            // Удаляем предыдущий полигон из группы редактирования (это автоматически удалит его с карты)
+            if (this.drawnPolygon && this.drawnItems.hasLayer(this.drawnPolygon)) {
+                this.drawnItems.removeLayer(this.drawnPolygon);
+            }
+            if (this.areaPolygonLayer && this.drawnItems.hasLayer(this.areaPolygonLayer)) {
+                this.drawnItems.removeLayer(this.areaPolygonLayer);
+            }
+            
+            // Также удаляем полигоны напрямую с карты (на случай если они были добавлены не через drawnItems)
+            if (this.drawnPolygon && this.map.hasLayer(this.drawnPolygon)) {
                 this.map.removeLayer(this.drawnPolygon);
+            }
+            if (this.areaPolygonLayer && this.map.hasLayer(this.areaPolygonLayer)) {
+                this.map.removeLayer(this.areaPolygonLayer);
             }
 
             // Добавляем новый полигон
             this.drawnPolygon = layer;
-            drawnItems.addLayer(layer);
+            this.areaPolygonLayer = layer;
+            this.drawnItems.addLayer(layer);
 
             // Сохраняем полигон в область
             this.savePolygon();
         });
 
-        this.map.on(L.Draw.Event.EDITED, () => {
+        this.map.on(L.Draw.Event.EDITED, (e) => {
+            // Обновляем все отредактированные слои
+            const layers = e.layers;
+            layers.eachLayer((layer) => {
+                // Обновляем ссылки на полигон
+                this.drawnPolygon = layer;
+                this.areaPolygonLayer = layer;
+            });
+            
+            // Сохраняем изменения
             this.savePolygon();
         });
 
-        this.map.on(L.Draw.Event.DELETED, () => {
+        this.map.on(L.Draw.Event.DELETED, (e) => {
+            // Очищаем все ссылки на полигон
             this.drawnPolygon = null;
+            this.areaPolygonLayer = null;
             this.currentArea.polygon = [];
             this.saveAreaChanges();
         });
@@ -388,6 +447,9 @@ class AreaPage {
     async loadMapData() {
         try {
             console.log(`🔄 === ОБНОВЛЕНИЕ ВСЕХ ДАННЫХ КАРТЫ ===`);
+            
+            // Отображаем полигон области
+            this.displayAreaPolygon();
             
             console.log(`📍 Загружаем адреса на карту...`);
             await this.loadAddressesOnMap();
@@ -827,15 +889,15 @@ class AreaPage {
                     </div>
                 ` : ''}
                 
-                <div class="actions">
+                <div class="actions" style="display: flex; gap: 8px;">
+                    <button class="btn btn-primary view-listing-details" data-listing-id="${listing.id}">
+                        👁️ Открыть
+                    </button>
                     ${listing.url ? `
                         <a href="${listing.url}" target="_blank" class="btn btn-primary">
-                            🔗 Открыть объявление
+                            🔗 Открыть на ${this.getSourceName(listing.source)}
                         </a>
                     ` : ''}
-                    <a href="#" onclick="navigator.clipboard.writeText('${listing.id}')" class="btn btn-secondary">
-                        📋 ID: ${listing.id.substring(0, 8)}...
-                    </a>
                 </div>
             </div>
         `;
@@ -856,6 +918,346 @@ class AreaPage {
             'garage': 'Гараж'
         };
         return types[propertyType] || propertyType;
+    }
+
+    /**
+     * Получение названия источника
+     * @param {string} source - Источник объявления
+     * @returns {string} Название источника
+     */
+    getSourceName(source) {
+        const sources = {
+            'avito': 'Авито',
+            'cian': 'Циан',
+            'yandex': 'Яндекс.Недвижимость',
+            'domclick': 'ДомКлик'
+        };
+        return sources[source] || 'сайте';
+    }
+
+    /**
+     * Рендеринг информации о точности определения адреса
+     * @param {Object} listing - Объявление
+     * @returns {string} HTML с информацией о точности
+     */
+    renderAddressAccuracyInfo(listing) {
+        let addressInfo = '';
+        let accuracyInfo = '';
+        let coordinatesInfo = '';
+
+        if (listing.address_id) {
+            // Адрес определён через связанный address_id
+            const linkedAddress = this.getAddressNameById(listing.address_id);
+            addressInfo = `
+                <div class="mb-2">
+                    <span class="text-sm font-medium text-gray-500">Определённый адрес:</span>
+                    <div class="mt-1 flex items-center space-x-2">
+                        <select id="addressSelect_${listing.id}" class="text-sm text-gray-900 bg-white border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">-- Выберите адрес --</option>
+                        </select>
+                        <button id="saveAddress_${listing.id}" class="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            Сохранить
+                        </button>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <span class="text-sm font-medium text-gray-500">Адрес из объявления:</span>
+                    <span class="text-sm text-gray-600 ml-2">${this.escapeHtml(listing.address || 'Не указан')}</span>
+                </div>
+            `;
+            
+            // Информация о точности определения на основе реальных полей
+            if (listing.address_match_confidence) {
+                const confidence = this.getAddressConfidenceText(listing.address_match_confidence);
+                const method = this.getAddressMethodText(listing.address_match_method);
+                const distance = listing.address_distance ? ` (${Math.round(listing.address_distance)}м)` : '';
+                const score = listing.address_match_score ? ` • Оценка: ${(listing.address_match_score * 100).toFixed(0)}%` : '';
+                
+                accuracyInfo = `
+                    <div class="mb-2">
+                        <span class="text-sm font-medium text-gray-500">Точность:</span>
+                        <span class="text-sm ${this.getConfidenceColor(listing.address_match_confidence)} ml-2">${confidence}${distance}</span>
+                    </div>
+                    <div class="mb-2">
+                        <span class="text-xs text-gray-500">Метод: ${method}${score}</span>
+                    </div>
+                `;
+            } else {
+                accuracyInfo = `
+                    <div class="mb-2">
+                        <span class="text-sm font-medium text-gray-500">Точность:</span>
+                        <span class="text-sm text-green-600 ml-2">Адрес определён</span>
+                    </div>
+                `;
+            }
+            coordinatesInfo = 'Используются координаты определённого адреса';
+        } else {
+            // Адрес не определён, используем данные из объявления
+            addressInfo = `
+                <div class="mb-2">
+                    <span class="text-sm font-medium text-gray-500">Адрес из объявления:</span>
+                    <span class="text-sm text-gray-900 ml-2">${this.escapeHtml(listing.address || 'Не указан')}</span>
+                </div>
+                <div class="mb-2">
+                    <span class="text-sm font-medium text-gray-500">Определить адрес:</span>
+                    <div class="mt-1 flex items-center space-x-2">
+                        <select id="addressSelect_${listing.id}" class="text-sm text-gray-900 bg-white border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">-- Выберите адрес --</option>
+                        </select>
+                        <button id="saveAddress_${listing.id}" class="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            Сохранить
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            accuracyInfo = `
+                <div class="mb-2">
+                    <span class="text-sm font-medium text-gray-500">Статус:</span>
+                    <span class="text-sm text-orange-600 ml-2">Адрес не определён</span>
+                </div>
+                <div class="mb-2">
+                    <span class="text-xs text-gray-500">Требуется обработка для определения адреса</span>
+                </div>
+            `;
+            coordinatesInfo = 'Используются координаты из объявления';
+        }
+
+        // Координаты для отображения
+        const coords = this.getListingCoordinates(listing);
+        const coordsDisplay = coords ? 
+            `<div class="mb-2">
+                <span class="text-sm font-medium text-gray-500">Координаты:</span>
+                <span class="text-sm text-gray-700 ml-2">${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}</span>
+                <span class="text-xs text-gray-500 block">${coordinatesInfo}</span>
+            </div>` : 
+            `<div class="mb-2">
+                <span class="text-sm text-red-600">⚠️ Координаты не найдены</span>
+            </div>`;
+
+        return addressInfo + accuracyInfo + coordsDisplay;
+    }
+
+    /**
+     * Инициализация выпадающего списка адресами с SlimSelect
+     * @param {string} listingId - ID объявления
+     * @param {string} currentAddressId - Текущий ID адреса
+     */
+    async initializeAddressSelector(listingId, currentAddressId) {
+        try {
+            const selectElement = document.getElementById(`addressSelect_${listingId}`);
+            if (!selectElement) return;
+
+            // Загружаем только адреса из текущей области
+            const addresses = await this.getAddressesInArea();
+            
+            // Очищаем текущие опции
+            selectElement.innerHTML = '<option value="">-- Выберите адрес --</option>';
+            
+            // Добавляем опции для каждого адреса
+            addresses.forEach(address => {
+                const option = document.createElement('option');
+                option.value = address.id;
+                option.textContent = address.address;
+                
+                // Выбираем текущий адрес
+                if (address.id === currentAddressId) {
+                    option.selected = true;
+                }
+                
+                selectElement.appendChild(option);
+            });
+            
+            // Инициализируем SlimSelect
+            const slimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    placeholderText: '-- Выберите адрес --',
+                    searchPlaceholder: 'Поиск адреса...',
+                    searchText: 'Не найдено',
+                    searchHighlight: true,
+                    closeOnSelect: true
+                }
+            });
+            
+            // Сохраняем экземпляр SlimSelect для последующего использования
+            this[`addressSlimSelect_${listingId}`] = slimSelect;
+            
+            console.log(`📍 Загружено ${addresses.length} адресов в выпадающий список`);
+            
+        } catch (error) {
+            console.error('Ошибка инициализации выпадающего списка адресов:', error);
+        }
+    }
+
+    /**
+     * Сохранение выбранного адреса для объявления
+     * @param {string} listingId - ID объявления
+     */
+    async saveListingAddress(listingId) {
+        try {
+            const select = document.getElementById(`addressSelect_${listingId}`);
+            if (!select) {
+                console.error('Селектор адреса не найден:', `addressSelect_${listingId}`);
+                return;
+            }
+
+            const selectedAddressId = select.value;
+            console.log(`🔄 Сохраняем адрес для объявления ${listingId}:`, selectedAddressId);
+            
+            // Получаем текущее объявление
+            const listing = await db.getListing(listingId);
+            if (!listing) {
+                console.error('Объявление не найдено:', listingId);
+                return;
+            }
+
+            // Обновляем адрес
+            listing.address_id = selectedAddressId || null;
+            
+            // Если адрес выбран, сбрасываем информацию о автоматическом определении
+            if (selectedAddressId) {
+                listing.address_match_confidence = 'manual';
+                listing.address_match_method = 'manual_selection';
+                listing.address_match_score = 1.0;
+                listing.address_distance = null;
+            } else {
+                // Если адрес убран, очищаем информацию о совпадении
+                listing.address_match_confidence = null;
+                listing.address_match_method = null;
+                listing.address_match_score = null;
+                listing.address_distance = null;
+            }
+            
+            // Сохраняем в базе данных
+            await db.updateListing(listing);
+            
+            console.log(`✅ Адрес обновлен для объявления ${listingId}:`, selectedAddressId);
+            
+            // Обновляем информацию о местоположении без перезагрузки всего модального окна
+            const locationContent = document.getElementById(`locationPanelContent-${listingId}`);
+            if (locationContent) {
+                // Получаем обновленное объявление
+                const updatedListing = await db.getListing(listingId);
+                
+                // Обновляем только информацию об адресе
+                const addressInfoHtml = this.renderAddressAccuracyInfo(updatedListing);
+                const mapContainer = document.getElementById(`listing-map-${listingId}`);
+                const mapHtml = mapContainer ? mapContainer.outerHTML : '';
+                
+                locationContent.innerHTML = addressInfoHtml + mapHtml;
+                
+                // Повторно инициализируем адресный селектор
+                setTimeout(() => {
+                    this.initializeAddressSelector(listingId, updatedListing.address_id);
+                    
+                    // Добавляем обработчик для кнопки сохранения
+                    const saveButton = document.getElementById(`saveAddress_${listingId}`);
+                    if (saveButton) {
+                        saveButton.addEventListener('click', () => {
+                            this.saveListingAddress(listingId);
+                        });
+                    }
+                    
+                    // Если карта была инициализирована, переинициализируем её
+                    if (mapContainer && mapContainer._leafletMap) {
+                        this.renderListingMap(updatedListing);
+                    }
+                }, 100);
+            }
+            
+            // Обновляем таблицу дублей
+            await this.loadDuplicatesTable();
+            
+        } catch (error) {
+            console.error('Ошибка сохранения адреса:', error);
+            alert('Ошибка при сохранении адреса: ' + error.message);
+        }
+    }
+
+    /**
+     * Получение текста уровня уверенности в определении адреса
+     * @param {string} confidence - Уровень уверенности
+     * @returns {string} Читаемый текст
+     */
+    getAddressConfidenceText(confidence) {
+        const confidenceMap = {
+            'high': 'Высокая',
+            'medium': 'Средняя', 
+            'low': 'Низкая',
+            'very_low': 'Очень низкая',
+            'manual': 'Вручную',
+            'none': 'Не определена'
+        };
+        return confidenceMap[confidence] || confidence;
+    }
+
+    /**
+     * Получение CSS класса цвета для уровня уверенности
+     * @param {string} confidence - Уровень уверенности
+     * @returns {string} CSS класс
+     */
+    getConfidenceColor(confidence) {
+        const colorMap = {
+            'high': 'text-green-600',
+            'medium': 'text-yellow-600',
+            'low': 'text-orange-600', 
+            'very_low': 'text-red-600',
+            'none': 'text-gray-500'
+        };
+        return colorMap[confidence] || 'text-gray-500';
+    }
+
+    /**
+     * Получение описания метода определения адреса
+     * @param {string} method - Метод определения
+     * @returns {string} Описание метода
+     */
+    getAddressMethodText(method) {
+        const methodMap = {
+            'exact_geo': 'Точное совпадение по координатам',
+            'near_geo_text': 'Поиск рядом + анализ текста',
+            'extended_geo_text': 'Расширенный поиск + анализ текста',
+            'global_text': 'Глобальный поиск по тексту',
+            'manual': 'Вручную',
+            'manual_selection': 'Ручной выбор',
+            'no_match': 'Совпадения не найдены'
+        };
+        return methodMap[method] || method || 'Неизвестно';
+    }
+
+    /**
+     * Получение координат объявления (из адреса или из объявления)
+     * @param {Object} listing - Объявление
+     * @returns {Object|null} Координаты {lat, lng} или null
+     */
+    getListingCoordinates(listing) {
+        // Сначала пытаемся получить координаты из связанного адреса
+        if (listing.address_id) {
+            const address = this.addresses.find(addr => addr.id === listing.address_id);
+            if (address && address.coordinates && address.coordinates.lat && address.coordinates.lng) {
+                return {
+                    lat: parseFloat(address.coordinates.lat),
+                    lng: parseFloat(address.coordinates.lng)
+                };
+            }
+        }
+
+        // Если не найдены, используем координаты из объявления
+        if (listing.coordinates) {
+            // Учитываем разные форматы координат
+            const lat = listing.coordinates.lat || listing.coordinates.lon;
+            const lng = listing.coordinates.lng || listing.coordinates.lon;
+            
+            if (lat && lng) {
+                return { 
+                    lat: parseFloat(lat), 
+                    lng: parseFloat(lng) 
+                };
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -1626,20 +2028,19 @@ class AreaPage {
                     },
                     // 6. Адрес
                     { 
-                        data: null, 
+                        data: 'address', 
                         title: 'Адрес',
-                        render: function (data, type, row) {
-                            const listingAddress = row.address || 'Адрес не указан';
-                            let addressFromDb = '';
+                        render: (data, type, row) => {
+                            const addressFromDb = this.getAddressNameById(row.address_id);
+                            const addressText = data || 'Адрес не указан';
+                            const addressFromDbText = addressFromDb || 'Адрес не определен';
                             
-                            // TODO: Здесь нужно будет получить название адреса из связанного address_id
-                            if (row.address_id) {
-                                addressFromDb = 'Название адреса из БД'; // Заглушка
-                            }
+                            const addressClass = addressText === 'Адрес не указан' ? 'text-red-600 hover:text-red-800' : 'text-blue-600 hover:text-blue-800';
+                            const addressFromDbClass = addressFromDbText === 'Адрес не определен' ? 'text-red-500' : 'text-gray-500';
                             
                             return `<div class="text-xs max-w-xs">
-                                <div class="text-gray-900 truncate" title="${listingAddress}">${listingAddress}</div>
-                                ${addressFromDb ? `<div class="text-gray-500 truncate" title="${addressFromDb}">${addressFromDb}</div>` : ''}
+                                <div class="${addressClass} cursor-pointer clickable-address truncate" data-listing-id="${row.id}">${addressText}</div>
+                                <div class="${addressFromDbClass} truncate">${addressFromDbText}</div>
                             </div>`;
                         }
                     },
@@ -1703,10 +2104,6 @@ class AreaPage {
             this.openEditAreaModal();
         });
 
-        // Редактирование полигона
-        document.getElementById('editPolygonBtn')?.addEventListener('click', () => {
-            this.togglePolygonEdit();
-        });
 
         // Загрузка адресов
         document.getElementById('loadAddressesBtn')?.addEventListener('click', () => {
@@ -1747,6 +2144,24 @@ class AreaPage {
         // Сворачивание панели Inpars
         document.getElementById('inparsPanelHeader')?.addEventListener('click', () => {
             this.toggleInparsPanel();
+        });
+
+        // Сворачивание таблицы адресов
+        document.getElementById('addressTableHeader')?.addEventListener('click', () => {
+            this.toggleAddressTable();
+        });
+
+        // Модальное окно деталей объявления
+        document.getElementById('closeModalBtn')?.addEventListener('click', () => {
+            this.closeModal();
+        });
+
+        document.getElementById('closeModalBtn2')?.addEventListener('click', () => {
+            this.closeModal();
+        });
+
+        document.getElementById('openListingBtn')?.addEventListener('click', () => {
+            this.openCurrentListing();
         });
 
         // Модальное окно редактирования области
@@ -1816,6 +2231,18 @@ class AreaPage {
                 case 'delete-address':
                     this.deleteAddress(addressId);
                     break;
+            }
+        });
+
+        // Обработчики для кнопок в popup объявлений
+        document.addEventListener('click', (e) => {
+            // Кнопка "Открыть" для объявления
+            if (e.target.classList.contains('view-listing-details')) {
+                const listingId = e.target.getAttribute('data-listing-id');
+                if (listingId) {
+                    this.showListingDetails(listingId);
+                }
+                return;
             }
         });
 
@@ -2009,6 +2436,14 @@ class AreaPage {
             const button = e.currentTarget;
             const filterType = button.dataset.filterType;
             this.removeActiveFilter(filterType);
+        });
+
+        // Обработчик кликов по адресам в таблице дублей
+        $(document).on('click', '.clickable-address', (e) => {
+            const listingId = e.currentTarget.dataset.listingId;
+            if (listingId) {
+                this.showListingDetails(listingId);
+            }
         });
     }
 
@@ -2393,6 +2828,9 @@ class AreaPage {
                 address.listings_count = listings.length;
             }
 
+            // Сохраняем адреса в переменную класса для использования в других функциях
+            this.addresses = addresses;
+
             // Очищаем и заполняем таблицу
             if (this.addressesTable) {
                 console.log(`🔄 Обновляем таблицу адресов`);
@@ -2410,32 +2848,6 @@ class AreaPage {
         }
     }
 
-    /**
-     * Переключение режима редактирования полигона
-     */
-    togglePolygonEdit() {
-        if (this.isEditingPolygon) {
-            // Выключаем режим редактирования
-            this.map.removeControl(this.drawControl);
-            this.isEditingPolygon = false;
-            document.getElementById('editPolygonBtn').innerHTML = `
-                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                </svg>
-                Редактировать
-            `;
-        } else {
-            // Включаем режим редактирования
-            this.map.addControl(this.drawControl);
-            this.isEditingPolygon = true;
-            document.getElementById('editPolygonBtn').innerHTML = `
-                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-                Завершить
-            `;
-        }
-    }
 
     /**
      * Открытие модального окна редактирования области
@@ -3736,8 +4148,8 @@ class AreaPage {
      */
     async loadDuplicatesTable() {
         try {
-            // Загружаем все объявления без предварительной фильтрации
-            const listings = await db.getListings();
+            // Загружаем объявления, которые попадают в область (полигон)
+            const listings = await this.getListingsInArea();
 
             // УДАЛЕН: работа с объектами
             const tableData = [
@@ -3745,6 +4157,9 @@ class AreaPage {
             ];
 
             console.log(`📋 Загружено ${tableData.length} элементов для таблицы дублей`);
+
+            // Сохраняем listings в переменную класса для использования в других функциях
+            this.listings = listings;
 
             // Очищаем выбранные элементы при перезагрузке
             this.selectedDuplicates.clear();
@@ -5144,9 +5559,15 @@ class AreaPage {
         notification.innerHTML = `
             <div class="flex justify-between items-center">
                 <span>${message}</span>
-                <button onclick="this.parentElement.parentElement.remove()" class="text-lg leading-none">&times;</button>
+                <button class="text-lg leading-none notification-close-btn">&times;</button>
             </div>
         `;
+
+        // Add event listener for close button instead of inline onclick
+        const closeBtn = notification.querySelector('.notification-close-btn');
+        closeBtn.addEventListener('click', () => {
+            notification.remove();
+        });
 
         document.getElementById('notifications').appendChild(notification);
 
@@ -5276,6 +5697,49 @@ class AreaPage {
             content.style.display = 'none';
             chevron.style.transform = 'rotate(-90deg)';
             localStorage.setItem('inparsPanelCollapsed', 'true');
+        }
+    }
+
+    /**
+     * Сворачивание/разворачивание таблицы адресов
+     */
+    toggleAddressTable() {
+        const content = document.getElementById('addressTableContent');
+        const chevron = document.getElementById('addressTableChevron');
+        
+        if (!content || !chevron) return;
+
+        const isHidden = content.style.display === 'none';
+        
+        if (isHidden) {
+            // Разворачиваем
+            content.style.display = 'block';
+            chevron.style.transform = 'rotate(0deg)';
+            localStorage.setItem('addressTableCollapsed', 'false');
+        } else {
+            // Сворачиваем
+            content.style.display = 'none';
+            chevron.style.transform = 'rotate(-90deg)';
+            localStorage.setItem('addressTableCollapsed', 'true');
+        }
+    }
+
+    /**
+     * Восстановление состояния таблицы адресов
+     */
+    restoreAddressTableState() {
+        const isCollapsed = localStorage.getItem('addressTableCollapsed');
+        // По умолчанию таблица адресов свёрнута
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (shouldCollapse) {
+            const content = document.getElementById('addressTableContent');
+            const chevron = document.getElementById('addressTableChevron');
+            
+            if (content && chevron) {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+            }
         }
     }
 
@@ -5832,6 +6296,1325 @@ class AreaPage {
             throw error;
         }
     }
+
+    /**
+     * Показать детали объявления в модальном окне
+     */
+    async showListingDetails(listingId) {
+        try {
+            const listing = this.listings.find(l => l.id === listingId);
+            if (!listing) {
+                console.error('Объявление не найдено:', listingId);
+                return;
+            }
+
+            const modalContent = document.getElementById('modalContent');
+            modalContent.innerHTML = this.renderListingDetails(listing);
+
+            // Сохраняем URL для кнопки "Открыть объявление"
+            this.currentListingUrl = listing.url;
+
+            // Показываем модальное окно
+            document.getElementById('listingModal').classList.remove('hidden');
+
+            // Инициализируем Fotorama и график цены после отображения модального окна
+            setTimeout(() => {
+                const galleryElement = document.getElementById(`listing-gallery-${listingId}`);
+                if (galleryElement && window.$ && $.fn.fotorama) {
+                    $(galleryElement).fotorama();
+                }
+                
+                // Инициализируем график изменения цены
+                this.renderPriceChart(listing);
+                
+                // Карта местоположения будет инициализирована при разворачивании панели
+                
+                // Добавляем обработчик для сворачивания панели местоположения
+                const locationHeader = document.getElementById(`locationPanelHeader-${listingId}`);
+                if (locationHeader) {
+                    locationHeader.addEventListener('click', () => {
+                        this.toggleLocationPanel(listingId);
+                    });
+                }
+                
+                // Инициализируем выпадающий список адресами
+                this.initializeAddressSelector(listingId, listing.address_id);
+                
+                // Добавляем обработчик для сохранения адреса
+                const saveButton = document.getElementById(`saveAddress_${listingId}`);
+                if (saveButton) {
+                    saveButton.addEventListener('click', () => {
+                        this.saveListingAddress(listingId);
+                    });
+                }
+                
+                // Добавляем обработчик для сворачивания панели истории цен
+                const priceHistoryHeader = document.getElementById(`priceHistoryPanelHeader-${listingId}`);
+                if (priceHistoryHeader) {
+                    priceHistoryHeader.addEventListener('click', () => {
+                        this.togglePriceHistoryPanel(listingId);
+                    });
+                }
+                
+                // Инициализируем таблицу истории цен
+                this.initializePriceHistoryTable(listingId, listing);
+                
+                // Добавляем обработчик для добавления новой цены
+                const addPriceButton = document.getElementById(`addPriceEntry-${listingId}`);
+                if (addPriceButton) {
+                    addPriceButton.addEventListener('click', () => {
+                        this.addPriceEntry(listingId);
+                    });
+                }
+                
+                // Инициализируем модальное окно редактирования цены
+                this.initializePriceEditModal(listingId);
+            }, 100);
+
+        } catch (error) {
+            console.error('Ошибка загрузки деталей:', error);
+            // Можно добавить уведомление об ошибке
+        }
+    }
+
+    /**
+     * Рендер деталей объявления
+     */
+    renderListingDetails(listing) {
+        // Обрабатываем фотографии
+        const photos = this.getListingPhotos(listing);
+        
+        console.log(`📸 Объявление ${listing.id}: найдено фотографий: ${photos.length}`);
+        console.log('📸 Поля с фотографиями в объявлении:', {
+            photos: listing.photos,
+            images: listing.images,
+            photo_urls: listing.photo_urls,
+            main_photo: listing.main_photo,
+            photo: listing.photo,
+            image_url: listing.image_url
+        });
+        
+        return `
+            <!-- Карта местоположения -->
+            <div class="mb-6">
+                <div class="bg-white shadow overflow-hidden sm:rounded-md border border-gray-200">
+                    <div class="px-4 py-3 cursor-pointer" id="locationPanelHeader-${listing.id}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <span class="text-lg font-medium text-gray-900">📍 Местоположение</span>
+                                <span class="text-sm ${this.getAddressStatusClass(listing)}">${this.getAddressStatusText(listing)}</span>
+                            </div>
+                            <svg id="locationPanelChevron-${listing.id}" class="h-5 w-5 text-gray-400 transform transition-transform duration-200" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div id="locationPanelContent-${listing.id}" class="px-4 pb-4" style="display: none;">
+                        ${this.renderAddressAccuracyInfo(listing)}
+                        <div id="listing-map-${listing.id}" class="h-64 bg-gray-200 rounded-md mt-3">
+                            <!-- Карта будет отрендерена здесь -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Фотогалерея -->
+            <div class="mb-6">
+                <h4 class="text-lg font-medium text-gray-900 mb-4">Фотографии ${photos.length > 0 ? `(${photos.length})` : '(не найдены)'}</h4>
+                ${photos.length > 0 ? `
+                    <div class="fotorama" 
+                         data-nav="thumbs" 
+                         data-width="100%" 
+                         data-height="400"
+                         data-thumbheight="50"
+                         data-thumbwidth="50"
+                         data-allowfullscreen="true"
+                         data-transition="slide"
+                         data-loop="true"
+                         id="listing-gallery-${listing.id}">
+                        ${photos.map(photo => `<img src="${photo}" alt="Фото объявления">`).join('')}
+                    </div>
+                ` : `
+                    <div class="bg-gray-100 rounded-lg p-8 text-center text-gray-500">
+                        📷 Фотографии не найдены
+                    </div>
+                `}
+            </div>
+            
+            <!-- График изменения цены -->
+            <div class="mb-6">
+                <h4 class="text-lg font-medium text-gray-900 mb-4">График изменения цены</h4>
+                <div id="listing-price-chart-${listing.id}" class="w-full">
+                    <!-- График будет отрендерен здесь -->
+                </div>
+            </div>
+            
+            <!-- История изменения цен -->
+            <div class="mb-6">
+                <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+                    <div id="priceHistoryPanelHeader-${listing.id}" class="px-4 py-3 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors duration-150">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-lg font-medium text-gray-900">История изменения цен</h4>
+                            <svg id="priceHistoryPanelChevron-${listing.id}" class="h-5 w-5 text-gray-400 transform transition-transform duration-200 rotate-[-90deg]" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div id="priceHistoryPanelContent-${listing.id}" class="px-4 pb-4" style="display: none;">
+                        <div class="mt-4 mb-4">
+                            <button id="addPriceEntry-${listing.id}" class="px-4 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                Добавить изменение цены
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table id="priceHistoryTable-${listing.id}" class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <!-- Данные будут загружены через DataTable -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Модальное окно редактирования цены -->
+            <div id="editPriceModal-${listing.id}" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="edit-price-modal-title" role="dialog" aria-modal="true">
+                <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+                    <!-- Overlay -->
+                    <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+                    
+                    <!-- Выравнивание центра -->
+                    <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                    
+                    <!-- Содержимое модального окна -->
+                    <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md relative z-10">
+                        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                            <div class="sm:flex sm:items-start">
+                                <div class="w-full">
+                                    <!-- Заголовок -->
+                                    <div class="mb-4">
+                                        <h3 class="text-lg font-medium leading-6 text-gray-900" id="editPriceModalTitle-${listing.id}">
+                                            Редактировать цену
+                                        </h3>
+                                    </div>
+                                    
+                                    <!-- Форма -->
+                                    <form id="editPriceForm-${listing.id}">
+                                        <div class="mb-4">
+                                            <label for="priceInput-${listing.id}" class="block text-sm font-medium text-gray-700 mb-2">
+                                                Цена (₽)
+                                            </label>
+                                            <input type="text" id="priceInput-${listing.id}" 
+                                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                   placeholder="Введите цену">
+                                        </div>
+                                        <div class="mb-6">
+                                            <label for="dateInput-${listing.id}" class="block text-sm font-medium text-gray-700 mb-2">
+                                                Дата изменения
+                                            </label>
+                                            <input type="datetime-local" id="dateInput-${listing.id}" 
+                                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                            <button type="submit" form="editPriceForm-${listing.id}" id="saveEditPrice-${listing.id}" 
+                                    class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
+                                Сохранить
+                            </button>
+                            <button type="button" id="cancelEditPrice-${listing.id}" 
+                                    class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                                Отмена
+                            </button>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Основная информация -->
+                <div>
+                    <h4 class="text-lg font-medium text-gray-900 mb-4">Основная информация</h4>
+                    <dl class="space-y-3">
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Заголовок</dt>
+                            <dd class="text-sm text-gray-900">${this.escapeHtml(listing.title || '-')}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Адрес</dt>
+                            <dd class="text-sm text-gray-900">${this.escapeHtml(listing.address || '-')}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Цена</dt>
+                            <dd class="text-sm text-gray-900">${this.formatPrice(listing.price)}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Цена за м²</dt>
+                            <dd class="text-sm text-gray-900">${listing.price_per_meter ? this.formatPrice(listing.price_per_meter) + '/м²' : '-'}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Источник</dt>
+                            <dd class="text-sm text-gray-900">${listing.source}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Статус</dt>
+                            <dd class="text-sm text-gray-900">${this.getStatusText(listing.status)}</dd>
+                        </div>
+                    </dl>
+                </div>
+
+                <!-- Характеристики недвижимости -->
+                <div>
+                    <h4 class="text-lg font-medium text-gray-900 mb-4">Характеристики</h4>
+                    <dl class="space-y-3">
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Тип недвижимости</dt>
+                            <dd class="text-sm text-gray-900">${this.formatPropertyType(listing.property_type)}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Общая площадь</dt>
+                            <dd class="text-sm text-gray-900">${listing.area_total ? listing.area_total + ' м²' : '-'}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Жилая площадь</dt>
+                            <dd class="text-sm text-gray-900">${listing.area_living ? listing.area_living + ' м²' : '-'}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Площадь кухни</dt>
+                            <dd class="text-sm text-gray-900">${listing.area_kitchen ? listing.area_kitchen + ' м²' : '-'}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Этаж</dt>
+                            <dd class="text-sm text-gray-900">${listing.floor ? `${listing.floor}${listing.total_floors || listing.floors_total ? ` из ${listing.total_floors || listing.floors_total}` : ''}` : '-'}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Количество комнат</dt>
+                            <dd class="text-sm text-gray-900">${listing.rooms || '-'}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Состояние</dt>
+                            <dd class="text-sm text-gray-900">${listing.condition || '-'}</dd>
+                        </div>
+                    </dl>
+                </div>
+
+                <!-- Дополнительная информация -->
+                <div class="lg:col-span-2">
+                    <h4 class="text-lg font-medium text-gray-900 mb-4">Дополнительная информация</h4>
+                    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Сегмент</dt>
+                            <dd class="text-sm text-gray-900">${this.getSegmentName(listing.segment_id)}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">External ID</dt>
+                            <dd class="text-sm text-gray-900">${listing.external_id || '-'}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Дата добавления</dt>
+                            <dd class="text-sm text-gray-900">${this.formatDate(listing.created_at || listing.listing_date)}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Последнее обновление</dt>
+                            <dd class="text-sm text-gray-900">${this.formatDate(listing.updated_at || listing.last_update_date)}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Последняя проверка</dt>
+                            <dd class="text-sm text-gray-900">${this.formatDate(listing.last_seen)}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Продавец</dt>
+                            <dd class="text-sm text-gray-900">${listing.seller_name || '-'}</dd>
+                        </div>
+                    </dl>
+
+                    ${listing.description ? `
+                        <div class="mt-6">
+                            <dt class="text-sm font-medium text-gray-500 mb-2">Описание</dt>
+                            <dd class="text-sm text-gray-900 bg-gray-50 p-3 rounded-md">${this.escapeHtml(listing.description)}</dd>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Получить фотографии объявления
+     */
+    getListingPhotos(listing) {
+        const photos = [];
+        
+        // Проверяем различные возможные поля с фотографиями
+        if (listing.photos && Array.isArray(listing.photos)) {
+            photos.push(...listing.photos);
+        } else if (listing.images && Array.isArray(listing.images)) {
+            photos.push(...listing.images);
+        } else if (listing.photo_urls && Array.isArray(listing.photo_urls)) {
+            photos.push(...listing.photo_urls);
+        } else if (listing.main_photo) {
+            photos.push(listing.main_photo);
+        }
+        
+        // Проверяем поля с одиночными фотографиями
+        if (listing.photo && !photos.includes(listing.photo)) {
+            photos.push(listing.photo);
+        }
+        
+        if (listing.image_url && !photos.includes(listing.image_url)) {
+            photos.push(listing.image_url);
+        }
+        
+        // Фильтруем валидные URL
+        return photos.filter(photo => 
+            photo && 
+            typeof photo === 'string' && 
+            (photo.startsWith('http://') || photo.startsWith('https://'))
+        );
+    }
+
+    /**
+     * Закрыть модальное окно
+     */
+    closeModal() {
+        // Уничтожаем Fotorama перед закрытием модального окна
+        const galleries = document.querySelectorAll('.fotorama');
+        galleries.forEach(gallery => {
+            if (window.$ && $.fn.fotorama) {
+                $(gallery).fotorama().data('fotorama')?.destroy();
+            }
+        });
+        
+        document.getElementById('listingModal').classList.add('hidden');
+        this.currentListingUrl = null;
+    }
+
+    /**
+     * Открыть текущее объявление
+     */
+    openCurrentListing() {
+        if (this.currentListingUrl) {
+            chrome.tabs.create({ url: this.currentListingUrl });
+        }
+    }
+
+    /**
+     * Получить текстовое описание статуса
+     */
+    getStatusText(status) {
+        const statusMap = {
+            'active': 'Активное',
+            'archived': 'Архивное',
+            'sold': 'Продано',
+            'withdrawn': 'Снято с продажи'
+        };
+        return statusMap[status] || status;
+    }
+
+    /**
+     * Получить название сегмента
+     */
+    getSegmentName(segmentId) {
+        if (!segmentId) return '-';
+        const segment = this.segments.find(s => s.id === segmentId);
+        return segment ? segment.name : `Сегмент ${segmentId}`;
+    }
+
+    /**
+     * Экранирование HTML
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Обрезать текст
+     */
+    truncateText(text, maxLength) {
+        if (text.length <= maxLength) return text;
+        return text.substring(0, maxLength) + '...';
+    }
+
+    /**
+     * Получить название адреса по ID
+     */
+    getAddressNameById(addressId) {
+        if (!addressId || !this.addresses) return '';
+        const address = this.addresses.find(addr => addr.id === addressId);
+        return address ? address.address : '';
+    }
+
+    /**
+     * Форматирование цены
+     */
+    formatPrice(price) {
+        if (!price || price === 0) return '₽0';
+        return new Intl.NumberFormat('ru-RU', {
+            style: 'currency',
+            currency: 'RUB',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(price);
+    }
+
+    /**
+     * Форматирование даты
+     */
+    formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('ru-RU', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    /**
+     * Форматирование типа недвижимости
+     */
+    formatPropertyType(type) {
+        const types = {
+            'studio': 'Студия',
+            '1k': '1к',
+            '2k': '2к', 
+            '3k': '3к',
+            '4k+': '4к+',
+            'house': 'Дом',
+            'land': 'Участок',
+            'commercial': 'Коммерческая'
+        };
+        return types[type] || type || '-';
+    }
+
+    /**
+     * Рендер графика изменения цены для объявления
+     */
+    renderPriceChart(listing) {
+        try {
+            const chartContainer = document.getElementById(`listing-price-chart-${listing.id}`);
+            if (!chartContainer) {
+                console.warn('Контейнер графика не найден');
+                return;
+            }
+
+            // Подготавливаем данные для графика из истории цен
+            const priceHistory = this.preparePriceHistoryData(listing);
+            
+            if (priceHistory.length === 0) {
+                chartContainer.innerHTML = '<div class="text-center text-gray-500 py-8">История цен отсутствует</div>';
+                return;
+            }
+
+            const seriesData = priceHistory.map(item => [item.date, item.price]);
+            const prices = priceHistory.map(item => item.price);
+            const minPrice = Math.min(...prices);
+            const maxPrice = Math.max(...prices);
+
+            let series = [{
+                "name": "<span class=\"text-sky-500\">цена</span>",
+                "data": seriesData
+            }];
+            let colors = ["#56c2d6"];
+            let widths = ["3"];
+
+            var options = {
+                chart: {
+                    height: 300,
+                    locales: [{
+                        "name": "ru",
+                        "options": {
+                            "months": [
+                                "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                                "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
+                            ],
+                            "shortMonths": [
+                                "Янв", "Фев", "Мар", "Апр", "Май", "Июн",
+                                "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"
+                            ],
+                            "days": [
+                                "Воскресенье", "Понедельник", "Вторник", "Среда", 
+                                "Четверг", "Пятница", "Суббота"
+                            ],
+                            "shortDays": ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+                            "toolbar": {
+                                "exportToSVG": "Сохранить SVG",
+                                "exportToPNG": "Сохранить PNG",
+                                "exportToCSV": "Сохранить CSV",
+                                "menu": "Меню",
+                                "selection": "Выбор",
+                                "selectionZoom": "Выбор с увеличением",
+                                "zoomIn": "Увеличить",
+                                "zoomOut": "Уменьшить",
+                                "pan": "Перемещение",
+                                "reset": "Сбросить увеличение"
+                            }
+                        }
+                    }],
+                    defaultLocale: "ru",
+                    type: 'line',
+                    shadow: {
+                        enabled: false,
+                        color: 'rgba(187,187,187,0.47)',
+                        top: 3,
+                        left: 2,
+                        blur: 3,
+                        opacity: 1
+                    },
+                    toolbar: {
+                        show: false
+                    }
+                },
+                stroke: {
+                    curve: 'stepline',
+                    width: widths
+                },
+                series: series,
+                colors: colors,
+                xaxis: {
+                    type: 'datetime',
+                    labels: {
+                        format: 'dd MMM'
+                    }
+                },
+                markers: {
+                    size: 4,
+                    opacity: 0.9,
+                    colors: ["#56c2d6"],
+                    strokeColor: "#fff",
+                    strokeWidth: 2,
+                    style: 'inverted',
+                    hover: {
+                        size: 8
+                    }
+                },
+                tooltip: {
+                    shared: false,
+                    intersect: true,
+                    x: {
+                        format: 'dd MMM yyyy'
+                    },
+                    y: {
+                        formatter: (value) => this.formatPrice(value)
+                    }
+                },
+                yaxis: {
+                    min: Math.floor(minPrice * 0.95),
+                    max: Math.ceil(maxPrice * 1.05),
+                    title: {
+                        text: 'Цена, ₽'
+                    },
+                    labels: {
+                        formatter: (value) => this.formatPrice(value)
+                    }
+                },
+                grid: {
+                    show: true,
+                    position: 'back',
+                    xaxis: {
+                        lines: {
+                            show: true,
+                        }
+                    },
+                    yaxis: {
+                        lines: {
+                            show: true,
+                        }
+                    },
+                    borderColor: '#eeeeee',
+                },
+                legend: {
+                    show: false
+                },
+                responsive: [{
+                    breakpoint: 600,
+                    options: {
+                        chart: {
+                            toolbar: {
+                                show: false
+                            }
+                        }
+                    }
+                }]
+            };
+
+            // Очищаем контейнер и создаем график
+            chartContainer.innerHTML = '';
+            const chart = new ApexCharts(chartContainer, options);
+            chart.render();
+
+        } catch (error) {
+            console.error('Ошибка создания графика цены:', error);
+            const chartContainer = document.getElementById(`listing-price-chart-${listing.id}`);
+            if (chartContainer) {
+                chartContainer.innerHTML = '<div class="text-center text-red-500 py-8">Ошибка загрузки графика</div>';
+            }
+        }
+    }
+
+    /**
+     * Подготовка данных истории цен для графика
+     */
+    preparePriceHistoryData(listing) {
+        const history = [];
+        
+        // Добавляем текущую цену
+        if (listing.price) {
+            const currentDate = new Date(listing.updated_at || listing.last_update_date || listing.created_at || Date.now());
+            history.push({
+                date: currentDate.getTime(),
+                price: parseInt(listing.price)
+            });
+        }
+
+        // Добавляем историю цен если есть
+        if (listing.price_history && Array.isArray(listing.price_history)) {
+            listing.price_history.forEach(item => {
+                if ((item.new_price || item.price) && item.date) {
+                    history.push({
+                        date: new Date(item.date).getTime(),
+                        price: parseInt(item.new_price || item.price)
+                    });
+                }
+            });
+        }
+
+        // Сортируем по дате
+        history.sort((a, b) => a.date - b.date);
+        
+        // Убираем дубликаты цен подряд
+        const filtered = [];
+        for (let i = 0; i < history.length; i++) {
+            if (i === 0 || history[i].price !== history[i-1].price) {
+                filtered.push(history[i]);
+            }
+        }
+
+        return filtered;
+    }
+
+    /**
+     * Рендер карты местоположения объявления
+     * @param {Object} listing - Объявление
+     */
+    renderListingMap(listing) {
+        try {
+            const mapContainer = document.getElementById(`listing-map-${listing.id}`);
+            if (!mapContainer) {
+                console.warn('Контейнер карты не найден');
+                return;
+            }
+
+            // Получаем координаты для отображения
+            const coords = this.getListingCoordinates(listing);
+            if (!coords) {
+                mapContainer.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">⚠️ Координаты не найдены</div>';
+                return;
+            }
+
+            console.log(`🗺️ Инициализируем карту для объявления ${listing.id} с координатами:`, coords);
+
+            // Создаем карту
+            const listingMap = L.map(`listing-map-${listing.id}`, {
+                center: [coords.lat, coords.lng],
+                zoom: 16,
+                zoomControl: true,
+                scrollWheelZoom: false
+            });
+
+            // Добавляем слой карты
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(listingMap);
+
+            // Добавляем маркер объявления
+            const listingMarker = L.marker([coords.lat, coords.lng], {
+                icon: L.divIcon({
+                    className: 'listing-marker',
+                    html: `<div style="background: #3b82f6; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">📍</div>`,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                })
+            }).addTo(listingMap);
+
+            // Добавляем popup к маркеру
+            const markerPopupContent = `
+                <div style="min-width: 200px;">
+                    <strong>${this.escapeHtml(listing.title || 'Объявление')}</strong><br>
+                    <span style="color: #6b7280; font-size: 12px;">${this.escapeHtml(listing.address || 'Адрес не указан')}</span><br>
+                    <span style="color: #059669; font-weight: bold;">${this.formatPrice(listing.price)}</span>
+                    ${listing.price_per_meter ? `<br><span style="color: #6b7280; font-size: 12px;">${this.formatPrice(listing.price_per_meter)}/м²</span>` : ''}
+                </div>
+            `;
+            listingMarker.bindPopup(markerPopupContent);
+
+            // Если есть связанный адрес, добавляем дополнительный маркер
+            if (listing.address_id && listing.address_id !== coords.source) {
+                const linkedAddress = this.addresses.find(addr => addr.id === listing.address_id);
+                if (linkedAddress && linkedAddress.coordinates && 
+                    linkedAddress.coordinates.lat && linkedAddress.coordinates.lng) {
+                    
+                    const addressCoords = {
+                        lat: parseFloat(linkedAddress.coordinates.lat),
+                        lng: parseFloat(linkedAddress.coordinates.lng)
+                    };
+
+                    // Проверяем, что координаты адреса отличаются от координат объявления
+                    const distance = this.calculateDistance(coords, addressCoords);
+                    if (distance > 10) { // Если расстояние больше 10 метров
+                        const addressMarker = L.marker([addressCoords.lat, addressCoords.lng], {
+                            icon: L.divIcon({
+                                className: 'address-marker',
+                                html: `<div style="background: #10b981; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">🏠</div>`,
+                                iconSize: [20, 20],
+                                iconAnchor: [10, 10]
+                            })
+                        }).addTo(listingMap);
+
+                        addressMarker.bindPopup(`
+                            <div style="min-width: 150px;">
+                                <strong>Определённый адрес</strong><br>
+                                <span style="color: #6b7280; font-size: 12px;">${this.escapeHtml(linkedAddress.address || 'Адрес')}</span><br>
+                                <span style="color: #059669; font-size: 11px;">Расстояние: ${Math.round(distance)}м</span>
+                            </div>
+                        `);
+
+                        // Добавляем линию между маркерами
+                        L.polyline([
+                            [coords.lat, coords.lng],
+                            [addressCoords.lat, addressCoords.lng]
+                        ], {
+                            color: '#6b7280',
+                            weight: 2,
+                            opacity: 0.7,
+                            dashArray: '5, 5'
+                        }).addTo(listingMap);
+
+                        // Подгоняем вид карты под оба маркера
+                        const group = new L.featureGroup([listingMarker, addressMarker]);
+                        listingMap.fitBounds(group.getBounds().pad(0.1));
+                    }
+                }
+            }
+
+            // Сохраняем ссылку на карту для возможной очистки
+            mapContainer._leafletMap = listingMap;
+
+        } catch (error) {
+            console.error('Ошибка инициализации карты объявления:', error);
+            const mapContainer = document.getElementById(`listing-map-${listing.id}`);
+            if (mapContainer) {
+                mapContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка загрузки карты</div>';
+            }
+        }
+    }
+
+    /**
+     * Переключение видимости панели истории цен
+     */
+    togglePriceHistoryPanel(listingId) {
+        const content = document.getElementById(`priceHistoryPanelContent-${listingId}`);
+        const chevron = document.getElementById(`priceHistoryPanelChevron-${listingId}`);
+        
+        if (!content || !chevron) return;
+
+        const isHidden = content.style.display === 'none';
+        
+        if (isHidden) {
+            // Разворачиваем
+            content.style.display = 'block';
+            chevron.style.transform = 'rotate(0deg)';
+        } else {
+            // Сворачиваем
+            content.style.display = 'none';
+            chevron.style.transform = 'rotate(-90deg)';
+        }
+    }
+
+    /**
+     * Инициализация таблицы истории цен
+     */
+    async initializePriceHistoryTable(listingId, listing) {
+        try {
+            const tableElement = document.getElementById(`priceHistoryTable-${listingId}`);
+            if (!tableElement) return;
+
+            // Подготавливаем данные для таблицы
+            const tableData = this.preparePriceHistoryTableData(listing);
+
+            // Инициализируем DataTable
+            const dataTable = $(tableElement).DataTable({
+                data: tableData,
+                language: {
+                    url: '../libs/datatables/ru.json'
+                },
+                pageLength: 10,
+                searching: false,
+                ordering: true,
+                order: [[0, 'desc']], // Сортировка по дате (новые сверху)
+                columnDefs: [
+                    {
+                        targets: 2, // Колонка "Действия"
+                        orderable: false,
+                        searchable: false,
+                        className: 'text-center',
+                        width: '120px'
+                    }
+                ],
+                columns: [
+                    {
+                        title: 'Дата',
+                        data: 'date',
+                        render: function (data, type, row) {
+                            if (type === 'display') {
+                                const date = new Date(data);
+                                return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+                            }
+                            return data;
+                        }
+                    },
+                    {
+                        title: 'Цена',
+                        data: 'price',
+                        render: function (data, type, row) {
+                            if (type === 'display') {
+                                return new Intl.NumberFormat('ru-RU').format(data) + ' ₽';
+                            }
+                            return data;
+                        }
+                    },
+                    {
+                        title: 'Действия',
+                        data: null,
+                        render: function (data, type, row) {
+                            return `
+                                <div class="flex space-x-2 justify-center">
+                                    <button class="edit-price-btn text-blue-600 hover:text-blue-800 text-sm" data-listing-id="${listingId}" data-index="${row.index}">
+                                        Редактировать
+                                    </button>
+                                    <button class="delete-price-btn text-red-600 hover:text-red-800 text-sm" data-listing-id="${listingId}" data-index="${row.index}">
+                                        Удалить
+                                    </button>
+                                </div>
+                            `;
+                        }
+                    }
+                ]
+            });
+
+            // Сохраняем ссылку на DataTable
+            this[`priceHistoryTable_${listingId}`] = dataTable;
+
+            // Добавляем обработчики для кнопок редактирования и удаления
+            $(tableElement).on('click', '.edit-price-btn', (e) => {
+                const index = $(e.target).data('index');
+                this.editPriceEntry(listingId, index);
+            });
+
+            $(tableElement).on('click', '.delete-price-btn', (e) => {
+                const index = $(e.target).data('index');
+                this.deletePriceEntry(listingId, index);
+            });
+
+            console.log(`📊 Инициализирована таблица истории цен для объявления ${listingId}`);
+
+        } catch (error) {
+            console.error('Ошибка инициализации таблицы истории цен:', error);
+        }
+    }
+
+    /**
+     * Подготовка данных для таблицы истории цен
+     */
+    preparePriceHistoryTableData(listing) {
+        const data = [];
+        let index = 0;
+
+        // Добавляем текущую цену как последнюю запись
+        if (listing.price) {
+            data.push({
+                date: listing.updated_at || listing.created_at || new Date(),
+                price: listing.price,
+                index: index++,
+                isCurrent: true
+            });
+        }
+
+        // Добавляем историю изменений цен
+        if (listing.price_history && Array.isArray(listing.price_history)) {
+            listing.price_history.forEach(historyItem => {
+                if (historyItem.date && historyItem.new_price) {
+                    data.push({
+                        date: historyItem.date,
+                        price: historyItem.new_price,
+                        index: index++,
+                        isCurrent: false
+                    });
+                }
+            });
+        }
+
+        return data;
+    }
+
+    /**
+     * Инициализация модального окна редактирования цены
+     */
+    initializePriceEditModal(listingId) {
+        const modal = document.getElementById(`editPriceModal-${listingId}`);
+        const form = document.getElementById(`editPriceForm-${listingId}`);
+        const priceInput = document.getElementById(`priceInput-${listingId}`);
+        const dateInput = document.getElementById(`dateInput-${listingId}`);
+        const cancelButton = document.getElementById(`cancelEditPrice-${listingId}`);
+        
+        if (!modal || !form || !priceInput || !dateInput || !cancelButton) return;
+
+        // Форматирование цены при вводе
+        priceInput.addEventListener('input', (e) => {
+            let value = e.target.value.replace(/[^\d]/g, ''); // Убираем все кроме цифр
+            if (value) {
+                // Форматируем с разделителями тысяч
+                value = parseInt(value).toLocaleString('ru-RU');
+            }
+            e.target.value = value;
+        });
+
+        // Закрытие модального окна
+        const closeModal = () => {
+            modal.classList.add('hidden');
+            form.reset();
+            priceInput.value = '';
+            dateInput.value = '';
+            this.currentEditingPriceIndex = null;
+        };
+
+        // Обработчик отмены
+        cancelButton.addEventListener('click', closeModal);
+
+        // Закрытие по клику на фон (overlay)
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal || e.target.classList.contains('z-0')) {
+                closeModal();
+            }
+        });
+
+        // Обработчик отправки формы
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const priceValue = priceInput.value.replace(/[^\d]/g, ''); // Убираем форматирование
+            const price = parseInt(priceValue);
+            const date = new Date(dateInput.value);
+
+            if (!price || price <= 0) {
+                alert('Пожалуйста, введите корректную цену');
+                return;
+            }
+
+            if (!dateInput.value || isNaN(date.getTime())) {
+                alert('Пожалуйста, выберите корректную дату');
+                return;
+            }
+
+            this.savePriceEntry(listingId, this.currentEditingPriceIndex, price, date);
+            closeModal();
+        });
+    }
+
+    /**
+     * Добавление новой записи о цене
+     */
+    addPriceEntry(listingId) {
+        this.currentEditingPriceIndex = null;
+        
+        // Заполняем модальное окно для добавления
+        const modal = document.getElementById(`editPriceModal-${listingId}`);
+        const title = document.getElementById(`editPriceModalTitle-${listingId}`);
+        const dateInput = document.getElementById(`dateInput-${listingId}`);
+        
+        if (!modal || !title || !dateInput) return;
+
+        title.textContent = 'Добавить изменение цены';
+        
+        // Устанавливаем текущую дату и время
+        const now = new Date();
+        const isoString = now.getFullYear() + '-' + 
+            String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+            String(now.getDate()).padStart(2, '0') + 'T' +
+            String(now.getHours()).padStart(2, '0') + ':' + 
+            String(now.getMinutes()).padStart(2, '0');
+        dateInput.value = isoString;
+        
+        modal.classList.remove('hidden');
+    }
+
+    /**
+     * Редактирование записи о цене
+     */
+    editPriceEntry(listingId, index) {
+        const listing = this.listings.find(l => l.id === listingId);
+        if (!listing) return;
+
+        const tableData = this.preparePriceHistoryTableData(listing);
+        const entry = tableData.find(item => item.index === index);
+        
+        if (!entry) return;
+
+        this.currentEditingPriceIndex = index;
+
+        // Заполняем модальное окно для редактирования
+        const modal = document.getElementById(`editPriceModal-${listingId}`);
+        const title = document.getElementById(`editPriceModalTitle-${listingId}`);
+        const priceInput = document.getElementById(`priceInput-${listingId}`);
+        const dateInput = document.getElementById(`dateInput-${listingId}`);
+        
+        if (!modal || !title || !priceInput || !dateInput) return;
+
+        title.textContent = 'Редактировать цену';
+        
+        // Заполняем текущие значения
+        priceInput.value = entry.price.toLocaleString('ru-RU');
+        
+        // Форматируем дату для datetime-local
+        const date = new Date(entry.date);
+        const isoString = date.getFullYear() + '-' + 
+            String(date.getMonth() + 1).padStart(2, '0') + '-' + 
+            String(date.getDate()).padStart(2, '0') + 'T' +
+            String(date.getHours()).padStart(2, '0') + ':' + 
+            String(date.getMinutes()).padStart(2, '0');
+        dateInput.value = isoString;
+        
+        modal.classList.remove('hidden');
+    }
+
+    /**
+     * Удаление записи о цене
+     */
+    async deletePriceEntry(listingId, index) {
+        if (!confirm('Удалить эту запись из истории цен?')) {
+            return;
+        }
+
+        try {
+            const listing = await db.getListing(listingId);
+            if (!listing) return;
+
+            const tableData = this.preparePriceHistoryTableData(listing);
+            const entry = tableData.find(item => item.index === index);
+            
+            if (!entry) return;
+
+            if (entry.isCurrent) {
+                alert('Нельзя удалить текущую цену объявления');
+                return;
+            }
+
+            // Удаляем из истории цен
+            if (listing.price_history && Array.isArray(listing.price_history)) {
+                listing.price_history = listing.price_history.filter(item => {
+                    const itemDate = new Date(item.date);
+                    const entryDate = new Date(entry.date);
+                    return !(itemDate.getTime() === entryDate.getTime() && item.new_price === entry.price);
+                });
+            }
+
+            // Сохраняем в БД
+            await db.updateListing(listing);
+
+            // Обновляем таблицу
+            this.refreshPriceHistoryTable(listingId, listing);
+
+            console.log(`✅ Удалена запись из истории цен для объявления ${listingId}`);
+
+        } catch (error) {
+            console.error('Ошибка удаления записи:', error);
+            alert('Ошибка при удалении записи');
+        }
+    }
+
+    /**
+     * Сохранение записи о цене
+     */
+    async savePriceEntry(listingId, index, price, date) {
+        try {
+            const listing = await db.getListing(listingId);
+            if (!listing) return;
+
+            if (!listing.price_history) {
+                listing.price_history = [];
+            }
+
+            if (index !== null && index !== undefined) {
+                // Редактируем существующую запись
+                const tableData = this.preparePriceHistoryTableData(listing);
+                const entry = tableData.find(item => item.index === index);
+                
+                if (entry && entry.isCurrent) {
+                    // Обновляем текущую цену
+                    listing.price = price;
+                    listing.updated_at = date;
+                } else if (entry) {
+                    // Обновляем запись в истории
+                    const historyIndex = listing.price_history.findIndex(item => {
+                        const itemDate = new Date(item.date);
+                        const entryDate = new Date(entry.date);
+                        return itemDate.getTime() === entryDate.getTime() && item.new_price === entry.price;
+                    });
+                    
+                    if (historyIndex !== -1) {
+                        listing.price_history[historyIndex].new_price = price;
+                        listing.price_history[historyIndex].date = date;
+                    }
+                }
+            } else {
+                // Добавляем новую запись
+                listing.price_history.push({
+                    date: date,
+                    old_price: listing.price,
+                    new_price: price
+                });
+                
+                // Обновляем текущую цену если новая дата позже
+                const currentDate = new Date(listing.updated_at || listing.created_at);
+                if (date > currentDate) {
+                    listing.price = price;
+                    listing.updated_at = date;
+                }
+            }
+
+            // Сохраняем в БД
+            await db.updateListing(listing);
+
+            // Обновляем таблицу и график
+            this.refreshPriceHistoryTable(listingId, listing);
+
+            console.log(`✅ Сохранена запись в истории цен для объявления ${listingId}`);
+
+        } catch (error) {
+            console.error('Ошибка сохранения записи:', error);
+            alert('Ошибка при сохранении записи');
+        }
+    }
+
+    /**
+     * Обновление таблицы истории цен
+     */
+    refreshPriceHistoryTable(listingId, listing) {
+        const dataTable = this[`priceHistoryTable_${listingId}`];
+        if (dataTable) {
+            const newData = this.preparePriceHistoryTableData(listing);
+            dataTable.clear();
+            dataTable.rows.add(newData);
+            dataTable.draw();
+        }
+    }
+
+    /**
+     * Вычисление расстояния между двумя точками (формула Haversine)
+     * @param {Object} point1 - Первая точка {lat, lng}
+     * @param {Object} point2 - Вторая точка {lat, lng}
+     * @returns {number} Расстояние в метрах
+     */
+    calculateDistance(point1, point2) {
+        const R = 6371e3; // Радиус Земли в метрах
+        const φ1 = point1.lat * Math.PI / 180;
+        const φ2 = point2.lat * Math.PI / 180;
+        const Δφ = (point2.lat - point1.lat) * Math.PI / 180;
+        const Δλ = (point2.lng - point1.lng) * Math.PI / 180;
+
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+        return R * c;
+    }
+
+    /**
+     * Получение текста статуса адреса для свёрнутого состояния
+     * @param {Object} listing - Объявление
+     * @returns {string} Краткий статус адреса
+     */
+    getAddressStatusText(listing) {
+        if (listing.address_id) {
+            if (listing.address_match_confidence) {
+                const confidence = this.getAddressConfidenceText(listing.address_match_confidence);
+                const distance = listing.address_distance ? ` (${Math.round(listing.address_distance)}м)` : '';
+                return `${confidence}${distance}`;
+            } else {
+                return 'Определён';
+            }
+        } else {
+            return 'Не определён';
+        }
+    }
+
+    /**
+     * Получение CSS класса для статуса адреса
+     * @param {Object} listing - Объявление  
+     * @returns {string} CSS класс для цвета
+     */
+    getAddressStatusClass(listing) {
+        if (listing.address_id) {
+            if (listing.address_match_confidence) {
+                return this.getConfidenceColor(listing.address_match_confidence);
+            } else {
+                return 'text-green-600';
+            }
+        } else {
+            return 'text-orange-600';
+        }
+    }
+
+    /**
+     * Переключение состояния панели местоположения
+     * @param {string} listingId - ID объявления
+     */
+    toggleLocationPanel(listingId) {
+        const content = document.getElementById(`locationPanelContent-${listingId}`);
+        const chevron = document.getElementById(`locationPanelChevron-${listingId}`);
+        
+        if (!content || !chevron) return;
+
+        const isHidden = content.style.display === 'none';
+        
+        if (isHidden) {
+            // Разворачиваем
+            content.style.display = 'block';
+            chevron.style.transform = 'rotate(0deg)';
+            
+            // Если карта ещё не была инициализирована, инициализируем её
+            const mapContainer = document.getElementById(`listing-map-${listingId}`);
+            if (mapContainer && !mapContainer._leafletMap) {
+                // Небольшая задержка для корректного отображения карты
+                setTimeout(() => {
+                    const listing = this.listings.find(l => l.id === listingId);
+                    if (listing) {
+                        this.renderListingMap(listing);
+                    }
+                }, 100);
+            }
+        } else {
+            // Сворачиваем
+            content.style.display = 'none';
+            chevron.style.transform = 'rotate(-90deg)';
+        }
+    }
+
 }
 
 // Глобальная переменная для доступа к экземпляру класса

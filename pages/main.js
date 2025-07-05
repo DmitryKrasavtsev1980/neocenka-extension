@@ -164,6 +164,24 @@ class MainPage {
       debugLogger.error('Кнопка createMapAreaBtn не найдена при настройке обработчиков');
     }
 
+    // Обработчики для URL полей в модальном окне области
+    document.getElementById('avitoUrlArea')?.addEventListener('input', () => {
+      this.updateAreaFilterButtons();
+    });
+
+    document.getElementById('cianUrlArea')?.addEventListener('input', () => {
+      this.updateAreaFilterButtons();
+    });
+
+    // Кнопки открытия ссылок в модальном окне области
+    document.getElementById('openAvitoAreaBtn')?.addEventListener('click', () => {
+      this.openAvitoAreaFilter();
+    });
+
+    document.getElementById('openCianAreaBtn')?.addEventListener('click', () => {
+      this.openCianAreaFilter();
+    });
+
     // Кнопки управления сегментами
     document.getElementById('createSegmentBtn')?.addEventListener('click', () => {
       this.openSegmentModal();
@@ -463,6 +481,62 @@ class MainPage {
     }
 
     modal.classList.remove('hidden');
+    
+    // Обновляем состояние кнопок после открытия модального окна
+    setTimeout(() => {
+      this.updateAreaFilterButtons();
+    }, 100);
+  }
+
+  /**
+   * Обновление состояния кнопок фильтров Avito и Cian в модальном окне области
+   */
+  updateAreaFilterButtons() {
+    const avitoUrl = document.getElementById('avitoUrlArea')?.value?.trim();
+    const cianUrl = document.getElementById('cianUrlArea')?.value?.trim();
+    
+    const avitoBtn = document.getElementById('openAvitoAreaBtn');
+    const cianBtn = document.getElementById('openCianAreaBtn');
+    
+    if (avitoBtn) {
+      avitoBtn.disabled = !avitoUrl || !this.isValidUrl(avitoUrl);
+    }
+    
+    if (cianBtn) {
+      cianBtn.disabled = !cianUrl || !this.isValidUrl(cianUrl);
+    }
+  }
+
+  /**
+   * Проверка корректности URL
+   */
+  isValidUrl(string) {
+    try {
+      new URL(string);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Открытие фильтра Avito в новой вкладке
+   */
+  openAvitoAreaFilter() {
+    const avitoUrl = document.getElementById('avitoUrlArea')?.value?.trim();
+    if (avitoUrl && this.isValidUrl(avitoUrl)) {
+      chrome.tabs.create({ url: avitoUrl });
+    }
+  }
+
+  /**
+   * Открытие фильтра Cian в новой вкладке
+   */
+  openCianAreaFilter() {
+    const cianUrl = document.getElementById('cianUrlArea')?.value?.trim();
+    if (cianUrl && this.isValidUrl(cianUrl)) {
+      chrome.tabs.create({ url: cianUrl });
+    }
   }
 
   closeMapAreaModal() {

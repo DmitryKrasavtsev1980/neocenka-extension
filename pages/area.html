@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="../libs/tailwind/tailwind.min.css">
     <link rel="stylesheet" href="../libs/datatables/datatables.min.css">
     <link rel="stylesheet" href="../libs/slimselect/slimselect.css">
+    <link rel="stylesheet" href="../libs/fotorama/fotorama.css">
     <link rel="stylesheet" href="../assets/styles/main.css">
     
     <!-- Leaflet CSS -->
@@ -372,12 +373,6 @@
                     <div class="px-4 py-5 sm:px-6 flex items-center justify-between">
                         <h3 class="text-lg leading-6 font-medium text-gray-900">Карта области</h3>
                         <div class="flex space-x-2">
-                            <button type="button" id="editPolygonBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                </svg>
-                                Редактировать полигон
-                            </button>
                             <button type="button" id="refreshMapBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
                                 <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -625,31 +620,43 @@
 
         <!-- Таблица адресов -->
         <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
-            <div class="px-4 py-5 sm:px-6 flex items-center justify-between">
-                <h3 class="text-lg leading-6 font-medium text-gray-900">Адреса в области</h3>
-                <button type="button" id="addAddressBtn" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200">
-                    <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            <div class="px-4 py-5 sm:px-6 cursor-pointer" id="addressTableHeader">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Таблица адресов</h3>
+                        <p class="mt-1 text-sm text-gray-500">Адреса в области с привязкой к объектам недвижимости</p>
+                    </div>
+                    <svg id="addressTableChevron" class="h-5 w-5 text-gray-400 transform transition-transform duration-200" style="transform: rotate(-90deg);" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
                     </svg>
-                    Добавить адрес
-                </button>
+                </div>
             </div>
-            <div class="px-4 pb-5">
-                <table id="addressesTable" class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Адрес</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Тип</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Конструктив</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Объектов</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Объявлений</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        <!-- Данные будут загружены через JavaScript -->
-                    </tbody>
-                </table>
+            <div id="addressTableContent" class="space-y-4" style="display: none;">
+                <div class="px-4 pb-2 flex justify-end">
+                    <button type="button" id="addAddressBtn" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200">
+                        <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Добавить адрес
+                    </button>
+                </div>
+                <div class="px-4 pb-5">
+                    <table id="addressesTable" class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Адрес</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Тип</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Конструктив</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Объектов</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Объявлений</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <!-- Данные будут загружены через JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -777,8 +784,15 @@
 
     <!-- Модальное окно редактирования области -->
     <div id="editAreaModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div class="inline-block align-bottom bg-white rounded-lg border text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full modal-content z-50">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white rounded-lg border text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg relative z-10">
                 <form id="editAreaForm">
                     <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                         <div class="sm:flex sm:items-start">
@@ -825,10 +839,10 @@
                         </div>
                     </div>
                     <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 sm:ml-3 sm:w-auto sm:text-sm">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
                             Сохранить
                         </button>
-                        <button type="button" id="cancelEditArea" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        <button type="button" id="cancelEditArea" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
                             Отмена
                         </button>
                     </div>
@@ -839,8 +853,15 @@
 
     <!-- Модальное окно редактирования адреса -->
     <div id="editAddressModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="address-modal-title" role="dialog" aria-modal="true">
-        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full modal-content z-50">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full relative z-10">
                 <form id="editAddressForm">
                     <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                         <div class="sm:flex sm:items-start">
@@ -1005,10 +1026,10 @@
                         </div>
                     </div>
                     <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 sm:ml-3 sm:w-auto sm:text-sm">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
                             Сохранить
                         </button>
-                        <button type="button" id="cancelEditAddress" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-3 sm:w-auto sm:text-sm">
+                        <button type="button" id="cancelEditAddress" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
                             Отмена
                         </button>
                     </div>
@@ -1050,86 +1071,193 @@
     <script src="../components/footer.js"></script>
     <script src="../data/database.js"></script>
     <!-- Модальное окно добавления материала стен -->
-    <div id="wallMaterialModal" class="modal hidden">
-        <div class="modal-dialog">
-            <div class="modal-header">
-                <h3 class="modal-title">Добавить материал стен</h3>
-            </div>
-            <div class="modal-body">
-                <form id="wallMaterialForm" class="space-y-4">
-                    <input type="hidden" name="id" id="wallMaterialId">
-                    <div>
-                        <label for="wallMaterialName" class="block text-sm font-medium text-gray-700">Название материала</label>
-                        <input type="text" name="name" id="wallMaterialName" required
-                               class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
-                               placeholder="Например: Газобетонный">
-                    </div>
-                    <div>
-                        <label for="wallMaterialColor" class="block text-sm font-medium text-gray-700">Цвет маркера</label>
-                        <div class="flex gap-2 items-center mt-1">
-                            <input type="color" name="color" id="wallMaterialColor" 
-                                   value="#3b82f6"
-                                   class="h-10 w-16 rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 cursor-pointer">
-                            <span class="text-sm text-gray-500">Выберите цвет для маркеров на карте</span>
+    <div id="wallMaterialModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="wall-material-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md relative z-10">
+                <form id="wallMaterialForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="w-full">
+                                <h3 id="wall-material-modal-title" class="text-lg leading-6 font-medium text-gray-900 mb-4">
+                                    Добавить материал стен
+                                </h3>
+                                
+                                <input type="hidden" name="id" id="wallMaterialId">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="wallMaterialName" class="block text-sm font-medium text-gray-700">Название материала</label>
+                                        <input type="text" name="name" id="wallMaterialName" required
+                                               class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                               placeholder="Например: Газобетонный">
+                                    </div>
+                                    <div>
+                                        <label for="wallMaterialColor" class="block text-sm font-medium text-gray-700">Цвет маркера</label>
+                                        <div class="flex gap-2 items-center mt-1">
+                                            <input type="color" name="color" id="wallMaterialColor" 
+                                                   value="#3b82f6"
+                                                   class="h-10 w-16 rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 cursor-pointer">
+                                            <span class="text-sm text-gray-500">Выберите цвет для маркеров на карте</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" id="saveWallMaterial" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Сохранить
+                        </button>
+                        <button type="button" id="cancelWallMaterial" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
+                    </div>
                 </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" id="cancelWallMaterial" class="btn btn-secondary">Отмена</button>
-                <button type="button" id="saveWallMaterial" class="btn btn-primary">Сохранить</button>
             </div>
         </div>
     </div>
 
     <!-- Модальное окно добавления серии дома -->
-    <div id="houseSeriesModal" class="modal hidden">
-        <div class="modal-dialog">
-            <div class="modal-header">
-                <h3 class="modal-title">Добавить серию дома</h3>
-            </div>
-            <div class="modal-body">
-                <form id="houseSeriesForm" class="space-y-4">
-                    <input type="hidden" name="id" id="houseSeriesId">
-                    <div>
-                        <label for="houseSeriesName" class="block text-sm font-medium text-gray-700">Название серии</label>
-                        <input type="text" name="name" id="houseSeriesName" required
-                               class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
-                               placeholder="Например: П-44Т">
+    <div id="houseSeriesModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="house-series-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md relative z-10">
+                <form id="houseSeriesForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="w-full">
+                                <h3 id="house-series-modal-title" class="text-lg leading-6 font-medium text-gray-900 mb-4">
+                                    Добавить серию дома
+                                </h3>
+                                
+                                <input type="hidden" name="id" id="houseSeriesId">
+                                <div>
+                                    <label for="houseSeriesName" class="block text-sm font-medium text-gray-700">Название серии</label>
+                                    <input type="text" name="name" id="houseSeriesName" required
+                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                           placeholder="Например: П-44Т">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" id="saveHouseSeries" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Сохранить
+                        </button>
+                        <button type="button" id="cancelHouseSeries" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
                     </div>
                 </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" id="cancelHouseSeries" class="btn btn-secondary">Отмена</button>
-                <button type="button" id="saveHouseSeries" class="btn btn-primary">Сохранить</button>
             </div>
         </div>
     </div>
 
     <!-- Модальное окно добавления материала перекрытий -->
-    <div id="ceilingMaterialModal" class="modal hidden">
-        <div class="modal-dialog">
-            <div class="modal-header">
-                <h3 class="modal-title">Добавить материал перекрытий</h3>
-            </div>
-            <div class="modal-body">
-                <form id="ceilingMaterialForm" class="space-y-4">
-                    <input type="hidden" name="id" id="ceilingMaterialId">
-                    <div>
-                        <label for="ceilingMaterialName" class="block text-sm font-medium text-gray-700">Название материала</label>
-                        <input type="text" name="name" id="ceilingMaterialName" required
-                               class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
-                               placeholder="Например: Смешанное">
+    <div id="ceilingMaterialModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="ceiling-material-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md relative z-10">
+                <form id="ceilingMaterialForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="w-full">
+                                <h3 id="ceiling-material-modal-title" class="text-lg leading-6 font-medium text-gray-900 mb-4">
+                                    Добавить материал перекрытий
+                                </h3>
+                                
+                                <input type="hidden" name="id" id="ceilingMaterialId">
+                                <div>
+                                    <label for="ceilingMaterialName" class="block text-sm font-medium text-gray-700">Название материала</label>
+                                    <input type="text" name="name" id="ceilingMaterialName" required
+                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                           placeholder="Например: Смешанное">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" id="saveCeilingMaterial" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Сохранить
+                        </button>
+                        <button type="button" id="cancelCeilingMaterial" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
                     </div>
                 </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" id="cancelCeilingMaterial" class="btn btn-secondary">Отмена</button>
-                <button type="button" id="saveCeilingMaterial" class="btn btn-primary">Сохранить</button>
             </div>
         </div>
     </div>
 
+    <!-- Модальное окно просмотра объявления -->
+    <div id="listingModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full relative z-10 max-h-[90vh]">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="w-full">
+                            <!-- Заголовок -->
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                                    Детали объявления
+                                </h3>
+                                <button type="button" id="closeModalBtn" class="text-gray-400 hover:text-gray-600">
+                                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <!-- Содержимое -->
+                            <div id="modalContent" class="max-h-[70vh] overflow-y-auto">
+                                <!-- Контент будет загружен динамически -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button type="button" id="openListingBtn" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        Открыть объявление
+                    </button>
+                    <button type="button" id="closeModalBtn2" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        Закрыть
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript библиотеки -->
+    <script src="../libs/jquery/jquery-3.7.1.min.js"></script>
+    <script src="../libs/datatables/datatables.min.js"></script>
+    <script src="../libs/fotorama/fotorama.js"></script>
+    <script src="../libs/apexcharts/apexcharts.js"></script>
+    
     <script src="../data/models.js"></script>
     <script src="../utils/geometry-utils.js"></script>
     <script src="../utils/geo-utils.js"></script>
