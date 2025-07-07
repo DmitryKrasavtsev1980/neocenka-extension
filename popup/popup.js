@@ -506,14 +506,29 @@ class NeocenkaPopup {
                 oldArea, newArea, areaChanged: oldArea !== newArea
             });
 
-            // Подготавливаем обновленные данные
+            // Создаем обновленное объявление с использованием унифицированной структуры
+            let updatedListing;
+            if (parsedData.source === 'avito') {
+                updatedListing = ListingModel.fromAvitoParser(parsedData);
+                console.log('Popup: Updated listing using fromAvitoParser:', updatedListing);
+            } else {
+                // Для других источников используем прямое объединение данных
+                updatedListing = new ListingModel({
+                    ...existingListing,
+                    ...parsedData
+                });
+                console.log('Popup: Updated listing using legacy method:', updatedListing);
+            }
+
+            // Сохраняем важные системные поля из существующего объявления
+            updatedListing.id = existingListing.id;
+            updatedListing.created_at = existingListing.created_at;
+            updatedListing.updated_at = new Date();
+            updatedListing.last_seen = new Date();
+
+            // Создаем объект данных для сравнения и истории
             const updatedData = {
-                ...existingListing,
-                ...parsedData,
-                id: existingListing.id, // Сохраняем ID
-                created_at: existingListing.created_at, // Сохраняем дату создания
-                updated_at: new Date(),
-                last_seen: new Date()
+                ...updatedListing
             };
 
             // Проверяем изменения
@@ -565,10 +580,10 @@ class NeocenkaPopup {
             // Сохраняем в базу данных
             console.log('Popup: Saving updated listing to database...');
             if (typeof db !== 'undefined' && db && typeof db.update === 'function') {
-                await db.update('listings', updatedData);
+                await db.update('listings', updatedListing);
                 console.log('Popup: Listing updated via db.update');
             } else if (typeof db !== 'undefined' && db && typeof db.updateListing === 'function') {
-                await db.updateListing(updatedData);
+                await db.updateListing(updatedListing);
                 console.log('Popup: Listing updated via db.updateListing');
             }
 
@@ -590,17 +605,30 @@ class NeocenkaPopup {
         try {
             console.log('Popup: Saving new listing:', parsedData);
 
+            // Используем новый метод fromAvitoParser для создания унифицированного объявления
+            let listing;
+            if (parsedData.source === 'avito') {
+                listing = ListingModel.fromAvitoParser(parsedData);
+                console.log('Popup: Created listing using fromAvitoParser:', listing);
+            } else {
+                // Для других источников используем старый метод с добавлением системных полей
+                listing = new ListingModel({
+                    ...parsedData,
+                    created_at: new Date(),
+                    updated_at: new Date(),
+                    last_seen: new Date()
+                });
+                console.log('Popup: Created listing using legacy method:', listing);
+            }
+
             // Добавляем системные поля
-            const listingData = {
-                ...parsedData,
-                id: this.generateId(),
-                created_at: new Date(),
-                updated_at: new Date(),
-                last_seen: new Date()
-            };
+            listing.id = this.generateId();
+            listing.created_at = new Date();
+            listing.updated_at = new Date();
+            listing.last_seen = new Date();
 
             // Сохраняем в базу
-            const savedListing = await db.addListing(listingData);
+            const savedListing = await db.addListing(listing);
             console.log('Popup: New listing saved:', savedListing);
 
             // Формируем детальное уведомление

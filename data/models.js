@@ -270,7 +270,7 @@ class ListingModel {
     this.name = data.name || ''; // Краткое наименование (2к, 4эт/5эт, 120м2)
     this.description = data.description || '';
     this.address = data.address || '';
-    this.coordinates = data.coordinates || { lat: null, lon: null };
+    this.coordinates = data.coordinates || { lat: null, lng: null }; // Стандарт GeoJSON
     
     // Характеристики недвижимости
     this.property_type = data.property_type || ''; // 'studio' | '1k' | '2k' | '3k' | '4k+'
@@ -323,6 +323,54 @@ class ListingModel {
     this.views_count = data.views_count || null; // Количество просмотров (если доступно)
     this.is_premium = data.is_premium || false; // Премиальное размещение
     this.parsing_errors = data.parsing_errors || []; // Ошибки парсинга
+    
+    // Новые поля для поддержки всех источников данных (версия 12)
+    
+    // Географические идентификаторы (Inpars)
+    this.region_id = data.region_id || null; // ID региона
+    this.city_id = data.city_id || null; // ID города
+    this.metro_id = data.metro_id || null; // ID станции метро
+    this.operation_type = data.operation_type || null; // 'rent' | 'sale'
+    this.section_id = data.section_id || null; // ID раздела недвижимости
+    this.category_id = data.category_id || null; // ID категории недвижимости
+    this.original_source_id = data.original_source_id || null; // parseId от Inpars
+    this.phone_protected = data.phone_protected || null; // Защищенность телефона
+    this.is_new_building = data.is_new_building || null; // Новостройка/вторичка
+    this.is_apartments = data.is_apartments || null; // Апартаменты
+    
+    // Детали дома (объединение данных от всех источников)
+    this.house_details = data.house_details || {
+      build_year: null, // Год постройки (из разных источников)
+      cargo_lifts: null, // Количество грузовых лифтов
+      passenger_lifts: null, // Количество пассажирских лифтов
+      material: null // Материал дома (объединение house_type и material)
+    };
+    
+    // Поля специфичные для Avito
+    this.renovation_type = data.renovation_type || null; // Тип ремонта (вместо condition)
+    this.bathroom_details = data.bathroom_details || null; // Детали санузла
+    this.balcony_details = data.balcony_details || null; // Детали балкона/лоджии
+    this.parsed_at = data.parsed_at || null; // Время парсинга
+    
+    // Унифицированная информация о продавце
+    this.seller_info = data.seller_info || {
+      name: null,
+      type: null, // 'owner' | 'agent' | 'agency'
+      is_agent: false, // boolean для обратной совместимости
+      phone: null,
+      phone_protected: null
+    };
+    
+    // Метаданные источника данных
+    this.source_metadata = data.source_metadata || {
+      original_source: null, // 'avito.ru' | 'cian.ru' | 'inpars'
+      source_method: null, // 'parser' | 'api' | 'manual'
+      original_id: null, // ID на источнике
+      source_internal_id: null, // внутренний ID источника (sourceId)
+      import_date: new Date(),
+      last_sync_date: null,
+      sync_errors: []
+    };
   }
 
   /**
@@ -392,21 +440,30 @@ class ListingModel {
   }
 
   /**
-   * Создание объявления из данных Inpars API
+   * Создание объявления из данных Inpars API (обновленная версия)
    */
   static fromInparsAPI(inparsData, mapAreaId = null) {
     // Определяем источник по URL
-    let source = 'unknown';
+    let source = 'inpars';
+    let originalSource = 'inpars';
     if (inparsData.url?.includes('avito.ru')) {
-      source = 'avito';
+      originalSource = 'avito.ru';
     } else if (inparsData.url?.includes('cian.ru')) {
-      source = 'cian';
+      originalSource = 'cian.ru';
     } else if (inparsData.url?.includes('realty.yandex.ru')) {
-      source = 'yandex';
+      originalSource = 'yandex.ru';
     } else if (inparsData.url?.includes('domclick.ru')) {
-      source = 'domclick';
+      originalSource = 'domclick.ru';
     } else if (inparsData.source) {
-      source = inparsData.source.toLowerCase();
+      originalSource = inparsData.source.toLowerCase();
+    }
+
+    // Определяем тип операции
+    let operation_type = null;
+    if (inparsData.typeAd === 1 || inparsData.typeAd === 3) {
+      operation_type = 'rent'; // сдам или сниму
+    } else if (inparsData.typeAd === 2 || inparsData.typeAd === 4) {
+      operation_type = 'sale'; // продам или куплю
     }
 
     // Определяем тип недвижимости по количеству комнат
@@ -419,33 +476,38 @@ class ListingModel {
       property_type = '4k+';
     }
 
-    // Определяем тип дома по материалу
-    let house_type = '';
-    if (inparsData.material) {
-      const material = inparsData.material.toLowerCase();
-      if (material.includes('кирпич') || material.includes('brick')) {
-        house_type = 'brick';
-      } else if (material.includes('панель') || material.includes('panel')) {
-        house_type = 'panel';
-      } else if (material.includes('монолит') || material.includes('monolith')) {
-        house_type = 'monolith';
-      } else if (material.includes('блок') || material.includes('block')) {
-        house_type = 'block';
-      }
-    }
-
     // Стандартизируем цену - всегда приводим к числу
     let price = null;
     if (inparsData.cost) {
       if (typeof inparsData.cost === 'string') {
-        // Убираем все нечисловые символы и пробелы
         price = parseFloat(inparsData.cost.replace(/[^0-9.]/g, ''));
       } else {
         price = parseFloat(inparsData.cost);
       }
     }
 
-    // Создаем модель объявления
+    // Нормализуем координаты
+    const coordinates = ListingModel.normalizeCoordinates({
+      lat: inparsData.lat,
+      lng: inparsData.lng
+    });
+
+    // Нормализуем информацию о продавце
+    const seller_info = ListingModel.normalizeSeller(inparsData, 'inpars');
+
+    // Создаем детали дома
+    const house_details = {
+      build_year: inparsData.house?.buildYear || null,
+      cargo_lifts: inparsData.house?.cargoLifts || null,
+      passenger_lifts: inparsData.house?.passengerLifts || null,
+      material: inparsData.material || null
+    };
+
+    // Создаем метаданные источника
+    const source_metadata = ListingModel.createSourceMetadata(inparsData, 'inpars', 'api');
+    source_metadata.original_source = originalSource;
+
+    // Создаем модель объявления с новыми полями
     const listing = new ListingModel({
       // Основные поля
       external_id: String(inparsData.id),
@@ -456,22 +518,20 @@ class ListingModel {
       title: inparsData.title || '',
       description: inparsData.text || '',
       address: inparsData.address || '',
-      coordinates: {
-        lat: inparsData.lat || null,
-        lon: inparsData.lng || null
-      },
+      coordinates: coordinates,
       
       // Характеристики недвижимости
       property_type: property_type,
       area_total: inparsData.sq ? parseFloat(inparsData.sq) : null,
+      area_living: inparsData.sqLiving ? parseFloat(inparsData.sqLiving) : null,
       area_kitchen: inparsData.sqKitchen ? parseFloat(inparsData.sqKitchen) : null,
       floor: inparsData.floor ? parseInt(inparsData.floor) : null,
       floors_total: inparsData.floors ? parseInt(inparsData.floors) : null,
       rooms: inparsData.rooms ? parseInt(inparsData.rooms) : null,
       
-      // Дополнительные характеристики
-      house_type: house_type,
-      year_built: null, // Inpars не предоставляет
+      // Дополнительные характеристики (обратная совместимость)
+      house_type: inparsData.material || '',
+      year_built: inparsData.house?.buildYear || null,
       
       // Цена (стандартизированная)
       price: price,
@@ -480,57 +540,45 @@ class ListingModel {
       photos: Array.isArray(inparsData.images) ? inparsData.images : [],
       photos_count: Array.isArray(inparsData.images) ? inparsData.images.length : 0,
       
-      // Контакты
+      // Контакты (обратная совместимость)
       seller_name: inparsData.name || '',
       seller_type: inparsData.agent ? 'agent' : 'owner',
       phone: Array.isArray(inparsData.phones) && inparsData.phones.length > 0 ? 
              inparsData.phones[0] : '',
       
-      // Даты - обрабатываем created и updated из Inpars
+      // Даты
       listing_date: inparsData.created ? new Date(inparsData.created) : null,
       last_update_date: inparsData.updated ? new Date(inparsData.updated) : null,
       
-      // Статусы - для импорта из Inpars всегда активный статус
+      // Статусы
       status: 'active',
       processing_status: 'address_needed',
       
-      // Дополнительные данные Inpars
-      _inpars_data: {
-        regionId: inparsData.regionId,
-        cityId: inparsData.cityId,
-        metroId: inparsData.metroId,
-        sectionId: inparsData.sectionId,
-        categoryId: inparsData.categoryId,
-        typeAd: inparsData.typeAd,
-        sourceId: inparsData.sourceId,
-        isNew: inparsData.isNew,
-        material: inparsData.material,
-        rentTime: inparsData.rentTime,
-        history: inparsData.history,
-        phoneProtected: inparsData.phoneProtected,
-        statusId: inparsData.statusId
-      }
+      // Новые поля для Inpars
+      region_id: inparsData.regionId || null,
+      city_id: inparsData.cityId || null,
+      metro_id: inparsData.metroId || null,
+      operation_type: operation_type,
+      section_id: inparsData.sectionId || null,
+      category_id: inparsData.categoryId || null,
+      original_source_id: inparsData.parseId || String(inparsData.id),
+      phone_protected: inparsData.phoneProtected || null,
+      is_new_building: inparsData.isNew || null,
+      is_apartments: inparsData.isApartments || null,
+      
+      // Детали дома
+      house_details: house_details,
+      
+      // Унифицированная информация о продавце
+      seller_info: seller_info,
+      
+      // Метаданные источника
+      source_metadata: source_metadata
     });
 
-    // Обработка истории цен из Inpars
+    // Обработка истории цен из Inpars с нормализацией
     if (Array.isArray(inparsData.history) && inparsData.history.length > 0) {
-      listing.price_history = inparsData.history.map(historyItem => {
-        // Стандартизируем цену в истории
-        let historyPrice = null;
-        if (historyItem.price) {
-          if (typeof historyItem.price === 'string') {
-            historyPrice = parseFloat(historyItem.price.replace(/[^0-9.]/g, ''));
-          } else {
-            historyPrice = parseFloat(historyItem.price);
-          }
-        }
-        
-        return {
-          date: new Date(historyItem.date),
-          price: historyPrice,
-          new_price: historyPrice
-        };
-      });
+      listing.price_history = ListingModel.normalizeInparsPriceHistory(inparsData.history);
     }
 
     // Вычисляем цену за м2
@@ -542,6 +590,260 @@ class ListingModel {
     listing.generateName();
 
     return listing;
+  }
+
+  /**
+   * Создание объявления из данных Avito парсера
+   */
+  static fromAvitoParser(avitoData) {
+    // Нормализуем координаты
+    const coordinates = ListingModel.normalizeCoordinates(avitoData.coordinates);
+
+    // Нормализуем информацию о продавце
+    const seller_info = ListingModel.normalizeSeller(avitoData, 'avito');
+
+    // Создаем детали дома
+    const house_details = {
+      build_year: avitoData.construction_year || avitoData.year_built || null,
+      cargo_lifts: null, // Avito не предоставляет
+      passenger_lifts: null, // Avito не предоставляет
+      material: avitoData.house_type || null
+    };
+
+    // Создаем метаданные источника
+    const source_metadata = ListingModel.createSourceMetadata(avitoData, 'avito', 'parser');
+
+    // Создаем модель объявления
+    const listing = new ListingModel({
+      // Основные поля
+      external_id: String(avitoData.external_id),
+      source: 'avito',
+      url: avitoData.url || '',
+      
+      // Информация об объявлении
+      title: avitoData.title || '',
+      description: avitoData.description || '',
+      address: avitoData.address || '',
+      coordinates: coordinates,
+      
+      // Характеристики недвижимости
+      property_type: avitoData.property_type || '',
+      area_total: avitoData.area_total || null,
+      area_living: avitoData.area_living || null,
+      area_kitchen: avitoData.area_kitchen || null,
+      floor: avitoData.floor || null,
+      floors_total: avitoData.total_floors || avitoData.floors_total || null,
+      rooms: avitoData.rooms || null,
+      
+      // Дополнительные характеристики
+      house_type: avitoData.house_type || '',
+      condition: avitoData.renovation || '',
+      year_built: avitoData.construction_year || null,
+      has_balcony: avitoData.balcony || null,
+      bathroom_type: avitoData.bathroom || '',
+      ceiling_height: avitoData.ceiling_height || null,
+      
+      // Цена
+      price: avitoData.price || null,
+      
+      // Фотографии
+      photos: Array.isArray(avitoData.photos) ? avitoData.photos : [],
+      photos_count: avitoData.photos_count || (Array.isArray(avitoData.photos) ? avitoData.photos.length : 0),
+      
+      // Контакты (обратная совместимость)
+      seller_name: avitoData.seller_name || '',
+      seller_type: avitoData.seller_type || '',
+      phone: avitoData.phone || '',
+      
+      // Даты
+      listing_date: avitoData.listing_date ? new Date(avitoData.listing_date) : null,
+      last_update_date: avitoData.last_update_date ? new Date(avitoData.last_update_date) : null,
+      
+      // Статусы
+      status: avitoData.status || 'active',
+      processing_status: 'address_needed',
+      
+      // Дополнительные данные
+      views_count: avitoData.views_count || null,
+      is_premium: avitoData.is_premium || false,
+      
+      // Новые поля специфичные для Avito
+      renovation_type: avitoData.renovation || null,
+      bathroom_details: avitoData.bathroom || null,
+      balcony_details: avitoData.balcony || null,
+      parsed_at: avitoData.parsed_at ? new Date(avitoData.parsed_at) : new Date(),
+      
+      // Детали дома
+      house_details: house_details,
+      
+      // Унифицированная информация о продавце
+      seller_info: seller_info,
+      
+      // Метаданные источника
+      source_metadata: source_metadata
+    });
+
+    // Обработка истории цен из Avito с нормализацией
+    if (Array.isArray(avitoData.price_history) && avitoData.price_history.length > 0) {
+      listing.price_history = ListingModel.normalizeAvitoPriceHistory(avitoData.price_history);
+    }
+
+    // Вычисляем цену за м2
+    if (listing.price && listing.area_total && listing.area_total > 0) {
+      listing.price_per_meter = Math.round(listing.price / listing.area_total);
+    }
+
+    // Генерируем краткое наименование
+    listing.generateName();
+
+    return listing;
+  }
+
+  /**
+   * Нормализация координат к стандарту GeoJSON
+   */
+  static normalizeCoordinates(coords) {
+    if (!coords) return { lat: null, lng: null };
+    
+    return {
+      lat: coords.lat || coords.latitude || null,
+      lng: coords.lng || coords.lon || coords.longitude || null
+    };
+  }
+
+  /**
+   * Нормализация истории цен от Inpars
+   */
+  static normalizeInparsPriceHistory(inparsHistory) {
+    if (!Array.isArray(inparsHistory)) return [];
+    
+    return inparsHistory.map(item => ({
+      date: new Date(item.date).toISOString(),
+      price: parseFloat(item.cost) || 0,
+      change_amount: null,
+      change_type: null,
+      is_publication: false,
+      source_data: {
+        raw_data: item,
+        phones: item.phones || [],
+        phone_protected: item.phoneProtected || false
+      }
+    }));
+  }
+
+  /**
+   * Нормализация истории цен от Avito
+   */
+  static normalizeAvitoPriceHistory(avitoHistory) {
+    if (!Array.isArray(avitoHistory)) return [];
+    
+    return avitoHistory.map(item => ({
+      date: new Date(item.timestamp || item.fullDate).toISOString(),
+      price: parseFloat((item.price || '').replace(/[^0-9]/g, '')) || 0,
+      change_amount: item.change ? parseFloat((item.change || '').replace(/[^0-9]/g, '')) : null,
+      change_type: item.changeType || null,
+      is_publication: item.isPublication || false,
+      source_data: {
+        raw_price: item.price,
+        raw_date: item.date,
+        full_date: item.fullDate,
+        timestamp: item.timestamp
+      }
+    }));
+  }
+
+  /**
+   * Нормализация информации о продавце
+   */
+  static normalizeSeller(sellerData, source) {
+    const result = {
+      name: sellerData.name || sellerData.seller_name || null,
+      type: null,
+      is_agent: false,
+      phone: sellerData.phone || (sellerData.phones && sellerData.phones[0]) || null,
+      phone_protected: sellerData.phoneProtected || sellerData.phone_protected || null
+    };
+    
+    if (source === 'inpars') {
+      result.type = sellerData.agent === 1 ? 'agent' : 'owner';
+      result.is_agent = sellerData.agent === 1;
+    } else if (source === 'avito' || source === 'cian') {
+      const type = (sellerData.seller_type || '').toLowerCase();
+      if (type === 'частное лицо' || type === 'owner') {
+        result.type = 'owner';
+        result.is_agent = false;
+      } else if (type.includes('агент') || type === 'agent') {
+        result.type = 'agent';
+        result.is_agent = true;
+      } else if (type.includes('агентство') || type === 'agency') {
+        result.type = 'agency';
+        result.is_agent = true;
+      } else {
+        result.type = 'agent'; // По умолчанию агент для неизвестных типов
+        result.is_agent = true;
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Универсальный маппинг полей между источниками
+   */
+  static mapField(sourceData, fieldName, source) {
+    const FIELD_MAPPING = {
+      'floors_total': {
+        'inpars': 'floors',
+        'avito': 'total_floors',
+        'cian': 'floors_total',
+        'default': 'floors_total'
+      },
+      'area_total': {
+        'inpars': 'sq',
+        'avito': 'area_total',
+        'cian': 'area_total',
+        'default': 'area_total'
+      },
+      'year_built': {
+        'inpars': 'house.buildYear',
+        'avito': 'construction_year',
+        'cian': 'year_built',
+        'default': 'year_built'
+      },
+      'coordinates.lng': {
+        'inpars': 'lng',
+        'avito': 'lng',
+        'cian': 'lng',
+        'default': 'lng'
+      }
+    };
+
+    const mapping = FIELD_MAPPING[fieldName];
+    if (!mapping) return sourceData[fieldName];
+    
+    const sourceField = mapping[source] || mapping.default;
+    
+    // Поддержка nested полей (house.buildYear)
+    if (sourceField.includes('.')) {
+      return sourceField.split('.').reduce((obj, key) => obj && obj[key], sourceData);
+    }
+    
+    return sourceData[sourceField];
+  }
+
+  /**
+   * Создание метаданных источника
+   */
+  static createSourceMetadata(sourceData, source, method = 'unknown') {
+    return {
+      original_source: sourceData.source || source,
+      source_method: method,
+      original_id: sourceData.external_id || sourceData.parseId || sourceData.id,
+      source_internal_id: sourceData.sourceId || null,
+      import_date: new Date(),
+      last_sync_date: null,
+      sync_errors: []
+    };
   }
 
   validate() {

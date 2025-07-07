@@ -22,6 +22,9 @@ class AreaPage {
 
         this.addressesTable = null;
         this.duplicatesTable = null;
+        this.sourcesChartInstance = null;
+        this.addressConfidenceChartInstance = null;
+        this.addressMethodsChartInstance = null;
         
         // Данные для работы
         this.addresses = [];
@@ -53,8 +56,8 @@ class AreaPage {
         this.selectedDuplicates = new Set();
         
 
-        // SlimSelect instance для категорий Inpars
-        this.inparsCategoriesSlimSelect = null;
+        // Интеграция с сервисами
+        this.servicesIntegration = null;
         
         // SlimSelect instances для фильтров обработки
         this.processingAddressSlimSelect = null;
@@ -67,10 +70,10 @@ class AreaPage {
      */
     destroy() {
         try {
-            // Уничтожаем SlimSelect если они были созданы
-            if (this.inparsCategoriesSlimSelect) {
-                this.inparsCategoriesSlimSelect.destroy();
-                this.inparsCategoriesSlimSelect = null;
+            // Уничтожаем интеграцию с сервисами если она была создана
+            if (this.servicesIntegration) {
+                this.servicesIntegration.destroy();
+                this.servicesIntegration = null;
             }
             
             if (this.processingAddressSlimSelect) {
@@ -143,14 +146,17 @@ class AreaPage {
             // Инициализируем фильтры обработки
             await this.initProcessingFilters();
             
-            // Инициализируем панель Inpars
-            await this.initInparsPanel();
-            
-            // Восстанавливаем состояние панели Inpars
-            this.restoreInparsPanelState();
+            // Инициализируем интеграцию с сервисами
+            await this.initServicesIntegration();
 
             // Восстанавливаем состояние таблицы адресов
             this.restoreAddressTableState();
+
+            // Восстанавливаем состояние панели работы с данными
+            this.restoreStatisticsPanelState();
+            this.restoreDataWorkPanelState();
+            this.restoreMapPanelState();
+            this.restoreDuplicatesPanelState();
 
             // Восстанавливаем состояние прогресса
             this.restoreProgressState();
@@ -273,8 +279,11 @@ class AreaPage {
             this.map.addLayer(this.areaPolygonLayer);
         }
 
-        // Центрируем карту на полигоне
-        this.map.fitBounds(this.areaPolygonLayer.getBounds());
+        // Центрируем карту на полигоне только если панель карты видима
+        const mapContent = document.getElementById('mapPanelContent');
+        if (mapContent && mapContent.style.display !== 'none') {
+            this.map.fitBounds(this.areaPolygonLayer.getBounds());
+        }
     }
 
     /**
@@ -2135,20 +2144,47 @@ class AreaPage {
         document.getElementById('deleteListingsBtn')?.addEventListener('click', () => {
             this.deleteListings();
         });
-
-        // Панель импорта Inpars
-        document.getElementById('loadInparsListingsBtn')?.addEventListener('click', () => {
-            this.loadInparsListings();
+        
+        document.getElementById('deleteDataBtn')?.addEventListener('click', () => {
+            this.deleteDataFromTab();
         });
 
-        // Сворачивание панели Inpars
-        document.getElementById('inparsPanelHeader')?.addEventListener('click', () => {
-            this.toggleInparsPanel();
-        });
+        // События для интеграции сервисов обрабатываются в AreaServicesIntegration
 
         // Сворачивание таблицы адресов
         document.getElementById('addressTableHeader')?.addEventListener('click', () => {
             this.toggleAddressTable();
+        });
+
+        // Сворачивание панели статистики
+        document.getElementById('statisticsPanelHeader')?.addEventListener('click', () => {
+            this.toggleStatisticsPanel();
+        });
+
+        // Сворачивание панели работы с данными
+        document.getElementById('dataWorkPanelHeader')?.addEventListener('click', () => {
+            this.toggleDataWorkPanel();
+        });
+
+        // Сворачивание панели карты области
+        document.getElementById('mapPanelHeader')?.addEventListener('click', () => {
+            this.toggleMapPanel();
+        });
+
+        // Сворачивание панели управления дублями
+        document.getElementById('duplicatesPanelHeader')?.addEventListener('click', () => {
+            this.toggleDuplicatesPanel();
+        });
+
+        // Навигация по табам в панели работы с данными
+        document.querySelectorAll('.data-nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const tabId = item.getAttribute('data-tab');
+                if (tabId) {
+                    this.switchDataWorkTab(tabId);
+                }
+            });
         });
 
         // Модальное окно деталей объявления
@@ -2497,6 +2533,12 @@ class AreaPage {
             document.getElementById('addressesCount').textContent = addresses.length;
             document.getElementById('objectsCount').textContent = objectsCount;
             document.getElementById('listingsCount').textContent = Math.max(listingsCount, areaListings.length);
+
+            // Обновляем график источников
+            await this.updateSourcesChart();
+            
+            // Обновляем графики определения адресов
+            await this.updateAddressAnalyticsCharts();
 
         } catch (error) {
             console.error('Error loading area stats:', error);
@@ -2942,19 +2984,13 @@ class AreaPage {
             console.log(`✅ API доступен, начинаем загрузку...`);
             this.showInfo('Загрузка адресов из OpenStreetMap...');
             
-            // Прогресс для пользователя
-            let progressDialog = null;
-            
-            // Создаем модальное окно прогресса
-            console.log(`🖥️ Создаем модальное окно прогресса...`);
-            progressDialog = this.createProgressModal('Загрузка адресов OSM');
+            // Показываем встроенный прогресс-бар
+            this.showProgressBar('import-addresses');
             
             // Колбэк для отслеживания прогресса
             const progressCallback = (message, percent) => {
                 console.log(`📈 Прогресс: ${percent}% - ${message}`);
-                if (progressDialog) {
-                    progressDialog.updateProgress(percent, message);
-                }
+                this.updateProgressBar('import-addresses', percent, message);
             };
 
             // Загружаем адреса
@@ -2962,12 +2998,11 @@ class AreaPage {
             const osmAddresses = await osmAPI.loadAddressesForArea(this.currentArea, progressCallback);
             console.log(`📦 Получено адресов: ${osmAddresses ? osmAddresses.length : 'null'}`);
 
-            // Закрываем модальное окно прогресса
-            if (progressDialog) {
-                progressDialog.close();
-            }
+            // Обновляем прогресс завершения
+            this.updateProgressBar('import-addresses', 100, 'Загрузка завершена');
 
             if (osmAddresses.length === 0) {
+                this.hideProgressBar('import-addresses');
                 this.showInfo('В указанной области не найдено адресов OSM');
                 return;
             }
@@ -3017,9 +3052,15 @@ class AreaPage {
             }
             
             this.showSuccess(resultMessage);
+            
+            // Скрываем прогресс-бар через 2 секунды после успешного завершения
+            setTimeout(() => {
+                this.hideProgressBar('import-addresses');
+            }, 2000);
 
         } catch (error) {
             console.error('Error loading addresses from OSM:', error);
+            this.hideProgressBar('import-addresses');
             this.showError('Ошибка загрузки адресов: ' + error.message);
         }
     }
@@ -4962,6 +5003,10 @@ class AreaPage {
         this.showNotification(message, 'info');
     }
 
+    showWarning(message) {
+        this.showNotification(message, 'warning');
+    }
+
     /**
      * Обновление состояния кнопок фильтров Avito и Cian
      */
@@ -5356,6 +5401,306 @@ class AreaPage {
     }
 
     /**
+     * Инициализация интеграции с сервисами
+     */
+    async initServicesIntegration() {
+        try {
+            // Инициализируем интеграцию с новой сервисной архитектурой
+            this.servicesIntegration = await initializeAreaServicesIntegration(this);
+            console.log('✅ Services integration initialized');
+            
+        } catch (error) {
+            console.error('❌ Failed to initialize services integration:', error);
+            this.showNotification('Ошибка инициализации сервисов: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Восстановление состояния таблицы адресов из localStorage
+     */
+    restoreAddressTableState() {
+        const isCollapsed = localStorage.getItem('addressTableCollapsed');
+        // По умолчанию таблица адресов свёрнута
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (shouldCollapse) {
+            const content = document.getElementById('addressTableContent');
+            const chevron = document.getElementById('addressTableChevron');
+            
+            if (content && chevron) {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+            }
+        }
+    }
+
+    /**
+     * Переключение состояния таблицы адресов (сворачивание/разворачивание)
+     */
+    toggleAddressTable() {
+        const content = document.getElementById('addressTableContent');
+        const chevron = document.getElementById('addressTableChevron');
+        
+        if (content && chevron) {
+            const isHidden = content.style.display === 'none';
+            
+            if (isHidden) {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+                localStorage.setItem('addressTableCollapsed', 'false');
+            } else {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+                localStorage.setItem('addressTableCollapsed', 'true');
+            }
+        }
+    }
+
+    /**
+     * Переключение состояния панели работы с данными (сворачивание/разворачивание)
+     */
+    /**
+     * Сворачивание/разворачивание панели статистики
+     */
+    toggleStatisticsPanel() {
+        const content = document.getElementById('statisticsPanelContent');
+        const chevron = document.getElementById('statisticsPanelChevron');
+        
+        if (content && chevron) {
+            const isHidden = content.classList.contains('hidden');
+            
+            if (isHidden) {
+                content.classList.remove('hidden');
+                chevron.style.transform = 'rotate(0deg)';
+                localStorage.setItem('statisticsPanelCollapsed', 'false');
+                // Обновляем график при разворачивании
+                setTimeout(() => {
+                    this.updateSourcesChart();
+                    this.updateAddressAnalyticsCharts();
+                }, 100);
+            } else {
+                content.classList.add('hidden');
+                chevron.style.transform = 'rotate(-90deg)';
+                localStorage.setItem('statisticsPanelCollapsed', 'true');
+            }
+        }
+    }
+
+    toggleDataWorkPanel() {
+        const content = document.getElementById('dataWorkPanelContent');
+        const chevron = document.getElementById('dataWorkPanelChevron');
+        
+        if (content && chevron) {
+            const isHidden = content.style.display === 'none';
+            
+            if (isHidden) {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+                localStorage.setItem('dataWorkPanelCollapsed', 'false');
+            } else {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+                localStorage.setItem('dataWorkPanelCollapsed', 'true');
+            }
+        }
+    }
+
+    /**
+     * Переключение панели карты области
+     */
+    toggleMapPanel() {
+        const content = document.getElementById('mapPanelContent');
+        const chevron = document.getElementById('mapPanelChevron');
+        
+        if (content && chevron) {
+            const isHidden = content.style.display === 'none';
+            
+            if (isHidden) {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+                localStorage.setItem('mapPanelCollapsed', 'false');
+                // При разворачивании карты обновляем размер и зум
+                setTimeout(() => {
+                    if (this.map) {
+                        this.map.invalidateSize();
+                        // Восстанавливаем правильный зум на полигон области
+                        if (this.areaPolygonLayer) {
+                            this.map.fitBounds(this.areaPolygonLayer.getBounds());
+                        }
+                    }
+                }, 100);
+            } else {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+                localStorage.setItem('mapPanelCollapsed', 'true');
+            }
+        }
+    }
+
+    /**
+     * Переключение панели управления дублями
+     */
+    toggleDuplicatesPanel() {
+        const content = document.getElementById('duplicatesPanelContent');
+        const chevron = document.getElementById('duplicatesPanelChevron');
+        
+        if (content && chevron) {
+            const isHidden = content.style.display === 'none';
+            
+            if (isHidden) {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+                localStorage.setItem('duplicatesPanelCollapsed', 'false');
+            } else {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+                localStorage.setItem('duplicatesPanelCollapsed', 'true');
+            }
+        }
+    }
+
+    /**
+     * Переключение табов в панели работы с данными
+     */
+    switchDataWorkTab(tabId) {
+        const navItems = document.querySelectorAll('.data-nav-item');
+        const contentTabs = document.querySelectorAll('.data-content-tab');
+        
+        // Убираем активный класс со всех элементов навигации
+        navItems.forEach(nav => {
+            nav.classList.remove('bg-indigo-50', 'text-indigo-600');
+            nav.classList.add('text-gray-700', 'hover:bg-gray-50', 'hover:text-indigo-600');
+        });
+        
+        // Скрываем все табы контента
+        contentTabs.forEach(tab => {
+            tab.classList.add('hidden');
+        });
+        
+        // Активируем нужную вкладку
+        const activeNavItem = document.querySelector(`[data-tab="${tabId}"]`);
+        const activeContentTab = document.getElementById(`content-${tabId}`);
+        
+        if (activeNavItem && activeContentTab) {
+            // Активируем элемент навигации
+            activeNavItem.classList.remove('text-gray-700', 'hover:bg-gray-50', 'hover:text-indigo-600');
+            activeNavItem.classList.add('bg-indigo-50', 'text-indigo-600');
+            
+            // Показываем активный таб
+            activeContentTab.classList.remove('hidden');
+            
+            // Сохраняем выбранный таб
+            localStorage.setItem('dataWorkActiveTab', tabId);
+        }
+    }
+
+    /**
+     * Восстановление состояния панели работы с данными из localStorage
+     */
+    /**
+     * Восстановление состояния панели статистики
+     */
+    restoreStatisticsPanelState() {
+        const content = document.getElementById('statisticsPanelContent');
+        const chevron = document.getElementById('statisticsPanelChevron');
+        
+        // Восстанавливаем состояние сворачивания панели (по умолчанию свернута)
+        const isCollapsed = localStorage.getItem('statisticsPanelCollapsed');
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (content && chevron) {
+            if (shouldCollapse) {
+                content.classList.add('hidden');
+                chevron.style.transform = 'rotate(-90deg)';
+            } else {
+                content.classList.remove('hidden');
+                chevron.style.transform = 'rotate(0deg)';
+                // Обновляем график если панель открыта
+                setTimeout(() => {
+                    this.updateSourcesChart();
+                }, 100);
+            }
+        }
+    }
+
+    restoreDataWorkPanelState() {
+        const content = document.getElementById('dataWorkPanelContent');
+        const chevron = document.getElementById('dataWorkPanelChevron');
+        
+        // Восстанавливаем состояние сворачивания панели
+        const isCollapsed = localStorage.getItem('dataWorkPanelCollapsed');
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (content && chevron) {
+            if (shouldCollapse) {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+            } else {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+        
+        // Восстанавливаем активный таб
+        const activeTab = localStorage.getItem('dataWorkActiveTab') || 'import-addresses';
+        this.switchDataWorkTab(activeTab);
+    }
+
+    /**
+     * Восстановление состояния панели карты области
+     */
+    restoreMapPanelState() {
+        const content = document.getElementById('mapPanelContent');
+        const chevron = document.getElementById('mapPanelChevron');
+        
+        // По умолчанию панель карты свернута
+        const isCollapsed = localStorage.getItem('mapPanelCollapsed');
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (content && chevron) {
+            if (shouldCollapse) {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+            } else {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+                // При разворачивании карты обновляем размер и зум
+                setTimeout(() => {
+                    if (this.map) {
+                        this.map.invalidateSize();
+                        // Восстанавливаем правильный зум на полигон области
+                        if (this.areaPolygonLayer) {
+                            this.map.fitBounds(this.areaPolygonLayer.getBounds());
+                        }
+                    }
+                }, 100);
+            }
+        }
+    }
+
+    /**
+     * Восстановление состояния панели управления дублями
+     */
+    restoreDuplicatesPanelState() {
+        const content = document.getElementById('duplicatesPanelContent');
+        const chevron = document.getElementById('duplicatesPanelChevron');
+        
+        // По умолчанию панель управления дублями свернута
+        const isCollapsed = localStorage.getItem('duplicatesPanelCollapsed');
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (content && chevron) {
+            if (shouldCollapse) {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+            } else {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+    }
+
+    /**
      * Инициализация фильтра адресов с SlimSelect
      */
     async initAddressFilter() {
@@ -5552,7 +5897,8 @@ class AreaPage {
         const colors = {
             success: 'bg-green-100 border-green-500 text-green-700',
             error: 'bg-red-100 border-red-500 text-red-700',
-            info: 'bg-blue-100 border-blue-500 text-blue-700'
+            info: 'bg-blue-100 border-blue-500 text-blue-700',
+            warning: 'bg-yellow-100 border-yellow-500 text-yellow-700'
         };
 
         notification.className = `border-l-4 p-4 mb-4 ${colors[type]} rounded shadow-lg`;
@@ -5579,723 +5925,6 @@ class AreaPage {
         }, 5000);
     }
 
-    // ===== МЕТОДЫ ДЛЯ РАБОТЫ С INPARS =====
-
-    /**
-     * Инициализация SlimSelect для категорий Inpars
-     */
-    initInparsCategoriesSlimSelect() {
-        try {
-            console.log('🔧 Начинаем инициализацию SlimSelect...');
-            
-            const selectElement = document.getElementById('inparsCategoriesSelect');
-            console.log('📋 Select элемент найден:', !!selectElement);
-            console.log('📦 SlimSelect загружен:', typeof SlimSelect !== 'undefined');
-            
-            if (!selectElement) {
-                console.error('❌ Элемент select с ID inparsCategoriesSelect не найден');
-                return;
-            }
-            
-            if (typeof SlimSelect === 'undefined') {
-                console.error('❌ Библиотека SlimSelect не загружена');
-                return;
-            }
-
-            // Если уже инициализирован, уничтожаем предыдущий экземпляр
-            if (this.inparsCategoriesSlimSelect) {
-                console.log('🗑️ Уничтожаем предыдущий экземпляр SlimSelect');
-                this.inparsCategoriesSlimSelect.destroy();
-            }
-
-            // Создаем новый экземпляр SlimSelect
-            console.log('⚙️ Создаем новый экземпляр SlimSelect...');
-            this.inparsCategoriesSlimSelect = new SlimSelect({
-                select: selectElement,
-                settings: {
-                    multiple: true,
-                    closeOnSelect: false,
-                    searchPlaceholder: 'Поиск категорий...',
-                    searchText: 'Не найдено',
-                    placeholderText: 'Выберите категории',
-                    allowDeselect: true,
-                    hideSelected: false
-                },
-                events: {
-                    beforeChange: (newVal, oldVal) => {
-                        console.log('Изменение выбора категорий:', newVal);
-                        return true;
-                    },
-                    afterChange: (newVal) => {
-                        this.onInparsCategoriesChange(newVal);
-                    }
-                }
-            });
-
-            console.log('✅ SlimSelect для категорий Inpars инициализирован');
-
-        } catch (error) {
-            console.error('❌ Ошибка инициализации SlimSelect:', error);
-        }
-    }
-
-    /**
-     * Обработчик изменения выбора категорий
-     */
-    onInparsCategoriesChange(selectedValues) {
-        console.log('Выбранные категории Inpars:', selectedValues);
-        // Здесь можно добавить дополнительную логику при изменении выбора
-        
-        // Обновляем счетчик выбранных категорий в UI если нужно
-        this.updateSelectedCategoriesCount(selectedValues.length);
-    }
-
-    /**
-     * Обновление счетчика выбранных категорий
-     */
-    updateSelectedCategoriesCount(count) {
-        // Можно добавить отображение количества выбранных категорий
-        // например, в label или отдельном элементе
-        const label = document.querySelector('label[for="inparsCategoriesSelect"]');
-        if (label) {
-            const baseText = 'Категории недвижимости';
-            if (count > 0) {
-                label.textContent = `${baseText} (выбрано: ${count})`;
-            } else {
-                label.textContent = baseText;
-            }
-        }
-    }
-
-    /**
-     * Очистка выбора категорий
-     */
-    clearSelectedCategories() {
-        if (this.inparsCategoriesSlimSelect) {
-            this.inparsCategoriesSlimSelect.setSelected([]);
-        }
-    }
-
-    /**
-     * Сворачивание/разворачивание панели Inpars
-     */
-    toggleInparsPanel() {
-        const content = document.getElementById('inparsPanelContent');
-        const chevron = document.getElementById('inparsPanelChevron');
-        
-        if (!content || !chevron) return;
-
-        const isHidden = content.style.display === 'none';
-        
-        if (isHidden) {
-            // Разворачиваем
-            content.style.display = 'block';
-            chevron.style.transform = 'rotate(0deg)';
-            localStorage.setItem('inparsPanelCollapsed', 'false');
-        } else {
-            // Сворачиваем
-            content.style.display = 'none';
-            chevron.style.transform = 'rotate(-90deg)';
-            localStorage.setItem('inparsPanelCollapsed', 'true');
-        }
-    }
-
-    /**
-     * Сворачивание/разворачивание таблицы адресов
-     */
-    toggleAddressTable() {
-        const content = document.getElementById('addressTableContent');
-        const chevron = document.getElementById('addressTableChevron');
-        
-        if (!content || !chevron) return;
-
-        const isHidden = content.style.display === 'none';
-        
-        if (isHidden) {
-            // Разворачиваем
-            content.style.display = 'block';
-            chevron.style.transform = 'rotate(0deg)';
-            localStorage.setItem('addressTableCollapsed', 'false');
-        } else {
-            // Сворачиваем
-            content.style.display = 'none';
-            chevron.style.transform = 'rotate(-90deg)';
-            localStorage.setItem('addressTableCollapsed', 'true');
-        }
-    }
-
-    /**
-     * Восстановление состояния таблицы адресов
-     */
-    restoreAddressTableState() {
-        const isCollapsed = localStorage.getItem('addressTableCollapsed');
-        // По умолчанию таблица адресов свёрнута
-        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
-        
-        if (shouldCollapse) {
-            const content = document.getElementById('addressTableContent');
-            const chevron = document.getElementById('addressTableChevron');
-            
-            if (content && chevron) {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-            }
-        }
-    }
-
-    /**
-     * Восстановление состояния панели Inpars
-     */
-    restoreInparsPanelState() {
-        const isCollapsed = localStorage.getItem('inparsPanelCollapsed') === 'true';
-        if (isCollapsed) {
-            const content = document.getElementById('inparsPanelContent');
-            const chevron = document.getElementById('inparsPanelChevron');
-            
-            if (content && chevron) {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-            }
-        }
-    }
-
-    /**
-     * Инициализация панели Inpars
-     */
-    async initInparsPanel() {
-        try {
-            // Инициализируем SlimSelect для категорий
-            this.initInparsCategoriesSlimSelect();
-            
-            // Загружаем категории в селектор
-            await this.loadInparsCategories();
-            
-            // Проверяем доступность API токена
-            await this.checkInparsToken();
-            
-        } catch (error) {
-            console.error('Ошибка инициализации панели Inpars:', error);
-        }
-    }
-
-    /**
-     * Загрузка категорий Inpars в селектор
-     */
-    async loadInparsCategories() {
-        try {
-            console.log('📂 Начинаем загрузку категорий Inpars...');
-            
-            if (!this.inparsCategoriesSlimSelect) {
-                console.warn('❌ SlimSelect не инициализирован');
-                return;
-            }
-
-            // Устанавливаем состояние загрузки
-            console.log('⏳ Устанавливаем состояние загрузки...');
-            this.inparsCategoriesSlimSelect.setData([
-                { text: 'Загрузка категорий...', value: '', disabled: true }
-            ]);
-
-            // Сначала проверяем все категории в базе
-            const totalCategories = await db.getInparsCategories();
-            console.log(`📊 Всего категорий в БД: ${totalCategories.length}`);
-            
-            if (totalCategories.length > 0) {
-                // Показываем структуру первой категории
-                console.log('🔍 Структура первой категории:', totalCategories[0]);
-                
-                // Анализируем поля (проверяем и snake_case и camelCase)
-                const sectionIds = [...new Set(totalCategories.map(cat => cat.section_id || cat.sectionId).filter(id => id !== null && id !== undefined))];
-                const typeIds = [...new Set(totalCategories.map(cat => cat.type_id || cat.typeId).filter(id => id !== null && id !== undefined))];
-                console.log('📈 Уникальные section_id/sectionId:', sectionIds);
-                console.log('📈 Уникальные type_id/typeId:', typeIds);
-            }
-
-            // Пробуем разные стратегии фильтрации
-            let allCategories = [];
-            
-            // 1. Пробуем двойную фильтрацию
-            console.log('🔎 Применяем фильтрацию по sectionId=1 и typeId=2...');
-            allCategories = await db.getInparsCategoriesBySectionAndType(1, 2);
-            console.log(`📋 Категории после двойной фильтрации: ${allCategories.length}`);
-            
-            // 2. Если нет результатов, пробуем только по section_id=1
-            if (allCategories.length === 0) {
-                console.log('⚠️ Нет категорий с двойной фильтрацией, пробуем только по section_id=1...');
-                allCategories = await db.getInparsCategoriesBySection(1);
-                console.log(`📋 Категории только по section_id=1: ${allCategories.length}`);
-            }
-            
-            // 3. Если всё ещё пустые, берем все категории
-            if (allCategories.length === 0) {
-                console.log('⚠️ Нет категорий даже по section_id=1, загружаем все категории...');
-                allCategories = await db.getInparsCategories();
-                console.log(`📋 Все категории из БД: ${allCategories.length}`);
-                
-                if (allCategories.length === 0) {
-                    this.inparsCategoriesSlimSelect.setData([
-                        { text: 'Категории не загружены. Импортируйте категории в настройках.', value: '', disabled: true }
-                    ]);
-                    return;
-                }
-            }
-
-            // Фильтруем категории с валидными именами (проверяем и name и title)
-            console.log('🧹 Фильтруем категории с валидными именами...');
-            const validCategories = allCategories.filter(category => {
-                const categoryName = category.name || category.title;
-                const isValid = categoryName && categoryName.trim() !== '';
-                if (!isValid) {
-                    console.log('❌ Категория с невалидным именем:', category);
-                }
-                return isValid;
-            });
-            console.log(`✅ Категории с валидными именами: ${validCategories.length}`);
-
-            if (validCategories.length === 0) {
-                this.inparsCategoriesSlimSelect.setData([
-                    { text: 'Нет подходящих категорий (sectionId=1, typeId=2)', value: '', disabled: true }
-                ]);
-                return;
-            }
-
-            // Строим иерархическую структуру
-            console.log('🏗️ Строим иерархическую структуру...');
-            const hierarchy = this.buildCategoryHierarchy(validCategories);
-            console.log('📊 Корневых категорий в иерархии:', hierarchy.length);
-            
-            // Подготавливаем данные для SlimSelect
-            console.log('⚙️ Подготавливаем данные для SlimSelect...');
-            const slimSelectData = this.prepareCategoriesForSlimSelect(hierarchy, 0);
-            console.log('📝 Подготовлено элементов для SlimSelect:', slimSelectData.length);
-            
-            // Добавляем опцию "Все категории" в начало
-            slimSelectData.unshift({
-                text: 'Все категории (показаны доступные)',
-                value: '',
-                selected: false
-            });
-
-            // Загружаем данные в SlimSelect
-            console.log('🔄 Загружаем данные в SlimSelect...');
-            this.inparsCategoriesSlimSelect.setData(slimSelectData);
-
-            console.log(`✅ Загружено ${validCategories.length} категорий Inpars`);
-
-        } catch (error) {
-            console.error('❌ Ошибка загрузки категорий Inpars:', error);
-            if (this.inparsCategoriesSlimSelect) {
-                this.inparsCategoriesSlimSelect.setData([
-                    { text: 'Ошибка загрузки категорий', value: '', disabled: true }
-                ]);
-            }
-        }
-    }
-
-    /**
-     * Построение иерархической структуры категорий
-     */
-    buildCategoryHierarchy(categories) {
-        const categoryMap = new Map();
-        const rootCategories = [];
-
-        // Создаем мапу всех категорий
-        categories.forEach(category => {
-            categoryMap.set(category.inpars_id, {
-                ...category,
-                children: []
-            });
-        });
-
-        // Строим иерархию
-        categories.forEach(category => {
-            const categoryNode = categoryMap.get(category.inpars_id);
-            
-            if (category.parent_id && categoryMap.has(category.parent_id)) {
-                // Добавляем к родительской категории
-                categoryMap.get(category.parent_id).children.push(categoryNode);
-            } else {
-                // Корневая категория
-                rootCategories.push(categoryNode);
-            }
-        });
-
-        return rootCategories;
-    }
-
-    /**
-     * Подготовка данных категорий для SlimSelect
-     */
-    prepareCategoriesForSlimSelect(categories, level) {
-        const data = [];
-        
-        categories.forEach(category => {
-            // Формируем текст с отступами для иерархии
-            const indent = '　'.repeat(level); // Используем широкий пробел для лучшего отображения
-            const categoryName = category.name || category.title;
-            let text = indent + categoryName;
-            
-            // Добавляем статус неактивной категории
-            const isActive = category.is_active !== false; // по умолчанию активна
-            if (!isActive) {
-                text += ' (неактивна)';
-            }
-            
-            data.push({
-                text: text,
-                value: category.inpars_id.toString(),
-                disabled: !isActive,
-                selected: false
-            });
-
-            // Рекурсивно добавляем дочерние категории
-            if (category.children && category.children.length > 0) {
-                const childrenData = this.prepareCategoriesForSlimSelect(category.children, level + 1);
-                data.push(...childrenData);
-            }
-        });
-        
-        return data;
-    }
-
-    /**
-     * Проверка доступности токена API Inpars
-     */
-    async checkInparsToken() {
-        try {
-            const token = await db.getSetting('inpars_api_token');
-            const statusElement = document.getElementById('inparsLoadStatus');
-            const loadButton = document.getElementById('loadInparsListingsBtn');
-
-            if (!token) {
-                if (statusElement) {
-                    statusElement.innerHTML = '<span class="text-red-600">⚠️ Токен API не настроен</span>';
-                }
-                if (loadButton) {
-                    loadButton.disabled = true;
-                    loadButton.textContent = 'Настройте токен API';
-                }
-                return false;
-            }
-
-            if (statusElement) {
-                statusElement.textContent = '✅ API готов к работе';
-                statusElement.className = 'text-sm text-green-600';
-            }
-            
-            // Обновляем статус в информационной панели
-            const apiStatusElement = document.getElementById('inparsApiStatus');
-            if (apiStatusElement) {
-                apiStatusElement.textContent = '✅ Активен';
-                apiStatusElement.className = 'font-medium text-green-600';
-            }
-            if (loadButton) {
-                loadButton.disabled = false;
-                loadButton.textContent = 'Загрузить объявления';
-            }
-
-            return true;
-
-        } catch (error) {
-            console.error('Ошибка проверки токена Inpars:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Основной метод загрузки объявлений из Inpars
-     */
-    async loadInparsListings() {
-        try {
-            // Проверяем готовность
-            if (!this.currentArea) {
-                this.showNotification('Область не загружена', 'error');
-                return;
-            }
-
-            if (!this.currentArea.polygon || this.currentArea.polygon.length < 3) {
-                this.showNotification('Полигон области не определен', 'error');
-                return;
-            }
-
-            const hasToken = await this.checkInparsToken();
-            if (!hasToken) {
-                this.showNotification('Токен API Inpars не настроен. Перейдите в настройки.', 'error');
-                return;
-            }
-
-            // Получаем выбранные категории
-            const selectedCategories = this.getSelectedCategories();
-            
-            // Получаем выбранные источники
-            const selectedSources = this.getSelectedSources();
-
-            console.log(`Начинаем импорт из Inpars:`, {
-                polygon: this.currentArea.polygon.length + ' точек',
-                categories: selectedCategories.length,
-                sources: selectedSources.length
-            });
-
-            // Показываем прогресс
-            this.showImportProgress('Подготовка к импорту...', 0);
-
-            // Запускаем импорт
-            const result = await window.inparsAPI.importAllListingsByPolygon(
-                this.currentArea.polygon,
-                selectedCategories,
-                selectedSources,
-                (progress) => this.updateImportProgress(progress)
-            );
-
-            if (result.success) {
-                // Обрабатываем полученные данные
-                await this.processInparsListings(result.listings);
-                
-                this.showNotification(
-                    `Импорт завершен! Загружено ${result.totalCount} объявлений за ${result.totalPages} страниц`, 
-                    'success'
-                );
-                
-                // Обновляем карту и таблицы
-                await this.refreshMapData();
-                
-            } else {
-                throw new Error(result.error);
-            }
-
-        } catch (error) {
-            console.error('Ошибка импорта из Inpars:', error);
-            this.showNotification(`Ошибка импорта: ${error.message}`, 'error');
-        } finally {
-            this.hideImportProgress();
-        }
-    }
-
-    /**
-     * Получение выбранных категорий
-     */
-    getSelectedCategories() {
-        if (this.inparsCategoriesSlimSelect) {
-            // Используем SlimSelect API для получения выбранных значений
-            const selected = this.inparsCategoriesSlimSelect.getSelected();
-            const values = selected.map(item => item.value).filter(value => value && value !== '');
-            
-            console.log(`📋 Выбрано категорий: ${values.length}`, values);
-            
-            return values;
-        } else {
-            // Fallback для обычного select элемента
-            const select = document.getElementById('inparsCategoriesSelect');
-            if (!select) return [];
-
-            const selectedOptions = Array.from(select.selectedOptions);
-            const values = selectedOptions.map(option => option.value).filter(value => value);
-            
-            console.log(`📋 Выбрано категорий (fallback): ${values.length}`, values);
-            
-            return values;
-        }
-    }
-
-    /**
-     * Получение выбранных источников
-     */
-    getSelectedSources() {
-        // Поскольку выбор источников убран из интерфейса, возвращаем все основные источники
-        return ['avito', 'cian'];
-    }
-
-    /**
-     * Показ прогресса импорта
-     */
-    showImportProgress(message, percentage = 0) {
-        const statusElement = document.getElementById('inparsStatus');
-        const loadButton = document.getElementById('loadInparsListingsBtn');
-        
-        if (statusElement) {
-            statusElement.innerHTML = `
-                <div class="flex items-center space-x-2">
-                    <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                    <span class="text-blue-600">${message}</span>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                    <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: ${percentage}%"></div>
-                </div>
-            `;
-        }
-        
-        if (loadButton) {
-            loadButton.disabled = true;
-            loadButton.textContent = 'Импорт...';
-        }
-    }
-
-    /**
-     * Обновление прогресса импорта
-     */
-    updateImportProgress(progress) {
-        // Элементы нового прогресс-бара
-        const progressContainer = document.getElementById('inparsLoadProgress');
-        const statusElement = document.getElementById('inparsLoadStatus');
-        const percentageElement = document.getElementById('inparsLoadPercentage');
-        const progressBar = document.getElementById('inparsProgressBar');
-        const currentPageElement = document.getElementById('inparsCurrentPage');
-        const loadedCountElement = document.getElementById('inparsLoadedCount');
-        const elapsedTimeElement = document.getElementById('inparsElapsedTime');
-        
-        if (!progressContainer || !statusElement) return;
-
-        // Показываем прогресс-бар при первом обновлении
-        if (progressContainer.classList.contains('hidden')) {
-            progressContainer.classList.remove('hidden');
-            this.importStartTime = Date.now();
-        }
-
-        if (progress.status === 'loading') {
-            // Обновляем статус
-            statusElement.textContent = progress.message || 'Загрузка объявлений...';
-            
-            // Примерный расчет процента (не можем знать точно сколько страниц будет)
-            const estimatedProgress = Math.min((progress.page * 15), 85); // До 85% пока не завершится
-            
-            if (percentageElement) {
-                percentageElement.textContent = `${Math.round(estimatedProgress)}%`;
-            }
-            
-            if (progressBar) {
-                progressBar.style.width = `${estimatedProgress}%`;
-            }
-            
-            // Обновляем статистику
-            if (currentPageElement) {
-                currentPageElement.textContent = progress.page || 1;
-            }
-            
-            if (loadedCountElement) {
-                loadedCountElement.textContent = progress.totalLoaded || 0;
-            }
-            
-            // Рассчитываем время
-            if (elapsedTimeElement && this.importStartTime) {
-                const elapsed = Math.floor((Date.now() - this.importStartTime) / 1000);
-                elapsedTimeElement.textContent = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed/60)}m ${elapsed%60}s`;
-            }
-            
-        } else if (progress.status === 'completed') {
-            // Завершение загрузки
-            statusElement.textContent = progress.message || 'Загрузка завершена';
-            
-            if (percentageElement) {
-                percentageElement.textContent = '100%';
-            }
-            
-            if (progressBar) {
-                progressBar.style.width = '100%';
-                progressBar.classList.remove('bg-blue-600');
-                progressBar.classList.add('bg-green-600');
-            }
-            
-            // Скрываем прогресс через 3 секунды
-            setTimeout(() => {
-                progressContainer.classList.add('hidden');
-                // Сбрасываем стили
-                if (progressBar) {
-                    progressBar.style.width = '0%';
-                    progressBar.classList.remove('bg-green-600');
-                    progressBar.classList.add('bg-blue-600');
-                }
-            }, 3000);
-            
-        } else if (progress.status === 'error') {
-            // Ошибка загрузки
-            statusElement.textContent = progress.message || 'Ошибка загрузки';
-            
-            if (progressBar) {
-                progressBar.classList.remove('bg-blue-600');
-                progressBar.classList.add('bg-red-600');
-            }
-            
-            // Скрываем прогресс через 5 секунд
-            setTimeout(() => {
-                progressContainer.classList.add('hidden');
-                // Сбрасываем стили
-                if (progressBar) {
-                    progressBar.style.width = '0%';
-                    progressBar.classList.remove('bg-red-600');
-                    progressBar.classList.add('bg-blue-600');
-                }
-            }, 5000);
-        }
-    }
-
-    /**
-     * Скрытие прогресса импорта
-     */
-    hideImportProgress() {
-        const statusElement = document.getElementById('inparsStatus');
-        const loadButton = document.getElementById('loadInparsListingsBtn');
-        
-        if (statusElement) {
-            statusElement.innerHTML = '<span class="text-green-600">✅ API готов к работе</span>';
-        }
-        
-        if (loadButton) {
-            loadButton.disabled = false;
-            loadButton.textContent = 'Загрузить объявления';
-        }
-    }
-
-    /**
-     * Обработка полученных объявлений из Inpars
-     */
-    async processInparsListings(inparsListings) {
-        try {
-            let imported = 0;
-            let updated = 0;
-            let errors = 0;
-
-            for (const inparsListing of inparsListings) {
-                try {
-                    // Конвертируем данные Inpars в модель расширения
-                    const listing = ListingModel.fromInparsAPI(inparsListing);
-                    
-                    // Проверяем, существует ли уже такое объявление
-                    const existingListing = await db.getListingByExternalId(listing.source, listing.external_id);
-                    
-                    if (existingListing) {
-                        // Обновляем существующее объявление если данные новее
-                        const existingDate = new Date(existingListing.last_update_date);
-                        const newDate = new Date(listing.last_update_date);
-                        
-                        if (newDate > existingDate) {
-                            listing.id = existingListing.id;
-                            listing.address_id = existingListing.address_id;
-                            listing.created_at = existingListing.created_at;
-                            
-                            await db.updateListing(listing);
-                            updated++;
-                        }
-                    } else {
-                        // Добавляем новое объявление
-                        await db.addListing(listing);
-                        imported++;
-                    }
-                    
-                } catch (error) {
-                    console.error('Ошибка обработки объявления:', error);
-                    errors++;
-                }
-            }
-
-            console.log(`Обработка завершена: импортировано ${imported}, обновлено ${updated}, ошибок ${errors}`);
-            
-            return { imported, updated, errors };
-
-        } catch (error) {
-            console.error('Ошибка обработки объявлений Inpars:', error);
-            throw error;
-        }
-    }
 
     /**
      * Показать детали объявления в модальном окне
@@ -7613,6 +7242,613 @@ class AreaPage {
             content.style.display = 'none';
             chevron.style.transform = 'rotate(-90deg)';
         }
+    }
+
+    /**
+     * Удаление объявлений из области через таб "Удаление данных"
+     */
+    async deleteDataFromTab() {
+        try {
+            // Проверяем что область существует
+            if (!this.currentArea || !this.currentAreaId) {
+                this.showError('Область не загружена');
+                return;
+            }
+
+            // Показываем прогресс-бар
+            this.showProgressBar('delete-data');
+            this.updateProgressBar('delete-data', 10, 'Загрузка данных...');
+
+            // Загружаем все объявления
+            const allListings = await db.getListings();
+            
+            // Фильтруем объявления, входящие в полигон области
+            const listingsInArea = allListings.filter(listing => {
+                if (!listing.coordinates || !listing.coordinates.lat || !(listing.coordinates.lng || listing.coordinates.lon)) {
+                    return false;
+                }
+                
+                const lat = listing.coordinates.lat;
+                const lng = listing.coordinates.lng || listing.coordinates.lon;
+                
+                return this.currentArea.containsPoint(lat, lng);
+            });
+
+            this.updateProgressBar('delete-data', 30, 'Подготовка к удалению...');
+
+            if (listingsInArea.length === 0) {
+                this.hideProgressBar('delete-data');
+                this.showInfo('В области нет объявлений для удаления');
+                return;
+            }
+
+            // Показываем диалог подтверждения
+            const confirmed = confirm(
+                `Вы действительно хотите удалить ${listingsInArea.length} объявлений из области "${this.currentArea.name}"?\n\n` +
+                `Это действие нельзя отменить.`
+            );
+
+            if (!confirmed) {
+                this.hideProgressBar('delete-data');
+                return;
+            }
+
+            this.updateProgressBar('delete-data', 50, 'Удаление объявлений...');
+
+            // Удаляем объявления
+            let deletedCount = 0;
+            let errorCount = 0;
+            const totalCount = listingsInArea.length;
+
+            for (let i = 0; i < listingsInArea.length; i++) {
+                const listing = listingsInArea[i];
+                try {
+                    await db.delete('listings', listing.id);
+                    deletedCount++;
+                    
+                    // Обновляем прогресс
+                    const progress = 50 + (i + 1) / totalCount * 40; // от 50% до 90%
+                    this.updateProgressBar('delete-data', progress, `Удалено ${deletedCount} из ${totalCount}`);
+                    
+                } catch (error) {
+                    console.error(`Ошибка удаления объявления ${listing.id}:`, error);
+                    errorCount++;
+                }
+            }
+
+            this.updateProgressBar('delete-data', 95, 'Обновление интерфейса...');
+
+            // Обновляем карту и таблицы
+            await this.loadMapData();
+            if (this.duplicatesTable) {
+                await this.loadDuplicatesTable();
+            }
+
+            this.updateProgressBar('delete-data', 100, 'Удаление завершено');
+
+            // Показываем результат
+            if (errorCount === 0) {
+                this.showSuccess(`Успешно удалено ${deletedCount} объявлений из области`);
+            } else {
+                this.showWarning(`Удалено ${deletedCount} объявлений, ошибок: ${errorCount}`);
+            }
+
+            console.log(`🗑️ Удалено объявлений: ${deletedCount}, ошибок: ${errorCount}`);
+
+            // Скрываем прогресс-бар через 2 секунды
+            setTimeout(() => {
+                this.hideProgressBar('delete-data');
+            }, 2000);
+
+        } catch (error) {
+            console.error('Ошибка удаления объявлений:', error);
+            this.hideProgressBar('delete-data');
+            this.showError(`Ошибка удаления объявлений: ${error.message}`);
+        }
+    }
+
+    /**
+     * Обновление графика источников объявлений
+     */
+    async updateSourcesChart() {
+        try {
+            // Получаем все объявления
+            const allListings = await db.getListings();
+            
+            // Фильтруем только объявления в текущей области
+            const listings = await this.getListingsInArea();
+            
+            console.log(`📊 Обновление графика источников: ${listings.length} объявлений в области`);
+            
+            if (listings.length === 0) {
+                // Если нет объявлений в области, очищаем график
+                this.renderSourcesChart([], []);
+                this.updateSourcesTable([]);
+                return;
+            }
+            
+            // Подсчитываем объявления по источникам
+            const sourceCounts = {};
+            const sourceNames = {
+                'avito.ru': 'Avito',
+                'avito': 'Avito',
+                'cian.ru': 'Cian',
+                'cian': 'Cian',
+                'yandex.ru': 'Яндекс.Недвижимость',
+                'yandex': 'Яндекс.Недвижимость',
+                'domclick.ru': 'Domclick',
+                'domclick': 'Domclick',
+                'inpars': 'Inpars (агрегатор)',
+                'manual': 'Вручную',
+                'unknown': 'Неизвестно'
+            };
+
+            listings.forEach(listing => {
+                // Определяем источник с приоритетом оригинального источника
+                let displaySource = 'unknown';
+                
+                if (listing.source_metadata && listing.source_metadata.original_source) {
+                    displaySource = listing.source_metadata.original_source;
+                } else if (listing.source) {
+                    displaySource = listing.source;
+                }
+                
+                // Группируем однотипные источники
+                if (displaySource.includes('avito')) {
+                    displaySource = 'avito';
+                } else if (displaySource.includes('cian')) {
+                    displaySource = 'cian';
+                } else if (displaySource.includes('yandex')) {
+                    displaySource = 'yandex';
+                } else if (displaySource.includes('domclick')) {
+                    displaySource = 'domclick';
+                }
+                
+                sourceCounts[displaySource] = (sourceCounts[displaySource] || 0) + 1;
+            });
+
+            // Подготавливаем данные для графика
+            const chartData = [];
+            const tableData = [];
+            const colors = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+            
+            let colorIndex = 0;
+            const totalListings = listings.length;
+            
+            console.log('📈 Подсчет источников:', sourceCounts);
+            
+            // Сортируем источники по количеству объявлений (убывание)
+            const sortedSources = Object.entries(sourceCounts)
+                .sort(([,a], [,b]) => b - a);
+            
+            sortedSources.forEach(([source, count]) => {
+                const displayName = sourceNames[source] || source;
+                const percentage = totalListings > 0 ? ((count / totalListings) * 100).toFixed(1) : 0;
+                
+                chartData.push({
+                    name: displayName,
+                    data: count
+                });
+                
+                tableData.push({
+                    source: displayName,
+                    count: count,
+                    percentage: percentage,
+                    color: colors[colorIndex % colors.length]
+                });
+                
+                colorIndex++;
+            });
+
+            // Создаем/обновляем график
+            this.renderSourcesChart(chartData, colors);
+            
+            // Обновляем таблицу
+            this.updateSourcesTable(tableData);
+            
+        } catch (error) {
+            console.error('Ошибка обновления графика источников:', error);
+        }
+    }
+
+    /**
+     * Отрисовка графика источников
+     */
+    renderSourcesChart(data, colors) {
+        const chartElement = document.getElementById('sourcesChart');
+        if (!chartElement) return;
+
+        // Если график уже существует, уничтожаем его
+        if (this.sourcesChartInstance) {
+            this.sourcesChartInstance.destroy();
+        }
+
+        if (data.length === 0) {
+            chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Нет данных для отображения</div>';
+            return;
+        }
+
+        const options = {
+            series: data.map(item => item.data),
+            chart: {
+                type: 'pie',
+                height: 320,
+                toolbar: {
+                    show: false
+                }
+            },
+            labels: data.map(item => item.name),
+            colors: colors,
+            legend: {
+                position: 'bottom',
+                horizontalAlign: 'center'
+            },
+            plotOptions: {
+                pie: {
+                    donut: {
+                        size: '45%'
+                    }
+                }
+            },
+            dataLabels: {
+                enabled: true,
+                formatter: function(val, opts) {
+                    return Math.round(val) + '%';
+                }
+            },
+            tooltip: {
+                y: {
+                    formatter: function(val) {
+                        return val + ' объявлений';
+                    }
+                }
+            },
+            responsive: [{
+                breakpoint: 480,
+                options: {
+                    chart: {
+                        height: 300
+                    },
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }]
+        };
+
+        try {
+            this.sourcesChartInstance = new ApexCharts(chartElement, options);
+            this.sourcesChartInstance.render().catch(error => {
+                console.error('Ошибка рендеринга графика источников:', error);
+                chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка загрузки графика источников</div>';
+            });
+        } catch (error) {
+            console.error('Ошибка создания графика источников:', error);
+            chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка создания графика источников</div>';
+        }
+    }
+
+    /**
+     * Обновление таблицы источников
+     */
+    updateSourcesTable(data) {
+        const tableElement = document.getElementById('sourcesTable');
+        if (!tableElement) return;
+
+        if (data.length === 0) {
+            tableElement.innerHTML = '<div class="text-sm text-gray-500">Нет данных</div>';
+            return;
+        }
+
+        const tableHTML = data.map(item => `
+            <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                <div class="flex items-center">
+                    <div class="w-3 h-3 rounded-full mr-3" style="background-color: ${item.color}"></div>
+                    <span class="text-sm font-medium text-gray-900">${item.source}</span>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm font-semibold text-gray-900">${item.count}</div>
+                    <div class="text-xs text-gray-500">${item.percentage}%</div>
+                </div>
+            </div>
+        `).join('');
+
+        tableElement.innerHTML = tableHTML;
+    }
+
+    /**
+     * Обновление графиков аналитики определения адресов
+     */
+    async updateAddressAnalyticsCharts() {
+        try {
+            // Получаем объявления в области
+            const listings = await this.getListingsInArea();
+            
+            console.log(`📍 Анализ определения адресов: ${listings.length} объявлений в области`);
+            
+            if (listings.length === 0) {
+                // Если нет объявлений, очищаем все графики
+                this.renderAddressConfidenceChart([]);
+                this.renderAddressMethodsChart([]);
+                this.updateAddressStatsTable({});
+                return;
+            }
+            
+            // Анализируем данные по определению адресов
+            const analytics = this.analyzeAddressDetectionData(listings);
+            
+            // Обновляем все графики с задержками для избежания конфликтов
+            this.renderAddressConfidenceChart(analytics.confidenceData);
+            
+            setTimeout(() => {
+                this.renderAddressMethodsChart(analytics.methodsData);
+            }, 200);
+            
+            this.updateAddressStatsTable(analytics.stats);
+            
+        } catch (error) {
+            console.error('Ошибка обновления графиков определения адресов:', error);
+        }
+    }
+
+    /**
+     * Анализ данных по определению адресов
+     */
+    analyzeAddressDetectionData(listings) {
+        const stats = {
+            total: listings.length,
+            withAddresses: 0,
+            withoutAddresses: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+            veryLow: 0,
+            manual: 0,
+            noMatch: 0
+        };
+        
+        const confidenceCounts = {};
+        const methodCounts = {};
+        
+        listings.forEach(listing => {
+            if (listing.address_id) {
+                stats.withAddresses++;
+                
+                const confidence = listing.address_match_confidence || 'unknown';
+                const method = listing.address_match_method || 'unknown';
+                
+                // Подсчет по уровням точности
+                switch (confidence) {
+                    case 'high':
+                        stats.high++;
+                        break;
+                    case 'medium':
+                        stats.medium++;
+                        break;
+                    case 'low':
+                        stats.low++;
+                        break;
+                    case 'very_low':
+                        stats.veryLow++;
+                        break;
+                    case 'manual':
+                        stats.manual++;
+                        break;
+                    default:
+                        stats.noMatch++;
+                }
+                
+                // Подсчет по методам
+                methodCounts[method] = (methodCounts[method] || 0) + 1;
+                confidenceCounts[confidence] = (confidenceCounts[confidence] || 0) + 1;
+            } else {
+                stats.withoutAddresses++;
+                stats.noMatch++;
+                confidenceCounts['no_address'] = (confidenceCounts['no_address'] || 0) + 1;
+            }
+        });
+        
+        // Подготовка данных для графиков
+        const confidenceData = this.prepareConfidenceChartData(confidenceCounts, stats.total);
+        const methodsData = this.prepareMethodsChartData(methodCounts);
+        
+        return {
+            stats,
+            confidenceData,
+            methodsData
+        };
+    }
+
+    /**
+     * Подготовка данных для графика точности
+     */
+    prepareConfidenceChartData(counts, total) {
+        const labels = {
+            'high': 'Высокая',
+            'medium': 'Средняя', 
+            'low': 'Низкая',
+            'very_low': 'Очень низкая',
+            'manual': 'Вручную',
+            'no_address': 'Не определен'
+        };
+        
+        const colors = {
+            'high': '#10b981',
+            'medium': '#f59e0b',
+            'low': '#ef4444',
+            'very_low': '#dc2626',
+            'manual': '#8b5cf6',
+            'no_address': '#6b7280'
+        };
+        
+        return Object.entries(counts).map(([confidence, count]) => ({
+            name: labels[confidence] || confidence,
+            value: count,
+            percentage: total > 0 ? ((count / total) * 100).toFixed(1) : 0,
+            color: colors[confidence] || '#6b7280'
+        })).sort((a, b) => b.value - a.value);
+    }
+
+    /**
+     * Подготовка данных для графика методов
+     */
+    prepareMethodsChartData(counts) {
+        const labels = {
+            'exact_geo': 'Точное совпадение',
+            'near_geo_text': 'Близкое + текст',
+            'extended_geo_text': 'Расширенный поиск',
+            'global_text': 'Текстовый поиск',
+            'manual_selection': 'Ручной выбор',
+            'unknown': 'Неизвестно'
+        };
+        
+        return Object.entries(counts).map(([method, count]) => ({
+            name: labels[method] || method,
+            value: count
+        })).sort((a, b) => b.value - a.value);
+    }
+
+
+    /**
+     * Отрисовка графика точности определения
+     */
+    renderAddressConfidenceChart(data) {
+        const chartElement = document.getElementById('addressConfidenceChart');
+        if (!chartElement) return;
+
+        if (this.addressConfidenceChartInstance) {
+            this.addressConfidenceChartInstance.destroy();
+        }
+
+        if (data.length === 0) {
+            chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Нет данных</div>';
+            return;
+        }
+
+        const options = {
+            series: data.map(item => item.value),
+            chart: {
+                type: 'pie',
+                height: 250
+            },
+            labels: data.map(item => item.name),
+            colors: data.map(item => item.color),
+            legend: {
+                position: 'bottom',
+                fontSize: '12px'
+            },
+            dataLabels: {
+                enabled: true,
+                formatter: function(val) {
+                    return Math.round(val) + '%';
+                }
+            },
+            tooltip: {
+                y: {
+                    formatter: function(val) {
+                        return val + ' объявлений';
+                    }
+                }
+            }
+        };
+
+        this.addressConfidenceChartInstance = new ApexCharts(chartElement, options);
+        this.addressConfidenceChartInstance.render();
+    }
+
+    /**
+     * Отрисовка графика методов определения
+     */
+    renderAddressMethodsChart(data) {
+        const chartElement = document.getElementById('addressMethodsChart');
+        if (!chartElement) return;
+
+        if (this.addressMethodsChartInstance) {
+            this.addressMethodsChartInstance.destroy();
+        }
+
+        if (data.length === 0) {
+            chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Нет данных</div>';
+            return;
+        }
+
+        const options = {
+            series: [{
+                data: data.map(item => item.value)
+            }],
+            chart: {
+                type: 'bar',
+                height: 250,
+                horizontal: true
+            },
+            xaxis: {
+                categories: data.map(item => item.name)
+            },
+            colors: ['#0ea5e9'],
+            dataLabels: {
+                enabled: false
+            },
+            tooltip: {
+                y: {
+                    formatter: function(val) {
+                        return val + ' объявлений';
+                    }
+                }
+            }
+        };
+
+        this.addressMethodsChartInstance = new ApexCharts(chartElement, options);
+        this.addressMethodsChartInstance.render();
+    }
+
+
+    /**
+     * Обновление таблицы статистики адресов
+     */
+    updateAddressStatsTable(stats) {
+        const tableElement = document.getElementById('addressStatsTable');
+        if (!tableElement) return;
+
+        if (!stats || stats.total === 0) {
+            tableElement.innerHTML = '<div class="text-sm text-gray-500">Нет данных</div>';
+            return;
+        }
+
+        const tableHTML = `
+            <div class="space-y-2">
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Всего объявлений:</span>
+                    <span class="font-semibold text-gray-900">${stats.total}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">С адресами:</span>
+                    <span class="font-semibold text-green-600">${stats.withAddresses}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Без адресов:</span>
+                    <span class="font-semibold text-red-600">${stats.withoutAddresses}</span>
+                </div>
+                <hr class="border-gray-200">
+                <div class="flex justify-between text-sm">
+                    <span class="text-green-600">Высокая точность:</span>
+                    <span class="font-semibold">${stats.high}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-yellow-600">Средняя точность:</span>
+                    <span class="font-semibold">${stats.medium}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-red-600">Низкая точность:</span>
+                    <span class="font-semibold">${stats.low + stats.veryLow}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-purple-600">Вручную:</span>
+                    <span class="font-semibold">${stats.manual}</span>
+                </div>
+            </div>
+        `;
+
+        tableElement.innerHTML = tableHTML;
     }
 
 }

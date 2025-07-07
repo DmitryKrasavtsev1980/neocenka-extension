@@ -6,7 +6,7 @@
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 11; // Увеличиваем версию для добавления полей точности определения адреса
+    this.version = 12; // Версия 12: унифицированная структура данных для всех источников
     this.db = null;
   }
 
@@ -25,6 +25,13 @@ class NeocenkaDB {
       request.onsuccess = async () => {
         this.db = request.result;
         // console.log('Database opened successfully');
+        
+        // Запускаем миграцию данных к версии 12 (если необходимо)
+        try {
+          await this.migrateListingsToV12();
+        } catch (error) {
+          console.warn('Warning: Could not migrate data to version 12:', error);
+        }
         
         // Инициализируем справочники по умолчанию с задержкой
         try {
@@ -82,11 +89,13 @@ class NeocenkaDB {
       subsegmentsStore.createIndex('created_at', 'created_at', { unique: false });
     }
 
-    // Listings store (принудительное пересоздание для новых индексов)
+    // Listings store (версия 12: унифицированная структура данных)
     if (this.db.objectStoreNames.contains('listings')) {
       this.db.deleteObjectStore('listings');
     }
     const listingsStore = this.db.createObjectStore('listings', { keyPath: 'id' });
+    
+    // Основные индексы (совместимость с версией 11)
     listingsStore.createIndex('address_id', 'address_id', { unique: false });
     listingsStore.createIndex('external_id', 'external_id', { unique: false });
     listingsStore.createIndex('source', 'source', { unique: false });
@@ -96,8 +105,23 @@ class NeocenkaDB {
     listingsStore.createIndex('price', 'price', { unique: false });
     listingsStore.createIndex('property_type', 'property_type', { unique: false });
 
-    // Составной индекс для поиска дублей
+    // Новые индексы для полей версии 12
+    listingsStore.createIndex('region_id', 'region_id', { unique: false });
+    listingsStore.createIndex('city_id', 'city_id', { unique: false });
+    listingsStore.createIndex('metro_id', 'metro_id', { unique: false });
+    listingsStore.createIndex('operation_type', 'operation_type', { unique: false });
+    listingsStore.createIndex('section_id', 'section_id', { unique: false });
+    listingsStore.createIndex('category_id', 'category_id', { unique: false });
+    listingsStore.createIndex('original_source_id', 'original_source_id', { unique: false });
+    listingsStore.createIndex('is_new_building', 'is_new_building', { unique: false });
+    listingsStore.createIndex('is_apartments', 'is_apartments', { unique: false });
+    listingsStore.createIndex('parsed_at', 'parsed_at', { unique: false });
+
+    // Составные индексы для эффективного поиска
     listingsStore.createIndex('source_external', ['source', 'external_id'], { unique: false });
+    listingsStore.createIndex('operation_property', ['operation_type', 'property_type'], { unique: false });
+    listingsStore.createIndex('region_city', ['region_id', 'city_id'], { unique: false });
+    listingsStore.createIndex('source_metadata_original', ['source_metadata.original_source'], { unique: false });
 
     // Objects store (обновленная структура)
     if (!this.db.objectStoreNames.contains('objects')) {
@@ -155,6 +179,122 @@ class NeocenkaDB {
     }
 
     // console.log('Database stores created/updated');
+  }
+
+  /**
+   * Миграция данных объявлений к версии 12
+   */
+  async migrateListingsToV12() {
+    try {
+      const existingListings = await this.getAll('listings');
+      if (existingListings.length === 0) return;
+
+      console.log(`Starting migration of ${existingListings.length} listings to version 12`);
+      let migratedCount = 0;
+
+      for (const listing of existingListings) {
+        try {
+          // Проверяем, нужна ли миграция (если новые поля уже есть, пропускаем)
+          if (listing.source_metadata) continue;
+
+          // Создаем новые поля для объявления
+          const migratedListing = { ...listing };
+
+          // Нормализуем координаты к стандарту GeoJSON
+          if (listing.coordinates && listing.coordinates.lon !== undefined) {
+            migratedListing.coordinates = {
+              lat: listing.coordinates.lat,
+              lng: listing.coordinates.lon // lon -> lng
+            };
+          }
+
+          // Добавляем новые поля с дефолтными значениями
+          migratedListing.region_id = null;
+          migratedListing.city_id = null;
+          migratedListing.metro_id = null;
+          migratedListing.operation_type = 'sale'; // По умолчанию продажа
+          migratedListing.section_id = null;
+          migratedListing.category_id = null;
+          migratedListing.original_source_id = listing.external_id;
+          migratedListing.phone_protected = null;
+          migratedListing.is_new_building = null;
+          migratedListing.is_apartments = null;
+
+          // Создаем house_details из существующих данных
+          migratedListing.house_details = {
+            build_year: listing.year_built || null,
+            cargo_lifts: null,
+            passenger_lifts: null,
+            material: listing.house_type || null
+          };
+
+          // Добавляем поля специфичные для Avito
+          migratedListing.renovation_type = listing.condition || null;
+          migratedListing.bathroom_details = listing.bathroom_type || null;
+          migratedListing.balcony_details = listing.has_balcony || null;
+          migratedListing.parsed_at = listing.created_at;
+
+          // Создаем унифицированную информацию о продавце
+          migratedListing.seller_info = {
+            name: listing.seller_name || null,
+            type: this.normalizeLegacySellerType(listing.seller_type),
+            is_agent: this.isLegacySellerAgent(listing.seller_type),
+            phone: listing.phone || null,
+            phone_protected: null
+          };
+
+          // Создаем метаданные источника
+          migratedListing.source_metadata = {
+            original_source: listing.source || 'unknown',
+            source_method: 'parser', // Большинство существующих данных от парсера
+            original_id: listing.external_id,
+            source_internal_id: null,
+            import_date: listing.created_at || new Date(),
+            last_sync_date: null,
+            sync_errors: []
+          };
+
+          // Обновляем запись в БД
+          await this.update('listings', migratedListing);
+          migratedCount++;
+
+        } catch (error) {
+          console.warn(`Failed to migrate listing ${listing.id}:`, error);
+        }
+      }
+
+      console.log(`Successfully migrated ${migratedCount} listings to version 12`);
+      
+    } catch (error) {
+      console.error('Failed to migrate listings to version 12:', error);
+    }
+  }
+
+  /**
+   * Нормализация устаревших типов продавцов
+   */
+  normalizeLegacySellerType(legacyType) {
+    if (!legacyType) return 'unknown';
+    
+    const type = legacyType.toLowerCase();
+    if (type === 'частное лицо' || type === 'owner') {
+      return 'owner';
+    } else if (type.includes('агент') || type === 'agent') {
+      return 'agent';
+    } else if (type.includes('агентство') || type === 'agency') {
+      return 'agency';
+    }
+    return 'agent'; // По умолчанию агент
+  }
+
+  /**
+   * Определение является ли продавец агентом по устаревшему типу
+   */
+  isLegacySellerAgent(legacyType) {
+    if (!legacyType) return true;
+    
+    const type = legacyType.toLowerCase();
+    return !(type === 'частное лицо' || type === 'owner');
   }
 
   /**
