@@ -43,6 +43,8 @@ async function loadServiceSettings() {
                 'parsing_delay_cian'
             ]);
             
+            console.log('🔍 Debug chrome.storage result:', result);
+            
             return {
                 inparsToken: result.inpars_api_token || '',
                 inparsEnabledSources: result.inpars_enabled_sources || ['avito', 'cian'],
@@ -76,6 +78,11 @@ async function loadServiceSettings() {
 async function createServiceConfig() {
     const settings = await loadServiceSettings();
     
+    console.log('🔍 Debug service config creation:', {
+        inparsToken: settings.inparsToken ? '***set***' : 'empty',
+        inparsEnabledSources: settings.inparsEnabledSources
+    });
+
     return {
         // Внешние API сервисы
         inpars: {

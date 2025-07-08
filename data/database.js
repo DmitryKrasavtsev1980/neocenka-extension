@@ -6,7 +6,7 @@
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 12; // Версия 12: унифицированная структура данных для всех источников
+    this.version = 14; // Версия 14: добавлены индексы для дат создания и обновления объявлений
     this.db = null;
   }
 
@@ -26,11 +26,11 @@ class NeocenkaDB {
         this.db = request.result;
         // console.log('Database opened successfully');
         
-        // Запускаем миграцию данных к версии 12 (если необходимо)
+        // Запускаем миграцию данных к версии 14 (если необходимо)
         try {
-          await this.migrateListingsToV12();
+          await this.migrateListingsToV14();
         } catch (error) {
-          console.warn('Warning: Could not migrate data to version 12:', error);
+          console.warn('Warning: Could not migrate data to version 14:', error);
         }
         
         // Инициализируем справочники по умолчанию с задержкой
@@ -89,7 +89,7 @@ class NeocenkaDB {
       subsegmentsStore.createIndex('created_at', 'created_at', { unique: false });
     }
 
-    // Listings store (версия 12: унифицированная структура данных)
+    // Listings store (версия 14: добавлены индексы для дат объявлений)
     if (this.db.objectStoreNames.contains('listings')) {
       this.db.deleteObjectStore('listings');
     }
@@ -122,6 +122,17 @@ class NeocenkaDB {
     listingsStore.createIndex('operation_property', ['operation_type', 'property_type'], { unique: false });
     listingsStore.createIndex('region_city', ['region_id', 'city_id'], { unique: false });
     listingsStore.createIndex('source_metadata_original', ['source_metadata.original_source'], { unique: false });
+    
+    // Индекс для поиска дублей по URL (уникальный идентификатор объявления)
+    listingsStore.createIndex('url', 'url', { unique: false });
+    
+    // Индексы для дат объявлений из внешних источников (версия 14)
+    listingsStore.createIndex('listing_created_date', 'listing_created_date', { unique: false });
+    listingsStore.createIndex('listing_updated_date', 'listing_updated_date', { unique: false });
+    
+    // Составные индексы для анализа по датам
+    listingsStore.createIndex('source_created', ['source', 'listing_created_date'], { unique: false });
+    listingsStore.createIndex('source_updated', ['source', 'listing_updated_date'], { unique: false });
 
     // Objects store (обновленная структура)
     if (!this.db.objectStoreNames.contains('objects')) {
@@ -182,20 +193,20 @@ class NeocenkaDB {
   }
 
   /**
-   * Миграция данных объявлений к версии 12
+   * Миграция данных объявлений к версии 14
    */
-  async migrateListingsToV12() {
+  async migrateListingsToV14() {
     try {
       const existingListings = await this.getAll('listings');
       if (existingListings.length === 0) return;
 
-      console.log(`Starting migration of ${existingListings.length} listings to version 12`);
+      console.log(`Starting migration of ${existingListings.length} listings to version 14`);
       let migratedCount = 0;
 
       for (const listing of existingListings) {
         try {
           // Проверяем, нужна ли миграция (если новые поля уже есть, пропускаем)
-          if (listing.source_metadata) continue;
+          if (listing.source_metadata && listing.listing_created_date) continue;
 
           // Создаем новые поля для объявления
           const migratedListing = { ...listing };
@@ -263,10 +274,10 @@ class NeocenkaDB {
         }
       }
 
-      console.log(`Successfully migrated ${migratedCount} listings to version 12`);
+      console.log(`Successfully migrated ${migratedCount} listings to version 14`);
       
     } catch (error) {
-      console.error('Failed to migrate listings to version 12:', error);
+      console.error('Failed to migrate listings to version 14:', error);
     }
   }
 
@@ -590,6 +601,51 @@ class NeocenkaDB {
     });
   }
 
+  /**
+   * Поиск объявления по URL (более надежный способ для избежания дублей)
+   */
+  async getListingByUrl(url) {
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = this.db.transaction(['listings'], 'readonly');
+        const store = transaction.objectStore('listings');
+        
+        // Проверяем существование индекса
+        if (!store.indexNames.contains('url')) {
+          console.warn('⚠️ URL index not found, falling back to getListingByExternalId');
+          // Фолбек: ищем по всем записям (медленно, но работает)
+          const getAllRequest = store.getAll();
+          getAllRequest.onsuccess = () => {
+            const allListings = getAllRequest.result || [];
+            const foundListing = allListings.find(listing => listing.url === url);
+            resolve(foundListing || null);
+          };
+          getAllRequest.onerror = () => {
+            console.error('❌ Database: Ошибка получения всех объявлений:', getAllRequest.error);
+            reject(getAllRequest.error);
+          };
+          return;
+        }
+        
+        const index = store.index('url');
+        const request = index.get(url);
+
+        request.onsuccess = () => {
+          const result = request.result || null;
+          resolve(result);
+        };
+
+        request.onerror = () => {
+          console.error('❌ Database: Ошибка поиска объявления по URL:', request.error);
+          reject(request.error);
+        };
+      } catch (error) {
+        console.error('❌ Database: Критическая ошибка в getListingByUrl:', error);
+        reject(error);
+      }
+    });
+  }
+
   async getListingsByAddress(addressId) {
     return this.getByIndex('listings', 'address_id', addressId);
   }
@@ -637,6 +693,128 @@ class NeocenkaDB {
       console.error('Error updating listing price:', error);
       throw error;
     }
+  }
+
+  /**
+   * Массовое сохранение объявлений с проверкой дублей по URL
+   */
+  async saveListings(listings) {
+    if (!Array.isArray(listings) || listings.length === 0) {
+      return { added: 0, updated: 0, skipped: 0 };
+    }
+
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+    
+    console.log(`Starting to save ${listings.length} listings...`);
+    
+    for (const listing of listings) {
+      try {
+        if (!listing.url) {
+          console.warn('Skipping listing without URL:', listing.external_id);
+          skipped++;
+          continue;
+        }
+
+        // Ищем существующее объявление по URL (более надежно, чем по external_id)
+        const existingListing = await this.getListingByUrl(listing.url);
+        
+        if (existingListing) {
+          // Обновляем существующее объявление
+          const oldPrice = existingListing.price;
+          const newPrice = listing.price;
+          
+          // Обновляем основные поля
+          existingListing.price = newPrice;
+          existingListing.updated_at = new Date();
+          existingListing.last_seen = new Date();
+          
+          // Объединяем данные из разных источников
+          if (listing.source === 'inpars') {
+            // Добавляем Inpars-специфичные поля
+            existingListing.region_id = listing.region_id || existingListing.region_id;
+            existingListing.city_id = listing.city_id || existingListing.city_id;
+            existingListing.metro_id = listing.metro_id || existingListing.metro_id;
+            existingListing.operation_type = listing.operation_type || existingListing.operation_type;
+            existingListing.section_id = listing.section_id || existingListing.section_id;
+            existingListing.category_id = listing.category_id || existingListing.category_id;
+            
+            // ВАЖНО: Сохраняем source_metadata, особенно original_source
+            if (listing.source_metadata) {
+              if (!existingListing.source_metadata) {
+                existingListing.source_metadata = {};
+              }
+              // Сохраняем original_source только если он еще не установлен или если новый источник более конкретный
+              if (!existingListing.source_metadata.original_source || 
+                  existingListing.source_metadata.original_source === 'inpars') {
+                existingListing.source_metadata.original_source = listing.source_metadata.original_source;
+              }
+              existingListing.source_metadata.source_method = listing.source_metadata.source_method;
+              existingListing.source_metadata.import_date = listing.source_metadata.import_date;
+            }
+          }
+          
+          // Объединяем историю цен (КЛЮЧЕВАЯ ЧАСТЬ)
+          if (listing.price_history && listing.price_history.length > 0) {
+            if (!existingListing.price_history) {
+              existingListing.price_history = [];
+            }
+            
+            // Добавляем новые записи истории, избегая дублей по дате
+            for (const historyItem of listing.price_history) {
+              const existingHistoryItem = existingListing.price_history.find(
+                existing => existing.date === historyItem.date
+              );
+              if (!existingHistoryItem) {
+                existingListing.price_history.push(historyItem);
+              }
+            }
+            
+            // Сортируем историю по дате (новые записи в конце)
+            existingListing.price_history.sort((a, b) => new Date(a.date) - new Date(b.date));
+          }
+          
+          // Добавляем запись в историю цен при изменении цены
+          if (oldPrice !== newPrice && newPrice) {
+            if (!existingListing.price_history) {
+              existingListing.price_history = [];
+            }
+            
+            existingListing.price_history.push({
+              date: new Date().toISOString(),
+              price: newPrice,
+              change_amount: oldPrice ? (newPrice - oldPrice) : null,
+              change_type: oldPrice ? (newPrice > oldPrice ? 'increase' : 'decrease') : null,
+              is_publication: false,
+              source_data: {
+                updated_from: listing.source,
+                old_price: oldPrice,
+                update_timestamp: new Date().toISOString()
+              }
+            });
+          }
+          
+          await this.updateListing(existingListing);
+          updated++;
+          
+          console.log(`Updated listing ${listing.external_id}, price history: ${existingListing.price_history?.length || 0} items`);
+        } else {
+          // Добавляем новое объявление со всей историей цен
+          await this.addListing(listing);
+          added++;
+          
+          console.log(`Added new listing ${listing.external_id}, price history: ${listing.price_history?.length || 0} items`);
+        }
+      } catch (error) {
+        console.error(`Error saving listing ${listing.external_id}:`, error);
+        skipped++;
+      }
+    }
+    
+    const result = { added, updated, skipped };
+    console.log(`Listings save completed:`, result);
+    return result;
   }
 
 

@@ -319,6 +319,10 @@ class ListingModel {
     this.updated_at = data.updated_at || new Date(); // Дата последнего обновления в базе
     this.last_seen = data.last_seen || new Date(); // Дата последней проверки
     
+    // Даты объявления из внешних источников (версия 14)
+    this.listing_created_date = data.listing_created_date || null; // Дата создания объявления на источнике (created)
+    this.listing_updated_date = data.listing_updated_date || null; // Дата последнего обновления на источнике (updated)
+    
     // Дополнительные данные
     this.views_count = data.views_count || null; // Количество просмотров (если доступно)
     this.is_premium = data.is_premium || false; // Премиальное размещение

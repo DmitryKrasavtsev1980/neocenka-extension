@@ -217,7 +217,7 @@ class InparsService extends BaseAPIService {
             limit,
             sortBy,
             withAgent: 1, // Включаем агентов и собственников
-            expandnew: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house'
+            expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house'
         };
         
         // Добавляем фильтры по категориям
@@ -253,9 +253,39 @@ class InparsService extends BaseAPIService {
                 throw new Error('Нет данных в ответе API');
             }
             
+            // Отладка: проверяем параметры запроса
+            console.log('🔍 Request params sent to Inpars API:', params);
+            
+            // Отладка: проверяем первые 3 объявления на наличие истории
+            console.log('🔍 Full raw data from Inpars API (first 3 listings):');
+            for (let i = 0; i < Math.min(3, response.data.length); i++) {
+                const rawListing = response.data[i];
+                console.log(`=== Listing ${i + 1} (ID: ${rawListing.id}) ===`);
+                console.log('Full object:', rawListing);
+                console.log('History field:', rawListing.history);
+                console.log('History type:', typeof rawListing.history);
+                console.log('History isArray:', Array.isArray(rawListing.history));
+                if (rawListing.history) {
+                    console.log('History length:', rawListing.history.length);
+                    console.log('History content:', JSON.stringify(rawListing.history, null, 2));
+                }
+                console.log('All object keys:', Object.keys(rawListing));
+                console.log('=====================================');
+            }
+
             const listings = response.data.map(listing => 
                 this.transformListing(listing)
             );
+            
+            // Отладка: проверяем результат преобразования
+            console.log('🔍 Debugging transformed listings:');
+            for (let i = 0; i < Math.min(3, listings.length); i++) {
+                const transformedListing = listings[i];
+                console.log(`Transformed ${i + 1}: ID=${transformedListing.external_id}, price_history=${transformedListing.price_history ? transformedListing.price_history.length : 'undefined'} items`);
+                if (transformedListing.price_history) {
+                    console.log('Transformed history:', transformedListing.price_history);
+                }
+            }
             
             this.emit('listings:loaded', { 
                 count: listings.length,
@@ -406,11 +436,8 @@ class InparsService extends BaseAPIService {
             
             if (onProgress) onProgress({ message: 'Обработка данных...', percentage: 50 });
             
-            // Здесь можно добавить сохранение в базу данных
-            if (typeof db !== 'undefined' && db.saveListings) {
-                await db.saveListings(result.listings);
-                if (onProgress) onProgress({ message: 'Сохранение в базу данных...', percentage: 90 });
-            }
+            // Сохранение в БД происходит в area_services_integration.js
+            // через processImportedListings() для правильной обработки map_area_id
             
             if (onProgress) onProgress({ message: 'Загрузка завершена', percentage: 100 });
             

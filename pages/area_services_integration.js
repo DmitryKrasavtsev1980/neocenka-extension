@@ -129,44 +129,29 @@ class AreaServicesIntegration {
      * Обработка импортированных объявлений
      */
     async processImportedListings(listings) {
-        let newCount = 0;
-        let updatedCount = 0;
-        let errorCount = 0;
+        // Устанавливаем map_area_id для всех объявлений
+        const processedListings = listings.map(listing => ({
+            ...listing,
+            map_area_id: this.areaPage.currentAreaId,
+            created_at: listing.created_at || new Date(),
+            updated_at: new Date()
+        }));
         
-        for (const listing of listings) {
-            try {
-                // Проверяем, существует ли объявление
-                const existingListing = await db.getListingByExternalId(
-                    listing.source,
-                    listing.external_id
-                );
-                
-                if (existingListing) {
-                    // Обновляем существующее
-                    await db.updateListing({
-                        ...listing,
-                        id: existingListing.id,
-                        created_at: existingListing.created_at,
-                        updated_at: new Date()
-                    });
-                    updatedCount++;
-                } else {
-                    // Создаем новое объявление
-                    listing.map_area_id = this.areaPage.currentAreaId;
-                    listing.created_at = new Date();
-                    listing.updated_at = new Date();
-                    await db.addListing(listing);
-                    newCount++;
-                }
-                
-            } catch (error) {
-                console.error('Error processing listing:', error);
-                errorCount++;
-            }
+        try {
+            // Используем единый метод сохранения с правильной обработкой истории цен
+            const result = await db.saveListings(processedListings);
+            
+            console.log(`📊 Import results: ${result.added} new, ${result.updated} updated, ${result.skipped} errors`);
+            return { 
+                newCount: result.added, 
+                updatedCount: result.updated, 
+                errorCount: result.skipped 
+            };
+            
+        } catch (error) {
+            console.error('❌ Error saving listings:', error);
+            return { newCount: 0, updatedCount: 0, errorCount: listings.length };
         }
-        
-        console.log(`📊 Import results: ${newCount} new, ${updatedCount} updated, ${errorCount} errors`);
-        return { newCount, updatedCount, errorCount };
     }
 
     /**

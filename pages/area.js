@@ -4191,7 +4191,7 @@ class AreaPage {
         try {
             // Загружаем объявления, которые попадают в область (полигон)
             const listings = await this.getListingsInArea();
-
+            console.log(listings);
             // УДАЛЕН: работа с объектами
             const tableData = [
                 ...listings.map(item => ({...item, type: 'listing'}))
@@ -6601,15 +6601,6 @@ class AreaPage {
     preparePriceHistoryData(listing) {
         const history = [];
         
-        // Добавляем текущую цену
-        if (listing.price) {
-            const currentDate = new Date(listing.updated_at || listing.last_update_date || listing.created_at || Date.now());
-            history.push({
-                date: currentDate.getTime(),
-                price: parseInt(listing.price)
-            });
-        }
-
         // Добавляем историю цен если есть
         if (listing.price_history && Array.isArray(listing.price_history)) {
             listing.price_history.forEach(item => {
@@ -6619,6 +6610,31 @@ class AreaPage {
                         price: parseInt(item.new_price || item.price)
                     });
                 }
+            });
+        }
+
+        // Добавляем текущую цену с правильной датой в зависимости от статуса
+        if (listing.price) {
+            let currentPriceDate;
+            
+            if (listing.status === 'active') {
+                // Для активных объявлений - текущая дата
+                currentPriceDate = new Date();
+            } else {
+                // Для архивных объявлений - дата последнего обновления
+                currentPriceDate = new Date(
+                    listing.listing_updated_date || 
+                    listing.last_update_date || 
+                    listing.updated_at || 
+                    listing.listing_created_date ||
+                    listing.created_at ||
+                    Date.now()
+                );
+            }
+            
+            history.push({
+                date: currentPriceDate.getTime(),
+                price: parseInt(listing.price)
             });
         }
 
@@ -6873,10 +6889,27 @@ class AreaPage {
         const data = [];
         let index = 0;
 
-        // Добавляем текущую цену как последнюю запись
+        // Добавляем текущую цену как последнюю запись с правильной датой
         if (listing.price) {
+            let currentPriceDate;
+            
+            if (listing.status === 'active') {
+                // Для активных объявлений - текущая дата
+                currentPriceDate = new Date();
+            } else {
+                // Для архивных объявлений - дата последнего обновления
+                currentPriceDate = new Date(
+                    listing.listing_updated_date || 
+                    listing.last_update_date || 
+                    listing.updated_at || 
+                    listing.listing_created_date ||
+                    listing.created_at ||
+                    Date.now()
+                );
+            }
+            
             data.push({
-                date: listing.updated_at || listing.created_at || new Date(),
+                date: currentPriceDate,
                 price: listing.price,
                 index: index++,
                 isCurrent: true
@@ -6886,10 +6919,12 @@ class AreaPage {
         // Добавляем историю изменений цен
         if (listing.price_history && Array.isArray(listing.price_history)) {
             listing.price_history.forEach(historyItem => {
-                if (historyItem.date && historyItem.new_price) {
+                // Поддерживаем разные форматы: new_price (Avito) и price (Inpars)
+                const price = historyItem.new_price || historyItem.price;
+                if (historyItem.date && price) {
                     data.push({
                         date: historyItem.date,
-                        price: historyItem.new_price,
+                        price: price,
                         index: index++,
                         isCurrent: false
                     });
@@ -7383,7 +7418,7 @@ class AreaPage {
                 'unknown': 'Неизвестно'
             };
 
-            listings.forEach(listing => {
+            listings.forEach((listing, index) => {
                 // Определяем источник с приоритетом оригинального источника
                 let displaySource = 'unknown';
                 
@@ -7392,6 +7427,7 @@ class AreaPage {
                 } else if (listing.source) {
                     displaySource = listing.source;
                 }
+                
                 
                 // Группируем однотипные источники
                 if (displaySource.includes('avito')) {

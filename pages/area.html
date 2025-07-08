@@ -812,6 +812,18 @@
                         <p class="mt-1 text-sm text-gray-500">Управление объявлениями и объектами недвижимости, требующими обработки дублей</p>
                     </div>
                     <div class="flex items-center space-x-3">
+                        <svg id="duplicatesPanelChevron" class="h-5 w-5 text-gray-400 transform transition-transform duration-200" style="transform: rotate(-90deg);" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="duplicatesPanelContent" class="px-4 pb-5" style="display: none;">
+                <div class="mb-6 flex items-center justify-between">
+                    <div>
+                    </div>
+                    <div class="flex items-center space-x-3">
                         <!-- Фильтр статусов -->
                         <select id="duplicatesStatusFilter" class="block w-40 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
                             <option value="all">Все</option>
@@ -834,15 +846,8 @@
                             </svg>
                             Разбить дубли
                         </button>
-                        
-                        <svg id="duplicatesPanelChevron" class="h-5 w-5 text-gray-400 transform transition-transform duration-200" style="transform: rotate(-90deg);" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-                        </svg>
                     </div>
                 </div>
-            </div>
-            
-            <div id="duplicatesPanelContent" class="px-4 pb-5" style="display: none;">
                 <!-- Фильтры обработки -->
                 <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
                     <div class="flex items-center justify-between mb-3">
@@ -1404,20 +1409,23 @@
     <script src="../libs/fotorama/fotorama.js"></script>
     <script src="../libs/apexcharts/apexcharts.js"></script>
     
+    <!-- База данных и модели ПЕРВЫМИ - для доступности db объекта -->
+    <script src="../data/database.js"></script>
+    <script src="../data/models.js"></script>
+    
+    <!-- Утилиты -->
+    <script src="../utils/geometry-utils.js"></script>
+    <script src="../utils/geo-utils.js"></script>
+    <script src="../utils/spatial-index-manager.js"></script>
+    <script src="../utils/marker-cluster.js"></script>
+    <script src="../utils/debug-logger.js"></script>
+    
     <!-- Сервисная архитектура -->
     <script src="../services/base/BaseAPIService.js"></script>
     <script src="../services/base/ServiceManager.js"></script>
     <script src="../services/external/InparsService.js"></script>
     <script src="../services/ui/InparsPanel.js"></script>
     <script src="../services/ServiceConfig.js"></script>
-    
-    <!-- Модели и утилиты -->
-    <script src="../data/models.js"></script>
-    <script src="../utils/geometry-utils.js"></script>
-    <script src="../utils/geo-utils.js"></script>
-    <script src="../utils/spatial-index-manager.js"></script>
-    <script src="../utils/marker-cluster.js"></script>
-    <script src="../utils/debug-logger.js"></script>
     
     <!-- Интеграция сервисов -->
     <script src="area_services_integration.js"></script>
