@@ -313,15 +313,11 @@ class ListingModel {
     this.address_match_method = data.address_match_method || null; // Метод определения адреса
     this.address_match_score = data.address_match_score || null; // Численная оценка совпадения (0-1)
     this.address_distance = data.address_distance || null; // Расстояние до найденного адреса (метры)
-    this.listing_date = data.listing_date || null; // Дата размещения объявления
-    this.last_update_date = data.last_update_date || null; // Дата последнего обновления объявления на сайте
+    // Унифицированные даты (версия 14)
     this.created_at = data.created_at || new Date(); // Дата добавления в базу
     this.updated_at = data.updated_at || new Date(); // Дата последнего обновления в базе
-    this.last_seen = data.last_seen || new Date(); // Дата последней проверки
-    
-    // Даты объявления из внешних источников (версия 14)
-    this.listing_created_date = data.listing_created_date || null; // Дата создания объявления на источнике (created)
-    this.listing_updated_date = data.listing_updated_date || null; // Дата последнего обновления на источнике (updated)
+    this.created = data.created || null; // Дата создания объявления на источнике
+    this.updated = data.updated || null; // Дата последнего обновления на источнике
     
     // Дополнительные данные
     this.views_count = data.views_count || null; // Количество просмотров (если доступно)
@@ -550,9 +546,9 @@ class ListingModel {
       phone: Array.isArray(inparsData.phones) && inparsData.phones.length > 0 ? 
              inparsData.phones[0] : '',
       
-      // Даты
-      listing_date: inparsData.created ? new Date(inparsData.created) : null,
-      last_update_date: inparsData.updated ? new Date(inparsData.updated) : null,
+      // Даты (версия 14 - унифицированные)
+      created: inparsData.created ? new Date(inparsData.created) : null,
+      updated: inparsData.updated ? new Date(inparsData.updated) : null,
       
       // Статусы
       status: 'active',
@@ -840,7 +836,7 @@ class ListingModel {
    */
   static createSourceMetadata(sourceData, source, method = 'unknown') {
     return {
-      original_source: sourceData.source || source,
+      original_source: source,
       source_method: method,
       original_id: sourceData.external_id || sourceData.parseId || sourceData.id,
       source_internal_id: sourceData.sourceId || null,

@@ -801,6 +801,11 @@ class AreaPage {
         else if (listing.status === 'needs_processing') color = '#f59e0b'; // желтый
         else if (listing.status === 'processing') color = '#3b82f6'; // синий
 
+        // Переопределяем цвет для объявлений с низким статусом определения адреса
+        if (listing.address_match_confidence === 'low' || listing.address_match_confidence === 'very_low') {
+            color = '#ef4444'; // красный для низкой точности адреса
+        }
+
         // Создаем иконку в зависимости от источника
         const sourceIcon = listing.source === 'avito' ? '🟢' : '🔵';
         
@@ -982,10 +987,26 @@ class AreaPage {
                 const distance = listing.address_distance ? ` (${Math.round(listing.address_distance)}м)` : '';
                 const score = listing.address_match_score ? ` • Оценка: ${(listing.address_match_score * 100).toFixed(0)}%` : '';
                 
+                const hasLowConfidence = listing.address_match_confidence === 'low' || listing.address_match_confidence === 'very_low';
+                console.log('🔍 Modal button check:', {
+                    listingId: listing.id,
+                    address_match_confidence: listing.address_match_confidence,
+                    hasLowConfidence: hasLowConfidence
+                });
+                
+                const correctAddressButton = hasLowConfidence ? `
+                    <button id="correctAddressModal_${listing.id}" class="ml-2 text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
+                        Верный адрес
+                    </button>
+                ` : '';
+                
+                console.log('🔍 Modal button HTML:', correctAddressButton);
+                
                 accuracyInfo = `
                     <div class="mb-2">
                         <span class="text-sm font-medium text-gray-500">Точность:</span>
                         <span class="text-sm ${this.getConfidenceColor(listing.address_match_confidence)} ml-2">${confidence}${distance}</span>
+                        ${correctAddressButton}
                     </div>
                     <div class="mb-2">
                         <span class="text-xs text-gray-500">Метод: ${method}${score}</span>
@@ -1948,9 +1969,9 @@ class AreaPage {
                             
                             if (isListing && row.processing_status) {
                                 const processingBadges = {
-                                    'address_needed': '<br><span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">Определить адрес</span>',
-                                    'duplicate_check_needed': '<br><span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Обработать на дубли</span>',
-                                    'processed': '<br><span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Обработано</span>'
+                                    'address_needed': '<br><span class="inline-flex items-center px-1 py-0.5 text-nowrap rounded-full text-xs font-medium bg-orange-100 text-orange-800" style="font-size: 10px;">Определить адрес</span>',
+                                    'duplicate_check_needed': '<br><span class="inline-flex items-center text-nowrap px-1 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800" style="font-size: 10px;">Обр. на дубли</span>',
+                                    'processed': '<br><span class="inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800" style="font-size: 10px;">Обработано</span>'
                                 };
                                 html += processingBadges[row.processing_status] || '';
                             }
@@ -1960,24 +1981,48 @@ class AreaPage {
                     },
                     // 3. Дата создания
                     { 
-                        data: 'listing_date', 
+                        data: 'created', 
                         title: 'Создано',
                         render: function (data, type, row) {
-                            // Используем listing_date, а если его нет - то created_at
+                            // Используем created (дата создания на источнике), а если его нет - то created_at (дата добавления в базу)
                             const dateValue = data || row.created_at;
                             if (!dateValue) return '—';
-                            const date = new Date(dateValue);
-                            const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
-                            return `<div class="text-xs">${dateStr}</div>`;
+                            const createdDate = new Date(dateValue);
+                            
+                            // Для сортировки возвращаем timestamp
+                            if (type === 'sort' || type === 'type') {
+                                return createdDate.getTime();
+                            }
+                            
+                            const dateStr = createdDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+                            
+                            // Вычисляем экспозицию объявления (от создания до последнего обновления или до сегодня)
+                            const updatedValue = row.updated || row.updated_at;
+                            const endDate = updatedValue ? new Date(updatedValue) : new Date();
+                            const diffTime = Math.abs(endDate - createdDate);
+                            const exposureDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            
+                            return `<div class="text-xs">
+                                ${dateStr}<br>
+                                <span class="text-gray-500" style="font-size: 10px;">эксп. ${exposureDays} дн.</span>
+                            </div>`;
                         }
                     },
                     // 4. Дата обновления
                     { 
-                        data: 'updated_at', 
+                        data: 'updated', 
                         title: 'Обновлено',
                         render: function (data, type, row) {
-                            if (!data) return '—';
-                            const date = new Date(data);
+                            // Используем updated (дата обновления на источнике), а если его нет - то updated_at (дата обновления в базе)
+                            const dateValue = data || row.updated_at;
+                            if (!dateValue) return '—';
+                            const date = new Date(dateValue);
+                            
+                            // Для сортировки возвращаем timestamp
+                            if (type === 'sort' || type === 'type') {
+                                return date.getTime();
+                            }
+                            
                             const now = new Date();
                             const diffTime = Math.abs(now - date);
                             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -1988,7 +2033,7 @@ class AreaPage {
                             
                             return `<div class="text-xs">
                                 ${dateStr}<br>
-                                <span class="${color}">${daysAgo}</span>
+                                <span class="${color}" style="font-size: 10px;">${daysAgo}</span>
                             </div>`;
                         }
                     },
@@ -2042,10 +2087,25 @@ class AreaPage {
                         render: (data, type, row) => {
                             const addressFromDb = this.getAddressNameById(row.address_id);
                             const addressText = data || 'Адрес не указан';
-                            const addressFromDbText = addressFromDb || 'Адрес не определен';
+                            let addressFromDbText = addressFromDb || 'Адрес не определен';
+                            
+                            // Проверяем точность определения адреса и добавляем её в скобках
+                            const hasLowConfidence = row.address_match_confidence === 'low' || row.address_match_confidence === 'very_low';
+                            const isManualConfidence = row.address_match_confidence === 'manual';
+                            const isAddressNotFound = addressFromDbText === 'Адрес не определен';
+                            
+                            // Добавляем точность в скобках для адресов с низкой точностью
+                            if (hasLowConfidence && !isAddressNotFound) {
+                                const confidenceText = row.address_match_confidence === 'low' ? 'Низкая' : 'Очень низкая';
+                                addressFromDbText += ` (${confidenceText})`;
+                            } else if (isManualConfidence && !isAddressNotFound) {
+                                addressFromDbText += ` (Подтвержден)`;
+                            }
                             
                             const addressClass = addressText === 'Адрес не указан' ? 'text-red-600 hover:text-red-800' : 'text-blue-600 hover:text-blue-800';
-                            const addressFromDbClass = addressFromDbText === 'Адрес не определен' ? 'text-red-500' : 'text-gray-500';
+                            
+                            // Подсвечиваем красным только неопределенные адреса и адреса с низкой точностью (НЕ manual)
+                            const addressFromDbClass = (isAddressNotFound || (hasLowConfidence && !isManualConfidence)) ? 'text-red-500' : 'text-gray-500';
                             
                             return `<div class="text-xs max-w-xs">
                                 <div class="${addressClass} cursor-pointer clickable-address truncate" data-listing-id="${row.id}">${addressText}</div>
@@ -2060,14 +2120,14 @@ class AreaPage {
                         render: function (data, type, row) {
                             if (!row.price) return '<div class="text-xs">—</div>';
                             
-                            const price = `${row.price.toLocaleString()} ₽`;
+                            const price = row.price.toLocaleString();
                             let pricePerMeter = '';
                             
                             if (row.price_per_meter) {
-                                pricePerMeter = `${row.price_per_meter.toLocaleString()} ₽/м²`;
+                                pricePerMeter = row.price_per_meter.toLocaleString();
                             } else if (row.price && row.area_total) {
                                 const calculated = Math.round(row.price / row.area_total);
-                                pricePerMeter = `${calculated.toLocaleString()} ₽/м²`;
+                                pricePerMeter = calculated.toLocaleString();
                             }
                             
                             return `<div class="text-xs">
@@ -2086,6 +2146,8 @@ class AreaPage {
                             
                             const sellerType = row.seller_type === 'private' ? 'Собственник' : 
                                              row.seller_type === 'agency' ? 'Агент' : 
+                                             row.seller_type === 'agent' ? 'Агент' :
+                                             row.seller_type === 'owner' ? 'Собственник' :
                                              row.seller_type || 'Не указано';
                             
                             const sellerName = row.seller_name || 'Не указано';
@@ -2434,6 +2496,10 @@ class AreaPage {
             this.splitDuplicates();
         });
 
+        document.getElementById('correctAddressBtn')?.addEventListener('click', () => {
+            this.markAddressAsCorrect();
+        });
+
 
         // Обработчики фильтров для применения
         document.getElementById('processingAddressFilter')?.addEventListener('change', () => {
@@ -2457,6 +2523,12 @@ class AreaPage {
         // Обработчик "Выбрать все" для таблицы дублей
         $(document).on('change', '#selectAllDuplicates', (e) => {
             this.selectAllDuplicates(e.target.checked);
+        });
+
+        // Обработчики чекбоксов в таблице дублей
+        $(document).on('change', '.duplicate-checkbox', (e) => {
+            console.log('🔄 jQuery event handler for duplicate checkbox');
+            this.handleDuplicateSelection(e.target);
         });
 
         // Обработчики кнопок фильтра обработки в таблице дублей
@@ -3345,7 +3417,9 @@ class AreaPage {
                         ...response.data,
                         id: listing.id, // Сохраняем оригинальный ID
                         created_at: listing.created_at, // Сохраняем дату создания
-                        updated_at: new Date()
+                        updated_at: new Date(),
+                        // ВАЖНО: Сохраняем source_metadata для корректного отображения источников
+                        source_metadata: listing.source_metadata
                     };
 
                     // Проверяем изменение цены
@@ -4217,10 +4291,10 @@ class AreaPage {
             // Обновляем UI выбора
             this.updateDuplicatesSelection();
 
-            // Добавляем обработчики для чекбоксов после обновления таблицы
-            setTimeout(() => {
-                this.bindDuplicateRowEvents();
-            }, 100);
+            // Обработчики чекбоксов теперь работают через делегирование событий в bindDataTableEvents()
+            // setTimeout(() => {
+            //     this.bindDuplicateRowEvents();
+            // }, 100);
 
         } catch (error) {
             console.error('Ошибка загрузки таблицы дублей:', error);
@@ -4261,6 +4335,7 @@ class AreaPage {
      */
     bindDuplicateRowEvents() {
         const checkboxes = document.querySelectorAll('.duplicate-checkbox');
+        console.log('🔗 bindDuplicateRowEvents: найдено чекбоксов:', checkboxes.length);
         checkboxes.forEach(checkbox => {
             checkbox.addEventListener('change', () => {
                 this.handleDuplicateSelection(checkbox);
@@ -4272,9 +4347,12 @@ class AreaPage {
      * Обработка выбора элемента в таблице дублей
      */
     handleDuplicateSelection(checkbox) {
+        console.log('🔄 handleDuplicateSelection called for checkbox:', checkbox);
         const itemId = checkbox.dataset.id;
         const itemType = checkbox.dataset.type;
         const key = `${itemType}_${itemId}`;
+
+        console.log('🔄 Checkbox data:', { itemId, itemType, key, checked: checkbox.checked });
 
         if (checkbox.checked) {
             this.selectedDuplicates.add(key);
@@ -4282,7 +4360,26 @@ class AreaPage {
             this.selectedDuplicates.delete(key);
         }
 
+        console.log('🔄 Selected duplicates:', this.selectedDuplicates.size);
+
+        // Обновляем состояние главного чекбокса
+        this.updateSelectAllCheckbox();
+        
         this.updateDuplicatesSelection();
+    }
+
+    /**
+     * Обновление состояния главного чекбокса "Выбрать все"
+     */
+    updateSelectAllCheckbox() {
+        const allCheckboxes = document.querySelectorAll('.duplicate-checkbox');
+        const selectAllCheckbox = document.getElementById('selectAllDuplicates');
+        
+        if (selectAllCheckbox && allCheckboxes.length > 0) {
+            const checkedCount = Array.from(allCheckboxes).filter(cb => cb.checked).length;
+            selectAllCheckbox.checked = checkedCount === allCheckboxes.length;
+            selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+        }
     }
 
     /**
@@ -4304,7 +4401,11 @@ class AreaPage {
         document.querySelectorAll('.duplicate-checkbox').forEach(checkbox => {
             checkbox.checked = false;
         });
-        document.getElementById('selectAllDuplicates').checked = false;
+        const selectAllCheckbox = document.getElementById('selectAllDuplicates');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        }
         this.updateDuplicatesSelection();
     }
 
@@ -4312,21 +4413,198 @@ class AreaPage {
      * Обновление UI выбора дублей
      */
     updateDuplicatesSelection() {
+        console.log('🔄 updateDuplicatesSelection called, selectedCount:', this.selectedDuplicates.size);
         const selectedCount = this.selectedDuplicates.size;
         const selectedInfo = document.getElementById('selectedItemsInfo');
         const selectedCountEl = document.getElementById('selectedItemsCount');
         const mergeBtnEl = document.getElementById('mergeDuplicatesBtn');
         const splitBtnEl = document.getElementById('splitDuplicatesBtn');
+        const correctAddressBtnEl = document.getElementById('correctAddressBtn');
 
         if (selectedCount > 0) {
             selectedInfo.classList.remove('hidden');
             selectedCountEl.textContent = `${selectedCount} элементов выбрано`;
             mergeBtnEl.disabled = selectedCount < 2;
             splitBtnEl.disabled = false;
+            
+            // Показываем кнопку "Верный адрес" только при фильтре "Определить адрес"
+            let processingStatusFilter = '';
+            if (this.processingStatusSlimSelect) {
+                const selected = this.processingStatusSlimSelect.getSelected();
+                processingStatusFilter = selected?.[0]?.value || selected?.[0] || '';
+            }
+            
+            // Также проверим значение элемента напрямую
+            const directValue = document.getElementById('processingStatusFilter')?.value || '';
+            
+            const actualFilter = processingStatusFilter || directValue;
+            
+            console.log('🔍 Processing filter for button:', {
+                selectedCount,
+                processingStatusFilter,
+                directValue,
+                actualFilter,
+                slimSelectExists: !!this.processingStatusSlimSelect,
+                getSelected: this.processingStatusSlimSelect?.getSelected(),
+                checkCondition: actualFilter === 'address_needed'
+            });
+            
+            if (actualFilter === 'address_needed') {
+                console.log('✅ Showing correct address button');
+                correctAddressBtnEl.classList.remove('hidden');
+                correctAddressBtnEl.disabled = false;
+            } else {
+                console.log('❌ Hiding correct address button');
+                correctAddressBtnEl.classList.add('hidden');
+            }
         } else {
             selectedInfo.classList.add('hidden');
             mergeBtnEl.disabled = true;
             splitBtnEl.disabled = true;
+            correctAddressBtnEl.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Пометить адрес как верный (перевод в статус manual)
+     */
+    async markAddressAsCorrect() {
+        try {
+            if (this.selectedDuplicates.size === 0) {
+                this.showError('Выберите объявления для подтверждения адреса');
+                return;
+            }
+
+            const selectedItems = Array.from(this.selectedDuplicates);
+            console.log('🏠 Marking addresses as correct for:', selectedItems);
+
+            // Получаем выбранные объявления
+            const listingsToUpdate = [];
+            for (const key of selectedItems) {
+                const [type, ...idParts] = key.split('_');
+                const id = idParts.join('_'); // Восстанавливаем полный ID
+                console.log('🔍 Processing key:', key, 'type:', type, 'id:', id);
+                if (type === 'listing') {
+                    const listing = this.listings.find(l => l.id === id);
+                    console.log('🔍 Found listing:', !!listing, listing?.id);
+                    if (listing) {
+                        listingsToUpdate.push(listing);
+                    }
+                } else {
+                    console.log('🔍 Skipping non-listing type:', type);
+                }
+            }
+            
+            console.log('🔍 listingsToUpdate:', listingsToUpdate.length, 'items');
+
+            if (listingsToUpdate.length === 0) {
+                this.showError('Не найдены объявления для обновления');
+                return;
+            }
+
+            // Обновляем статус определения адреса на "manual"
+            for (const listing of listingsToUpdate) {
+                listing.address_match_confidence = 'manual';
+                
+                // Обновляем в базе данных
+                await db.update('listings', listing);
+                console.log(`✅ Address marked as correct for listing ${listing.id}`);
+            }
+
+            this.showSuccess(`Адрес подтвержден для ${listingsToUpdate.length} объявлений`);
+            
+            // Очищаем выбор и обновляем таблицу
+            this.clearDuplicatesSelection();
+            await this.loadDuplicatesTable();
+
+        } catch (error) {
+            console.error('Ошибка при подтверждении адреса:', error);
+            this.showError('Ошибка при подтверждении адреса: ' + error.message);
+        }
+    }
+
+    /**
+     * Пометить адрес как верный для одного объявления (из модального окна)
+     */
+    async markSingleAddressAsCorrect(listingId) {
+        try {
+            const listing = this.listings.find(l => l.id === listingId);
+            if (!listing) {
+                this.showError('Объявление не найдено');
+                return;
+            }
+
+            console.log('🏠 Marking single address as correct for listing:', listingId);
+
+            // Обновляем статус определения адреса на "manual"
+            listing.address_match_confidence = 'manual';
+            
+            // Обновляем в базе данных
+            await db.update('listings', listing);
+            console.log(`✅ Single address marked as correct for listing ${listingId}`);
+
+            this.showSuccess('Адрес подтвержден');
+            
+            // Обновляем модальное окно
+            this.updateModalAddressInfo(listingId, listing);
+            
+            // Обновляем таблицу если она открыта
+            await this.loadDuplicatesTable();
+
+        } catch (error) {
+            console.error('Ошибка при подтверждении адреса:', error);
+            this.showError('Ошибка при подтверждении адреса: ' + error.message);
+        }
+    }
+
+    /**
+     * Обновить информацию об адресе в модальном окне
+     */
+    updateModalAddressInfo(listingId, listing) {
+        const locationContent = document.getElementById(`locationPanelContent-${listingId}`);
+        if (locationContent) {
+            // Обновляем информацию об адресе
+            const addressInfoHtml = this.renderAddressAccuracyInfo(listing);
+            const mapContainer = document.getElementById(`listing-map-${listingId}`);
+            const mapHtml = mapContainer ? mapContainer.outerHTML : '';
+            
+            locationContent.innerHTML = addressInfoHtml + mapHtml;
+            
+            // Обновляем заголовок панели местоположения
+            const locationHeader = document.getElementById(`locationPanelHeader-${listingId}`);
+            if (locationHeader) {
+                const statusElement = locationHeader.querySelector('.text-sm');
+                if (statusElement) {
+                    statusElement.textContent = this.getAddressStatusText(listing);
+                    statusElement.className = `text-sm ${this.getAddressStatusClass(listing)}`;
+                }
+            }
+            
+            // Повторно инициализируем адресный селектор
+            setTimeout(() => {
+                this.initializeAddressSelector(listingId, listing.address_id);
+                
+                // Добавляем обработчик для кнопки сохранения
+                const saveButton = document.getElementById(`saveAddress_${listingId}`);
+                if (saveButton) {
+                    saveButton.addEventListener('click', () => {
+                        this.saveListingAddress(listingId);
+                    });
+                }
+                
+                // Добавляем обработчик для кнопки "Верный адрес" если она есть
+                const correctAddressModalButton = document.getElementById(`correctAddressModal_${listingId}`);
+                if (correctAddressModalButton) {
+                    correctAddressModalButton.addEventListener('click', () => {
+                        this.markSingleAddressAsCorrect(listingId);
+                    });
+                }
+                
+                // Если карта была инициализирована, переинициализируем её
+                if (mapContainer && mapContainer._leafletMap) {
+                    this.renderListingMap(listing);
+                }
+            }, 100);
         }
     }
 
@@ -5113,11 +5391,7 @@ class AreaPage {
                 }
             }
             
-            // Заполняем статус обработки
-            if (listing.processing_status && this.processingStatusSlimSelect) {
-                this.processingStatusSlimSelect.setSelected([listing.processing_status]);
-                this.showClearButton('clearProcessingStatusFilterBtn');
-            }
+            // Статус обработки НЕ заполняем при нажатии на кнопку - он работает как глобальный фильтр
             
             // Применяем фильтры
             await this.applyProcessingFilters();
@@ -5129,17 +5403,54 @@ class AreaPage {
     }
 
     /**
+     * Получение интервала обновления объявлений из настроек базы данных
+     */
+    async getUpdateIntervalDays() {
+        try {
+            const updateDays = await db.getSetting('update_days');
+            return updateDays || 7; // По умолчанию 7 дней
+        } catch (error) {
+            console.warn('Ошибка получения настройки update_days:', error);
+            return 7; // Fallback на 7 дней
+        }
+    }
+
+    /**
      * Применение фильтров обработки к таблице
      */
     async applyProcessingFilters() {
         try {
             // Получаем значения фильтров из SlimSelect и обычных элементов
-            const addressFilter = this.processingAddressSlimSelect?.getSelected()?.[0] || '';
-            const propertyTypeFilter = this.processingPropertyTypeSlimSelect?.getSelected()?.[0] || '';
+            let addressFilter = '';
+            if (this.processingAddressSlimSelect) {
+                const selected = this.processingAddressSlimSelect.getSelected();
+                addressFilter = selected?.[0]?.value || selected?.[0] || '';
+            }
+            
+            let propertyTypeFilter = '';
+            if (this.processingPropertyTypeSlimSelect) {
+                const selected = this.processingPropertyTypeSlimSelect.getSelected();
+                propertyTypeFilter = selected?.[0]?.value || selected?.[0] || '';
+            }
+            
+            let processingStatusFilter = '';
+            if (this.processingStatusSlimSelect) {
+                const selected = this.processingStatusSlimSelect.getSelected();
+                processingStatusFilter = selected?.[0]?.value || selected?.[0] || '';
+            }
+            
             const floorFilter = document.getElementById('processingFloorFilter')?.value || '';
             
             // Получаем значение основного фильтра статусов
             const statusFilter = document.getElementById('duplicatesStatusFilter')?.value || 'all';
+            
+            console.log('🔧 Применение фильтров:', {
+                addressFilter,
+                propertyTypeFilter,
+                floorFilter,
+                processingStatusFilter,
+                statusFilter
+            });
             
             // Очищаем предыдущие кастомные фильтры для этой таблицы
             $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(fn => 
@@ -5177,6 +5488,38 @@ class AreaPage {
                     return false;
                 }
                 
+                // Фильтр по статусу обработки
+                if (processingStatusFilter) {
+                    console.log('🔍 Processing status filter:', processingStatusFilter, 'row processing_status:', rowData.processing_status, 'address_match_confidence:', rowData.address_match_confidence);
+                    
+                    if (processingStatusFilter === 'address_needed') {
+                        // Показываем объявления:
+                        // 1. С processing_status === 'address_needed' 
+                        // 2. ИЛИ с низкой точностью определения адреса (address_match_confidence: 'low' или 'very_low')
+                        // НО НЕ показываем адреса со статусом 'manual' (уже подтвержденные)
+                        const hasAddressNeededStatus = rowData.processing_status === 'address_needed';
+                        const hasLowAddressConfidence = rowData.address_match_confidence === 'low' || rowData.address_match_confidence === 'very_low';
+                        const isManualConfidence = rowData.address_match_confidence === 'manual';
+                        
+                        console.log('📍 Address needed check:', {
+                            hasAddressNeededStatus: hasAddressNeededStatus,
+                            hasLowAddressConfidence: hasLowAddressConfidence,
+                            isManualConfidence: isManualConfidence,
+                            shouldShow: (hasAddressNeededStatus || hasLowAddressConfidence) && !isManualConfidence
+                        });
+                        
+                        // Скрываем если нет нужного статуса ИЛИ если адрес уже подтвержден вручную
+                        if ((!hasAddressNeededStatus && !hasLowAddressConfidence) || isManualConfidence) {
+                            return false;
+                        }
+                    } else {
+                        // Для остальных фильтров - простое сравнение
+                        if (rowData.processing_status !== processingStatusFilter) {
+                            return false;
+                        }
+                    }
+                }
+                
                 return true;
             });
             
@@ -5203,6 +5546,9 @@ class AreaPage {
             }
             if (this.processingPropertyTypeSlimSelect) {
                 this.processingPropertyTypeSlimSelect.setSelected([]);
+            }
+            if (this.processingStatusSlimSelect) {
+                this.processingStatusSlimSelect.setSelected([]);
             }
             
             // Очищаем обычные поля
@@ -5239,6 +5585,11 @@ class AreaPage {
                 case 'processingPropertyTypeFilter':
                     if (this.processingPropertyTypeSlimSelect) {
                         this.processingPropertyTypeSlimSelect.setSelected([]);
+                    }
+                    break;
+                case 'processingStatusFilter':
+                    if (this.processingStatusSlimSelect) {
+                        this.processingStatusSlimSelect.setSelected([]);
                     }
                     break;
                 case 'processingFloorFilter':
@@ -5383,11 +5734,17 @@ class AreaPage {
         try {
             console.log('🔧 Инициализация фильтров обработки...');
             
+            // Кэшируем настройку интервала обновления
+            this.cachedUpdateIntervalDays = await this.getUpdateIntervalDays();
+            
             // Инициализируем SlimSelect для адресов
             await this.initAddressFilter();
             
             // Инициализируем SlimSelect для типа недвижимости
             await this.initPropertyTypeFilter();
+            
+            // Инициализируем SlimSelect для статуса обработки
+            await this.initProcessingStatusFilter();
             
             // Добавляем обработчики событий
             this.bindProcessingFilterEvents();
@@ -5786,6 +6143,40 @@ class AreaPage {
         }
     }
 
+    /**
+     * Инициализация SlimSelect для статуса обработки
+     */
+    async initProcessingStatusFilter() {
+        try {
+            const selectElement = document.getElementById('processingStatusFilter');
+            if (!selectElement) {
+                console.warn('Элемент processingStatusFilter не найден');
+                return;
+            }
+
+            // Инициализируем SlimSelect
+            this.processingStatusSlimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    placeholderText: 'Выберите статус',
+                    allowDeselect: true,
+                    closeOnSelect: true
+                },
+                events: {
+                    afterChange: (newVal) => {
+                        this.onProcessingStatusFilterChange(newVal);
+                    }
+                }
+            });
+
+            console.log('📋 Фильтр статуса обработки инициализирован');
+            
+        } catch (error) {
+            console.error('Ошибка при инициализации фильтра статуса обработки:', error);
+            throw error;
+        }
+    }
+
 
     /**
      * Привязка обработчиков событий для фильтров обработки
@@ -5881,6 +6272,8 @@ class AreaPage {
      */
     onProcessingStatusFilterChange(newVal) {
         try {
+            console.log('🔄 Processing status filter changed:', newVal);
+            
             if (newVal && newVal.length > 0) {
                 this.showClearButton('clearProcessingStatusFilterBtn');
             } else {
@@ -5975,6 +6368,24 @@ class AreaPage {
                     saveButton.addEventListener('click', () => {
                         this.saveListingAddress(listingId);
                     });
+                }
+                
+                // Добавляем обработчик для кнопки "Верный адрес" в модальном окне
+                const correctAddressModalButton = document.getElementById(`correctAddressModal_${listingId}`);
+                console.log('🔍 Modal button search:', {
+                    listingId: listingId,
+                    buttonId: `correctAddressModal_${listingId}`,
+                    buttonFound: !!correctAddressModalButton
+                });
+                
+                if (correctAddressModalButton) {
+                    console.log('✅ Adding click handler to modal button');
+                    correctAddressModalButton.addEventListener('click', () => {
+                        console.log('🔘 Modal button clicked for listing:', listingId);
+                        this.markSingleAddressAsCorrect(listingId);
+                    });
+                } else {
+                    console.log('❌ Modal button not found');
                 }
                 
                 // Добавляем обработчик для сворачивания панели истории цен
@@ -6242,24 +6653,16 @@ class AreaPage {
                     <h4 class="text-lg font-medium text-gray-900 mb-4">Дополнительная информация</h4>
                     <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <dt class="text-sm font-medium text-gray-500">Сегмент</dt>
-                            <dd class="text-sm text-gray-900">${this.getSegmentName(listing.segment_id)}</dd>
+                            <dt class="text-sm font-medium text-gray-500">Дата создания</dt>
+                            <dd class="text-sm text-gray-900">${this.formatDate(listing.created)}</dd>
                         </div>
                         <div>
                             <dt class="text-sm font-medium text-gray-500">External ID</dt>
                             <dd class="text-sm text-gray-900">${listing.external_id || '-'}</dd>
                         </div>
                         <div>
-                            <dt class="text-sm font-medium text-gray-500">Дата добавления</dt>
-                            <dd class="text-sm text-gray-900">${this.formatDate(listing.created_at || listing.listing_date)}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Последнее обновление</dt>
-                            <dd class="text-sm text-gray-900">${this.formatDate(listing.updated_at || listing.last_update_date)}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Последняя проверка</dt>
-                            <dd class="text-sm text-gray-900">${this.formatDate(listing.last_seen)}</dd>
+                            <dt class="text-sm font-medium text-gray-500">Дата обновления</dt>
+                            <dd class="text-sm text-gray-900">${this.formatDate(listing.updated)}</dd>
                         </div>
                         <div>
                             <dt class="text-sm font-medium text-gray-500">Продавец</dt>
@@ -6623,10 +7026,9 @@ class AreaPage {
             } else {
                 // Для архивных объявлений - дата последнего обновления
                 currentPriceDate = new Date(
-                    listing.listing_updated_date || 
-                    listing.last_update_date || 
+                    listing.updated || 
                     listing.updated_at || 
-                    listing.listing_created_date ||
+                    listing.created ||
                     listing.created_at ||
                     Date.now()
                 );
@@ -6899,10 +7301,9 @@ class AreaPage {
             } else {
                 // Для архивных объявлений - дата последнего обновления
                 currentPriceDate = new Date(
-                    listing.listing_updated_date || 
-                    listing.last_update_date || 
+                    listing.updated || 
                     listing.updated_at || 
-                    listing.listing_created_date ||
+                    listing.created ||
                     listing.created_at ||
                     Date.now()
                 );
@@ -7421,6 +7822,7 @@ class AreaPage {
             listings.forEach((listing, index) => {
                 // Определяем источник с приоритетом оригинального источника
                 let displaySource = 'unknown';
+                
                 
                 if (listing.source_metadata && listing.source_metadata.original_source) {
                     displaySource = listing.source_metadata.original_source;

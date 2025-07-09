@@ -127,12 +127,12 @@ class NeocenkaDB {
     listingsStore.createIndex('url', 'url', { unique: false });
     
     // Индексы для дат объявлений из внешних источников (версия 14)
-    listingsStore.createIndex('listing_created_date', 'listing_created_date', { unique: false });
-    listingsStore.createIndex('listing_updated_date', 'listing_updated_date', { unique: false });
+    listingsStore.createIndex('created', 'created', { unique: false });
+    listingsStore.createIndex('updated', 'updated', { unique: false });
     
     // Составные индексы для анализа по датам
-    listingsStore.createIndex('source_created', ['source', 'listing_created_date'], { unique: false });
-    listingsStore.createIndex('source_updated', ['source', 'listing_updated_date'], { unique: false });
+    listingsStore.createIndex('source_created', ['source', 'created'], { unique: false });
+    listingsStore.createIndex('source_updated', ['source', 'updated'], { unique: false });
 
     // Objects store (обновленная структура)
     if (!this.db.objectStoreNames.contains('objects')) {
@@ -206,7 +206,7 @@ class NeocenkaDB {
       for (const listing of existingListings) {
         try {
           // Проверяем, нужна ли миграция (если новые поля уже есть, пропускаем)
-          if (listing.source_metadata && listing.listing_created_date) continue;
+          if (listing.source_metadata && listing.source_metadata.original_source !== listing.source) continue;
 
           // Создаем новые поля для объявления
           const migratedListing = { ...listing };
@@ -745,9 +745,9 @@ class NeocenkaDB {
               if (!existingListing.source_metadata) {
                 existingListing.source_metadata = {};
               }
-              // Сохраняем original_source только если он еще не установлен или если новый источник более конкретный
-              if (!existingListing.source_metadata.original_source || 
-                  existingListing.source_metadata.original_source === 'inpars') {
+              // Сохраняем original_source только если он еще не установлен
+              // НЕ перезаписываем если уже есть конкретный источник (avito.ru, cian.ru и т.д.)
+              if (!existingListing.source_metadata.original_source) {
                 existingListing.source_metadata.original_source = listing.source_metadata.original_source;
               }
               existingListing.source_metadata.source_method = listing.source_metadata.source_method;

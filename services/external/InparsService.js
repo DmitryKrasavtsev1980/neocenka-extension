@@ -340,8 +340,11 @@ class InparsService extends BaseAPIService {
             floor: listing.floor || null,
             floors_total: listing.floors || null,
             url: listing.url || '',
-            created_at: listing.created ? new Date(listing.created) : new Date(),
-            updated_at: listing.updated ? new Date(listing.updated) : new Date()
+            // Унифицированные даты (версия 14)
+            created_at: new Date(), // Дата добавления в базу
+            updated_at: new Date(), // Дата последнего обновления в базе
+            created: listing.created ? new Date(listing.created) : null, // Дата создания на источнике
+            updated: listing.updated ? new Date(listing.updated) : null // Дата обновления на источнике
         };
     }
 
