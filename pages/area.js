@@ -6407,8 +6407,19 @@ class AreaPage {
                     });
                 }
                 
+                // Добавляем обработчик для сохранения истории цен
+                const savePriceHistoryButton = document.getElementById(`savePriceHistory-${listingId}`);
+                if (savePriceHistoryButton) {
+                    savePriceHistoryButton.addEventListener('click', () => {
+                        this.savePriceHistory(listingId);
+                    });
+                }
+                
                 // Инициализируем модальное окно редактирования цены
                 this.initializePriceEditModal(listingId);
+                
+                // Инициализируем панель управления
+                this.initializeManagementPanel(listingId);
             }, 100);
 
         } catch (error) {
@@ -6501,9 +6512,12 @@ class AreaPage {
                         </div>
                     </div>
                     <div id="priceHistoryPanelContent-${listing.id}" class="px-4 pb-4" style="display: none;">
-                        <div class="mt-4 mb-4">
+                        <div class="mt-4 mb-4 flex items-center justify-between">
                             <button id="addPriceEntry-${listing.id}" class="px-4 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
                                 Добавить изменение цены
+                            </button>
+                            <button id="savePriceHistory-${listing.id}" class="px-4 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                💾 Сохранить историю цен
                             </button>
                         </div>
                         <div class="overflow-x-auto">
@@ -6519,6 +6533,59 @@ class AreaPage {
                                     <!-- Данные будут загружены через DataTable -->
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Панель управления объявлением -->
+            <div class="mb-6">
+                <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+                    <div class="px-4 py-3 border-b border-gray-200">
+                        <h4 class="text-lg font-medium text-gray-900">Управление</h4>
+                    </div>
+                    <div class="px-4 py-4">
+                        <div class="flex items-center justify-between">
+                            <!-- Левая сторона: Статус и актуализация -->
+                            <div class="flex items-center space-x-6">
+                                <!-- Переключатель статуса -->
+                                <div class="flex items-center">
+                                    <label class="text-sm font-medium text-gray-700 mr-3">Статус:</label>
+                                    <select id="statusSelect-${listing.id}" class="form-select">
+                                        <option value="active" ${listing.status === 'active' ? 'selected' : ''}>Активное</option>
+                                        <option value="archived" ${listing.status === 'archived' ? 'selected' : ''}>Архив</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Кнопка актуализации -->
+                                <button id="actualizeBtn-${listing.id}" 
+                                        class="px-4 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+                                    🔄 Актуализировать
+                                </button>
+                            </div>
+                            
+                            <!-- Правая сторона: Удаление -->
+                            <div class="flex items-center space-x-4">
+                                <!-- Дата последнего обновления -->
+                                <div class="flex items-center">
+                                    <span class="text-sm text-gray-500">Последнее обновление:</span>
+                                    <span id="lastUpdated-${listing.id}" class="ml-2 text-sm text-gray-900">
+                                        ${listing.updated ? new Date(listing.updated).toLocaleDateString('ru-RU', {
+                                            year: 'numeric', 
+                                            month: 'short', 
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        }) : 'Не указано'}
+                                    </span>
+                                </div>
+                                
+                                <!-- Кнопка удаления -->
+                                <button id="deleteBtn-${listing.id}" 
+                                        class="px-4 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">
+                                    🗑️ Удалить
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -7016,37 +7083,35 @@ class AreaPage {
             });
         }
 
-        // Добавляем текущую цену с правильной датой в зависимости от статуса
+        // Добавляем конечную точку с правильной датой в зависимости от статуса
         if (listing.price) {
-            let currentPriceDate;
+            let endPriceDate;
             
             if (listing.status === 'active') {
                 // Для активных объявлений - текущая дата
-                currentPriceDate = new Date();
+                endPriceDate = new Date();
             } else {
                 // Для архивных объявлений - дата последнего обновления
-                currentPriceDate = new Date(
-                    listing.updated || 
-                    listing.updated_at || 
-                    listing.created ||
-                    listing.created_at ||
-                    Date.now()
-                );
+                endPriceDate = new Date(listing.updated || listing.created || Date.now());
             }
             
-            history.push({
-                date: currentPriceDate.getTime(),
-                price: parseInt(listing.price)
-            });
+            // Добавляем конечную точку только если она отличается от уже существующих
+            const lastHistoryDate = history.length > 0 ? history[history.length - 1].date : 0;
+            if (Math.abs(endPriceDate.getTime() - lastHistoryDate) > 24 * 60 * 60 * 1000) {
+                history.push({
+                    date: endPriceDate.getTime(),
+                    price: parseInt(listing.price)
+                });
+            }
         }
 
         // Сортируем по дате
         history.sort((a, b) => a.date - b.date);
         
-        // Убираем дубликаты цен подряд
+        // Убираем дубликаты цен подряд, но оставляем ключевые точки
         const filtered = [];
         for (let i = 0; i < history.length; i++) {
-            if (i === 0 || history[i].price !== history[i-1].price) {
+            if (i === 0 || i === history.length - 1 || history[i].price !== history[i-1].price) {
                 filtered.push(history[i]);
             }
         }
@@ -7158,6 +7223,9 @@ class AreaPage {
                 }
             }
 
+            // Добавляем слой адресов из области
+            this.addAddressLayerToListingMap(listingMap, coords, listing.id);
+
             // Сохраняем ссылку на карту для возможной очистки
             mapContainer._leafletMap = listingMap;
 
@@ -7167,6 +7235,245 @@ class AreaPage {
             if (mapContainer) {
                 mapContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка загрузки карты</div>';
             }
+        }
+    }
+
+    /**
+     * Добавляет слой адресов из области на карту объявления
+     */
+    async addAddressLayerToListingMap(listingMap, centerCoords, listingId) {
+        try {
+            // Получаем адреса из области
+            const addresses = await this.getAddressesInArea();
+            
+            if (!Array.isArray(addresses) || addresses.length === 0) {
+                return;
+            }
+
+            // Определяем радиус для отображения близлежащих адресов (в метрах)
+            const radiusMeters = 500;
+            
+            // Фильтруем адреса по расстоянию
+            const nearbyAddresses = addresses.filter(address => {
+                if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                    return false;
+                }
+                
+                const addressCoords = {
+                    lat: parseFloat(address.coordinates.lat),
+                    lng: parseFloat(address.coordinates.lng)
+                };
+                
+                const distance = this.calculateDistance(centerCoords, addressCoords);
+                return distance <= radiusMeters;
+            });
+
+            console.log(`🗺️ Найдено ${nearbyAddresses.length} адресов в радиусе ${radiusMeters}м от объявления`);
+
+            // Создаем маркеры для близлежащих адресов
+            for (const address of nearbyAddresses) {
+                try {
+                    // Получаем цвет материала стен
+                    let markerColor = '#3b82f6'; // Цвет по умолчанию
+                    if (address.wall_material_id) {
+                        try {
+                            const wallMaterial = await db.get('wall_materials', address.wall_material_id);
+                            if (wallMaterial && wallMaterial.color) {
+                                markerColor = wallMaterial.color;
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось получить материал стен для адреса:', address.id);
+                        }
+                    }
+
+                    // Определяем высоту маркера в зависимости от этажности
+                    const floorCount = address.floors_count || 0;
+                    let markerHeight;
+                    if (floorCount >= 1 && floorCount <= 5) {
+                        markerHeight = 8;
+                    } else if (floorCount > 5 && floorCount <= 10) {
+                        markerHeight = 12;
+                    } else if (floorCount > 10 && floorCount <= 20) {
+                        markerHeight = 16;
+                    } else if (floorCount > 20) {
+                        markerHeight = 20;
+                    } else {
+                        markerHeight = 8; // По умолчанию для адресов без указанной этажности
+                    }
+
+                    // Создаем маркер адреса
+                    const addressMarker = L.marker([address.coordinates.lat, address.coordinates.lng], {
+                        icon: L.divIcon({
+                            className: 'address-marker',
+                            html: `
+                                <div class="leaflet-marker-icon-wrapper" style="position: relative;">
+                                    <div style="
+                                        width: 0; 
+                                        height: 0; 
+                                        border-left: 6px solid transparent; 
+                                        border-right: 6px solid transparent; 
+                                        border-top: ${markerHeight}px solid ${markerColor};
+                                        filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+                                        opacity: 0.7;
+                                    "></div>
+                                    ${address.build_year ? `<span class="leaflet-marker-iconlabel" style="
+                                        position: absolute; 
+                                        left: 12px; 
+                                        top: 0px; 
+                                        font-size: 9px; 
+                                        font-weight: 500; 
+                                        color: #374151; 
+                                        background: rgba(255,255,255,0.8); 
+                                        padding: 1px 3px; 
+                                        border-radius: 2px; 
+                                        white-space: nowrap;
+                                        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                                    ">${address.build_year}</span>` : ''}
+                                </div>
+                            `,
+                            iconSize: [12, markerHeight],
+                            iconAnchor: [6, markerHeight]
+                        })
+                    }).addTo(listingMap);
+
+                    // Добавляем popup с информацией об адресе
+                    const typeText = this.getAddressTypeText(address.type);
+                    
+                    // Получаем название материала стен
+                    let wallMaterialText = 'Не указан';
+                    if (address.wall_material_id) {
+                        try {
+                            const wallMaterial = await db.get('wall_materials', address.wall_material_id);
+                            if (wallMaterial) {
+                                wallMaterialText = wallMaterial.name;
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось получить материал стен для popup:', address.id);
+                        }
+                    }
+
+                    // Вычисляем расстояние до объявления
+                    const distance = this.calculateDistance(centerCoords, {
+                        lat: parseFloat(address.coordinates.lat),
+                        lng: parseFloat(address.coordinates.lng)
+                    });
+                    
+                    addressMarker.bindPopup(`
+                        <div class="address-popup" style="min-width: 200px;">
+                            <div class="header">
+                                <strong>📍 Адрес</strong><br>
+                                <div class="address-title" style="font-size: 13px;">${address.address || 'Не указан'}</div>
+                            </div>
+                            
+                            <div class="meta" style="margin-top: 6px;">
+                                <small>Тип: <strong>${typeText}</strong></small><br>
+                                <small>Расстояние: <strong>${Math.round(distance)}м</strong></small>
+                                ${address.floors_count ? `<br><small>Этажей: ${address.floors_count}</small>` : ''}
+                                <br><small>Материал: <strong>${wallMaterialText}</strong></small>
+                                ${address.build_year ? `<br><small>Год постройки: ${address.build_year}</small>` : ''}
+                            </div>
+                            
+                            <div class="actions" style="margin-top: 12px;">
+                                <button class="select-address-btn" 
+                                        data-address-id="${address.id}" 
+                                        data-address-name="${this.escapeHtml(address.address || 'Не указан')}"
+                                        style="width: 100%; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; transition: background-color 0.2s;">
+                                    ✓ Выбрать этот адрес
+                                </button>
+                            </div>
+                        </div>
+                    `, {
+                        maxWidth: 250,
+                        className: 'address-popup-container'
+                    });
+
+                } catch (markerError) {
+                    console.error(`Ошибка создания маркера для адреса ${address.id}:`, markerError);
+                }
+            }
+
+            // Добавляем обработчики событий для кнопок выбора адреса
+            setTimeout(() => {
+                this.attachAddressSelectionHandlers(listingId);
+            }, 100);
+
+        } catch (error) {
+            console.error('Ошибка добавления слоя адресов на карту объявления:', error);
+        }
+    }
+
+    /**
+     * Добавляет обработчики событий для кнопок выбора адреса в popup-ах карты
+     */
+    attachAddressSelectionHandlers(listingId) {
+        // Используем делегирование событий для избежания CSP ошибок
+        document.addEventListener('click', (event) => {
+            if (event.target.classList.contains('select-address-btn')) {
+                const addressId = event.target.getAttribute('data-address-id');
+                const addressName = event.target.getAttribute('data-address-name');
+                
+                console.log(`🎯 Выбран адрес ${addressId}: ${addressName}`);
+                
+                // Устанавливаем значение в выпадающий список
+                this.setAddressInSelector(listingId, addressId, addressName);
+                
+                // Закрываем popup
+                const popup = event.target.closest('.leaflet-popup');
+                if (popup) {
+                    popup.style.display = 'none';
+                }
+            }
+        });
+
+        // Добавляем CSS стили для hover эффекта
+        const style = document.createElement('style');
+        style.textContent = `
+            .select-address-btn:hover {
+                background-color: #2563eb !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    /**
+     * Устанавливает выбранный адрес в выпадающий список
+     */
+    setAddressInSelector(listingId, addressId, addressName) {
+        try {
+            // Получаем элемент select
+            const selectElement = document.getElementById(`addressSelect_${listingId}`);
+            if (!selectElement) {
+                console.error('Элемент select не найден:', `addressSelect_${listingId}`);
+                return;
+            }
+
+            // Устанавливаем значение в обычном select
+            selectElement.value = addressId;
+
+            // Если есть экземпляр SlimSelect, обновляем его
+            const slimSelectInstance = this[`addressSlimSelect_${listingId}`];
+            if (slimSelectInstance) {
+                try {
+                    // Используем правильный метод для установки значения в SlimSelect
+                    slimSelectInstance.setSelected(addressId);
+                    console.log(`📍 Адрес установлен в SlimSelect: ${addressName}`);
+                } catch (slimError) {
+                    console.warn('Ошибка установки в SlimSelect, используем обычный select:', slimError);
+                    // Fallback на обычный select
+                    selectElement.value = addressId;
+                    selectElement.dispatchEvent(new Event('change'));
+                    console.log(`📍 Адрес установлен в обычном select: ${addressName}`);
+                }
+            } else {
+                console.log(`📍 Адрес установлен в обычном select: ${addressName}`);
+            }
+
+            // Показываем уведомление пользователю
+            this.showNotification(`Адрес "${addressName}" выбран. Нажмите "Сохранить" для применения.`, 'success');
+
+        } catch (error) {
+            console.error('Ошибка установки адреса в селектор:', error);
+            this.showNotification('Ошибка при выборе адреса', 'error');
         }
     }
 
@@ -7212,7 +7519,7 @@ class AreaPage {
                 pageLength: 10,
                 searching: false,
                 ordering: true,
-                order: [[0, 'desc']], // Сортировка по дате (новые сверху)
+                order: [[0, 'asc']], // Сортировка по дате (по возрастанию)
                 columnDefs: [
                     {
                         targets: 2, // Колонка "Действия"
@@ -7230,6 +7537,9 @@ class AreaPage {
                             if (type === 'display') {
                                 const date = new Date(data);
                                 return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+                            } else if (type === 'sort' || type === 'type') {
+                                // Возвращаем timestamp для правильной сортировки
+                                return new Date(data).getTime();
                             }
                             return data;
                         }
@@ -7291,33 +7601,7 @@ class AreaPage {
         const data = [];
         let index = 0;
 
-        // Добавляем текущую цену как последнюю запись с правильной датой
-        if (listing.price) {
-            let currentPriceDate;
-            
-            if (listing.status === 'active') {
-                // Для активных объявлений - текущая дата
-                currentPriceDate = new Date();
-            } else {
-                // Для архивных объявлений - дата последнего обновления
-                currentPriceDate = new Date(
-                    listing.updated || 
-                    listing.updated_at || 
-                    listing.created ||
-                    listing.created_at ||
-                    Date.now()
-                );
-            }
-            
-            data.push({
-                date: currentPriceDate,
-                price: listing.price,
-                index: index++,
-                isCurrent: true
-            });
-        }
-
-        // Добавляем историю изменений цен
+        // Добавляем только историю изменений цен (без текущей цены)
         if (listing.price_history && Array.isArray(listing.price_history)) {
             listing.price_history.forEach(historyItem => {
                 // Поддерживаем разные форматы: new_price (Avito) и price (Inpars)
@@ -7483,18 +7767,26 @@ class AreaPage {
             
             if (!entry) return;
 
-            if (entry.isCurrent) {
-                alert('Нельзя удалить текущую цену объявления');
-                return;
-            }
 
-            // Удаляем из истории цен
+            // Удаляем из истории цен по индексу
             if (listing.price_history && Array.isArray(listing.price_history)) {
-                listing.price_history = listing.price_history.filter(item => {
-                    const itemDate = new Date(item.date);
-                    const entryDate = new Date(entry.date);
-                    return !(itemDate.getTime() === entryDate.getTime() && item.new_price === entry.price);
-                });
+                // Индекс соответствует позиции в массиве price_history
+                if (index >= 0 && index < listing.price_history.length) {
+                    listing.price_history.splice(index, 1);
+                }
+                
+                // Обновляем текущую цену на последнюю из истории
+                if (listing.price_history.length > 0) {
+                    // Сортируем по дате
+                    listing.price_history.sort((a, b) => new Date(a.date) - new Date(b.date));
+                    const latestPrice = listing.price_history[listing.price_history.length - 1];
+                    listing.price = latestPrice.price || latestPrice.new_price;
+                    
+                    // Пересчитываем цену за м2
+                    if (listing.area_total && listing.area_total > 0) {
+                        listing.price_per_meter = Math.round(listing.price / listing.area_total);
+                    }
+                }
             }
 
             // Сохраняем в БД
@@ -7502,6 +7794,12 @@ class AreaPage {
 
             // Обновляем таблицу
             this.refreshPriceHistoryTable(listingId, listing);
+            
+            // Обновляем график цены
+            this.renderPriceChart(listing);
+            
+            // Пересобираем таблицу дублей
+            await this.loadDuplicatesTable();
 
             console.log(`✅ Удалена запись из истории цен для объявления ${listingId}`);
 
@@ -8287,6 +8585,289 @@ class AreaPage {
         `;
 
         tableElement.innerHTML = tableHTML;
+    }
+
+    /**
+     * Инициализация панели управления объявлением
+     */
+    initializeManagementPanel(listingId) {
+        // Инициализируем SlimSelect для статуса
+        const statusSelect = document.getElementById(`statusSelect-${listingId}`);
+        if (statusSelect) {
+            const statusSlimSelect = new SlimSelect({
+                select: statusSelect,
+                settings: {
+                    showSearch: false,
+                    closeOnSelect: true
+                }
+            });
+
+            // Обработчик изменения статуса
+            statusSelect.addEventListener('change', (e) => {
+                this.updateListingStatus(listingId, e.target.value);
+            });
+
+            // Сохраняем экземпляр SlimSelect
+            this[`statusSlimSelect_${listingId}`] = statusSlimSelect;
+        }
+
+        // Обработчик кнопки актуализации
+        const actualizeBtn = document.getElementById(`actualizeBtn-${listingId}`);
+        if (actualizeBtn) {
+            actualizeBtn.addEventListener('click', () => {
+                this.actualizeListing(listingId);
+            });
+        }
+
+        // Обработчик кнопки удаления
+        const deleteBtn = document.getElementById(`deleteBtn-${listingId}`);
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                this.deleteListing(listingId);
+            });
+        }
+    }
+
+    /**
+     * Обновление статуса объявления
+     */
+    async updateListingStatus(listingId, newStatus) {
+        try {
+            const listing = this.listings.find(l => l.id === listingId);
+            if (!listing) {
+                console.error('Объявление не найдено:', listingId);
+                return;
+            }
+
+            // Обновляем только статус (без изменения даты updated)
+            listing.status = newStatus;
+
+            // Сохраняем в базу данных
+            await db.update('listings', listing);
+
+            // Перерендериваем график цены для корректного отображения конечной точки
+            this.renderPriceChart(listing);
+            
+            // Пересобираем таблицу дублей
+            await this.loadDuplicatesTable();
+
+            console.log(`✅ Статус объявления ${listingId} обновлен на ${newStatus}`);
+            
+        } catch (error) {
+            console.error('Ошибка обновления статуса:', error);
+            // Возвращаем предыдущее значение в select
+            const statusSelect = document.getElementById(`statusSelect-${listingId}`);
+            if (statusSelect) {
+                const listing = this.listings.find(l => l.id === listingId);
+                if (listing) {
+                    statusSelect.value = listing.status;
+                    // Обновляем SlimSelect если есть
+                    const slimSelect = this[`statusSlimSelect_${listingId}`];
+                    if (slimSelect) {
+                        slimSelect.setSelected(listing.status);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Актуализация объявления (обновление даты updated)
+     */
+    async actualizeListing(listingId) {
+        try {
+            const listing = this.listings.find(l => l.id === listingId);
+            if (!listing) {
+                console.error('Объявление не найдено:', listingId);
+                return;
+            }
+
+            // Обновляем дату последнего обновления
+            listing.updated = new Date().toISOString();
+
+            // Сохраняем в базу данных
+            await db.update('listings', listing);
+
+            // Обновляем дату в интерфейсе
+            this.updateLastUpdatedDisplay(listingId, listing.updated);
+
+            // Перерендериваем график цены
+            this.renderPriceChart(listing);
+            
+            // Пересобираем таблицу дублей
+            await this.loadDuplicatesTable();
+
+            console.log(`✅ Объявление ${listingId} актуализировано`);
+            
+        } catch (error) {
+            console.error('Ошибка актуализации объявления:', error);
+        }
+    }
+
+    /**
+     * Обновление отображения даты последнего обновления
+     */
+    updateLastUpdatedDisplay(listingId, updatedDate) {
+        const lastUpdatedElement = document.getElementById(`lastUpdated-${listingId}`);
+        if (lastUpdatedElement && updatedDate) {
+            lastUpdatedElement.textContent = new Date(updatedDate).toLocaleDateString('ru-RU', {
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+    }
+
+    /**
+     * Удаление объявления с подтверждением
+     */
+    async deleteListing(listingId) {
+        const listing = this.listings.find(l => l.id === listingId);
+        if (!listing) {
+            console.error('Объявление не найдено:', listingId);
+            return;
+        }
+
+        // Показываем подтверждение удаления
+        const confirmed = confirm(`Вы уверены, что хотите удалить это объявление?\n\n"${listing.title || listing.address || 'Без названия'}"\n\nЭто действие нельзя отменить.`);
+        
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            // Удаляем из базы данных
+            await db.delete('listings', listingId);
+
+            // Удаляем из локального массива
+            this.listings = this.listings.filter(l => l.id !== listingId);
+
+            // Закрываем модальное окно просмотра
+            document.getElementById('listingModal').classList.add('hidden');
+
+            // Обновляем таблицы и карту
+            await this.loadDuplicatesTable();
+            this.loadMapData();
+
+            console.log(`✅ Объявление ${listingId} удалено`);
+            
+        } catch (error) {
+            console.error('Ошибка удаления объявления:', error);
+            alert('Произошла ошибка при удалении объявления. Попробуйте еще раз.');
+        }
+    }
+
+    /**
+     * Сохранение истории цен объявления
+     */
+    async savePriceHistory(listingId) {
+        try {
+            const listing = this.listings.find(l => l.id === listingId);
+            if (!listing) {
+                console.error('Объявление не найдено:', listingId);
+                return;
+            }
+
+            // Получаем DataTable instance
+            const tableId = `priceHistoryTable-${listingId}`;
+            const table = $(`#${tableId}`).DataTable();
+            
+            if (!table) {
+                console.error('Таблица истории цен не найдена');
+                return;
+            }
+
+            // Получаем исходные данные из таблицы
+            const rawTableData = table.data().toArray();
+            
+            // Используем исходные данные (не отформатированные)
+            const priceHistory = [];
+            
+            rawTableData.forEach(row => {
+                if (row && row.date && row.price) {
+                    priceHistory.push({
+                        date: new Date(row.date).toISOString(),
+                        price: parseInt(row.price),
+                        change_amount: null,
+                        change_type: null,
+                        is_publication: false,
+                        source_data: {
+                            manual_entry: true,
+                            created_at: new Date().toISOString()
+                        }
+                    });
+                }
+            });
+
+            // Сортируем по дате
+            priceHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            // Обновляем объявление
+            listing.price_history = priceHistory;
+            
+            // Если есть данные в истории, обновляем текущую цену на последнюю из истории
+            if (priceHistory.length > 0) {
+                const latestPrice = priceHistory[priceHistory.length - 1];
+                listing.price = latestPrice.price;
+                
+                // Пересчитываем цену за м2
+                if (listing.area_total && listing.area_total > 0) {
+                    listing.price_per_meter = Math.round(listing.price / listing.area_total);
+                }
+            }
+
+            // Сохраняем в базу данных
+            await db.update('listings', listing);
+
+            // Обновляем график цены
+            this.renderPriceChart(listing);
+
+            // Обновляем локальный массив объявлений
+            const listingIndex = this.listings.findIndex(l => l.id === listingId);
+            if (listingIndex !== -1) {
+                this.listings[listingIndex] = listing;
+            }
+
+            // Пересобираем таблицу дублей
+            await this.loadDuplicatesTable();
+
+            console.log(`✅ История цен объявления ${listingId} сохранена`);
+            
+            // Можно добавить визуальную обратную связь
+            const button = document.getElementById(`savePriceHistory-${listingId}`);
+            if (button) {
+                const originalText = button.innerHTML;
+                button.innerHTML = '✅ Сохранено';
+                button.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+                button.classList.add('bg-green-500', 'hover:bg-green-600');
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('bg-green-500', 'hover:bg-green-600');
+                    button.classList.add('bg-blue-500', 'hover:bg-blue-600');
+                }, 2000);
+            }
+            
+        } catch (error) {
+            console.error('Ошибка сохранения истории цен:', error);
+            
+            // Визуальная обратная связь об ошибке
+            const button = document.getElementById(`savePriceHistory-${listingId}`);
+            if (button) {
+                const originalText = button.innerHTML;
+                button.innerHTML = '❌ Ошибка';
+                button.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+                button.classList.add('bg-red-500', 'hover:bg-red-600');
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('bg-red-500', 'hover:bg-red-600');
+                    button.classList.add('bg-blue-500', 'hover:bg-blue-600');
+                }, 2000);
+            }
+        }
     }
 
 }
