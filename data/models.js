@@ -872,6 +872,469 @@ class ListingModel {
 /**
  * Модель объекта недвижимости (объединенные объявления)
  */
+class RealEstateObjectModel {
+  constructor(data = {}) {
+    // Основные поля
+    this.id = data.id || null;
+    this.address_id = data.address_id || null; // Связь с адресом
+    
+    // Агрегированные характеристики
+    this.property_type = data.property_type || null; // Преобладающий тип
+    this.area_total = data.area_total || null; // Минимальная площадь
+    this.area_living = data.area_living || null; // Минимальная жилая
+    this.area_kitchen = data.area_kitchen || null; // Минимальная кухня
+    this.floor = data.floor || null; // Преобладающий этаж
+    this.floors_total = data.floors_total || null; // Из адреса
+    this.rooms = data.rooms || null; // Из типа недвижимости
+    
+    // Статус объекта
+    this.status = data.status || 'active'; // 'active' | 'archive'
+    
+    // Ценовая информация
+    this.current_price = data.current_price || null; // Текущая цена
+    this.price_per_meter = data.price_per_meter || null; // Цена за м²
+    
+    // Объединенная история цен
+    this.price_history = data.price_history || [];
+    
+    // Количество объявлений
+    this.listings_count = data.listings_count || 0;
+    this.active_listings_count = data.active_listings_count || 0;
+    
+    // Статус наличия объявлений от собственника
+    this.owner_status = data.owner_status || 'только от агентов'; // 'есть от собственника' | 'было от собственника' | 'только от агентов'
+    
+    // Временные метки (от первого и последнего объявления)
+    this.created = data.created || null; // Дата создания первого объявления
+    this.updated = data.updated || null; // Дата обновления последнего обновления
+    
+    // Метаданные
+    this.last_recalculated_at = data.last_recalculated_at || null;
+    this.calculation_errors = data.calculation_errors || [];
+    
+    // Служебные поля
+    this.created_at = data.created_at || new Date(); // Дата создания записи в БД
+    this.updated_at = data.updated_at || new Date(); // Дата обновления записи в БД
+  }
+
+  /**
+   * Пересчитывает характеристики объекта на основе связанных объявлений
+   */
+  async recalculateFromListings(listings) {
+    if (!listings || listings.length === 0) return;
+    
+    try {
+      // 1. Определяем преобладающий тип недвижимости
+      this.property_type = this.calculateDominantPropertyType(listings);
+      
+      // 2. Выбираем минимальные площади
+      this.area_total = this.calculateMinArea(listings, 'area_total');
+      this.area_living = this.calculateMinArea(listings, 'area_living');
+      this.area_kitchen = this.calculateMinArea(listings, 'area_kitchen');
+      
+      // 3. Определяем преобладающий этаж
+      this.floor = this.calculateDominantFloor(listings);
+      
+      // 4. Определяем этажность из адреса (берем из первого объявления)
+      this.floors_total = listings[0].floors_total || null;
+      
+      // 5. Определяем количество комнат из типа недвижимости
+      this.rooms = this.getRoomsFromPropertyType(this.property_type);
+      
+      // 6. Обновляем временные метки
+      this.updateTimestamps(listings);
+      
+      // 7. Пересчитываем цены
+      this.updatePrices(listings);
+      
+      // 8. Объединяем историю цен
+      this.mergePriceHistory(listings);
+      
+      // 9. Обновляем счетчики
+      this.updateCounters(listings);
+      
+      // 10. Определяем статус
+      this.updateStatus(listings);
+      
+      // 11. Определяем статус собственника
+      this.updateOwnerStatus(listings);
+      
+      this.last_recalculated_at = new Date();
+      this.updated_at = new Date();
+      this.calculation_errors = [];
+      
+    } catch (error) {
+      this.calculation_errors.push({
+        date: new Date(),
+        error: error.message,
+        listings_count: listings.length
+      });
+      console.error('Ошибка при пересчете характеристик объекта:', error);
+    }
+  }
+
+  /**
+   * Определяет преобладающий тип недвижимости
+   */
+  calculateDominantPropertyType(listings) {
+    const typeCounts = {};
+    
+    listings.forEach(listing => {
+      if (listing.property_type) {
+        typeCounts[listing.property_type] = (typeCounts[listing.property_type] || 0) + 1;
+      }
+    });
+    
+    if (Object.keys(typeCounts).length === 0) return null;
+    
+    return Object.keys(typeCounts).reduce((a, b) => 
+      typeCounts[a] > typeCounts[b] ? a : b
+    );
+  }
+
+  /**
+   * Вычисляет минимальную площадь по указанному полю
+   */
+  calculateMinArea(listings, areaField) {
+    const areas = listings
+      .map(listing => listing[areaField])
+      .filter(area => area && area > 0);
+    
+    return areas.length > 0 ? Math.min(...areas) : null;
+  }
+
+  /**
+   * Определяет преобладающий этаж (с предпочтением минимального при равенстве)
+   */
+  calculateDominantFloor(listings) {
+    const floorCounts = {};
+    
+    listings.forEach(listing => {
+      if (listing.floor && listing.floor > 0) {
+        floorCounts[listing.floor] = (floorCounts[listing.floor] || 0) + 1;
+      }
+    });
+    
+    if (Object.keys(floorCounts).length === 0) return null;
+    
+    const maxCount = Math.max(...Object.values(floorCounts));
+    const dominantFloors = Object.keys(floorCounts)
+      .filter(floor => floorCounts[floor] === maxCount)
+      .map(floor => parseInt(floor));
+    
+    return Math.min(...dominantFloors);
+  }
+
+  /**
+   * Определяет количество комнат из типа недвижимости
+   */
+  getRoomsFromPropertyType(propertyType) {
+    if (!propertyType) return null;
+    
+    const roomsMap = {
+      'studio': 0,
+      '1k': 1,
+      '2k': 2,
+      '3k': 3,
+      '4k+': 4
+    };
+    
+    return roomsMap[propertyType] || null;
+  }
+
+  /**
+   * Обновляет временные метки на основе объявлений
+   */
+  updateTimestamps(listings) {
+    const createdDates = listings
+      .map(listing => listing.created || listing.created_at)
+      .filter(date => date)
+      .map(date => new Date(date))
+      .sort((a, b) => a - b);
+    
+    const updatedDates = listings
+      .map(listing => listing.updated || listing.updated_at)
+      .filter(date => date)
+      .map(date => new Date(date))
+      .sort((a, b) => b - a);
+    
+    this.created = createdDates.length > 0 ? createdDates[0] : null;
+    this.updated = updatedDates.length > 0 ? updatedDates[0] : null;
+  }
+
+  /**
+   * Обновляет ценовую информацию
+   */
+  updatePrices(listings) {
+    // Сначала определяем последнюю цену из истории всех объявлений
+    const allPricesWithHistory = [];
+    
+    listings.forEach(listing => {
+      if (listing.price_history && listing.price_history.length > 0) {
+        listing.price_history.forEach(priceEntry => {
+          allPricesWithHistory.push({
+            price: priceEntry.price,
+            date: new Date(priceEntry.date),
+            listing_id: listing.id
+          });
+        });
+      }
+      
+      // Добавляем текущую цену как последнюю запись
+      if (listing.price && listing.price > 0) {
+        allPricesWithHistory.push({
+          price: listing.price,
+          date: new Date(listing.updated_at || listing.created_at),
+          listing_id: listing.id
+        });
+      }
+    });
+    
+    // Сортируем по дате (последняя цена сначала)
+    allPricesWithHistory.sort((a, b) => b.date - a.date);
+    
+    // Устанавливаем последнюю цену как текущую
+    if (allPricesWithHistory.length > 0) {
+      this.current_price = allPricesWithHistory[0].price;
+    } else {
+      this.current_price = null;
+    }
+    
+    // Пересчитываем цену за м²
+    if (this.current_price && this.area_total && this.area_total > 0) {
+      this.price_per_meter = Math.round(this.current_price / this.area_total);
+    }
+  }
+
+  /**
+   * Объединяет историю цен из всех объявлений
+   */
+  mergePriceHistory(listings) {
+    const allPriceHistory = [];
+    
+    listings.forEach(listing => {
+      // Добавляем историю цен из объявления
+      if (listing.price_history && listing.price_history.length > 0) {
+        listing.price_history.forEach(priceEntry => {
+          allPriceHistory.push({
+            date: new Date(priceEntry.date),
+            price: priceEntry.price,
+            listing_id: listing.id,
+            listing_external_id: listing.external_id,
+            listing_source: listing.source,
+            change_type: priceEntry.change_type || 'change'
+          });
+        });
+      }
+      
+      // Добавляем текущую цену как последнюю запись
+      if (listing.price) {
+        allPriceHistory.push({
+          date: new Date(listing.updated_at || listing.created_at),
+          price: listing.price,
+          listing_id: listing.id,
+          listing_external_id: listing.external_id,
+          listing_source: listing.source,
+          change_type: 'current'
+        });
+      }
+    });
+    
+    // Сортируем по дате и удаляем дубликаты
+    const uniqueHistory = [];
+    const seenEntries = new Set();
+    
+    allPriceHistory
+      .sort((a, b) => a.date - b.date)
+      .forEach(entry => {
+        const key = `${entry.date.getTime()}-${entry.price}-${entry.listing_id}`;
+        if (!seenEntries.has(key)) {
+          seenEntries.add(key);
+          uniqueHistory.push(entry);
+        }
+      });
+    
+    this.price_history = uniqueHistory;
+  }
+
+  /**
+   * Обновляет счетчики объявлений
+   */
+  updateCounters(listings) {
+    this.listings_count = listings.length;
+    this.active_listings_count = listings.filter(l => l.status === 'active').length;
+  }
+
+  /**
+   * Обновляет статус объекта на основе статусов объявлений
+   */
+  updateStatus(listings) {
+    const activeListings = listings.filter(l => l.status === 'active');
+    
+    if (activeListings.length > 0) {
+      this.status = 'active';
+    } else {
+      this.status = 'archive';
+    }
+  }
+
+  /**
+   * Обновляет статус наличия объявлений от собственника
+   */
+  updateOwnerStatus(listings) {
+    // Находим объявления от собственника
+    const ownerListings = listings.filter(listing => {
+      // Проверяем различные варианты определения собственника
+      return (listing.seller_type === 'owner' || 
+              listing.seller_type === 'Частное лицо' ||
+              (listing.seller_info && listing.seller_info.type === 'owner') ||
+              (listing.seller_info && !listing.seller_info.is_agent));
+    });
+    
+    if (ownerListings.length === 0) {
+      this.owner_status = 'только от агентов';
+    } else {
+      // Проверяем есть ли активные объявления от собственника
+      const activeOwnerListings = ownerListings.filter(l => l.status === 'active');
+      
+      if (activeOwnerListings.length > 0) {
+        this.owner_status = 'есть от собственника';
+      } else {
+        this.owner_status = 'было от собственника';
+      }
+    }
+  }
+
+  /**
+   * Объединяет объявления в объект недвижимости
+   */
+  static async mergeListingsIntoObject(listings, addressId) {
+    if (!listings || listings.length === 0) return null;
+    
+    // Создаем новый объект недвижимости
+    const realEstateObject = new RealEstateObjectModel({
+      address_id: addressId
+    });
+    
+    // Пересчитываем характеристики
+    await realEstateObject.recalculateFromListings(listings);
+    
+    // Сохраняем объект
+    const savedObject = await DatabaseManager.save('objects', realEstateObject);
+    
+    // Обновляем объявления - связываем с объектом
+    for (const listing of listings) {
+      listing.object_id = savedObject.id;
+      listing.processing_status = 'processed';
+      listing.updated_at = new Date();
+      await DatabaseManager.save('listings', listing);
+    }
+    
+    return savedObject;
+  }
+
+  /**
+   * Разделяет объявления из объекта недвижимости
+   */
+  static async splitListingsFromObject(objectId, listingIds) {
+    // Получаем объект
+    const realEstateObject = await DatabaseManager.getById('objects', objectId);
+    if (!realEstateObject) return;
+    
+    // Удаляем связи с объектом у выбранных объявлений
+    for (const listingId of listingIds) {
+      const listing = await DatabaseManager.getById('listings', listingId);
+      if (listing) {
+        listing.object_id = null;
+        listing.processing_status = 'duplicate_check_needed';
+        listing.updated_at = new Date();
+        await DatabaseManager.save('listings', listing);
+      }
+    }
+    
+    // Получаем оставшиеся объявления
+    const remainingListings = await DatabaseManager.getByIndex('listings', 'object_id', objectId);
+    
+    if (remainingListings.length === 0) {
+      // Если объявлений не осталось, удаляем объект
+      await DatabaseManager.delete('objects', objectId);
+    } else {
+      // Пересчитываем характеристики объекта
+      await realEstateObject.recalculateFromListings(remainingListings);
+      await DatabaseManager.save('objects', realEstateObject);
+    }
+  }
+
+  /**
+   * Обновляет объект при изменении связанного объявления
+   */
+  static async updateObjectOnListingChange(listingId, oldListing, newListing) {
+    // Находим объект недвижимости
+    const objectId = newListing.object_id || oldListing.object_id;
+    if (!objectId) return;
+    
+    const realEstateObject = await DatabaseManager.getById('objects', objectId);
+    if (!realEstateObject) return;
+    
+    // Получаем все связанные объявления
+    const relatedListings = await DatabaseManager.getByIndex('listings', 'object_id', objectId);
+    
+    // Пересчитываем характеристики
+    await realEstateObject.recalculateFromListings(relatedListings);
+    
+    // Сохраняем обновленный объект
+    await DatabaseManager.save('objects', realEstateObject);
+  }
+
+  /**
+   * Получает объекты недвижимости с возможностью фильтрации
+   */
+  static async getObjectsWithFilters(filters = {}) {
+    const objects = await DatabaseManager.getAll('objects');
+    
+    return objects.filter(obj => {
+      // Фильтр по статусу
+      if (filters.status && obj.status !== filters.status) return false;
+      
+      // Фильтр по типу недвижимости
+      if (filters.property_type && obj.property_type !== filters.property_type) return false;
+      
+      // Фильтр по адресу
+      if (filters.address_id && obj.address_id !== filters.address_id) return false;
+      
+      // Фильтр по ценовому диапазону
+      if (filters.price_min && obj.current_price < filters.price_min) return false;
+      if (filters.price_max && obj.current_price > filters.price_max) return false;
+      
+      // Фильтр по количеству активных объявлений
+      if (filters.min_active_listings && obj.active_listings_count < filters.min_active_listings) return false;
+      
+      return true;
+    });
+  }
+
+  validate() {
+    const errors = [];
+    
+    if (!this.address_id) {
+      errors.push('Не указан адрес');
+    }
+    
+    if (!this.property_type) {
+      errors.push('Не определен тип недвижимости');
+    }
+    
+    if (!this.current_price || this.current_price <= 0) {
+      errors.push('Неверная цена');
+    }
+    
+    if (this.listings_count <= 0) {
+      errors.push('Объект должен содержать хотя бы одно объявление');
+    }
+    
+    return errors;
+  }
+}
 
 /**
  * Модель отчета

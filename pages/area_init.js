@@ -33,8 +33,26 @@ document.addEventListener('DOMContentLoaded', async function() {
         document.getElementById('footer-container').innerHTML = footer.render();
         
         // Ждем инициализации базы данных
-        if (!db.db) {
-            await db.init();
+        if (!window.db) {
+            throw new Error('База данных не инициализирована');
+        }
+        
+        if (!window.db.db) {
+            console.log('🔄 Ожидание инициализации базы данных...');
+            await window.db.init();
+        }
+        
+        // Инициализируем RealEstateObjectManager
+        if (window.realEstateObjectManager) {
+            try {
+                await window.realEstateObjectManager.init();
+                console.log('🏠 RealEstateObjectManager успешно инициализирован');
+            } catch (error) {
+                console.error('❌ Ошибка инициализации RealEstateObjectManager:', error);
+                throw new Error('Не удалось инициализировать RealEstateObjectManager: ' + error.message);
+            }
+        } else {
+            console.warn('⚠️ RealEstateObjectManager не найден в window объекте');
         }
         
         // Проверяем, что класс AreaPage доступен

@@ -6,7 +6,7 @@
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 14; // Версия 14: добавлены индексы для дат создания и обновления объявлений
+    this.version = 16; // Версия 16: добавлен индекс owner_status для objects
     this.db = null;
   }
 
@@ -26,11 +26,11 @@ class NeocenkaDB {
         this.db = request.result;
         // console.log('Database opened successfully');
         
-        // Запускаем миграцию данных к версии 14 (если необходимо)
+        // Запускаем миграцию данных к версии 16 (если необходимо)
         try {
           await this.migrateListingsToV14();
         } catch (error) {
-          console.warn('Warning: Could not migrate data to version 14:', error);
+          console.warn('Warning: Could not migrate data to version 16:', error);
         }
         
         // Инициализируем справочники по умолчанию с задержкой
@@ -104,6 +104,7 @@ class NeocenkaDB {
     listingsStore.createIndex('created_at', 'created_at', { unique: false });
     listingsStore.createIndex('price', 'price', { unique: false });
     listingsStore.createIndex('property_type', 'property_type', { unique: false });
+    listingsStore.createIndex('object_id', 'object_id', { unique: false });
 
     // Новые индексы для полей версии 12
     listingsStore.createIndex('region_id', 'region_id', { unique: false });
@@ -134,13 +135,38 @@ class NeocenkaDB {
     listingsStore.createIndex('source_created', ['source', 'created'], { unique: false });
     listingsStore.createIndex('source_updated', ['source', 'updated'], { unique: false });
 
-    // Objects store (обновленная структура)
+    // Objects store (обновленная структура для объектов недвижимости)
     if (!this.db.objectStoreNames.contains('objects')) {
       const objectsStore = this.db.createObjectStore('objects', { keyPath: 'id' });
+      
+      // Основные индексы
       objectsStore.createIndex('address_id', 'address_id', { unique: false });
       objectsStore.createIndex('status', 'status', { unique: false });
       objectsStore.createIndex('property_type', 'property_type', { unique: false });
       objectsStore.createIndex('created_at', 'created_at', { unique: false });
+      
+      // Новые индексы для RealEstateObjectModel
+      objectsStore.createIndex('current_price', 'current_price', { unique: false });
+      objectsStore.createIndex('price_per_meter', 'price_per_meter', { unique: false });
+      objectsStore.createIndex('area_total', 'area_total', { unique: false });
+      objectsStore.createIndex('floor', 'floor', { unique: false });
+      objectsStore.createIndex('floors_total', 'floors_total', { unique: false });
+      objectsStore.createIndex('listings_count', 'listings_count', { unique: false });
+      objectsStore.createIndex('active_listings_count', 'active_listings_count', { unique: false });
+      objectsStore.createIndex('rooms', 'rooms', { unique: false });
+      objectsStore.createIndex('owner_status', 'owner_status', { unique: false });
+      
+      // Индексы для временных меток
+      objectsStore.createIndex('created', 'created', { unique: false });
+      objectsStore.createIndex('updated', 'updated', { unique: false });
+      objectsStore.createIndex('last_recalculated_at', 'last_recalculated_at', { unique: false });
+      
+      // Составные индексы для эффективного поиска
+      objectsStore.createIndex('address_status', ['address_id', 'status'], { unique: false });
+      objectsStore.createIndex('property_price', ['property_type', 'current_price'], { unique: false });
+      objectsStore.createIndex('property_status', ['property_type', 'status'], { unique: false });
+      objectsStore.createIndex('status_active_count', ['status', 'active_listings_count'], { unique: false });
+      objectsStore.createIndex('price_area', ['current_price', 'area_total'], { unique: false });
     }
 
     // Reports store
@@ -1381,6 +1407,11 @@ class NeocenkaDB {
 
 // Создаем глобальный экземпляр базы данных
 const db = new NeocenkaDB();
+
+// Делаем доступным в window для совместимости
+if (typeof window !== 'undefined') {
+  window.db = db;
+}
 
 // Инициализируем базу данных при загрузке
 db.init().then(() => {
