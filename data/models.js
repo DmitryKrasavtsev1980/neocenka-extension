@@ -944,11 +944,11 @@ class RealEstateObjectModel {
       // 6. Обновляем временные метки
       this.updateTimestamps(listings);
       
-      // 7. Пересчитываем цены
-      this.updatePrices(listings);
-      
-      // 8. Объединяем историю цен
+      // 7. Объединяем историю цен (сначала строим историю)
       this.mergePriceHistory(listings);
+      
+      // 8. Пересчитываем цены (потом вычисляем current_price из истории)
+      this.updatePrices(listings);
       
       // 9. Обновляем счетчики
       this.updateCounters(listings);
@@ -1066,38 +1066,22 @@ class RealEstateObjectModel {
    * Обновляет ценовую информацию
    */
   updatePrices(listings) {
-    // Сначала определяем последнюю цену из истории всех объявлений
-    const allPricesWithHistory = [];
-    
-    listings.forEach(listing => {
-      if (listing.price_history && listing.price_history.length > 0) {
-        listing.price_history.forEach(priceEntry => {
-          allPricesWithHistory.push({
-            price: priceEntry.price,
-            date: new Date(priceEntry.date),
-            listing_id: listing.id
-          });
-        });
-      }
-      
-      // Добавляем текущую цену как последнюю запись
-      if (listing.price && listing.price > 0) {
-        allPricesWithHistory.push({
-          price: listing.price,
-          date: new Date(listing.updated_at || listing.created_at),
-          listing_id: listing.id
-        });
-      }
-    });
-    
-    // Сортируем по дате (последняя цена сначала)
-    allPricesWithHistory.sort((a, b) => b.date - a.date);
-    
-    // Устанавливаем последнюю цену как текущую
-    if (allPricesWithHistory.length > 0) {
-      this.current_price = allPricesWithHistory[0].price;
+    // current_price должна быть последней ценой из объединенной истории
+    // История уже должна быть построена методом mergePriceHistory
+    if (this.price_history && this.price_history.length > 0) {
+      // Сортируем историю по дате (последняя цена сначала) и берем последнюю
+      const sortedHistory = [...this.price_history].sort((a, b) => b.date - a.date);
+      this.current_price = sortedHistory[0].price;
     } else {
-      this.current_price = null;
+      // Если истории нет, ищем любую цену из объявлений как fallback
+      let fallbackPrice = null;
+      for (const listing of listings) {
+        if (listing.price && listing.price > 0) {
+          fallbackPrice = listing.price;
+          break;
+        }
+      }
+      this.current_price = fallbackPrice;
     }
     
     // Пересчитываем цену за м²
@@ -1113,7 +1097,8 @@ class RealEstateObjectModel {
     const allPriceHistory = [];
     
     listings.forEach(listing => {
-      // Добавляем историю цен из объявления
+      // Добавляем только реальную историю цен из объявлений
+      // НЕ добавляем текущие цены объявлений как исторические записи
       if (listing.price_history && listing.price_history.length > 0) {
         listing.price_history.forEach(priceEntry => {
           allPriceHistory.push({
@@ -1124,18 +1109,6 @@ class RealEstateObjectModel {
             listing_source: listing.source,
             change_type: priceEntry.change_type || 'change'
           });
-        });
-      }
-      
-      // Добавляем текущую цену как последнюю запись
-      if (listing.price) {
-        allPriceHistory.push({
-          date: new Date(listing.updated_at || listing.created_at),
-          price: listing.price,
-          listing_id: listing.id,
-          listing_external_id: listing.external_id,
-          listing_source: listing.source,
-          change_type: 'current'
         });
       }
     });

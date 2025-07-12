@@ -397,7 +397,7 @@
                         </div>
 
                         <!-- Аналитика определения адресов -->
-                        <div class="bg-gray-50 rounded-lg p-6">
+                        <div class="bg-gray-50 rounded-lg p-6 mb-6">
                             <h4 class="text-lg font-medium text-gray-900 mb-4">Определение адресов</h4>
                             <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
                                 <!-- График точности определения -->
@@ -416,6 +416,96 @@
                                 <div class="bg-white rounded-lg p-4">
                                     <h5 class="text-md font-medium text-gray-900 mb-3">Статистика</h5>
                                     <div id="addressStatsTable" class="space-y-3">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Загрузка данных...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Статистика обработки дублей -->
+                        <div class="bg-gray-50 rounded-lg p-6">
+                            <h4 class="text-lg font-medium text-gray-900 mb-4">Обработка дублей</h4>
+                            
+                            <!-- Счетчики обработки дублей -->
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                                <div class="bg-white rounded-lg p-4 shadow-sm">
+                                    <div class="flex items-center">
+                                        <div class="flex-shrink-0">
+                                            <svg class="h-6 w-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <div class="ml-3 w-0 flex-1">
+                                            <dl>
+                                                <dt class="text-sm font-medium text-gray-500 truncate">Требуют обработки</dt>
+                                                <dd id="duplicatesNeedProcessing" class="text-lg font-medium text-gray-900">-</dd>
+                                            </dl>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-lg p-4 shadow-sm">
+                                    <div class="flex items-center">
+                                        <div class="flex-shrink-0">
+                                            <svg class="h-6 w-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <div class="ml-3 w-0 flex-1">
+                                            <dl>
+                                                <dt class="text-sm font-medium text-gray-500 truncate">Обработано</dt>
+                                                <dd id="duplicatesProcessed" class="text-lg font-medium text-gray-900">-</dd>
+                                            </dl>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-lg p-4 shadow-sm">
+                                    <div class="flex items-center">
+                                        <div class="flex-shrink-0">
+                                            <svg class="h-6 w-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                            </svg>
+                                        </div>
+                                        <div class="ml-3 w-0 flex-1">
+                                            <dl>
+                                                <dt class="text-sm font-medium text-gray-500 truncate">Объединено</dt>
+                                                <dd id="duplicatesMerged" class="text-lg font-medium text-gray-900">-</dd>
+                                            </dl>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-lg p-4 shadow-sm">
+                                    <div class="flex items-center">
+                                        <div class="flex-shrink-0">
+                                            <svg class="h-6 w-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                            </svg>
+                                        </div>
+                                        <div class="ml-3 w-0 flex-1">
+                                            <dl>
+                                                <dt class="text-sm font-medium text-gray-500 truncate">Эффективность</dt>
+                                                <dd id="duplicatesEfficiency" class="text-lg font-medium text-gray-900">-</dd>
+                                            </dl>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                                <!-- График статусов обработки -->
+                                <div class="bg-white rounded-lg p-4">
+                                    <h5 class="text-md font-medium text-gray-900 mb-3">Статусы обработки</h5>
+                                    <div id="duplicatesStatusChart" class="w-full h-64"></div>
+                                </div>
+                                
+                                <!-- Статистика точности объединения -->
+                                <div class="bg-white rounded-lg p-4">
+                                    <h5 class="text-md font-medium text-gray-900 mb-3">Точность объединения</h5>
+                                    <div id="duplicatesAccuracyStats" class="space-y-3">
                                         <div class="flex justify-between text-sm">
                                             <span class="text-gray-600">Загрузка данных...</span>
                                         </div>
@@ -615,13 +705,70 @@
                                     <h4 class="text-lg font-medium text-gray-900 mb-4">Определение адресов</h4>
                                     <p class="text-sm text-gray-600 mb-4">Автоматическое определение адресов для объявлений</p>
                                     
-                                    <button type="button" id="processAddressesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700">
-                                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                        </svg>
-                                        Определить адреса
-                                    </button>
+                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                                        <h5 class="text-sm font-medium text-blue-900 mb-2">Продвинутый алгоритм</h5>
+                                        <p class="text-xs text-blue-700">
+                                            🧠 Семантический анализ адресов<br>
+                                            🏗️ Структурное сравнение<br>
+                                            📍 Улучшенные радиусы поиска<br>
+                                            🎯 Повышенные пороги точности<br>
+                                            📊 Композитный скоринг
+                                        </p>
+                                    </div>
+                                    
+                                    <div class="space-y-3">
+                                        <button type="button" id="processAddressesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                            </svg>
+                                            Определить адреса (стандартный)
+                                        </button>
+                                        
+                                        <button type="button" id="processAddressesAdvancedBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                                            </svg>
+                                            Продвинутое определение адресов
+                                        </button>
+                                        
+                                        <button type="button" id="processAddressesSmartBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                            </svg>
+                                            🧠 Умный алгоритм с ML
+                                        </button>
+                                        
+                                        <button type="button" id="analyzeUnresolvedAddressesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
+                                            </svg>
+                                            🔬 Анализ неопределенных адресов
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 mt-4">
+                                        <h5 class="text-sm font-medium text-purple-900 mb-2">Умный ML-алгоритм</h5>
+                                        <p class="text-xs text-purple-700">
+                                            🧠 Машинное обучение для ранжирования<br>
+                                            🎯 Адаптивные пороги и веса<br>
+                                            🔧 Нечеткая логика и семантика<br>
+                                            ⚡ Кэширование и самообучение<br>
+                                            📊 Композитный скоринг с 5 алгоритмами
+                                        </p>
+                                    </div>
+                                    
+                                    <div class="bg-cyan-50 border border-cyan-200 rounded-lg p-3 mt-4">
+                                        <h5 class="text-sm font-medium text-cyan-900 mb-2">🔬 Анализ неопределенных адресов</h5>
+                                        <p class="text-xs text-cyan-700">
+                                            🔍 Находит объявления без адресов<br>
+                                            🧩 Группирует по схожести названий и координат<br>
+                                            🏗️ Создает новые адреса из групп объявлений<br>
+                                            📊 Анализирует этажность и характеристики<br>
+                                            🎯 Автоматически привязывает объявления к адресам<br>
+                                            📈 Мин. 2 объявления в группе, радиус 50м
+                                        </p>
+                                    </div>
 
                                     <!-- Прогресс обработки адресов -->
                                     <div class="mt-4 pt-4 border-t border-gray-200">
@@ -646,12 +793,32 @@
                                     <h4 class="text-lg font-medium text-gray-900 mb-4">Обработка на дубли</h4>
                                     <p class="text-sm text-gray-600 mb-4">Поиск и обработка дублирующихся объявлений</p>
                                     
-                                    <button type="button" id="processDuplicatesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700">
-                                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                                        </svg>
-                                        Обработать дубли
-                                    </button>
+                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                                        <h5 class="text-sm font-medium text-blue-900 mb-2">Продвинутый алгоритм</h5>
+                                        <p class="text-xs text-blue-700">
+                                            ✨ Анализ уникальных характеристик (сауна, хамам, планировка)<br>
+                                            🏠 Интеллектуальное сравнение спецификаций<br>
+                                            👥 Анализ связей между продавцами<br>
+                                            💰 Сопоставление ценовой динамики<br>
+                                            🧠 Кластеризация с матрицей сходства
+                                        </p>
+                                    </div>
+                                    
+                                    <div class="space-y-3">
+                                        <button type="button" id="processDuplicatesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                            </svg>
+                                            Обработать дубли (стандартный)
+                                        </button>
+                                        
+                                        <button type="button" id="processDuplicatesAdvancedBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                            </svg>
+                                            Продвинутая обработка дублей
+                                        </button>
+                                    </div>
 
                                     <!-- Прогресс обработки дублей -->
                                     <div class="mt-4 pt-4 border-t border-gray-200">
@@ -1420,6 +1587,48 @@
         </div>
     </div>
 
+    <!-- Модальное окно просмотра объекта недвижимости -->
+    <div id="objectModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="object-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full relative z-10 max-h-[90vh]">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="w-full">
+                            <!-- Заголовок -->
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900" id="object-modal-title">
+                                    Детали объекта недвижимости
+                                </h3>
+                                <button type="button" id="closeObjectModalBtn" class="text-gray-400 hover:text-gray-600">
+                                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <!-- Содержимое -->
+                            <div id="objectModalContent" class="max-h-[70vh] overflow-y-auto">
+                                <!-- Контент будет загружен динамически -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button type="button" id="closeObjectModalBtn2" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        Закрыть
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript библиотеки -->
     <script src="../libs/jquery/jquery-3.7.1.min.js"></script>
     <script src="../libs/datatables/datatables.min.js"></script>
@@ -1437,6 +1646,11 @@
     <script src="../utils/marker-cluster.js"></script>
     <script src="../utils/debug-logger.js"></script>
     <script src="../utils/real-estate-object-manager.js"></script>
+    <script src="../utils/duplicate-detector.js"></script>
+    <script src="../utils/advanced-duplicate-detector.js"></script>
+    <script src="../utils/advanced-address-matcher.js"></script>
+    <script src="../utils/smart-address-matcher.js"></script>
+    <script src="../utils/ml-address-analyzer.js"></script>
     
     <!-- Сервисная архитектура -->
     <script src="../services/base/BaseAPIService.js"></script>

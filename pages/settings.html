@@ -439,6 +439,109 @@
             </div>
         </div>
 
+        <!-- ML-модель определения адресов -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">ML-модель определения адресов</h3>
+                <p class="mt-1 text-sm text-gray-500">Обученная модель машинного обучения для повышения точности определения адресов</p>
+            </div>
+            <div class="p-6">
+                <!-- Статистика модели -->
+                <div class="mb-6">
+                    <h4 class="text-sm font-medium text-gray-900 mb-3">Статистика модели</h4>
+                    <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="text-xs text-gray-500">Версия</div>
+                            <div id="mlModelVersion" class="text-sm font-medium text-gray-900">-</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="text-xs text-gray-500">Примеров обучения</div>
+                            <div id="mlTrainingExamples" class="text-sm font-medium text-gray-900">-</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="text-xs text-gray-500">Точность</div>
+                            <div id="mlModelAccuracy" class="text-sm font-medium text-gray-900">-</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="text-xs text-gray-500">Последнее обновление</div>
+                            <div id="mlLastUpdate" class="text-sm font-medium text-gray-900">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Действия -->
+                <div class="mb-6">
+                    <h4 class="text-sm font-medium text-gray-900 mb-3">Действия</h4>
+                    <div class="flex flex-wrap gap-3">
+                        <button type="button" id="refreshMLStats"
+                            class="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            Обновить статистику
+                        </button>
+                        <button type="button" id="exportMLModel"
+                            class="inline-flex items-center px-3 py-2 border border-blue-300 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100">
+                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            Экспортировать модель
+                        </button>
+                        <button type="button" id="copyMLModel"
+                            class="inline-flex items-center px-3 py-2 border border-green-300 rounded-md text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100">
+                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                            </svg>
+                            Копировать модель
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Экспорт модели -->
+                <div>
+                    <h4 class="text-sm font-medium text-gray-900 mb-3">Обученная модель (для коммита в GitHub)</h4>
+                    <div class="space-y-3">
+                        <textarea id="mlModelExport" readonly
+                            class="w-full h-64 px-3 py-2 border border-gray-300 rounded-md text-xs font-mono bg-gray-50 resize-none"
+                            placeholder="Обученная модель появится здесь после экспорта..."></textarea>
+                        <div class="flex items-center justify-between">
+                            <p class="text-xs text-gray-500">
+                                Скопируйте этот JSON в файл <code class="bg-gray-200 px-1 rounded">utils/pretrained-model.json</code> и сделайте коммит
+                            </p>
+                            <div id="mlExportStatus" class="hidden">
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    <svg class="-ml-0.5 mr-1.5 h-2 w-2" fill="currentColor" viewBox="0 0 8 8">
+                                        <circle cx="4" cy="4" r="3"></circle>
+                                    </svg>
+                                    Скопировано
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Информация -->
+                <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                    <div class="flex">
+                        <svg class="flex-shrink-0 h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                        </svg>
+                        <div class="ml-3">
+                            <h5 class="text-sm font-medium text-blue-800">Как работает обучение модели</h5>
+                            <div class="mt-2 text-sm text-blue-700">
+                                <ul class="list-disc pl-5 space-y-1">
+                                    <li>Модель автоматически обучается при нажатии кнопок "Верный адрес"</li>
+                                    <li>Каждые 50 подтверждений модель переобучается и улучшается</li>
+                                    <li>Экспортируйте обученную модель и добавьте её в коммит для распространения</li>
+                                    <li>Пользователи получат улучшенную модель при обновлении расширения</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Настройки отладки -->
         <div class="mt-8 bg-white shadow rounded-lg">
             <div class="px-6 py-4 border-b border-gray-200">
@@ -589,7 +692,19 @@
     <script src="../data/database.js"></script>
     <script src="../utils/subscription-service.js"></script>
     <script src="../utils/debug-logger.js"></script>
-    <script src="../utils/inpars-api.js"></script>
+    
+    <!-- Сервисная архитектура -->
+    <script src="../services/base/BaseAPIService.js"></script>
+    <script src="../services/base/ServiceManager.js"></script>
+    <script src="../services/external/InparsService.js"></script>
+    <script src="../services/ServiceConfig.js"></script>
+    
+    <!-- ML алгоритм для работы с моделью -->
+    <script src="../libs/rbush/rbush.min.js"></script>
+    <script src="../utils/geo-utils.js"></script>
+    <script src="../utils/spatial-index-manager.js"></script>
+    <script src="../utils/smart-address-matcher.js"></script>
+    
     <script src="settings_script.js"></script>
 
     <script src="settings_init.js"></script>

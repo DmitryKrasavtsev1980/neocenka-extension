@@ -26,11 +26,15 @@ class NeocenkaDB {
         this.db = request.result;
         // console.log('Database opened successfully');
         
-        // Запускаем миграцию данных к версии 16 (если необходимо)
+        // Запускаем миграцию данных к версии 14 (если необходимо)
         try {
-          await this.migrateListingsToV14();
+          const migrationFlag = await this.getSetting('migration_v14_completed');
+          if (!migrationFlag) {
+            await this.migrateListingsToV14();
+            await this.setSetting('migration_v14_completed', true);
+          }
         } catch (error) {
-          console.warn('Warning: Could not migrate data to version 16:', error);
+          console.warn('Warning: Could not migrate data to version 14:', error);
         }
         
         // Инициализируем справочники по умолчанию с задержкой
@@ -228,11 +232,15 @@ class NeocenkaDB {
 
       console.log(`Starting migration of ${existingListings.length} listings to version 14`);
       let migratedCount = 0;
+      let skippedCount = 0;
 
       for (const listing of existingListings) {
         try {
           // Проверяем, нужна ли миграция (если новые поля уже есть, пропускаем)
-          if (listing.source_metadata && listing.source_metadata.original_source !== listing.source) continue;
+          if (listing.source_metadata && listing.source_metadata.original_source) {
+            skippedCount++;
+            continue;
+          }
 
           // Создаем новые поля для объявления
           const migratedListing = { ...listing };
@@ -300,7 +308,7 @@ class NeocenkaDB {
         }
       }
 
-      console.log(`Successfully migrated ${migratedCount} listings to version 14`);
+      console.log(`Successfully migrated ${migratedCount} listings to version 14 (skipped ${skippedCount} already migrated)`);
       
     } catch (error) {
       console.error('Failed to migrate listings to version 14:', error);

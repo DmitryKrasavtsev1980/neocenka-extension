@@ -25,6 +25,7 @@ class AreaPage {
         this.sourcesChartInstance = null;
         this.addressConfidenceChartInstance = null;
         this.addressMethodsChartInstance = null;
+        this.duplicatesStatusChartInstance = null;
         
         // Данные для работы
         this.addresses = [];
@@ -108,6 +109,27 @@ class AreaPage {
                 this.duplicatesTable = null;
             }
 
+            // Уничтожаем графики если они были созданы
+            if (this.sourcesChartInstance) {
+                this.sourcesChartInstance.destroy();
+                this.sourcesChartInstance = null;
+            }
+
+            if (this.addressConfidenceChartInstance) {
+                this.addressConfidenceChartInstance.destroy();
+                this.addressConfidenceChartInstance = null;
+            }
+
+            if (this.addressMethodsChartInstance) {
+                this.addressMethodsChartInstance.destroy();
+                this.addressMethodsChartInstance = null;
+            }
+
+            if (this.duplicatesStatusChartInstance) {
+                this.duplicatesStatusChartInstance.destroy();
+                this.duplicatesStatusChartInstance = null;
+            }
+
             console.log('AreaPage ресурсы очищены');
 
         } catch (error) {
@@ -187,9 +209,100 @@ class AreaPage {
             // Устанавливаем хлебные крошки
             this.setBreadcrumbs();
 
+            // Выводим все объявления и адреса в консоль при загрузке страницы
+            await this.logAllListings();
+            await this.logAllAddresses();
+            await this.logLowAccuracyListings();
+
         } catch (error) {
             console.error('Error loading area data:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Вывод всех объявлений в консоль
+     */
+    async logAllListings() {
+        try {
+            const allListings = await db.getAll('listings');
+            console.log('Все объявления:', allListings);
+
+        } catch (error) {
+            console.error('❌ Ошибка при выводе объявлений в консоль:', error);
+        }
+    }
+
+    /**
+     * Вывод всех адресов области в консоль
+     */
+    async logAllAddresses() {
+        try {
+            const allAddresses = await db.getAll('addresses');
+            console.log('Все адреса области:', allAddresses);
+
+        } catch (error) {
+            console.error('❌ Ошибка при выводе адресов в консоль:', error);
+        }
+    }
+
+    /**
+     * Вывод объявлений с низкой точностью определения адреса
+     */
+    async logLowAccuracyListings() {
+        try {
+            const allListings = await db.getAll('listings');
+            
+            // Фильтруем объявления с низкой точностью определения адреса
+            const lowAccuracyListings = allListings.filter(listing => 
+                listing.address_match_confidence === 'medium' || 
+                listing.address_match_confidence === 'low' || 
+                listing.address_match_confidence === 'very_low'
+            );
+
+            console.log('Объявления с низкой точностью адреса:', lowAccuracyListings);
+
+            // Тестируем умный алгоритм на первом объявлении
+            if (lowAccuracyListings.length > 0 && window.smartAddressMatcher) {
+                console.log('🧠 Тестируем умный алгоритм...');
+                const testListing = lowAccuracyListings[0];
+                const allAddresses = await db.getAll('addresses');
+                
+                if (allAddresses.length > 0) {
+                    const smartMatcher = window.smartAddressMatcher;
+                    smartMatcher.spatialIndex = this.spatialManager;
+                    
+                    // Тестируем агрессивную нормализацию
+                    console.log(`🔬 Тестируем агрессивную нормализацию:`);
+                    console.log(`   Исходный адрес: "${testListing.address}"`);
+                    const normalized = smartMatcher.aggressiveNormalize(testListing.address);
+                    console.log(`   Нормализованный: "${normalized}"`);
+                    
+                    // Проверяем, есть ли подходящие адреса в базе
+                    const matchingAddresses = allAddresses.filter(addr => {
+                        const addrNormalized = smartMatcher.aggressiveNormalize(addr.address);
+                        const score = smartMatcher.calculateObviousScore(normalized, addrNormalized);
+                        if (score > 0.8) {
+                            console.log(`   🎯 Потенциальное совпадение: "${addr.address}" -> "${addrNormalized}" (скор: ${score.toFixed(3)})`);
+                            return true;
+                        }
+                        return false;
+                    });
+                    
+                    console.log(`🧪 Тест умного алгоритма для: "${testListing.address}"`);
+                    const result = await smartMatcher.matchAddressSmart(testListing, allAddresses);
+                    console.log('🧠 Результат умного алгоритма:', result);
+                    
+                    if (result.address) {
+                        console.log(`✅ Найден адрес: "${result.address.address}" (${result.confidence}, скор: ${result.score?.toFixed(3)}, метод: ${result.method})`);
+                    } else {
+                        console.log('❌ Адрес не найден умным алгоритмом');
+                    }
+                }
+            }
+
+        } catch (error) {
+            console.error('❌ Ошибка при выводе объявлений с низкой точностью адреса:', error);
         }
     }
 
@@ -1151,6 +1264,7 @@ class AreaPage {
                 listing.address_match_method = 'manual_selection';
                 listing.address_match_score = 1.0;
                 listing.address_distance = null;
+                listing.processing_status = 'processed';
             } else {
                 // Если адрес убран, очищаем информацию о совпадении
                 listing.address_match_confidence = null;
@@ -1907,7 +2021,7 @@ class AreaPage {
                 pageLength: 10,
                 ordering: true,
                 searching: true,
-                order: [[5, 'desc']], // Сортировка по дате обновления (колонка 5)
+                order: [[4, 'desc']], // Сортировка по дате обновления (колонка 5)
                 columnDefs: [
                     {
                         targets: 0, // Колонка с чекбоксами
@@ -1973,7 +2087,7 @@ class AreaPage {
                                 const processingBadges = {
                                     'address_needed': '<br><span class="inline-flex items-center px-1 py-0.5 text-nowrap rounded-full text-xs font-medium bg-orange-100 text-orange-800" style="font-size: 10px;">Определить адрес</span>',
                                     'duplicate_check_needed': '<br><span class="inline-flex items-center text-nowrap px-1 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800" style="font-size: 10px;">Обр. на дубли</span>',
-                                    'processed': '<br><span class="inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800" style="font-size: 10px;">Обработано</span>'
+                                    'processed': ''
                                 };
                                 html += processingBadges[row.processing_status] || '';
                             } else if (!isListing) {
@@ -2239,8 +2353,24 @@ class AreaPage {
             this.processAddresses();
         });
 
+        document.getElementById('processAddressesAdvancedBtn')?.addEventListener('click', () => {
+            this.processAddressesAdvanced();
+        });
+
+        document.getElementById('processAddressesSmartBtn')?.addEventListener('click', () => {
+            this.processAddressesSmart();
+        });
+
+        document.getElementById('analyzeUnresolvedAddressesBtn')?.addEventListener('click', () => {
+            this.analyzeUnresolvedAddresses();
+        });
+
         document.getElementById('processDuplicatesBtn')?.addEventListener('click', () => {
             this.processDuplicates();
+        });
+
+        document.getElementById('processDuplicatesAdvancedBtn')?.addEventListener('click', () => {
+            this.processDuplicatesAdvanced();
         });
 
         document.getElementById('deleteListingsBtn')?.addEventListener('click', () => {
@@ -2300,6 +2430,15 @@ class AreaPage {
 
         document.getElementById('openListingBtn')?.addEventListener('click', () => {
             this.openCurrentListing();
+        });
+
+        // Модальное окно деталей объекта недвижимости
+        document.getElementById('closeObjectModalBtn')?.addEventListener('click', () => {
+            this.closeObjectModal();
+        });
+
+        document.getElementById('closeObjectModalBtn2')?.addEventListener('click', () => {
+            this.closeObjectModal();
         });
 
         // Модальное окно редактирования области
@@ -2738,7 +2877,7 @@ class AreaPage {
             const processingBadges = {
                 'address_needed': '<br><span class="inline-flex items-center px-1 py-0.5 text-nowrap rounded-full text-xs font-medium bg-orange-100 text-orange-800" style="font-size: 10px;">Определить адрес</span>',
                 'duplicate_check_needed': '<br><span class="inline-flex items-center text-nowrap px-1 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800" style="font-size: 10px;">Обр. на дубли</span>',
-                'processed': '<br><span class="inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800" style="font-size: 10px;">Обработано</span>'
+                'processed': ''
             };
             statusHtml += processingBadges[listing.processing_status] || '';
         }
@@ -2927,16 +3066,16 @@ class AreaPage {
             const realEstateObject = objectWithData.object;
             const objectListings = objectWithData.listings || [];
             
-            // Показываем модальное окно
-            const modalContent = document.getElementById('modalContent');
-            modalContent.innerHTML = this.renderObjectDetails(realEstateObject, objectListings);
+            // Показываем модальное окно для объекта
+            const objectModalContent = document.getElementById('objectModalContent');
+            objectModalContent.innerHTML = this.renderObjectDetails(realEstateObject, objectListings);
 
             // Сохраняем текущий объект для других операций
             this.currentObject = realEstateObject;
             this.currentObjectListings = objectListings;
 
-            // Показываем модальное окно
-            document.getElementById('listingModal').classList.remove('hidden');
+            // Показываем модальное окно объекта
+            document.getElementById('objectModal').classList.remove('hidden');
 
             // Инициализируем компоненты после отображения модального окна
             setTimeout(() => {
@@ -2951,6 +3090,9 @@ class AreaPage {
                     this.loadObjectPhotos(objectListings[0]);
                 }
                 
+                // Инициализируем панель истории изменения цен
+                this.initializeObjectPriceHistoryPanel(realEstateObject);
+                
                 // Инициализируем таблицу объявлений объекта
                 this.initializeObjectListingsTable(objectListings, objectId);
                 
@@ -2964,22 +3106,61 @@ class AreaPage {
     }
 
     /**
+     * Формирование кратких характеристик объекта
+     */
+    formatObjectCharacteristics(realEstateObject) {
+        const parts = [];
+        
+        // Тип недвижимости
+        if (realEstateObject.property_type) {
+            const types = {
+                'studio': 'Студия',
+                '1k': '1-к',
+                '2k': '2-к',
+                '3k': '3-к',
+                '4k+': '4-к+'
+            };
+            parts.push(types[realEstateObject.property_type] || realEstateObject.property_type);
+            parts.push('квартира');
+        }
+        
+        // Площади
+        const areas = [];
+        if (realEstateObject.area_total) areas.push(realEstateObject.area_total);
+        if (realEstateObject.area_living) areas.push(realEstateObject.area_living);
+        if (realEstateObject.area_kitchen) areas.push(realEstateObject.area_kitchen);
+        if (areas.length > 0) parts.push(`${areas.join('/')}м²`);
+        
+        // Этаж/этажность
+        if (realEstateObject.floor && realEstateObject.total_floors) {
+            parts.push(`${realEstateObject.floor}/${realEstateObject.total_floors} эт.`);
+        }
+        
+        return parts.length > 0 ? parts.join(', ') : 'Характеристики не указаны';
+    }
+
+    /**
      * Рендер деталей объекта недвижимости
      */
     renderObjectDetails(realEstateObject, objectListings) {
+        // Получаем адрес объекта
+        const address = this.getAddressNameById(realEstateObject.address_id) || 'Адрес не определен';
+        
+        // Формируем заголовок карты: краткие характеристики + адрес
+        const characteristics = this.formatObjectCharacteristics(realEstateObject);
+        const mapTitle = `${characteristics} — ${address}`;
+        
         return `
             <!-- Карта местоположения объекта -->
             <div class="mb-6">
-                <div class="bg-white shadow overflow-hidden sm:rounded-md border border-gray-200">
-                    <div class="px-4 py-3">
-                        <div class="flex items-center space-x-3">
-                            <span class="text-lg font-medium text-gray-900">📍 Местоположение объекта</span>
-                        </div>
+                <div class="px-4 py-3">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-lg font-medium text-gray-900">📍 ${mapTitle}</span>
                     </div>
-                    <div class="px-4 pb-4">
-                        <div id="object-map-${realEstateObject.id}" class="h-64 bg-gray-200 rounded-md">
-                            <!-- Карта будет отрендерена здесь -->
-                        </div>
+                </div>
+                <div class="px-4 pb-4">
+                    <div id="object-map-${realEstateObject.id}" class="h-64 bg-gray-200 rounded-md">
+                        <!-- Карта будет отрендерена здесь -->
                     </div>
                 </div>
             </div>
@@ -2992,10 +3173,44 @@ class AreaPage {
                 </div>
             </div>
             
+            <!-- История изменения цен объекта -->
+            <div class="mb-6">
+                <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+                    <!-- Заголовок панели (сворачиваемый) -->
+                    <div id="objectPriceHistoryPanelHeader-${realEstateObject.id}" class="px-4 py-3 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors duration-150">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-lg font-medium text-gray-900">Изменение цены</h4>
+                            <svg id="objectPriceHistoryPanelChevron-${realEstateObject.id}" class="h-5 w-5 text-gray-400 transform transition-transform duration-200 rotate-[-90deg]" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    
+                    <!-- Содержимое панели (изначально скрыто) -->
+                    <div id="objectPriceHistoryPanelContent-${realEstateObject.id}" class="px-4 pb-4" style="display: none;">
+                        <div class="mt-4">
+                            <div class="overflow-x-auto">
+                                <table id="objectPriceHistoryTable-${realEstateObject.id}" class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <!-- Данные будут загружены через initializeObjectPriceHistoryTable -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- Параметры объекта -->
             <div class="mb-6">
                 <h4 class="text-lg font-medium text-gray-900 mb-4">Параметры объекта</h4>
-                <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="bg-white overflow-hidden">
                     <div class="px-4 py-5 sm:p-6">
                         <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
                             ${this.renderObjectParameters(realEstateObject)}
@@ -3306,59 +3521,150 @@ class AreaPage {
 
             console.log(`📊 Создаем график цены для объекта ${realEstateObject.id}`);
 
-            // Подготавливаем данные для графика
-            const priceData = this.prepareObjectPriceChartData(realEstateObject);
+            // Подготавливаем данные для графика из истории цен
+            const priceHistory = this.prepareObjectPriceHistoryData(realEstateObject);
             
-            if (priceData.length === 0) {
-                chartContainer.innerHTML = '<div class="flex items-center justify-center h-64 text-gray-500">📊 Нет данных для построения графика</div>';
+            if (priceHistory.length === 0) {
+                chartContainer.innerHTML = '<div class="text-center text-gray-500 py-8">История цен отсутствует</div>';
                 return;
             }
 
-            // Создаем график с помощью Chart.js (по образцу графика объявления)
-            const ctx = document.createElement('canvas');
-            ctx.width = chartContainer.offsetWidth;
-            ctx.height = 300;
-            chartContainer.innerHTML = '';
-            chartContainer.appendChild(ctx);
+            const seriesData = priceHistory.map(item => [item.date, item.price]);
+            const prices = priceHistory.map(item => item.price);
+            const minPrice = Math.min(...prices);
+            const maxPrice = Math.max(...prices);
 
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: priceData.map(item => item.dateFormatted),
-                    datasets: [{
-                        label: 'Цена объекта',
-                        data: priceData.map(item => item.price),
-                        borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: false,
-                            ticks: {
-                                callback: function(value) {
-                                    return value.toLocaleString('ru-RU') + ' ₽';
-                                }
+            let series = [{
+                "name": "<span class=\"text-sky-500\">цена</span>",
+                "data": seriesData
+            }];
+            let colors = ["#56c2d6"];
+            let widths = ["3"];
+
+            var options = {
+                chart: {
+                    height: 300,
+                    locales: [{
+                        "name": "ru",
+                        "options": {
+                            "months": [
+                                "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                                "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
+                            ],
+                            "shortMonths": [
+                                "Янв", "Фев", "Мар", "Апр", "Май", "Июн",
+                                "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"
+                            ],
+                            "days": [
+                                "Воскресенье", "Понедельник", "Вторник", "Среда", 
+                                "Четверг", "Пятница", "Суббота"
+                            ],
+                            "shortDays": ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+                            "toolbar": {
+                                "exportToSVG": "Сохранить SVG",
+                                "exportToPNG": "Сохранить PNG",
+                                "exportToCSV": "Сохранить CSV",
+                                "menu": "Меню",
+                                "selection": "Выбор",
+                                "selectionZoom": "Выбор с увеличением",
+                                "zoomIn": "Увеличить",
+                                "zoomOut": "Уменьшить",
+                                "pan": "Перемещение",
+                                "reset": "Сбросить увеличение"
                             }
                         }
+                    }],
+                    defaultLocale: "ru",
+                    type: 'line',
+                    shadow: {
+                        enabled: false,
+                        color: 'rgba(187,187,187,0.47)',
+                        top: 3,
+                        left: 2,
+                        blur: 3,
+                        opacity: 1
                     },
-                    plugins: {
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return 'Цена: ' + context.parsed.y.toLocaleString('ru-RU') + ' ₽';
-                                }
+                    toolbar: {
+                        show: false
+                    }
+                },
+                stroke: {
+                    curve: 'stepline',
+                    width: widths
+                },
+                series: series,
+                colors: colors,
+                xaxis: {
+                    type: 'datetime',
+                    labels: {
+                        format: 'dd MMM'
+                    }
+                },
+                markers: {
+                    size: 4,
+                    opacity: 0.9,
+                    colors: ["#56c2d6"],
+                    strokeColor: "#fff",
+                    strokeWidth: 2,
+                    style: 'inverted',
+                    hover: {
+                        size: 8
+                    }
+                },
+                tooltip: {
+                    shared: false,
+                    intersect: true,
+                    x: {
+                        format: 'dd MMM yyyy'
+                    },
+                    y: {
+                        formatter: (value) => this.formatPrice(value)
+                    }
+                },
+                yaxis: {
+                    min: Math.floor(minPrice * 0.95),
+                    max: Math.ceil(maxPrice * 1.05),
+                    title: {
+                        text: 'Цена, ₽'
+                    },
+                    labels: {
+                        formatter: (value) => this.formatPrice(value)
+                    }
+                },
+                grid: {
+                    show: true,
+                    position: 'back',
+                    xaxis: {
+                        lines: {
+                            show: true,
+                        }
+                    },
+                    yaxis: {
+                        lines: {
+                            show: true,
+                        }
+                    },
+                    borderColor: '#eeeeee',
+                },
+                legend: {
+                    show: false
+                },
+                responsive: [{
+                    breakpoint: 600,
+                    options: {
+                        chart: {
+                            toolbar: {
+                                show: false
                             }
                         }
                     }
-                }
-            });
+                }]
+            };
+
+            // Очищаем контейнер и создаем график
+            chartContainer.innerHTML = '';
+            const chart = new ApexCharts(chartContainer, options);
+            chart.render();
 
         } catch (error) {
             console.error('Ошибка создания графика цены объекта:', error);
@@ -3370,35 +3676,57 @@ class AreaPage {
     }
 
     /**
-     * Подготовка данных для графика цены объекта
+     * Подготовка данных истории цен для графика объекта
      */
-    prepareObjectPriceChartData(realEstateObject) {
-        const priceData = [];
+    prepareObjectPriceHistoryData(realEstateObject) {
+        const history = [];
         
-        if (realEstateObject.price_history && realEstateObject.price_history.length > 0) {
-            // Сортируем историю по дате
-            const sortedHistory = [...realEstateObject.price_history].sort((a, b) => new Date(a.date) - new Date(b.date));
-            
-            sortedHistory.forEach(entry => {
-                priceData.push({
-                    date: new Date(entry.date),
-                    dateFormatted: new Date(entry.date).toLocaleDateString('ru-RU'),
-                    price: entry.price
-                });
+        // Добавляем историю цен если есть
+        if (realEstateObject.price_history && Array.isArray(realEstateObject.price_history)) {
+            realEstateObject.price_history.forEach(item => {
+                if (item.price && item.date) {
+                    history.push({
+                        date: new Date(item.date).getTime(),
+                        price: parseInt(item.price)
+                    });
+                }
             });
-        } else {
-            // Если истории нет, добавляем текущую цену
-            if (realEstateObject.current_price) {
-                const date = new Date(realEstateObject.updated_at || realEstateObject.created_at);
-                priceData.push({
-                    date: date,
-                    dateFormatted: date.toLocaleDateString('ru-RU'),
-                    price: realEstateObject.current_price
+        }
+
+        // Добавляем конечную точку с текущей ценой объекта (аналогично логике объявления)
+        if (realEstateObject.current_price) {
+            let endPriceDate;
+            
+            if (realEstateObject.status === 'active') {
+                // Для активных объектов - текущая дата
+                endPriceDate = new Date();
+            } else {
+                // Для архивных объектов - дата последнего обновления
+                endPriceDate = new Date(realEstateObject.updated_at || realEstateObject.created_at || Date.now());
+            }
+            
+            // Добавляем конечную точку только если она отличается от уже существующих
+            const lastHistoryDate = history.length > 0 ? history[history.length - 1].date : 0;
+            if (Math.abs(endPriceDate.getTime() - lastHistoryDate) > 24 * 60 * 60 * 1000) {
+                history.push({
+                    date: endPriceDate.getTime(),
+                    price: parseInt(realEstateObject.current_price)
                 });
             }
         }
+
+        // Сортируем по дате
+        history.sort((a, b) => a.date - b.date);
         
-        return priceData;
+        // Убираем дубликаты цен подряд, но оставляем ключевые точки
+        const filtered = [];
+        for (let i = 0; i < history.length; i++) {
+            if (i === 0 || i === history.length - 1 || history[i].price !== history[i-1].price) {
+                filtered.push(history[i]);
+            }
+        }
+
+        return filtered;
     }
 
     /**
@@ -3581,6 +3909,128 @@ class AreaPage {
     }
 
     /**
+     * Инициализация панели истории изменения цен объекта
+     */
+    initializeObjectPriceHistoryPanel(realEstateObject) {
+        try {
+            // Инициализируем обработчик сворачивания/разворачивания панели
+            const panelHeader = document.getElementById(`objectPriceHistoryPanelHeader-${realEstateObject.id}`);
+            if (panelHeader) {
+                panelHeader.addEventListener('click', () => {
+                    this.toggleObjectPriceHistoryPanel(realEstateObject.id);
+                });
+            }
+
+            // Инициализируем таблицу истории цен
+            this.initializeObjectPriceHistoryTable(realEstateObject);
+
+        } catch (error) {
+            console.error('Ошибка инициализации панели истории цен объекта:', error);
+        }
+    }
+
+    /**
+     * Переключение сворачивания/разворачивания панели истории цен объекта
+     */
+    toggleObjectPriceHistoryPanel(objectId) {
+        const content = document.getElementById(`objectPriceHistoryPanelContent-${objectId}`);
+        const chevron = document.getElementById(`objectPriceHistoryPanelChevron-${objectId}`);
+        
+        if (!content || !chevron) return;
+
+        const isHidden = content.style.display === 'none';
+        
+        if (isHidden) {
+            // Разворачиваем
+            content.style.display = 'block';
+            chevron.style.transform = 'rotate(0deg)';
+        } else {
+            // Сворачиваем
+            content.style.display = 'none';
+            chevron.style.transform = 'rotate(-90deg)';
+        }
+    }
+
+    /**
+     * Инициализация таблицы истории цен объекта
+     */
+    async initializeObjectPriceHistoryTable(realEstateObject) {
+        try {
+            const tableElement = document.getElementById(`objectPriceHistoryTable-${realEstateObject.id}`);
+            if (!tableElement) return;
+
+            // Подготавливаем данные для таблицы
+            const tableData = this.prepareObjectPriceHistoryTableData(realEstateObject);
+
+            // Инициализируем DataTable
+            const dataTable = $(tableElement).DataTable({
+                data: tableData,
+                language: {
+                    url: '../libs/datatables/ru.json'
+                },
+                pageLength: 10,
+                searching: false,
+                ordering: true,
+                order: [[0, 'asc']], // Сортируем по дате (новые в конце)
+                columns: [
+                    {
+                        title: 'Дата',
+                        data: 'date',
+                        render: function (data, type, row) {
+                            if (type === 'display') {
+                                const date = new Date(data);
+                                return date.toLocaleDateString('ru-RU') + ' ' + 
+                                       date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+                            } else if (type === 'sort' || type === 'type') {
+                                return new Date(data).getTime();
+                            }
+                            return data;
+                        }
+                    },
+                    {
+                        title: 'Цена',
+                        data: 'price',
+                        render: function (data, type, row) {
+                            if (type === 'display') {
+                                return new Intl.NumberFormat('ru-RU').format(data) + ' ₽';
+                            }
+                            return data;
+                        }
+                    }
+                ]
+            });
+
+            // Сохраняем ссылку на таблицу
+            this[`objectPriceHistoryTable_${realEstateObject.id}`] = dataTable;
+
+        } catch (error) {
+            console.error('Ошибка инициализации таблицы истории цен объекта:', error);
+        }
+    }
+
+    /**
+     * Подготовка данных для таблицы истории цен объекта
+     */
+    prepareObjectPriceHistoryTableData(realEstateObject) {
+        const data = [];
+
+        // Добавляем данные из истории цен объекта
+        if (realEstateObject.price_history && Array.isArray(realEstateObject.price_history)) {
+            realEstateObject.price_history.forEach(historyItem => {
+                if (historyItem.date && historyItem.price) {
+                    data.push({
+                        date: historyItem.date,
+                        price: historyItem.price
+                    });
+                }
+            });
+        }
+
+        return data;
+    }
+
+
+    /**
      * Загрузка статистики области
      */
     async loadAreaStats() {
@@ -3636,6 +4086,9 @@ class AreaPage {
             
             // Обновляем графики определения адресов
             await this.updateAddressAnalyticsCharts();
+            
+            // Обновляем статистику обработки дублей
+            await this.updateDuplicatesStats();
 
         } catch (error) {
             console.error('Error loading area stats:', error);
@@ -3958,6 +4411,21 @@ class AreaPage {
             console.log(`📋 Загрузка адресов в таблицу...`);
             const addresses = await this.getAddressesInArea();
             console.log(`📊 Адресов для отображения: ${addresses.length}`);
+
+            // Инициализируем ML-алгоритм определения адресов
+            if (typeof SmartAddressMatcher !== 'undefined' && !window.smartAddressMatcher) {
+                try {
+                    // Инициализируем пространственный индекс если еще не создан
+                    if (!window.spatialIndexManager) {
+                        window.spatialIndexManager = new SpatialIndexManager();
+                    }
+                    
+                    window.smartAddressMatcher = new SmartAddressMatcher(this.spatialManager || window.spatialIndexManager);
+                    console.log('🧠 SmartAddressMatcher initialized');
+                } catch (error) {
+                    console.warn('Failed to initialize SmartAddressMatcher:', error);
+                }
+            }
 
             // Добавляем счетчики объявлений для каждого адреса
             for (const address of addresses) {
@@ -5201,8 +5669,771 @@ class AreaPage {
         });
     }
 
+    /**
+     * Обработка адресов с использованием продвинутого алгоритма
+     */
+    async processAddressesAdvanced() {
+        if (this.processing.addresses) {
+            this.showInfo('Обработка адресов уже выполняется');
+            return;
+        }
+
+        try {
+            this.processing.addresses = true;
+            console.log('🚀 Начинаем продвинутое определение адресов для объявлений');
+            this.updateProgressBar('addresses', 0, 'Подготовка данных для продвинутого алгоритма...');
+
+            // Загружаем объявления без привязанных адресов или с низкой точностью
+            const allListings = await db.getListings();
+            const unprocessedListings = allListings.filter(listing => {
+                const needsReprocessing = 
+                    !listing.address_id || 
+                    listing.address_match_confidence === 'low' || 
+                    listing.address_match_confidence === 'very_low' ||
+                    listing.address_match_confidence === 'medium';
+                
+                const hasCoordinates = listing.coordinates && 
+                    listing.coordinates.lat && 
+                    (listing.coordinates.lng || listing.coordinates.lon);
+                
+                return needsReprocessing && hasCoordinates;
+            });
+
+            if (unprocessedListings.length === 0) {
+                this.showInfo('Нет объявлений для обработки продвинутым алгоритмом');
+                return;
+            }
+
+            this.updateProgressBar('addresses', 10, 
+                `Найдено ${unprocessedListings.length} объявлений для улучшенной обработки`);
+
+            // Загружаем все адреса
+            const allAddresses = await db.getAddresses();
+            if (allAddresses.length === 0) {
+                this.showError('В базе данных нет адресов для сопоставления');
+                return;
+            }
+
+            this.updateProgressBar('addresses', 20, 
+                `Загружено ${allAddresses.length} адресов из базы`);
+
+            // Инициализируем продвинутый алгоритм сопоставления
+            if (!window.advancedAddressMatcher) {
+                this.showError('Продвинутый алгоритм определения адресов не инициализирован');
+                return;
+            }
+
+            const matcher = window.advancedAddressMatcher;
+            matcher.spatialIndex = this.spatialManager;
+
+            this.updateProgressBar('addresses', 30, 
+                '🎯 Запуск продвинутого алгоритма сопоставления...');
+
+            // Обрабатываем объявления батчами для отображения прогресса
+            const batchSize = 30; // Меньший размер батча для более точного алгоритма
+            let processedCount = 0;
+            let improvedCount = 0;
+            let results = {
+                processed: 0,
+                matched: 0,
+                improved: 0,
+                highConfidence: 0,
+                mediumConfidence: 0,
+                lowConfidence: 0,
+                veryLowConfidence: 0,
+                noMatch: 0,
+                errors: 0,
+                methodStats: {}
+            };
+
+            for (let i = 0; i < unprocessedListings.length; i += batchSize) {
+                const batch = unprocessedListings.slice(i, i + batchSize);
+                const progress = 30 + ((i / unprocessedListings.length) * 60);
+                
+                this.updateProgressBar('addresses', progress, 
+                    `🔍 Продвинутая обработка ${i + 1}-${Math.min(i + batchSize, unprocessedListings.length)} из ${unprocessedListings.length}`);
+
+                // Обрабатываем батч
+                for (const listing of batch) {
+                    try {
+                        const oldConfidence = listing.address_match_confidence;
+                        const matchResult = await matcher.matchAddressAdvanced(listing, allAddresses);
+                        processedCount++;
+                        results.processed++;
+
+                        console.log(`📊 Результат для ${listing.id}: ${matchResult.confidence} (${matchResult.method}), скор: ${matchResult.score?.toFixed(3)}`);
+
+                        if (matchResult.address) {
+                            results.matched++;
+
+                            // Проверяем, улучшился ли результат
+                            const confidenceLevels = ['none', 'very_low', 'low', 'medium', 'high'];
+                            const oldLevel = confidenceLevels.indexOf(oldConfidence || 'none');
+                            const newLevel = confidenceLevels.indexOf(matchResult.confidence);
+                            
+                            if (newLevel > oldLevel) {
+                                improvedCount++;
+                                results.improved++;
+                                console.log(`✅ Улучшение для ${listing.id}: ${oldConfidence} → ${matchResult.confidence}`);
+                            }
+
+                            // Обновляем объявление в базе данных
+                            listing.address_id = matchResult.address.id;
+                            listing.address_match_confidence = matchResult.confidence;
+                            listing.address_match_method = matchResult.method;
+                            listing.address_match_score = matchResult.score || 0;
+                            listing.address_distance = matchResult.distance;
+                            listing.updated_at = new Date();
+
+                            // Добавляем дополнительные данные от продвинутого алгоритма
+                            if (matchResult.textSimilarity !== undefined) {
+                                listing.address_text_similarity = matchResult.textSimilarity;
+                            }
+                            if (matchResult.semanticSimilarity !== undefined) {
+                                listing.address_semantic_similarity = matchResult.semanticSimilarity;
+                            }
+                            if (matchResult.structuralSimilarity !== undefined) {
+                                listing.address_structural_similarity = matchResult.structuralSimilarity;
+                            }
+
+                            // Изменяем processing_status при успешном определении адреса
+                            if (listing.processing_status === 'address_needed') {
+                                listing.processing_status = 'duplicate_check_needed';
+                            }
+
+                            await db.update('listings', listing);
+
+                            // Статистика по уровням доверия
+                            switch (matchResult.confidence) {
+                                case 'high':
+                                    results.highConfidence++;
+                                    break;
+                                case 'medium':
+                                    results.mediumConfidence++;
+                                    break;
+                                case 'low':
+                                    results.lowConfidence++;
+                                    break;
+                                case 'very_low':
+                                    results.veryLowConfidence++;
+                                    break;
+                            }
+
+                            // Статистика методов
+                            const method = matchResult.method;
+                            results.methodStats[method] = (results.methodStats[method] || 0) + 1;
+
+                        } else {
+                            results.noMatch++;
+                        }
+                    } catch (error) {
+                        results.errors++;
+                        console.error('Ошибка продвинутой обработки объявления:', error);
+                    }
+                }
+
+                // Небольшая задержка для обновления UI
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
+
+            this.updateProgressBar('addresses', 100, '✅ Продвинутая обработка завершена');
+
+            // Обновляем карту и статистику
+            await this.loadAreaStats();
+            await this.loadAddresses();
+
+            // Показываем детальный результат
+            const methodStatsText = Object.entries(results.methodStats)
+                .map(([method, count]) => `  • ${method}: ${count}`)
+                .join('\n');
+
+            const message = `🎯 Продвинутая обработка адресов завершена:
+
+📊 Общая статистика:
+• Обработано: ${results.processed}
+• Найдены адреса: ${results.matched}
+• Улучшено: ${results.improved}
+
+🎯 По уровням точности:
+• Высокая точность: ${results.highConfidence}
+• Средняя точность: ${results.mediumConfidence}
+• Низкая точность: ${results.lowConfidence}
+• Очень низкая: ${results.veryLowConfidence}
+• Не найдено: ${results.noMatch}
+• Ошибок: ${results.errors}
+
+🔧 Методы определения:
+${methodStatsText}
+
+✨ Использован продвинутый алгоритм с семантическим анализом!`;
+
+            this.showSuccess(message);
+
+        } catch (error) {
+            console.error('Error in advanced address processing:', error);
+            this.showError('Ошибка продвинутого определения адресов: ' + error.message);
+        } finally {
+            this.processing.addresses = false;
+            this.hideProgressBar('addresses');
+        }
+    }
+
+    /**
+     * Обработка адресов с использованием умного алгоритма с ML
+     */
+    async processAddressesSmart() {
+        if (this.processing.addresses) {
+            this.showInfo('Обработка адресов уже выполняется');
+            return;
+        }
+
+        try {
+            this.processing.addresses = true;
+            console.log('🧠 Начинаем умное определение адресов с ML');
+            this.updateProgressBar('addresses', 0, 'Инициализация умного алгоритма...');
+
+            // Загружаем объявления для обработки умным алгоритмом
+            const allListings = await db.getListings();
+            const targetListings = allListings.filter(listing => {
+                const needsProcessing = 
+                    !listing.address_id || 
+                    listing.address_match_confidence === 'very_low' ||
+                    listing.address_match_confidence === 'low' ||
+                    (listing.address_match_confidence === 'medium' && listing.address_match_score < 0.75);
+                
+                const hasCoordinates = listing.coordinates && 
+                    listing.coordinates.lat && 
+                    (listing.coordinates.lng || listing.coordinates.lon);
+                
+                return needsProcessing && hasCoordinates;
+            });
+
+            if (targetListings.length === 0) {
+                this.showInfo('Нет объявлений для обработки умным алгоритмом');
+                return;
+            }
+
+            this.updateProgressBar('addresses', 10, 
+                `🧠 Найдено ${targetListings.length} объявлений для умной обработки`);
+
+            // Загружаем все адреса
+            const allAddresses = await db.getAddresses();
+            if (allAddresses.length === 0) {
+                this.showError('В базе данных нет адресов для сопоставления');
+                return;
+            }
+
+            this.updateProgressBar('addresses', 20, 
+                `📍 Загружено ${allAddresses.length} адресов из базы`);
+
+            // Инициализируем умный алгоритм
+            if (!window.smartAddressMatcher) {
+                this.showError('Умный алгоритм определения адресов не инициализирован');
+                return;
+            }
+
+            const smartMatcher = window.smartAddressMatcher;
+            smartMatcher.spatialIndex = this.spatialManager;
+
+            this.updateProgressBar('addresses', 30, 
+                '🧠 Запуск умного алгоритма с машинным обучением...');
+
+            // Обрабатываем объявления меньшими батчами для ML-алгоритма
+            const batchSize = 20;
+            let processedCount = 0;
+            let significantImprovements = 0;
+            let results = {
+                processed: 0,
+                matched: 0,
+                improved: 0,
+                significantlyImproved: 0,
+                perfect: 0,
+                high: 0,
+                medium: 0,
+                low: 0,
+                veryLow: 0,
+                noMatch: 0,
+                errors: 0,
+                methodStats: {},
+                avgProcessingTime: 0,
+                totalProcessingTime: 0
+            };
+
+            const startTime = Date.now();
+
+            for (let i = 0; i < targetListings.length; i += batchSize) {
+                const batch = targetListings.slice(i, i + batchSize);
+                const progress = 30 + ((i / targetListings.length) * 60);
+                
+                this.updateProgressBar('addresses', progress, 
+                    `🧠 Умная ML-обработка ${i + 1}-${Math.min(i + batchSize, targetListings.length)} из ${targetListings.length}`);
+
+                // Обрабатываем батч
+                for (const listing of batch) {
+                    try {
+                        const oldConfidence = listing.address_match_confidence;
+                        const oldScore = listing.address_match_score || 0;
+                        
+                        const matchResult = await smartMatcher.matchAddressSmart(listing, allAddresses);
+                        processedCount++;
+                        results.processed++;
+                        results.totalProcessingTime += matchResult.processingTime || 0;
+
+                        console.log(`🧠 ML-результат для ${listing.id}: ${matchResult.confidence} (${matchResult.method}), скор: ${matchResult.score?.toFixed(3)}, время: ${matchResult.processingTime}ms`);
+
+                        if (matchResult.address) {
+                            results.matched++;
+
+                            // Проверяем улучшение
+                            const confidenceLevels = ['none', 'very_low', 'low', 'medium', 'high', 'perfect'];
+                            const oldLevel = confidenceLevels.indexOf(oldConfidence || 'none');
+                            const newLevel = confidenceLevels.indexOf(matchResult.confidence);
+                            
+                            if (newLevel > oldLevel || matchResult.score > oldScore + 0.1) {
+                                results.improved++;
+                                
+                                // Значительное улучшение
+                                if (newLevel > oldLevel + 1 || matchResult.score > oldScore + 0.2) {
+                                    significantImprovements++;
+                                    results.significantlyImproved++;
+                                    console.log(`🎯 Значительное улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
+                                } else {
+                                    console.log(`✅ Улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
+                                }
+                            }
+
+                            // Обновляем объявление
+                            listing.address_id = matchResult.address.id;
+                            listing.address_match_confidence = matchResult.confidence;
+                            listing.address_match_method = matchResult.method;
+                            listing.address_match_score = matchResult.score;
+                            listing.address_distance = matchResult.distance;
+                            listing.updated_at = new Date();
+
+                            // Дополнительные метрики от умного алгоритма
+                            if (matchResult.textSimilarity !== undefined) {
+                                listing.address_text_similarity = matchResult.textSimilarity;
+                            }
+                            if (matchResult.semanticSimilarity !== undefined) {
+                                listing.address_semantic_similarity = matchResult.semanticSimilarity;
+                            }
+                            if (matchResult.structuralSimilarity !== undefined) {
+                                listing.address_structural_similarity = matchResult.structuralSimilarity;
+                            }
+                            if (matchResult.fuzzyScore !== undefined) {
+                                listing.address_fuzzy_score = matchResult.fuzzyScore;
+                            }
+
+                            // Обновляем статус обработки
+                            if (listing.processing_status === 'address_needed') {
+                                listing.processing_status = 'duplicate_check_needed';
+                            }
+
+                            await db.update('listings', listing);
+
+                            // Статистика по уровням доверия
+                            switch (matchResult.confidence) {
+                                case 'perfect':
+                                    results.perfect++;
+                                    break;
+                                case 'high':
+                                    results.high++;
+                                    break;
+                                case 'medium':
+                                    results.medium++;
+                                    break;
+                                case 'low':
+                                    results.low++;
+                                    break;
+                                case 'very_low':
+                                    results.veryLow++;
+                                    break;
+                            }
+
+                            // Статистика методов
+                            const method = matchResult.method;
+                            results.methodStats[method] = (results.methodStats[method] || 0) + 1;
+
+                        } else {
+                            results.noMatch++;
+                        }
+                    } catch (error) {
+                        results.errors++;
+                        console.error('Ошибка умной обработки объявления:', error);
+                    }
+                }
+
+                // Задержка для ML-алгоритма
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            const totalTime = Date.now() - startTime;
+            results.avgProcessingTime = results.totalProcessingTime / results.processed;
+
+            this.updateProgressBar('addresses', 100, '🧠 Умная ML-обработка завершена');
+
+            // Получаем статистику алгоритма
+            const algorithmStats = smartMatcher.getStats();
+
+            // Обновляем карту и статистику
+            await this.loadAreaStats();
+            await this.loadAddresses();
+
+            // Показываем детальный результат
+            const methodStatsText = Object.entries(results.methodStats)
+                .map(([method, count]) => `  • ${method}: ${count}`)
+                .join('\n');
+
+            const message = `🧠 Умная ML-обработка адресов завершена:
+
+📊 Общая статистика:
+• Обработано: ${results.processed}
+• Найдены адреса: ${results.matched}
+• Улучшено: ${results.improved}
+• Значительно улучшено: ${results.significantlyImproved}
+
+🎯 По уровням точности:
+• Идеальная точность: ${results.perfect}
+• Высокая точность: ${results.high}
+• Средняя точность: ${results.medium}
+• Низкая точность: ${results.low}
+• Очень низкая: ${results.veryLow}
+• Не найдено: ${results.noMatch}
+• Ошибок: ${results.errors}
+
+🔧 ML-методы определения:
+${methodStatsText}
+
+⚡ Производительность:
+• Общее время: ${(totalTime / 1000).toFixed(1)}с
+• Среднее время на объявление: ${results.avgProcessingTime.toFixed(1)}мс
+• Кэш размер: ${algorithmStats.cacheSize}
+• Общий успех ML: ${algorithmStats.overallSuccessRate.toFixed(1)}%
+
+🧠 Использован умный алгоритм с машинным обучением!`;
+
+            this.showSuccess(message);
+
+        } catch (error) {
+            console.error('Error in smart ML address processing:', error);
+            this.showError('Ошибка умного определения адресов: ' + error.message);
+        } finally {
+            this.processing.addresses = false;
+            this.hideProgressBar('addresses');
+        }
+    }
+
+    /**
+     * Анализ неопределенных адресов с помощью ML
+     */
+    async analyzeUnresolvedAddresses() {
+        if (this.processing.addresses) {
+            this.showInfo('Обработка адресов уже выполняется');
+            return;
+        }
+
+        try {
+            this.processing.addresses = true;
+            console.log('🔬 Начинаем ML-анализ неопределенных адресов');
+            this.updateProgressBar('addresses', 0, 'Инициализация ML анализатора...');
+
+            // Проверяем доступность необходимых компонентов
+            if (!window.MLAddressAnalyzer) {
+                this.showError('ML анализатор адресов не инициализирован');
+                return;
+            }
+
+            if (!window.smartAddressMatcher) {
+                this.showError('Умный алгоритм определения адресов не инициализирован');
+                return;
+            }
+
+            // Создаем экземпляр ML анализатора
+            const mlAnalyzer = new MLAddressAnalyzer(db, window.smartAddressMatcher);
+            
+            this.updateProgressBar('addresses', 10, '🔍 Поиск неопределенных адресов...');
+
+            // Запускаем анализ
+            const analysisResult = await mlAnalyzer.analyzeUnresolvedAddresses();
+
+            if (!analysisResult.success) {
+                this.showError('Ошибка анализа: ' + analysisResult.error);
+                return;
+            }
+
+            this.updateProgressBar('addresses', 90, '📊 Обновление статистики...');
+
+            // Обновляем карту и статистику
+            await this.loadAreaStats();
+            await this.loadAddresses();
+
+            this.updateProgressBar('addresses', 100, '🔬 ML-анализ завершен');
+
+            // Логируем детальные результаты в консоль
+            console.log('🔬 Результаты ML-анализа неопределенных адресов:', analysisResult);
+            
+            if (analysisResult.createdAddresses && analysisResult.createdAddresses.length > 0) {
+                console.log('🏗️ Созданные адреса:');
+                analysisResult.createdAddresses.forEach((address, index) => {
+                    console.log(`${index + 1}. "${address.address}"`, address);
+                });
+            }
+            
+            if (analysisResult.groups && analysisResult.groups.length > 0) {
+                console.log('🧩 Найденные группы:');
+                analysisResult.groups.forEach((group, index) => {
+                    console.log(`Группа ${index + 1}:`, group);
+                });
+            }
+
+            // Получаем детальную статистику
+            const stats = mlAnalyzer.getAnalysisStats();
+            
+            // Формируем детальный отчет
+            let message = `🔬 ML-анализ неопределенных адресов завершен:
+
+📊 Результаты анализа:
+• Обработано объявлений: ${stats.processedListings}
+• Найдено групп: ${stats.foundGroups}
+• Создано адресов: ${stats.createdAddresses}`;
+
+            if (stats.averageGroupSize > 0) {
+                message += `\n• Средний размер группы: ${stats.averageGroupSize.toFixed(1)} объявлений`;
+            }
+
+            if (stats.efficiency > 0) {
+                message += `\n• Эффективность: ${stats.efficiency.toFixed(1)}%`;
+            }
+
+            message += `\n\n${analysisResult.message}`;
+
+            // Добавляем информацию о созданных адресах
+            if (analysisResult.createdAddresses && analysisResult.createdAddresses.length > 0) {
+                message += `\n\n🏗️ СОЗДАННЫЕ АДРЕСА (${analysisResult.createdAddresses.length}):`;
+                analysisResult.createdAddresses.forEach((address, index) => {
+                    const coords = `${address.coordinates.lat.toFixed(6)}, ${address.coordinates.lng.toFixed(6)}`;
+                    const floors = address.floors_count ? `, ${address.floors_count} эт.` : '';
+                    const confidence = address.confidence ? ` (уверенность: ${(address.confidence * 100).toFixed(1)}%)` : '';
+                    
+                    message += `\n${index + 1}. "${address.address}"${floors}`;
+                    message += `\n   📍 ${coords}`;
+                    message += `\n   📊 ${address.listings_count} объявлений${confidence}`;
+                    if (index < analysisResult.createdAddresses.length - 1) {
+                        message += `\n`;
+                    }
+                });
+                
+                // Добавляем инструкцию для просмотра адресов
+                message += `\n\n💡 Совет: Новые адреса появились в таблице адресов области и на карте.`;
+                message += `\n   Используйте фильтры карты для поиска созданных адресов.`;
+            }
+
+            // Добавляем информацию о группах
+            if (analysisResult.groups && analysisResult.groups.length > 0) {
+                message += `\n\n🧩 Найденные группы:`;
+                analysisResult.groups.slice(0, 3).forEach((group, index) => {
+                    const avgSim = (group.avgSimilarity * 100).toFixed(1);
+                    message += `\n${index + 1}. ${group.listings.length} объявлений (схожесть: ${avgSim}%)`;
+                });
+                
+                if (analysisResult.groups.length > 3) {
+                    message += `\n... и еще ${analysisResult.groups.length - 3} групп`;
+                }
+            }
+
+            message += `\n\n🎯 Алгоритм автоматически:
+• Находит объявления без адресов
+• Группирует их по схожести названий и координат
+• Создает новые адреса с минимальным наполнением
+• Привязывает объявления к созданным адресам`;
+
+            this.showSuccess(message);
+
+        } catch (error) {
+            console.error('Error in ML address analysis:', error);
+            this.showError('Ошибка ML-анализа адресов: ' + error.message);
+        } finally {
+            this.processing.addresses = false;
+            this.hideProgressBar('addresses');
+        }
+    }
+
     async processDuplicates() {
-        this.showInfo('Функция обработки дублей будет реализована позже');
+        try {
+            // Проверяем что область загружена
+            if (!this.currentArea || !this.currentAreaId) {
+                this.showError('Область не загружена');
+                return;
+            }
+
+            // Проверяем инициализацию детектора дублей
+            if (!window.duplicateDetector) {
+                this.showError('Система поиска дублей не инициализирована');
+                return;
+            }
+
+            const progressText = document.getElementById('duplicatesProgress');
+            const progressBar = document.getElementById('duplicatesProgressBar');
+            const statusText = document.getElementById('duplicatesStatus');
+            const processBtn = document.getElementById('processDuplicatesBtn');
+
+            // Показываем прогресс
+            if (statusText) {
+                statusText.classList.remove('hidden');
+                statusText.textContent = 'Инициализация...';
+            }
+
+            // Блокируем кнопку
+            if (processBtn) {
+                processBtn.disabled = true;
+                processBtn.textContent = 'Обработка...';
+            }
+
+            this.showInfo('Начинаем поиск и обработку дублей...');
+
+            // Инициализируем детектор
+            await window.duplicateDetector.init();
+
+            // Запускаем обработку с callback прогресса
+            const results = await window.duplicateDetector.processDuplicates(
+                this.currentArea,
+                (progress) => {
+                    // Обновляем прогресс
+                    if (progressText) {
+                        progressText.textContent = `${progress.percent}%`;
+                    }
+                    if (progressBar) {
+                        progressBar.style.width = `${progress.percent}%`;
+                    }
+                    if (statusText) {
+                        statusText.textContent = `Обработано ${progress.current} из ${progress.total} объявлений`;
+                    }
+                }
+            );
+
+            // Показываем результаты
+            const message = `Обработка дублей завершена!\n\n` +
+                           `📊 Обработано объявлений: ${results.processed}\n` +
+                           `🏠 Объединено в объекты: ${results.merged}\n` +
+                           `📍 Групп адресов: ${results.groups}\n` +
+                           `❌ Ошибок: ${results.errors}`;
+
+            this.showSuccess(message);
+
+            // Обновляем таблицы для отображения изменений
+            await this.loadDuplicatesTable();
+            await this.loadAddresses();
+            
+            // Обновляем статистику дублей
+            await this.updateDuplicatesStats();
+
+            // Сбрасываем прогресс
+            if (progressText) progressText.textContent = '100%';
+            if (progressBar) progressBar.style.width = '100%';
+            if (statusText) statusText.textContent = 'Обработка завершена';
+
+        } catch (error) {
+            console.error('❌ Ошибка обработки дублей:', error);
+            this.showError(`Ошибка обработки дублей: ${error.message}`);
+        } finally {
+            // Разблокируем кнопку
+            const processBtn = document.getElementById('processDuplicatesBtn');
+            if (processBtn) {
+                processBtn.disabled = false;
+                processBtn.textContent = 'Обработать дубли';
+            }
+        }
+    }
+
+    /**
+     * Обработка дублей с использованием продвинутого алгоритма
+     */
+    async processDuplicatesAdvanced() {
+        try {
+            // Проверяем что область загружена
+            if (!this.currentArea || !this.currentAreaId) {
+                this.showError('Область не загружена');
+                return;
+            }
+
+            // Проверяем инициализацию продвинутого детектора дублей
+            if (!window.advancedDuplicateDetector) {
+                this.showError('Продвинутая система поиска дублей не инициализирована');
+                return;
+            }
+
+            const progressText = document.getElementById('duplicatesProgress');
+            const progressBar = document.getElementById('duplicatesProgressBar');
+            const statusText = document.getElementById('duplicatesStatus');
+            const processBtn = document.getElementById('processDuplicatesAdvancedBtn');
+
+            // Показываем прогресс
+            if (statusText) {
+                statusText.classList.remove('hidden');
+                statusText.textContent = 'Инициализация продвинутого алгоритма...';
+            }
+
+            // Блокируем кнопку
+            if (processBtn) {
+                processBtn.disabled = true;
+                processBtn.textContent = 'Продвинутая обработка...';
+            }
+
+            this.showInfo('🚀 Начинаем продвинутый поиск и обработку дублей...');
+
+            // Инициализируем продвинутый детектор
+            await window.advancedDuplicateDetector.init();
+
+            // Запускаем продвинутую обработку с callback прогресса
+            const results = await window.advancedDuplicateDetector.processDuplicatesAdvanced(
+                this.currentArea,
+                (progress) => {
+                    // Обновляем прогресс
+                    if (progressText) {
+                        progressText.textContent = `${progress.percent}%`;
+                    }
+                    if (progressBar) {
+                        progressBar.style.width = `${progress.percent}%`;
+                    }
+                    if (statusText) {
+                        statusText.textContent = `Обработано ${progress.current} из ${progress.total} объявлений`;
+                    }
+                }
+            );
+
+            // Показываем результаты
+            const message = `🎯 Продвинутая обработка дублей завершена!\n\n` +
+                           `📊 Обработано объявлений: ${results.processed}\n` +
+                           `🏠 Объединено в объекты: ${results.merged}\n` +
+                           `📍 Групп адресов: ${results.groups}\n` +
+                           `❌ Ошибок: ${results.errors}\n\n` +
+                           `✨ Использован продвинутый алгоритм с анализом уникальных характеристик!`;
+
+            this.showSuccess(message);
+
+            // Обновляем таблицы для отображения изменений
+            await this.loadDuplicatesTable();
+            await this.loadAddresses();
+            
+            // Обновляем статистику дублей
+            await this.updateDuplicatesStats();
+
+            // Сбрасываем прогресс
+            if (progressText) progressText.textContent = '100%';
+            if (progressBar) progressBar.style.width = '100%';
+            if (statusText) statusText.textContent = 'Продвинутая обработка завершена';
+
+        } catch (error) {
+            console.error('❌ Ошибка продвинутой обработки дублей:', error);
+            this.showError(`Ошибка продвинутой обработки дублей: ${error.message}`);
+        } finally {
+            // Разблокируем кнопку
+            const processBtn = document.getElementById('processDuplicatesAdvancedBtn');
+            if (processBtn) {
+                processBtn.disabled = false;
+                processBtn.textContent = 'Продвинутая обработка дублей';
+            }
+        }
     }
 
     /**
@@ -5615,6 +6846,33 @@ class AreaPage {
 
             // Обновляем статус определения адреса на "manual"
             for (const listing of listingsToUpdate) {
+                // Добавляем пример для обучения ML-модели (ПОЗИТИВНЫЙ пример)
+                if (window.smartAddressMatcher && listing.address && listing.address_id) {
+                    try {
+                        const matchedAddress = await db.get('addresses', listing.address_id);
+                        if (matchedAddress) {
+                            console.log(`📚 Adding ML training example for listing ${listing.id}:`);
+                            console.log(`   - Listing address: "${listing.address}"`);
+                            console.log(`   - Matched address: "${matchedAddress.address}"`);
+                            
+                            window.smartAddressMatcher.addTrainingExample(
+                                listing.address,
+                                matchedAddress.address,
+                                true // Пользователь подтвердил, что это правильный адрес
+                            );
+                            
+                            const currentCount = localStorage.getItem('ml_training_count');
+                            console.log(`📚 ML training example added: POSITIVE for listing ${listing.id}, total examples: ${currentCount}`);
+                        } else {
+                            console.warn(`❌ No matched address found for listing ${listing.id}`);
+                        }
+                    } catch (error) {
+                        console.warn(`❌ ML training failed for listing ${listing.id}:`, error);
+                    }
+                } else {
+                    console.warn(`❌ Cannot add ML example: smartAddressMatcher=${!!window.smartAddressMatcher}, address="${listing.address}", address_id=${listing.address_id}`);
+                }
+
                 listing.address_match_confidence = 'manual';
                 
                 // Обновляем в базе данных
@@ -5646,6 +6904,23 @@ class AreaPage {
             }
 
             console.log('🏠 Marking single address as correct for listing:', listingId);
+
+            // Добавляем пример для обучения ML-модели (ПОЗИТИВНЫЙ пример)
+            if (window.smartAddressMatcher && listing.address && listing.address_id) {
+                try {
+                    const matchedAddress = await db.get('addresses', listing.address_id);
+                    if (matchedAddress) {
+                        window.smartAddressMatcher.addTrainingExample(
+                            listing.address,
+                            matchedAddress.address,
+                            true // Пользователь подтвердил, что это правильный адрес
+                        );
+                        console.log('📚 ML training example added: POSITIVE');
+                    }
+                } catch (error) {
+                    console.warn('ML training failed:', error);
+                }
+            }
 
             // Обновляем статус определения адреса на "manual"
             listing.address_match_confidence = 'manual';
@@ -8026,7 +9301,7 @@ class AreaPage {
     }
 
     /**
-     * Закрыть модальное окно
+     * Закрыть модальное окно объявления
      */
     closeModal() {
         // Уничтожаем Fotorama перед закрытием модального окна
@@ -8039,6 +9314,23 @@ class AreaPage {
         
         document.getElementById('listingModal').classList.add('hidden');
         this.currentListingUrl = null;
+    }
+
+    /**
+     * Закрыть модальное окно объекта недвижимости
+     */
+    closeObjectModal() {
+        // Уничтожаем Fotorama перед закрытием модального окна
+        const galleries = document.querySelectorAll('.fotorama');
+        galleries.forEach(gallery => {
+            if (window.$ && $.fn.fotorama) {
+                $(gallery).fotorama().data('fotorama')?.destroy();
+            }
+        });
+        
+        document.getElementById('objectModal').classList.add('hidden');
+        this.currentObject = null;
+        this.currentObjectListings = null;
     }
 
     /**
@@ -9854,6 +11146,246 @@ class AreaPage {
         `;
 
         tableElement.innerHTML = tableHTML;
+    }
+
+    /**
+     * Обновление статистики обработки дублей
+     */
+    async updateDuplicatesStats() {
+        try {
+            console.log('📊 Обновление статистики дублей...');
+
+            // Получаем все объявления в области
+            const allListings = await db.getAll('listings');
+            const listingsInArea = allListings.filter(listing => {
+                if (!listing.coordinates || !listing.coordinates.lat || !(listing.coordinates.lng || listing.coordinates.lon)) {
+                    return false;
+                }
+                
+                const lat = listing.coordinates.lat;
+                const lng = listing.coordinates.lng || listing.coordinates.lon;
+                
+                return this.currentArea && this.currentArea.containsPoint(lat, lng);
+            });
+
+            // Считаем статистику по статусам обработки
+            const stats = {
+                needProcessing: 0,
+                processed: 0,
+                merged: 0,
+                total: listingsInArea.length
+            };
+
+            const statusCounts = {};
+
+            listingsInArea.forEach(listing => {
+                const status = listing.processing_status || 'unknown';
+                statusCounts[status] = (statusCounts[status] || 0) + 1;
+
+                if (status === 'duplicate_check_needed') {
+                    stats.needProcessing++;
+                } else if (status === 'processed') {
+                    stats.processed++;
+                }
+            });
+
+            // Подсчитываем объединенные объявления (сколько объявлений стало объектами)
+            try {
+                const realEstateObjects = await db.getAll('objects');
+                const objectsInArea = realEstateObjects.filter(obj => {
+                    if (!obj.coordinates || !obj.coordinates.lat || !(obj.coordinates.lng || obj.coordinates.lon)) {
+                        return false;
+                    }
+                    
+                    const lat = obj.coordinates.lat;
+                    const lng = obj.coordinates.lng || obj.coordinates.lon;
+                    
+                    return this.currentArea && this.currentArea.containsPoint(lat, lng);
+                });
+
+                // Считаем сколько объявлений было объединено в объекты
+                stats.merged = objectsInArea.reduce((total, obj) => {
+                    return total + (obj.listing_ids ? obj.listing_ids.length : 0);
+                }, 0);
+            } catch (error) {
+                console.warn('Таблица objects не найдена, пропускаем подсчет объединенных объявлений:', error);
+                stats.merged = 0;
+            }
+
+            // Рассчитываем эффективность
+            const efficiency = stats.total > 0 ? Math.round(((stats.processed + stats.merged) / stats.total) * 100) : 0;
+
+            // Обновляем счетчики
+            this.updateDuplicatesCounters(stats, efficiency);
+
+            // Обновляем график статусов
+            this.updateDuplicatesStatusChart(statusCounts);
+
+            // Обновляем статистику точности объединения
+            this.updateDuplicatesAccuracyStats();
+
+        } catch (error) {
+            console.error('Ошибка обновления статистики дублей:', error);
+        }
+    }
+
+    /**
+     * Обновление счетчиков статистики дублей
+     */
+    updateDuplicatesCounters(stats, efficiency) {
+        const elements = {
+            duplicatesNeedProcessing: document.getElementById('duplicatesNeedProcessing'),
+            duplicatesProcessed: document.getElementById('duplicatesProcessed'),
+            duplicatesMerged: document.getElementById('duplicatesMerged'),
+            duplicatesEfficiency: document.getElementById('duplicatesEfficiency')
+        };
+
+        if (elements.duplicatesNeedProcessing) {
+            elements.duplicatesNeedProcessing.textContent = stats.needProcessing.toLocaleString();
+        }
+        
+        if (elements.duplicatesProcessed) {
+            elements.duplicatesProcessed.textContent = stats.processed.toLocaleString();
+        }
+        
+        if (elements.duplicatesMerged) {
+            elements.duplicatesMerged.textContent = stats.merged.toLocaleString();
+        }
+        
+        if (elements.duplicatesEfficiency) {
+            elements.duplicatesEfficiency.textContent = `${efficiency}%`;
+        }
+    }
+
+    /**
+     * Обновление графика статусов обработки дублей
+     */
+    updateDuplicatesStatusChart(statusCounts) {
+        const chartElement = document.getElementById('duplicatesStatusChart');
+        if (!chartElement) return;
+
+        // Если график уже существует, уничтожаем его
+        if (this.duplicatesStatusChartInstance) {
+            this.duplicatesStatusChartInstance.destroy();
+        }
+
+        const statusLabels = {
+            'duplicate_check_needed': 'Требуют обработки',
+            'processed': 'Обработано',
+            'address_needed': 'Требуют адрес',
+            'unknown': 'Неизвестно'
+        };
+
+        const statusColors = {
+            'duplicate_check_needed': '#f59e0b',
+            'processed': '#10b981',
+            'address_needed': '#ef4444',
+            'unknown': '#6b7280'
+        };
+
+        // Подготавливаем данные
+        const chartData = Object.entries(statusCounts)
+            .filter(([status, count]) => count > 0)
+            .map(([status, count]) => ({
+                name: statusLabels[status] || status,
+                value: count,
+                color: statusColors[status] || '#6b7280'
+            }))
+            .sort((a, b) => b.value - a.value);
+
+        if (chartData.length === 0) {
+            chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Нет данных</div>';
+            return;
+        }
+
+        const options = {
+            series: chartData.map(item => item.value),
+            chart: {
+                type: 'pie',
+                height: 250
+            },
+            labels: chartData.map(item => item.name),
+            colors: chartData.map(item => item.color),
+            legend: {
+                position: 'bottom',
+                fontSize: '12px'
+            },
+            dataLabels: {
+                enabled: true,
+                formatter: function(val) {
+                    return Math.round(val) + '%';
+                }
+            },
+            tooltip: {
+                y: {
+                    formatter: function(val) {
+                        return val + ' объявлений';
+                    }
+                }
+            }
+        };
+
+        this.duplicatesStatusChartInstance = new ApexCharts(chartElement, options);
+        this.duplicatesStatusChartInstance.render();
+    }
+
+    /**
+     * Обновление статистики точности объединения
+     */
+    updateDuplicatesAccuracyStats() {
+        const statsElement = document.getElementById('duplicatesAccuracyStats');
+        if (!statsElement) return;
+
+        // Поскольку информация о точности объединения не сохраняется в базе данных,
+        // показываем информацию о пороговых значениях системы и рекомендации
+        
+        const statsHTML = `
+            <div class="space-y-3">
+                <div class="text-sm text-gray-700 mb-4">
+                    Система использует комбинированный анализ текста и контактов для определения дублей:
+                </div>
+                
+                <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div class="flex items-center mb-2">
+                        <div class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                        <span class="text-sm font-medium text-green-800">Высокая точность (≥75%)</span>
+                    </div>
+                    <div class="text-xs text-green-700">
+                        Автоматическое объединение. Высокое сходство текста описания и совпадение контактных данных.
+                    </div>
+                </div>
+                
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <div class="flex items-center mb-2">
+                        <div class="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
+                        <span class="text-sm font-medium text-yellow-800">Средняя точность (55-74%)</span>
+                    </div>
+                    <div class="text-xs text-yellow-700">
+                        Требует ручной проверки. Частичное сходство текста или контактов.
+                    </div>
+                </div>
+                
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <div class="flex items-center mb-2">
+                        <div class="w-3 h-3 bg-gray-500 rounded-full mr-2"></div>
+                        <span class="text-sm font-medium text-gray-800">Низкая точность (35-54%)</span>
+                    </div>
+                    <div class="text-xs text-gray-700">
+                        Возможные дубли. Минимальное сходство, требует внимательной проверки.
+                    </div>
+                </div>
+                
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+                    <div class="text-xs text-blue-700">
+                        <strong>Алгоритм:</strong> Текстовое сходство (60%) + Контактные данные (40%)
+                        <br>
+                        <strong>Анализ изображений:</strong> Временно отключен из-за ограничений CORS
+                    </div>
+                </div>
+            </div>
+        `;
+
+        statsElement.innerHTML = statsHTML;
     }
 
     /**

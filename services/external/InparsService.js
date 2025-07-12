@@ -100,25 +100,48 @@ class InparsService extends BaseAPIService {
             const response = await this.request('user/subscribe');
             
             if (!response.data || response.data.length === 0) {
-                throw new Error('Нет активных подписок');
+                this.emit('subscription:invalid', { error: 'Нет активных подписок' });
+                return {
+                    success: false,
+                    active: false,
+                    error: 'Нет активных подписок'
+                };
             }
             
             const subscription = response.data.find(sub => sub.api === true);
             if (!subscription) {
-                throw new Error('API подписка не найдена');
+                this.emit('subscription:invalid', { error: 'API подписка не найдена' });
+                return {
+                    success: false,
+                    active: false,
+                    error: 'API подписка не найдена'
+                };
             }
             
             const endDate = new Date(subscription.endTime);
             if (endDate < new Date()) {
-                throw new Error('API подписка истекла');
+                this.emit('subscription:invalid', { error: 'API подписка истекла' });
+                return {
+                    success: false,
+                    active: false,
+                    error: 'API подписка истекла'
+                };
             }
             
             this.emit('subscription:valid', { subscription });
-            return subscription;
+            return {
+                success: true,
+                active: true,
+                subscription: subscription
+            };
             
         } catch (error) {
             this.emit('subscription:invalid', { error });
-            throw error;
+            return {
+                success: false,
+                active: false,
+                error: error.message
+            };
         }
     }
 
@@ -294,6 +317,7 @@ class InparsService extends BaseAPIService {
             
             return {
                 listings,
+                rawData: response.data, // Сохраняем исходные данные для пагинации
                 meta: response.meta || {}
             };
             
@@ -420,7 +444,7 @@ class InparsService extends BaseAPIService {
     }
 
     /**
-     * Загрузка объявлений для InparsPanel
+     * Загрузка объявлений для InparsPanel с поддержкой пагинации
      */
     async loadListings(options = {}) {
         const {
@@ -430,30 +454,114 @@ class InparsService extends BaseAPIService {
         } = options;
         
         try {
-            if (onProgress) onProgress({ message: 'Начинаем загрузку объявлений...', percentage: 10 });
+            if (onProgress) onProgress({ message: 'Начинаем загрузку объявлений...', percentage: 5 });
             
-            const result = await this.getListingsByPolygon(polygon, {
-                categoryIds: categories,
-                limit: 500
-            });
+            let allListings = [];
+            let pageNumber = 1;
+            let hasMore = true;
+            let timeStart = this.getStartDate(); // Дата год назад от текущей
             
-            if (onProgress) onProgress({ message: 'Обработка данных...', percentage: 50 });
+            while (hasMore) {
+                if (onProgress) {
+                    const percentage = Math.min(85, 10 + (pageNumber * 15));
+                    onProgress({ 
+                        message: `Загружаем страницу ${pageNumber}... (получено: ${allListings.length})`, 
+                        percentage: percentage 
+                    });
+                }
+                
+                console.log(`📄 Загружаем страницу ${pageNumber}, timeStart: ${timeStart ? new Date(timeStart * 1000).toISOString() : 'null'}`);
+                
+                const result = await this.getListingsByPolygon(polygon, {
+                    categoryIds: categories,
+                    limit: 500,
+                    timeStart: timeStart ? new Date(timeStart * 1000) : null,
+                    sortBy: 'updated_asc' // Важно для правильной пагинации
+                });
+                
+                if (!result.listings || result.listings.length === 0) {
+                    console.log(`📄 Страница ${pageNumber}: нет объявлений, завершаем`);
+                    break;
+                }
+                
+                allListings = allListings.concat(result.listings);
+                
+                // Проверяем, нужно ли загружать следующую страницу
+                hasMore = result.listings.length >= 500;
+                
+                if (hasMore && result.listings.length > 0) {
+                    // Получаем значение поля updated из последнего исходного объявления
+                    const lastRawListing = result.rawData[result.rawData.length - 1];
+                    
+                    // Ищем поле updated в исходных данных Inpars API
+                    let nextTimeStart = null;
+                    
+                    if (lastRawListing.updated) {
+                        nextTimeStart = lastRawListing.updated;
+                    } else if (lastRawListing.dateUpdate) {
+                        nextTimeStart = lastRawListing.dateUpdate;
+                    } else if (lastRawListing.dateUpdated) {
+                        nextTimeStart = lastRawListing.dateUpdated;
+                    }
+                    
+                    if (nextTimeStart) {
+                        // Конвертируем в timestamp для следующего запроса
+                        if (typeof nextTimeStart === 'string') {
+                            timeStart = Math.floor(new Date(nextTimeStart).getTime() / 1000);
+                        } else if (nextTimeStart instanceof Date) {
+                            timeStart = Math.floor(nextTimeStart.getTime() / 1000);
+                        } else {
+                            timeStart = nextTimeStart;
+                        }
+                        
+                        console.log(`📄 Страница ${pageNumber}: получено ${result.listings.length} объявлений, всего: ${allListings.length}`);
+                        console.log(`📅 Следующий timeStart: ${new Date(timeStart * 1000).toISOString()}`);
+                    } else {
+                        console.log(`⚠️ Не удалось найти поле updated в последнем объявлении, завершаем пагинацию`);
+                        console.log(`🔍 Доступные поля в последнем объявлении:`, Object.keys(lastRawListing));
+                        hasMore = false;
+                    }
+                } else {
+                    console.log(`📄 Страница ${pageNumber}: получено ${result.listings.length} объявлений (последняя страница), всего: ${allListings.length}`);
+                }
+                
+                pageNumber++;
+                
+                // Небольшая задержка между запросами (rate limiting уже есть в BaseAPIService)
+                if (hasMore) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            
+            if (onProgress) onProgress({ message: 'Обработка данных...', percentage: 90 });
             
             // Сохранение в БД происходит в area_services_integration.js
             // через processImportedListings() для правильной обработки map_area_id
             
-            if (onProgress) onProgress({ message: 'Загрузка завершена', percentage: 100 });
+            if (onProgress) onProgress({ message: `Загрузка завершена! Получено ${allListings.length} объявлений за ${pageNumber - 1} страниц`, percentage: 100 });
+            
+            console.log(`🎉 Полная загрузка завершена! Получено ${allListings.length} объявлений за ${pageNumber - 1} страниц`);
             
             return {
                 success: true,
-                count: result.listings.length,
-                listings: result.listings
+                count: allListings.length,
+                listings: allListings,
+                totalPages: pageNumber - 1
             };
             
         } catch (error) {
             console.error('❌ Error loading listings:', error);
             throw error;
         }
+    }
+
+    /**
+     * Получить стартовую дату (год назад от текущей)
+     */
+    getStartDate() {
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        return Math.floor(oneYearAgo.getTime() / 1000); // Возвращаем timestamp в секундах
     }
 
     /**

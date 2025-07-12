@@ -317,4 +317,6 @@ if (typeof module !== 'undefined' && module.exports) {
         updateServiceSettings,
         loadServiceSettings
     };
+    
+    // Автоинициализация отключена - сервисы инициализируются вручную после готовности БД
 }

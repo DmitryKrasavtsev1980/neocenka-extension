@@ -132,6 +132,11 @@ class NeocenkaBackground {
           sendResponse(allListingsResult);
           break;
 
+        case 'fetchImage':
+          const imageResult = await this.handleFetchImage(request.url);
+          sendResponse(imageResult);
+          break;
+
         default:
           sendResponse({ success: false, error: 'Неизвестное действие' });
       }
@@ -507,6 +512,39 @@ class NeocenkaBackground {
         success: false,
         error: error.message,
         listings: []
+      };
+    }
+  }
+
+  /**
+   * Загрузка изображения через background script для обхода CORS
+   */
+  async handleFetchImage(url) {
+    try {
+      // Используем fetch с полными правами background script
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // Получаем данные как ArrayBuffer
+      const arrayBuffer = await response.arrayBuffer();
+      
+      // Конвертируем в массив для передачи через Chrome API
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      return {
+        success: true,
+        data: Array.from(uint8Array), // Конвертируем в обычный массив для сериализации
+        contentType: response.headers.get('content-type') || 'image/jpeg'
+      };
+
+    } catch (error) {
+      console.warn(`Ошибка загрузки изображения ${url}:`, error.message);
+      return {
+        success: false,
+        error: error.message
       };
     }
   }

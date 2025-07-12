@@ -6,6 +6,8 @@ class SettingsPage {
   constructor() {
     this.settings = {};
     this.subscription = null;
+    this.serviceManager = null;
+    this.inparsService = null;
     this.init();
   }
 
@@ -13,6 +15,9 @@ class SettingsPage {
     try {
       // Инициализируем базу данных
       await db.init();
+      
+      // Инициализируем сервисную архитектуру
+      await this.initializeServices();
       
       // Инициализируем интерфейс
       this.initializeUI();
@@ -26,9 +31,36 @@ class SettingsPage {
       // Загружаем данные подписки
       await this.loadSubscriptionInfo();
       
+      // Инициализируем ML алгоритм если не загружен
+      await this.initializeMLMatcher();
+      
+      // Загружаем ML статистику при инициализации
+      setTimeout(() => this.refreshMLStats(), 1000);
+      
     } catch (error) {
       console.error('Ошибка инициализации:', error);
       this.showNotification('Ошибка инициализации страницы', 'error');
+    }
+  }
+
+  /**
+   * Инициализация сервисной архитектуры
+   */
+  async initializeServices() {
+    try {
+      console.log('🚀 Initializing services in settings...');
+      
+      // Сначала инициализируем сервисы
+      this.serviceManager = await ServiceConfig.initializeServices();
+      console.log('✅ ServiceManager initialized in settings');
+      
+      // Получаем сервис Inpars
+      this.inparsService = this.serviceManager.getService('inpars');
+      console.log('📋 InparsService ready in settings:', this.inparsService?.status);
+      
+    } catch (error) {
+      console.error('❌ Failed to initialize services in settings:', error);
+      // Не блокируем загрузку настроек при ошибке сервисов
     }
   }
 
@@ -134,6 +166,19 @@ class SettingsPage {
 
     document.getElementById('sourceCian').addEventListener('change', (e) => {
       this.saveInparsSources();
+    });
+
+    // ML-модель
+    document.getElementById('refreshMLStats').addEventListener('click', () => {
+      this.refreshMLStats();
+    });
+
+    document.getElementById('exportMLModel').addEventListener('click', () => {
+      this.exportMLModel();
+    });
+
+    document.getElementById('copyMLModel').addEventListener('click', () => {
+      this.copyMLModel();
     });
 
     // Закрытие модальных окон по клику вне их
@@ -405,7 +450,7 @@ class SettingsPage {
       const processBtn = document.getElementById('processDuplicatesBtn');
       const originalText = processBtn.innerHTML;
       
-      processBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Обработка...';
+      processBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Обработка...';
       processBtn.disabled = true;
 
       const segments = await db.getAll('segments');
@@ -468,7 +513,7 @@ class SettingsPage {
       const confirmBtn = document.getElementById('confirmClearData');
       const originalText = confirmBtn.innerHTML;
       
-      confirmBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Удаление...';
+      confirmBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Удаление...';
       confirmBtn.disabled = true;
 
       // Очищаем все таблицы
@@ -771,9 +816,9 @@ class SettingsPage {
       await db.setSetting('inpars_api_token', token);
       this.settings.inpars_api_token = token;
 
-      // Устанавливаем токен в API клиенте
-      if (window.inparsAPI) {
-        window.inparsAPI.setToken(token);
+      // Устанавливаем токен в сервисе
+      if (this.inparsService) {
+        this.inparsService.setToken(token);
       }
 
       // Проверяем подписку
@@ -796,9 +841,12 @@ class SettingsPage {
    */
   async checkInparsSubscription() {
     try {
-      if (!window.inparsAPI) {
-        throw new Error('API клиент Inpars не загружен');
+      if (!this.inparsService) {
+        console.log('⚠️ InparsService не загружен');
+        return;
       }
+      
+      console.log('🔑 InparsService token status:', this.inparsService.token ? '***set***' : 'not set');
 
       const statusIndicator = document.getElementById('inparsStatusIndicator');
       const statusText = document.getElementById('inparsStatusText');
@@ -810,7 +858,9 @@ class SettingsPage {
       statusText.textContent = 'Проверка подписки...';
       subscriptionStatus.classList.remove('hidden');
 
-      const result = await window.inparsAPI.checkSubscription();
+      console.log('🔍 Checking Inpars subscription...');
+      const result = await this.inparsService.checkSubscription();
+      console.log('📋 Subscription check result:', result);
 
       if (result.success) {
         if (result.active) {
@@ -872,8 +922,8 @@ class SettingsPage {
    */
   async importInparsCategories() {
     try {
-      if (!window.inparsAPI) {
-        throw new Error('API клиент Inpars не загружен');
+      if (!this.inparsService) {
+        throw new Error('InparsService не загружен');
       }
 
       const importBtn = document.getElementById('importInparsCategories');
@@ -891,13 +941,13 @@ class SettingsPage {
       statusDiv.textContent = 'Загрузка категорий из Inpars...';
       statusDiv.classList.remove('hidden');
 
-      const result = await window.inparsAPI.getCategories();
+      const categories = await this.inparsService.loadCategories();
 
-      if (result.success && result.categories) {
-        statusDiv.textContent = `Получено ${result.categories.length} категорий. Сохранение в базу данных...`;
+      if (categories && categories.length > 0) {
+        statusDiv.textContent = `Получено ${categories.length} категорий. Сохранение в базу данных...`;
 
         // Сохраняем категории в базу данных
-        const importResult = await db.importInparsCategories(result.categories);
+        const importResult = await db.importInparsCategories(categories);
         
         if (importResult.success) {
           statusDiv.textContent = `✅ Успешно импортировано: ${importResult.imported} новых, ${importResult.updated} обновлено`;
@@ -912,7 +962,7 @@ class SettingsPage {
         }
 
       } else {
-        throw new Error(result.error || 'Не удалось получить категории');
+        throw new Error('Не удалось получить категории');
       }
 
     } catch (error) {
@@ -964,11 +1014,229 @@ class SettingsPage {
    * Обновление статистики API Inpars
    */
   updateInparsAPIStats() {
-    if (window.inparsAPI) {
-      const stats = window.inparsAPI.getStats();
+    if (this.inparsService) {
+      const stats = this.inparsService.getStatus();
       
-      document.getElementById('apiRequestCount').textContent = stats.requestCount;
-      document.getElementById('apiQueueLength').textContent = stats.queueLength;
+      document.getElementById('apiRequestCount').textContent = stats.requestCount || 0;
+      document.getElementById('apiQueueLength').textContent = stats.queueLength || 0;
+    }
+  }
+
+  /**
+   * Инициализация ML алгоритма
+   */
+  async initializeMLMatcher() {
+    try {
+      if (!window.smartAddressMatcher && typeof SmartAddressMatcher !== 'undefined') {
+        // Инициализируем пространственный индекс
+        if (!window.spatialIndexManager) {
+          window.spatialIndexManager = new SpatialIndexManager();
+        }
+        
+        // Инициализируем ML алгоритм
+        window.smartAddressMatcher = new SmartAddressMatcher(window.spatialIndexManager);
+        console.log('🤖 SmartAddressMatcher initialized in settings');
+        
+        // Загружаем сохраненную модель из localStorage если есть
+        const savedModel = localStorage.getItem('ml_trained_model');
+        if (savedModel) {
+          try {
+            const modelData = JSON.parse(savedModel);
+            // Восстанавливаем веса и пороги
+            Object.assign(window.smartAddressMatcher.model.weights, modelData.weights || {});
+            Object.assign(window.smartAddressMatcher.model.thresholds, modelData.thresholds || {});
+            window.smartAddressMatcher.model.version = modelData.version || '1.0.0';
+            window.smartAddressMatcher.model.lastUpdate = modelData.lastUpdate || new Date().toISOString().split('T')[0];
+            console.log('💾 Restored trained model from localStorage');
+          } catch (error) {
+            console.warn('Failed to restore model:', error);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('ML алгоритм недоступен:', error);
+    }
+  }
+
+  /**
+   * Обновление статистики ML модели
+   */
+  async refreshMLStats() {
+    try {
+      const refreshBtn = document.getElementById('refreshMLStats');
+      const originalText = refreshBtn.innerHTML;
+      
+      refreshBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Обновление...';
+      refreshBtn.disabled = true;
+
+      // Получаем ML модель из глобального объекта если доступен
+      let modelData = null;
+      if (window.smartAddressMatcher) {
+        // Получаем актуальную обученную модель
+        modelData = {
+          ...window.smartAddressMatcher.model,
+          trainingExamples: window.smartAddressMatcher.training.examples.length,
+          lastTrainingDate: window.smartAddressMatcher.training.examples.length > 0 ? 
+            new Date(Math.max(...window.smartAddressMatcher.training.examples.map(ex => ex.timestamp))).toISOString().split('T')[0] : 
+            'Нет данных'
+        };
+        console.log('📊 Current ML model stats:', modelData);
+      } else {
+        // Попытка загрузить сохраненную модель из localStorage
+        try {
+          const savedModel = localStorage.getItem('ml_trained_model');
+          const trainingCount = localStorage.getItem('ml_training_count');
+          if (savedModel) {
+            modelData = JSON.parse(savedModel);
+            // Добавляем актуальный счетчик примеров
+            if (trainingCount) {
+              modelData.trainingExamples = parseInt(trainingCount);
+            }
+            console.log('💾 Loaded trained model from localStorage with', modelData.trainingExamples, 'examples');
+          } else {
+            // Fallback к pretrained модели
+            const response = await fetch(chrome.runtime.getURL('utils/pretrained-model.json'));
+            modelData = await response.json();
+            console.log('📁 Loaded pretrained model from file');
+          }
+        } catch (error) {
+          console.warn('Не удалось загрузить модель:', error);
+        }
+      }
+
+      if (modelData) {
+        // Обновляем отображение статистики
+        const versionEl = document.getElementById('mlModelVersion');
+        const examplesEl = document.getElementById('mlTrainingExamples');
+        const accuracyEl = document.getElementById('mlModelAccuracy');
+        const updateEl = document.getElementById('mlLastUpdate');
+        
+        if (versionEl) versionEl.textContent = modelData.version || 'Неизвестно';
+        if (examplesEl) examplesEl.textContent = modelData.trainingExamples || 0;
+        if (accuracyEl) accuracyEl.textContent = modelData.accuracy ? `${(modelData.accuracy * 100).toFixed(1)}%` : 'Неизвестно';
+        if (updateEl) updateEl.textContent = modelData.lastUpdate || modelData.lastTrainingDate || 'Неизвестно';
+        
+        this.showNotification('Статистика ML модели обновлена', 'success');
+      } else {
+        this.showNotification('ML модель не найдена', 'warning');
+      }
+
+    } catch (error) {
+      console.error('Ошибка обновления статистики ML:', error);
+      this.showNotification('Ошибка обновления статистики', 'error');
+    } finally {
+      const refreshBtn = document.getElementById('refreshMLStats');
+      refreshBtn.innerHTML = '<svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>Обновить статистику';
+      refreshBtn.disabled = false;
+    }
+  }
+
+  /**
+   * Экспорт ML модели в textarea
+   */
+  async exportMLModel() {
+    try {
+      const exportBtn = document.getElementById('exportMLModel');
+      const originalText = exportBtn.innerHTML;
+      
+      exportBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Экспорт...';
+      exportBtn.disabled = true;
+
+      let modelData = null;
+      
+      // Получаем актуальную модель
+      if (window.smartAddressMatcher) {
+        // Получаем полную обученную модель
+        modelData = {
+          ...window.smartAddressMatcher.model,
+          trainingExamples: window.smartAddressMatcher.training.examples.length,
+          lastTrainingDate: window.smartAddressMatcher.training.examples.length > 0 ? 
+            new Date(Math.max(...window.smartAddressMatcher.training.examples.map(ex => ex.timestamp))).toISOString().split('T')[0] : 
+            new Date().toISOString().split('T')[0],
+          improvements: [
+            "Снижены пороги для лучшего покрытия очевидных совпадений",
+            "Увеличен вес текстового сходства для лучшего распознавания сокращений", 
+            "Добавлена система обучения на пользовательских подтверждениях",
+            `Обучена на ${window.smartAddressMatcher.training.examples.length} примерах пользователя`
+          ]
+        };
+        console.log('🎯 Exporting trained model with', modelData.trainingExamples, 'examples');
+      } else {
+        // Попытка загрузить сохраненную модель
+        try {
+          const savedModel = localStorage.getItem('ml_trained_model');
+          const trainingCount = localStorage.getItem('ml_training_count');
+          if (savedModel) {
+            modelData = JSON.parse(savedModel);
+            // Добавляем актуальный счетчик примеров
+            if (trainingCount) {
+              modelData.trainingExamples = parseInt(trainingCount);
+            }
+            console.log('💾 Exporting trained model from localStorage with', modelData.trainingExamples, 'examples');
+          } else {
+            const response = await fetch(chrome.runtime.getURL('utils/pretrained-model.json'));
+            modelData = await response.json();
+            console.log('📁 Exporting pretrained model');
+          }
+        } catch (error) {
+          throw new Error('Не удалось загрузить ML модель');
+        }
+      }
+
+      // Форматируем JSON для отображения
+      const formattedJson = JSON.stringify(modelData, null, 2);
+      
+      // Выводим в textarea
+      const textarea = document.getElementById('mlModelExport');
+      if (!textarea) {
+        throw new Error('Элемент mlModelExport не найден на странице');
+      }
+      textarea.value = formattedJson;
+      
+      this.showNotification('Модель экспортирована в поле ниже', 'success');
+
+    } catch (error) {
+      console.error('Ошибка экспорта ML модели:', error);
+      this.showNotification('Ошибка экспорта модели: ' + error.message, 'error');
+    } finally {
+      const exportBtn = document.getElementById('exportMLModel');
+      exportBtn.innerHTML = '<svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>Экспорт модели';
+      exportBtn.disabled = false;
+    }
+  }
+
+  /**
+   * Копирование ML модели в буфер обмена
+   */
+  async copyMLModel() {
+    try {
+      const textarea = document.getElementById('mlModelExport');
+      
+      if (!textarea.value.trim()) {
+        this.showNotification('Сначала экспортируйте модель', 'warning');
+        return;
+      }
+
+      // Копируем в буфер обмена
+      await navigator.clipboard.writeText(textarea.value);
+      
+      // Визуальная обратная связь
+      const copyBtn = document.getElementById('copyMLModel');
+      const originalText = copyBtn.innerHTML;
+      
+      copyBtn.innerHTML = '<svg class="-ml-1 mr-2 h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Скопировано!';
+      copyBtn.classList.add('text-green-600');
+      
+      setTimeout(() => {
+        copyBtn.innerHTML = originalText;
+        copyBtn.classList.remove('text-green-600');
+      }, 2000);
+      
+      this.showNotification('Модель скопирована в буфер обмена', 'success');
+
+    } catch (error) {
+      console.error('Ошибка копирования:', error);
+      this.showNotification('Ошибка копирования в буфер обмена', 'error');
     }
   }
 }
