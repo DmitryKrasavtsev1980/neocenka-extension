@@ -7992,7 +7992,7 @@ ${methodStatsText}
                 
                 // Фильтр по статусу обработки (только для объявлений)
                 if (processingStatusFilter) {
-                    console.log('🔍 Processing status filter:', processingStatusFilter, 'row type:', rowData.type, 'row processing_status:', rowData.processing_status, 'address_match_confidence:', rowData.address_match_confidence);
+                    //console.log('🔍 Processing status filter:', processingStatusFilter, 'row type:', rowData.type, 'row processing_status:', rowData.processing_status, 'address_match_confidence:', rowData.address_match_confidence);
                     
                     // Объекты недвижимости не имеют статуса обработки, поэтому скрываем их при фильтрации
                     if (rowData.type === 'object') {
@@ -8009,12 +8009,12 @@ ${methodStatsText}
                         const hasLowAddressConfidence = rowData.address_match_confidence === 'low' || rowData.address_match_confidence === 'very_low';
                         const isManualConfidence = rowData.address_match_confidence === 'manual';
                         
-                        console.log('📍 Address needed check:', {
-                            hasAddressNeededStatus: hasAddressNeededStatus,
-                            hasLowAddressConfidence: hasLowAddressConfidence,
-                            isManualConfidence: isManualConfidence,
-                            shouldShow: (hasAddressNeededStatus || hasLowAddressConfidence) && !isManualConfidence
-                        });
+                        // console.log('📍 Address needed check:', {
+                        //     hasAddressNeededStatus: hasAddressNeededStatus,
+                        //     hasLowAddressConfidence: hasLowAddressConfidence,
+                        //     isManualConfidence: isManualConfidence,
+                        //     shouldShow: (hasAddressNeededStatus || hasLowAddressConfidence) && !isManualConfidence
+                        // });
                         
                         // Скрываем если нет нужного статуса ИЛИ если адрес уже подтвержден вручную
                         if ((!hasAddressNeededStatus && !hasLowAddressConfidence) || isManualConfidence) {

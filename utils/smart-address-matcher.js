@@ -16,6 +16,7 @@ class SmartAddressMatcher {
             
             // Оптимизированные радиусы
             radii: {
+                precise: 20,    // Очень точное совпадение - 90% уверенности
                 exact: 25,      
                 near: 75,       
                 extended: 200,  
@@ -392,13 +393,15 @@ class SmartAddressMatcher {
                 
                 if (obviousScore > bestScore) {
                     bestScore = obviousScore;
-                    bestMatch = {
+                    const candidateResult = {
                         address: candidate,
                         distance: this.calculateDistance(coords, candidate.coordinates),
                         score: obviousScore,
                         textSimilarity: obviousScore,
                         method: 'obvious_aggressive'
                     };
+                    // Применяем правило близкости
+                    bestMatch = this.applyProximityRule(candidateResult, coords);
                 }
             }
         }
@@ -535,13 +538,15 @@ class SmartAddressMatcher {
         
         if (nearbyAddresses.length === 1) {
             const candidate = nearbyAddresses[0];
-            return {
+            const result = {
                 address: candidate,
                 distance: this.calculateDistance(coords, candidate.coordinates),
                 score: 1.0,
                 textSimilarity: 1.0,
                 method: 'exact_geo'
             };
+            // Применяем правило близкости
+            return this.applyProximityRule(result, coords);
         }
 
         return null;
@@ -564,13 +569,15 @@ class SmartAddressMatcher {
             
             if (score > bestScore && score >= this.model.thresholds.acceptable) {
                 bestScore = score;
-                bestMatch = {
+                const candidateResult = {
                     address: candidate,
                     distance: this.calculateDistance(coords, candidate.coordinates),
                     score: score,
                     textSimilarity: score,
                     method: 'smart_near'
                 };
+                // Применяем правило близкости
+                bestMatch = this.applyProximityRule(candidateResult, coords);
             }
         }
 
@@ -590,7 +597,7 @@ class SmartAddressMatcher {
         const topCandidate = rankedCandidates[0];
 
         if (topCandidate && topCandidate.score >= this.model.thresholds.minimal) {
-            return {
+            const result = {
                 address: topCandidate.address,
                 distance: topCandidate.distance,
                 score: topCandidate.score,
@@ -599,6 +606,8 @@ class SmartAddressMatcher {
                 structuralSimilarity: topCandidate.structuralSimilarity,
                 method: 'ml_extended'
             };
+            // Применяем правило близкости
+            return this.applyProximityRule(result, coords);
         }
 
         return null;
@@ -618,16 +627,38 @@ class SmartAddressMatcher {
         const bestFuzzy = fuzzyResults[0];
 
         if (bestFuzzy && bestFuzzy.score >= this.model.thresholds.minimal) {
-            return {
+            const result = {
                 address: bestFuzzy.address,
                 distance: bestFuzzy.distance,
                 score: bestFuzzy.score,
                 fuzzyScore: bestFuzzy.fuzzyScore,
                 method: 'fuzzy_global'
             };
+            // Применяем правило близкости
+            return this.applyProximityRule(result, coords);
         }
 
         return null;
+    }
+
+    /**
+     * Применение правила близкого расстояния (≤20м = 90% уверенности)
+     */
+    applyProximityRule(result, coords) {
+        if (!result || !result.address || !coords) return result;
+        
+        const distance = this.calculateDistance(coords, result.address.coordinates);
+        if (distance <= 20) {
+            console.log(`🎯 Proximity rule applied! Distance: ${distance.toFixed(1)}m - boosting to 90% confidence`);
+            return {
+                ...result,
+                distance: distance,
+                score: 0.90,
+                confidence: 'excellent'
+            };
+        }
+        
+        return result;
     }
 
     /**
@@ -650,7 +681,13 @@ class SmartAddressMatcher {
         // 5. Нечеткий скор
         const fuzzyScore = this.calculateFuzzySimilarity(sourceData.normalized, candidateData.normalized);
 
-        // Композитный скор с адаптивными весами
+        // СПЕЦИАЛЬНАЯ ЛОГИКА: Если расстояние ≤ 20 метров, ставим высокий вес (90%)
+        if (distance <= 20) {
+            console.log(`🎯 Very close match found! Distance: ${distance.toFixed(1)}m - applying 90% confidence boost`);
+            return 0.90; // 90% уверенности для объектов в радиусе 20 метров
+        }
+
+        // Композитный скор с адаптивными весами для остальных случаев
         const compositeScore = 
             (geoScore * this.model.weights.geospatial) +
             (textScore * this.model.weights.textual) +

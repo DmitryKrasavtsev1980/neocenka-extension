@@ -51,7 +51,7 @@ class MLAddressAnalyzer {
         console.log('🔍 Ищем объявления с неопределенными адресами...');
         
         try {
-            const allListings = await this.db.getAllListings();
+            const allListings = await this.db.getListings();
             
             // Фильтруем объявления без определенного адреса
             const unresolvedListings = allListings.filter(listing => {
