@@ -654,7 +654,7 @@ class SmartAddressMatcher {
                 ...result,
                 distance: distance,
                 score: 0.90,
-                confidence: 'excellent'
+                confidence: 'perfect'  // 90% соответствует perfect согласно thresholds
             };
         }
         
@@ -681,13 +681,8 @@ class SmartAddressMatcher {
         // 5. Нечеткий скор
         const fuzzyScore = this.calculateFuzzySimilarity(sourceData.normalized, candidateData.normalized);
 
-        // СПЕЦИАЛЬНАЯ ЛОГИКА: Если расстояние ≤ 20 метров, ставим высокий вес (90%)
-        if (distance <= 20) {
-            console.log(`🎯 Very close match found! Distance: ${distance.toFixed(1)}m - applying 90% confidence boost`);
-            return 0.90; // 90% уверенности для объектов в радиусе 20 метров
-        }
-
-        // Композитный скор с адаптивными весами для остальных случаев
+        // Композитный скор с адаптивными весами
+        // Примечание: Правило близости (≤20м = 90%) применяется в applyProximityRule()
         const compositeScore = 
             (geoScore * this.model.weights.geospatial) +
             (textScore * this.model.weights.textual) +

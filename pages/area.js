@@ -2349,13 +2349,6 @@ class AreaPage {
             this.updateListings();
         });
 
-        document.getElementById('processAddressesBtn')?.addEventListener('click', () => {
-            this.processAddresses();
-        });
-
-        document.getElementById('processAddressesAdvancedBtn')?.addEventListener('click', () => {
-            this.processAddressesAdvanced();
-        });
 
         document.getElementById('processAddressesSmartBtn')?.addEventListener('click', () => {
             this.processAddressesSmart();
@@ -6079,10 +6072,57 @@ ${methodStatsText}
             await this.loadAreaStats();
             await this.loadAddresses();
 
+            // Автоматически запускаем ML-анализатор для неопределенных адресов
+            let mlAnalysisResults = {};
+            if (results.noMatch > 0 || results.low > 0 || results.veryLow > 0) {
+                this.updateProgressBar('addresses', 95, '🔬 Запуск ML-анализатора неопределенных адресов...');
+                
+                try {
+                    // Загружаем ML-анализатор если он не загружен
+                    await this.loadMLAddressAnalyzer();
+                    
+                    if (window.MLAddressAnalyzer && window.smartAddressMatcher) {
+                        console.log('🔬 Автоматический запуск ML-анализатора для неопределенных адресов...');
+                        
+                        const mlAnalyzer = new MLAddressAnalyzer(db, window.smartAddressMatcher);
+                        const mlResult = await mlAnalyzer.analyzeInaccuratelyMatchedAddresses();
+                        
+                        if (mlResult.success) {
+                            mlAnalysisResults = {
+                                createdAddresses: mlResult.createdAddresses?.length || 0,
+                                processedListings: mlResult.stats?.processedListings || 0,
+                                foundGroups: mlResult.stats?.foundGroups || 0
+                            };
+                            
+                            if (mlAnalysisResults.createdAddresses > 0) {
+                                console.log(`🎉 ML-анализатор создал ${mlAnalysisResults.createdAddresses} новых адресов`);
+                                
+                                // Обновляем статистику после ML-обработки
+                                await this.loadAreaStats();
+                                await this.loadAddresses();
+                            } else {
+                                console.log('ℹ️ ML-анализатор не создал новых адресов');
+                            }
+                        }
+                    } else {
+                        console.warn('⚠️ ML-анализатор недоступен');
+                    }
+                } catch (mlError) {
+                    console.error('❌ Ошибка ML-анализатора:', mlError);
+                }
+            }
+
             // Показываем детальный результат
             const methodStatsText = Object.entries(results.methodStats)
                 .map(([method, count]) => `  • ${method}: ${count}`)
                 .join('\n');
+
+            const mlResultsText = mlAnalysisResults.createdAddresses > 0 ? `
+
+🔬 ML-анализатор неопределенных адресов:
+• Обработано объявлений: ${mlAnalysisResults.processedListings}
+• Найдено групп: ${mlAnalysisResults.foundGroups}
+• Создано новых адресов: ${mlAnalysisResults.createdAddresses}` : '';
 
             const message = `🧠 Умная ML-обработка адресов завершена:
 
@@ -6102,7 +6142,7 @@ ${methodStatsText}
 • Ошибок: ${results.errors}
 
 🔧 ML-методы определения:
-${methodStatsText}
+${methodStatsText}${mlResultsText}
 
 ⚡ Производительность:
 • Общее время: ${(totalTime / 1000).toFixed(1)}с
@@ -6642,6 +6682,30 @@ ${methodStatsText}
                     }, 100 * rowIdx); // Небольшая задержка между восстановлениями
                 }
             }
+        });
+    }
+
+    /**
+     * Загрузка модуля ML-анализатора адресов
+     */
+    async loadMLAddressAnalyzer() {
+        if (window.MLAddressAnalyzer) {
+            return window.MLAddressAnalyzer;
+        }
+
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = '../utils/ml-address-analyzer.js';
+            script.onload = () => {
+                if (window.MLAddressAnalyzer) {
+                    console.log('✅ ML-анализатор адресов загружен');
+                    resolve(window.MLAddressAnalyzer);
+                } else {
+                    reject(new Error('ML-анализатор адресов не найден'));
+                }
+            };
+            script.onerror = () => reject(new Error('Ошибка загрузки ML-анализатора адресов'));
+            document.head.appendChild(script);
         });
     }
 

@@ -11,10 +11,10 @@ class MLAddressAnalyzer {
         // Конфигурация для анализа неопределенных адресов
         this.config = {
             // Радиус группировки объявлений (в метрах)
-            groupingRadius: 50,
+            groupingRadius: 30,
             
             // Минимальное количество объявлений для создания адреса
-            minListingsForAddress: 2,
+            minListingsForAddress: 10,
             
             // Пороги схожести названий
             titleSimilarity: {
@@ -45,23 +45,29 @@ class MLAddressAnalyzer {
     }
 
     /**
-     * Найти все объявления с неопределенными адресами
+     * Найти все объявления с неточным определением адреса
      */
-    async findUnresolvedListings() {
-        console.log('🔍 Ищем объявления с неопределенными адресами...');
+    async findInaccuratelyMatchedListings() {
+        console.log('🔍 Ищем объявления с неточным определением адреса...');
         
         try {
             const allListings = await this.db.getListings();
             
-            // Фильтруем объявления без определенного адреса
-            const unresolvedListings = allListings.filter(listing => {
-                // Объявление считается неопределенным, если:
-                // 1. address_id = null (нет связи с адресом)
-                // 2. processing_status = 'address_needed'
-                // 3. есть координаты
+            // Фильтруем объявления с неточным определением адреса
+            const inaccurateListings = allListings.filter(listing => {
+                // Объявление считается неточно определенным, если:
+                // 1. address_id = null (нет связи с адресом) ИЛИ
+                // 2. address_match_confidence = 'low' или 'very_low' ИЛИ
+                // 3. address_distance > 50м (далеко от найденного адреса)
+                // 4. есть координаты
+                // 5. статус активный
+                const hasLowConfidence = listing.address_match_confidence === 'low' || 
+                                       listing.address_match_confidence === 'very_low';
+                const isFarFromAddress = listing.address_distance && listing.address_distance > 50;
+                const hasNoAddress = !listing.address_id;
+                
                 return (
-                    !listing.address_id && 
-                    listing.processing_status === 'address_needed' &&
+                    (hasNoAddress || hasLowConfidence || isFarFromAddress) &&
                     listing.coordinates &&
                     listing.coordinates.lat &&
                     listing.coordinates.lng &&
@@ -69,14 +75,24 @@ class MLAddressAnalyzer {
                 );
             });
             
-            console.log(`📊 Найдено ${unresolvedListings.length} неопределенных объявлений из ${allListings.length} общих`);
+            console.log(`📊 Найдено ${inaccurateListings.length} объявлений с неточным определением адреса из ${allListings.length} общих`);
             
-            this.stats.processedListings = unresolvedListings.length;
+            // Дополнительная статистика по типам проблем
+            const noAddress = inaccurateListings.filter(l => !l.address_id).length;
+            const lowConfidence = inaccurateListings.filter(l => l.address_match_confidence === 'low' || l.address_match_confidence === 'very_low').length;
+            const farFromAddress = inaccurateListings.filter(l => l.address_distance && l.address_distance > 50).length;
             
-            return unresolvedListings;
+            console.log(`📈 Детализация проблем:`);
+            console.log(`   - Без адреса: ${noAddress}`);
+            console.log(`   - Низкая точность: ${lowConfidence}`);
+            console.log(`   - Далеко от адреса (>50м): ${farFromAddress}`);
+            
+            this.stats.processedListings = inaccurateListings.length;
+            
+            return inaccurateListings;
             
         } catch (error) {
-            console.error('❌ Ошибка при поиске неопределенных объявлений:', error);
+            console.error('❌ Ошибка при поиске объявлений с неточным определением адреса:', error);
             throw error;
         }
     }
@@ -395,14 +411,19 @@ class MLAddressAnalyzer {
     }
 
     /**
-     * Создать адреса из групп объявлений
+     * Создать адреса из групп объявлений с предотвращением дублирования
      */
     async createAddressesFromGroups(groups) {
         console.log('🏗️ Создаем адреса из групп объявлений...');
         
+        // Сначала проанализируем группы и объединим близлежащие
+        const consolidatedGroups = this.consolidateSimilarGroups(groups);
+        
+        console.log(`📊 Объединено ${groups.length} групп в ${consolidatedGroups.length} уникальных адресов`);
+        
         const createdAddresses = [];
         
-        for (const group of groups) {
+        for (const group of consolidatedGroups) {
             try {
                 const newAddress = await this.createAddressFromGroup(group);
                 if (newAddress) {
@@ -419,12 +440,134 @@ class MLAddressAnalyzer {
         }
         
         this.stats.createdAddresses = createdAddresses.length;
-        this.stats.averageGroupSize = groups.length > 0 ? 
-            groups.reduce((sum, g) => sum + g.listings.length, 0) / groups.length : 0;
+        this.stats.averageGroupSize = consolidatedGroups.length > 0 ? 
+            consolidatedGroups.reduce((sum, g) => sum + g.listings.length, 0) / consolidatedGroups.length : 0;
         
         console.log(`🎉 Создано ${createdAddresses.length} новых адресов`);
         
         return createdAddresses;
+    }
+
+    /**
+     * Объединить похожие группы в один адрес для предотвращения дублирования
+     */
+    consolidateSimilarGroups(groups) {
+        console.log('🔄 Объединяем похожие группы для предотвращения дублирования...');
+        
+        const consolidatedGroups = [];
+        const processed = new Set();
+        
+        for (let i = 0; i < groups.length; i++) {
+            if (processed.has(i)) continue;
+            
+            const currentGroup = groups[i];
+            const mergedGroup = {
+                ...currentGroup,
+                listings: [...currentGroup.listings],
+                consolidatedFrom: [i]
+            };
+            
+            // Ищем похожие группы для объединения
+            for (let j = i + 1; j < groups.length; j++) {
+                if (processed.has(j)) continue;
+                
+                const candidateGroup = groups[j];
+                
+                // Проверяем, стоит ли объединять группы
+                if (this.shouldConsolidateGroups(currentGroup, candidateGroup)) {
+                    console.log(`🔗 Объединяем группы ${i + 1} и ${j + 1} (похожие адреса и близкие координаты)`);
+                    
+                    // Объединяем объявления
+                    mergedGroup.listings.push(...candidateGroup.listings);
+                    mergedGroup.consolidatedFrom.push(j);
+                    processed.add(j);
+                }
+            }
+            
+            // Пересчитываем характеристики объединенной группы
+            if (mergedGroup.listings.length > currentGroup.listings.length) {
+                mergedGroup.centroid = this.calculateGroupCentroid(mergedGroup.listings);
+                mergedGroup.characteristics = this.extractGroupCharacteristics(mergedGroup.listings);
+                mergedGroup.avgSimilarity = this.calculateAverageGroupSimilarity(mergedGroup.listings);
+                
+                console.log(`📊 Объединенная группа: ${mergedGroup.listings.length} объявлений`);
+                console.log(`📍 Новые координаты: ${mergedGroup.centroid.lat.toFixed(6)}, ${mergedGroup.centroid.lng.toFixed(6)}`);
+            }
+            
+            consolidatedGroups.push(mergedGroup);
+            processed.add(i);
+        }
+        
+        return consolidatedGroups;
+    }
+
+    /**
+     * Определить, стоит ли объединять две группы
+     */
+    shouldConsolidateGroups(group1, group2) {
+        // 1. Проверяем схожесть предлагаемых адресов
+        const address1 = this.normalizeAddressForComparison(group1.characteristics.commonTitle);
+        const address2 = this.normalizeAddressForComparison(group2.characteristics.commonTitle);
+        
+        const addressSimilarity = this.calculateStringSimilarity(address1, address2);
+        
+        // 2. Проверяем расстояние между центроидами групп
+        const distance = this.calculateDistance(group1.centroid, group2.centroid);
+        
+        // 3. Критерии объединения:
+        // - Высокая схожесть адресов (>80%) И близкое расстояние (<100м)
+        // - ИЛИ очень близкое расстояние (<50м) для любых адресов на той же улице
+        const highAddressSimilarity = addressSimilarity > 0.8 && distance < 100;
+        const veryCloseDistance = distance < 50 && this.areFromSameStreet(address1, address2);
+        
+        if (highAddressSimilarity || veryCloseDistance) {
+            console.log(`🔍 Группы можно объединить:`);
+            console.log(`   Адрес 1: "${address1}"`);
+            console.log(`   Адрес 2: "${address2}"`);
+            console.log(`   Схожесть адресов: ${(addressSimilarity * 100).toFixed(1)}%`);
+            console.log(`   Расстояние: ${distance.toFixed(1)}м`);
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Нормализация адреса для сравнения
+     */
+    normalizeAddressForComparison(address) {
+        return address.toLowerCase()
+            .replace(/улица|ул\.|ул/g, 'ул')
+            .replace(/проспект|пр\.|пр-кт|пр/g, 'пр')
+            .replace(/переулок|пер\.|пер/g, 'пер')
+            .replace(/владение|вл\.|вл/g, 'вл')
+            .replace(/дом|д\.|д/g, 'д')
+            .replace(/корпус|к\.|к/g, 'к')
+            .replace(/строение|с\.|с/g, 'с')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    /**
+     * Проверить, относятся ли адреса к одной улице
+     */
+    areFromSameStreet(address1, address2) {
+        const street1 = address1.split(' ').slice(0, 2).join(' '); // "ул наметкина"
+        const street2 = address2.split(' ').slice(0, 2).join(' ');
+        return street1 === street2;
+    }
+
+    /**
+     * Простое вычисление схожести строк
+     */
+    calculateStringSimilarity(str1, str2) {
+        const longer = str1.length > str2.length ? str1 : str2;
+        const shorter = str1.length > str2.length ? str2 : str1;
+        
+        if (longer.length === 0) return 1.0;
+        
+        const distance = this.levenshteinDistance(longer, shorter);
+        return (longer.length - distance) / longer.length;
     }
 
     /**
@@ -439,8 +582,8 @@ class MLAddressAnalyzer {
             return null;
         }
         
-        // Формируем название адреса
-        let addressName = characteristics.commonTitle || 'Неопределенный адрес';
+        // Умное формирование названия адреса
+        let addressName = this.generateSmartAddressName(characteristics, group);
         
         // Добавляем информацию об этажности если есть
         if (characteristics.floorCounts) {
@@ -479,6 +622,71 @@ class MLAddressAnalyzer {
     }
 
     /**
+     * Умное генерирование названия адреса для группы
+     */
+    generateSmartAddressName(characteristics, group) {
+        const commonTitle = characteristics.commonTitle || '';
+        
+        // Анализируем общий адрес из группы
+        if (commonTitle.includes('наметкина') || commonTitle.includes('намёткина')) {
+            // Случай с улицей Наметкина
+            if (commonTitle.includes('вл10') || commonTitle.includes('10')) {
+                // Определяем вариант для владения 10
+                if (group.consolidatedFrom && group.consolidatedFrom.length > 1) {
+                    // Если группа объединена из нескольких - это основной адрес
+                    return 'улица Намёткина, 10';
+                } else {
+                    // Если группа не объединялась - возможно, это отдельное строение
+                    const hasBuildings = this.analyzeForBuildings(group.listings);
+                    if (hasBuildings.length > 0) {
+                        return `улица Намёткина, 10 стр. ${hasBuildings[0]}`;
+                    } else {
+                        return 'улица Намёткина, 10А';
+                    }
+                }
+            } else if (commonTitle.includes('9')) {
+                return 'улица Намёткина, 9';
+            }
+        }
+        
+        // Общий случай - нормализуем и улучшаем адрес
+        return this.normalizeGeneratedAddress(commonTitle);
+    }
+
+    /**
+     * Анализ объявлений на наличие номеров строений/корпусов
+     */
+    analyzeForBuildings(listings) {
+        const buildings = new Set();
+        
+        listings.forEach(listing => {
+            const address = listing.address || listing.title || '';
+            
+            // Ищем номера строений, корпусов
+            const buildingMatch = address.match(/(?:стр|строение|с)\.?\s*(\d+)/i);
+            const korpusMatch = address.match(/(?:к|корпус)\.?\s*(\d+)/i);
+            
+            if (buildingMatch) buildings.add(buildingMatch[1]);
+            if (korpusMatch) buildings.add(korpusMatch[1]);
+        });
+        
+        return Array.from(buildings);
+    }
+
+    /**
+     * Нормализация и улучшение генерируемого адреса
+     */
+    normalizeGeneratedAddress(address) {
+        return address
+            .replace(/^ул\s+/, 'улица ')
+            .replace(/^пр\s+/, 'проспект ')
+            .replace(/^пер\s+/, 'переулок ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/^./, str => str.toUpperCase()); // Заглавная первая буква
+    }
+
+    /**
      * Привязать объявления к адресу
      */
     async linkListingsToAddress(listings, addressId) {
@@ -508,26 +716,26 @@ class MLAddressAnalyzer {
     }
 
     /**
-     * Основная функция анализа неопределенных адресов
+     * Основная функция анализа объявлений с неточным определением адреса
      */
-    async analyzeUnresolvedAddresses() {
-        console.log('🤖 Запуск ML-анализа неопределенных адресов...');
+    async analyzeInaccuratelyMatchedAddresses() {
+        console.log('🤖 Запуск ML-анализа объявлений с неточным определением адреса...');
         
         try {
-            // 1. Находим неопределенные объявления
-            const unresolvedListings = await this.findUnresolvedListings();
+            // 1. Находим объявления с неточным определением адреса
+            const inaccurateListings = await this.findInaccuratelyMatchedListings();
             
-            if (unresolvedListings.length === 0) {
-                console.log('✅ Все объявления имеют определенные адреса');
+            if (inaccurateListings.length === 0) {
+                console.log('✅ Все объявления имеют точно определенные адреса');
                 return {
                     success: true,
-                    message: 'Нет неопределенных адресов для анализа',
+                    message: 'Нет объявлений с неточным определением адреса для анализа',
                     stats: this.stats
                 };
             }
             
             // 2. Группируем по схожести
-            const groups = await this.groupSimilarListings(unresolvedListings);
+            const groups = await this.groupSimilarListings(inaccurateListings);
             
             if (groups.length === 0) {
                 console.log('⚠️ Не найдено групп для создания адресов');

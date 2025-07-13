@@ -239,6 +239,7 @@ class InparsService extends BaseAPIService {
             polygon: polygonString,
             limit,
             sortBy,
+            isNew: 0,
             withAgent: 1, // Включаем агентов и собственников
             expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house'
         };
