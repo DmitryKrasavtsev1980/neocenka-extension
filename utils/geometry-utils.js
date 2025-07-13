@@ -46,11 +46,20 @@ class GeometryUtils {
     }
 
     return addresses.filter(address => {
-      if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+      if (!address.coordinates) {
         return false;
       }
       
-      return this.isPointInPolygon(address.coordinates, mapArea.polygon);
+      let point;
+      if (Array.isArray(address.coordinates) && address.coordinates.length >= 2) {
+        point = { lat: address.coordinates[0], lng: address.coordinates[1] };
+      } else if (address.coordinates.lat && address.coordinates.lng) {
+        point = address.coordinates;
+      } else {
+        return false;
+      }
+      
+      return this.isPointInPolygon(point, mapArea.polygon);
     });
   }
 

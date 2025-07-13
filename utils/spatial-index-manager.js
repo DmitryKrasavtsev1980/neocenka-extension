@@ -5,7 +5,7 @@
 class SpatialIndexManager {
     constructor() {
         this.indexes = new Map();
-        this.geoUtils = new GeoUtils();
+        // this.geoUtils = new GeoUtils();  // Закомментировано до исправления зависимости
     }
 
     /**
@@ -16,8 +16,8 @@ class SpatialIndexManager {
      */
     async createIndex(indexName, data, getCoordsFunction) {
 
-        const geoUtils = new GeoUtils();
-        geoUtils.buildSpatialIndex(data, getCoordsFunction);
+        // const geoUtils = new GeoUtils();
+        // geoUtils.buildSpatialIndex(data, getCoordsFunction);  // Закомментировано до исправления
 
         this.indexes.set(indexName, {
             geoUtils: geoUtils,

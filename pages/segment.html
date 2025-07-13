@@ -6,10 +6,97 @@
     <title>Neocenka - Анализ сегмента</title>
     <link rel="stylesheet" href="../libs/tailwind/tailwind.min.css">
     <link rel="stylesheet" href="../libs/datatables/datatables.min.css">
+    <link rel="stylesheet" href="../libs/slimselect/slimselect.css">
+    <link rel="stylesheet" href="../libs/fotorama/fotorama.css">
     <link rel="stylesheet" href="../assets/styles/main.css">
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="../libs/leaflet/leaflet.css">
+    
+    <!-- Leaflet Draw CSS -->
+    <link rel="stylesheet" href="../libs/leaflet/leaflet.draw.css"/>
+    
+    <style>
+        /* Стили для маркеров карты */
+        .address-marker, .object-marker {
+            border: none !important;
+            background: transparent !important;
+        }
+        
+        /* Стили для контроллера слоев */
+        .leaflet-control-layers {
+            background: rgba(255, 255, 255, 0.95) !important;
+            border-radius: 6px !important;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1) !important;
+        }
+        
+        .leaflet-control-layers-list {
+            margin: 8px !important;
+        }
+        
+        .leaflet-control-layers label {
+            font-size: 14px !important;
+            padding: 4px 0 !important;
+        }
+        
+        /* Popup стили */
+        .leaflet-popup-content {
+            margin: 8px 12px !important;
+            line-height: 1.4 !important;
+            max-width: 300px !important;
+        }
+        
+        .leaflet-popup-content strong {
+            font-weight: 600 !important;
+        }
+        
+        /* Стили для кластеров объявлений */
+        .listing-cluster {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
+        }
+
+        .listing-cluster.small {
+            width: 30px;
+            height: 30px;
+            line-height: 24px;
+            font-size: 12px;
+        }
+        
+        .listing-cluster.medium {
+            width: 40px;
+            height: 40px;
+            line-height: 34px;
+            font-size: 14px;
+        }
+        
+        .listing-cluster.large {
+            width: 50px;
+            height: 50px;
+            line-height: 44px;
+            font-size: 16px;
+        }
+        
+        /* Минимальные стили для SlimSelect категорий Inpars */
+        #inparsCategoriesSelect .ss-main {
+            min-height: 100px;
+        }
+        
+        /* Выравнивание высоты фильтров обработки */
+        .ss-main {
+            min-height: 38px !important;
+        }
+        
+        /* Исключение для категорий Inpars */
+        #inparsCategoriesSelect + .ss-main {
+            min-height: 100px !important;
+        }
+    </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
     <!-- Навигация -->
@@ -87,7 +174,6 @@
                                         Объектов
                                     </button>
                                     <button type="button" id="filterByListings" data-filter="listings" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                                        </svg>
                                         Объявлений
                                     </button>
                                 </div>
@@ -107,50 +193,6 @@
             </div>
         </div>
 
-        <!-- Панель отчетов -->
-        <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
-            <div class="px-4 py-5 sm:px-6 flex items-center justify-between">
-                <h3 class="text-lg leading-6 font-medium text-gray-900">Аналитические отчеты</h3>
-                <div class="flex space-x-2">
-                    <button type="button" id="togglePriceChart" class="report-toggle-btn active inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200" data-chart="price">
-                        Динамика цен
-                    </button>
-                    <button type="button" id="toggleLiquidityChart" class="report-toggle-btn inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" data-chart="liquidity">
-                        Ликвидность
-                    </button>
-                    <button type="button" id="toggleCorridorChart" class="report-toggle-btn inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" data-chart="corridor">
-                        Коридор цен
-                    </button>
-                    <button type="button" id="toggleComparisonReport" class="report-toggle-btn inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" data-chart="comparison">
-                        Сравнение
-                    </button>
-                </div>
-            </div>
-            <div class="px-4 pb-5">
-                <!-- График динамики цен -->
-                <div id="priceChartContainer" class="chart-container">
-                    <div id="priceChart" style="height: 350px;"></div>
-                </div>
-
-                <!-- График ликвидности -->
-                <div id="liquidityChartContainer" class="chart-container hidden">
-                    <div id="liquidityChart" style="height: 350px;"></div>
-                </div>
-
-                <!-- График коридора цен -->
-                <div id="corridorChartContainer" class="chart-container hidden">
-                    <div id="corridorChart" style="height: 350px;"></div>
-                </div>
-
-                <!-- Отчет сравнения -->
-                <div id="comparisonContainer" class="chart-container hidden">
-                    <div class="bg-gray-50 rounded-lg p-4">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4">Сравнительный анализ объектов</h4>
-                        <p class="text-sm text-gray-500">Сравнительный анализ будет реализован позже</p>
-                    </div>
-                </div>
-            </div>
-        </div>
 
         <!-- Таблица дублей и объектов -->
         <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
@@ -450,12 +492,17 @@
     <!-- Скрипты -->
     <script src="../libs/jquery/jquery-3.7.1.min.js"></script>
     <script src="../libs/datatables/datatables.min.js"></script>
+    <script src="../libs/slimselect/slimselect.min.js"></script>
     
     <!-- Leaflet JS -->
     <script src="../libs/leaflet/leaflet.js"></script>
+    <script src="../libs/leaflet/leaflet.draw.js"></script>
     
-    <!-- ApexCharts -->
-    <script src="../libs/apexcharts/apexcharts.js"></script>
+    <!-- Leaflet MarkerCluster -->
+    <script src="../utils/marker-cluster.js"></script>
+    
+    <!-- Fotorama -->
+    <script src="../libs/fotorama/fotorama.js"></script>
     
     <script src="../components/navigation.js"></script>
     <script src="../components/breadcrumbs.js"></script>
@@ -463,6 +510,8 @@
     <script src="../data/database.js"></script>
     <script src="../data/models.js"></script>
     <script src="../utils/geometry-utils.js"></script>
+    <script src="../utils/spatial-index-manager.js"></script>
+    <script src="../utils/debug-logger.js"></script>
     <script src="segment.js"></script>
     <script src="segment_init.js"></script>
 </body>
