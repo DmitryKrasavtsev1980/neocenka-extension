@@ -64,6 +64,7 @@ class AreaPage {
         this.processingAddressSlimSelect = null;
         this.processingPropertyTypeSlimSelect = null;
         this.processingStatusSlimSelect = null;
+        this.sourceFilterSlimSelect = null;
     }
 
     /**
@@ -90,6 +91,11 @@ class AreaPage {
             if (this.processingStatusSlimSelect) {
                 this.processingStatusSlimSelect.destroy();
                 this.processingStatusSlimSelect = null;
+            }
+            
+            if (this.sourceFilterSlimSelect) {
+                this.sourceFilterSlimSelect.destroy();
+                this.sourceFilterSlimSelect = null;
             }
 
             // Очищаем карту если она была создана
@@ -1100,26 +1106,31 @@ class AreaPage {
                 const distance = listing.address_distance ? ` (${Math.round(listing.address_distance)}м)` : '';
                 const score = listing.address_match_score ? ` • Оценка: ${(listing.address_match_score * 100).toFixed(0)}%` : '';
                 
-                const hasLowConfidence = listing.address_match_confidence === 'low' || listing.address_match_confidence === 'very_low';
+                // Показываем кнопки обучения для всех объявлений с определённым адресом
                 console.log('🔍 Modal button check:', {
                     listingId: listing.id,
                     address_match_confidence: listing.address_match_confidence,
-                    hasLowConfidence: hasLowConfidence
+                    hasAddress: !!listing.address_id
                 });
                 
-                const correctAddressButton = hasLowConfidence ? `
-                    <button id="correctAddressModal_${listing.id}" class="ml-2 text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
-                        Верный адрес
-                    </button>
+                const addressButtons = listing.address_id ? `
+                    <div class="ml-2 space-x-2">
+                        <button id="correctAddressModal_${listing.id}" class="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            ✅ Верный адрес
+                        </button>
+                        <button id="incorrectAddressModal_${listing.id}" class="text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500">
+                            ❌ Неверный адрес
+                        </button>
+                    </div>
                 ` : '';
                 
-                console.log('🔍 Modal button HTML:', correctAddressButton);
+                console.log('🔍 Modal button HTML:', addressButtons);
                 
                 accuracyInfo = `
                     <div class="mb-2">
                         <span class="text-sm font-medium text-gray-500">Точность:</span>
                         <span class="text-sm ${this.getConfidenceColor(listing.address_match_confidence)} ml-2">${confidence}${distance}</span>
-                        ${correctAddressButton}
+                        ${addressButtons}
                     </div>
                     <div class="mb-2">
                         <span class="text-xs text-gray-500">Метод: ${method}${score}</span>
@@ -1956,7 +1967,25 @@ class AreaPage {
                 pageLength: 10,
                 ordering: true,
                 searching: true,
+                dom: 'lftip',
                 columns: [
+                    { 
+                        data: 'source', 
+                        title: 'Источник',
+                        render: function (data) {
+                            if (!data) return '-';
+                            switch(data) {
+                                case 'osm':
+                                    return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">OSM</span>';
+                                case 'manual':
+                                    return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Ручной</span>';
+                                case 'ml':
+                                    return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">ML</span>';
+                                default:
+                                    return data;
+                            }
+                        }
+                    },
                     { data: 'address', title: 'Адрес' },
                     {
                         data: 'type',
@@ -4438,6 +4467,9 @@ class AreaPage {
                 this.addressesTable.rows.add(addresses); // Раскомментировал эту строку!
                 this.addressesTable.draw();
                 console.log(`✅ Таблица обновлена`);
+                
+                // Инициализируем фильтр по источнику после загрузки данных
+                this.initSourceFilter();
             } else {
                 console.warn(`⚠️ Таблица адресов не инициализирована`);
             }
@@ -4445,6 +4477,76 @@ class AreaPage {
         } catch (error) {
             console.error('Error loading addresses:', error);
             this.showError('Ошибка загрузки адресов: ' + error.message);
+        }
+    }
+
+    /**
+     * Инициализация фильтра по источнику для таблицы адресов
+     */
+    initSourceFilter() {
+        try {
+            // Уничтожаем существующий SlimSelect если есть
+            if (this.sourceFilterSlimSelect) {
+                this.sourceFilterSlimSelect.destroy();
+                this.sourceFilterSlimSelect = null;
+            }
+
+            // Очищаем контейнер фильтра
+            $('#sourceFilter').empty();
+
+            if (!this.addressesTable) return;
+
+            // Получаем колонку с источниками (первая колонка, индекс 0)
+            const column = this.addressesTable.column(0);
+            
+            // Создаем select элемент
+            const select = $('<select id="sourceFilterSelect"><option value="">Все источники</option></select>')
+                .appendTo($('#sourceFilter'));
+
+            // Собираем уникальные значения источников
+            const uniqueSources = [];
+            column.data().unique().sort().each(function (d, j) {
+                if (d && uniqueSources.indexOf(d) === -1) {
+                    uniqueSources.push(d);
+                    let displayText = '';
+                    switch(d) {
+                        case 'osm':
+                            displayText = 'OSM';
+                            break;
+                        case 'manual':
+                            displayText = 'Ручной';
+                            break;
+                        case 'ml':
+                            displayText = 'ML';
+                            break;
+                        default:
+                            displayText = d;
+                    }
+                    select.append('<option value="' + d + '">' + displayText + '</option>');
+                }
+            });
+
+            console.log('🔍 Найдено источников для фильтра:', uniqueSources);
+
+            // Инициализируем SlimSelect
+            this.sourceFilterSlimSelect = new SlimSelect({
+                select: '#sourceFilterSelect',
+                settings: {
+                    showSearch: false,
+                    placeholderText: 'Все источники'
+                },
+                events: {
+                    afterChange: (newVal) => {
+                        const val = newVal && newVal.length > 0 ? newVal[0].value : '';
+                        const searchVal = val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '';
+                        column.search(searchVal, true, false).draw();
+                        console.log('🔍 Фильтр по источнику изменен:', val || 'Все источники');
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error('Ошибка инициализации фильтра по источнику:', error);
         }
     }
 
@@ -6072,8 +6174,9 @@ ${methodStatsText}
             await this.loadAreaStats();
             await this.loadAddresses();
 
-            // Автоматически запускаем ML-анализатор для неопределенных адресов
+            // Автоматически запускаем ML-анализатор для неопределенных адресов (ОТКЛЮЧЕНО)
             let mlAnalysisResults = {};
+            /*
             if (results.noMatch > 0 || results.low > 0 || results.veryLow > 0) {
                 this.updateProgressBar('addresses', 95, '🔬 Запуск ML-анализатора неопределенных адресов...');
                 
@@ -6111,6 +6214,7 @@ ${methodStatsText}
                     console.error('❌ Ошибка ML-анализатора:', mlError);
                 }
             }
+            */
 
             // Показываем детальный результат
             const methodStatsText = Object.entries(results.methodStats)
@@ -6164,7 +6268,7 @@ ${methodStatsText}${mlResultsText}
     }
 
     /**
-     * Анализ неопределенных адресов с помощью ML
+     * Анализ неточно определенных адресов с помощью ML
      */
     async analyzeUnresolvedAddresses() {
         if (this.processing.addresses) {
@@ -6194,7 +6298,7 @@ ${methodStatsText}${mlResultsText}
             this.updateProgressBar('addresses', 10, '🔍 Поиск неопределенных адресов...');
 
             // Запускаем анализ
-            const analysisResult = await mlAnalyzer.analyzeUnresolvedAddresses();
+            const analysisResult = await mlAnalyzer.analyzeInaccuratelyMatchedAddresses();
 
             if (!analysisResult.success) {
                 this.showError('Ошибка анализа: ' + analysisResult.error);
@@ -7008,6 +7112,60 @@ ${methodStatsText}${mlResultsText}
     }
 
     /**
+     * Пометить адрес как неверный для одного объявления (из модального окна)
+     */
+    async markSingleAddressAsIncorrect(listingId) {
+        try {
+            const listing = this.listings.find(l => l.id === listingId);
+            if (!listing) {
+                this.showError('Объявление не найдено');
+                return;
+            }
+
+            console.log('🏠 Marking single address as incorrect for listing:', listingId);
+
+            // Добавляем пример для обучения ML-модели (НЕГАТИВНЫЙ пример)
+            if (window.smartAddressMatcher && listing.address && listing.address_id) {
+                try {
+                    const matchedAddress = await db.get('addresses', listing.address_id);
+                    if (matchedAddress) {
+                        window.smartAddressMatcher.addTrainingExample(
+                            listing.address,
+                            matchedAddress.address,
+                            false // Пользователь указал, что это неправильный адрес
+                        );
+                        console.log('📚 ML training example added: NEGATIVE');
+                    }
+                } catch (error) {
+                    console.warn('ML training failed:', error);
+                }
+            }
+
+            // Обновляем статус определения адреса на "very_low" чтобы показать неточность
+            listing.address_match_confidence = 'very_low';
+            
+            // Очищаем привязку к адресу
+            listing.address_id = null;
+            
+            // Обновляем в базе данных
+            await db.update('listings', listing);
+            console.log(`❌ Single address marked as incorrect for listing ${listingId}`);
+
+            this.showSuccess('Адрес отмечен как неверный');
+            
+            // Обновляем модальное окно
+            this.updateModalAddressInfo(listingId, listing);
+            
+            // Обновляем таблицу если она открыта
+            await this.loadDuplicatesTable();
+
+        } catch (error) {
+            console.error('Ошибка при отметке адреса как неверного:', error);
+            this.showError('Ошибка при отметке адреса как неверного: ' + error.message);
+        }
+    }
+
+    /**
      * Обновить информацию об адресе в модальном окне
      */
     updateModalAddressInfo(listingId, listing) {
@@ -7047,6 +7205,14 @@ ${methodStatsText}${mlResultsText}
                 if (correctAddressModalButton) {
                     correctAddressModalButton.addEventListener('click', () => {
                         this.markSingleAddressAsCorrect(listingId);
+                    });
+                }
+                
+                // Добавляем обработчик для кнопки "Неверный адрес" если она есть
+                const incorrectAddressModalButton = document.getElementById(`incorrectAddressModal_${listingId}`);
+                if (incorrectAddressModalButton) {
+                    incorrectAddressModalButton.addEventListener('click', () => {
+                        this.markSingleAddressAsIncorrect(listingId);
                     });
                 }
                 
@@ -8968,6 +9134,24 @@ ${methodStatsText}${mlResultsText}
                     });
                 } else {
                     console.log('❌ Modal button not found');
+                }
+                
+                // Добавляем обработчик для кнопки "Неверный адрес" в модальном окне
+                const incorrectAddressModalButton = document.getElementById(`incorrectAddressModal_${listingId}`);
+                console.log('🔍 Incorrect modal button search:', {
+                    listingId: listingId,
+                    buttonId: `incorrectAddressModal_${listingId}`,
+                    buttonFound: !!incorrectAddressModalButton
+                });
+                
+                if (incorrectAddressModalButton) {
+                    console.log('✅ Adding click handler to incorrect modal button');
+                    incorrectAddressModalButton.addEventListener('click', () => {
+                        console.log('🔘 Incorrect modal button clicked for listing:', listingId);
+                        this.markSingleAddressAsIncorrect(listingId);
+                    });
+                } else {
+                    console.log('❌ Incorrect modal button not found');
                 }
                 
                 // Добавляем обработчик для сворачивания панели истории цен

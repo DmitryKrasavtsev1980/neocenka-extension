@@ -37,6 +37,9 @@ class SettingsPage {
       // Загружаем ML статистику при инициализации
       setTimeout(() => this.refreshMLStats(), 1000);
       
+      // Выводим подробную информацию о сохраненных данных обучения
+      setTimeout(() => this.displayTrainingDataInfo(), 1500);
+      
     } catch (error) {
       console.error('Ошибка инициализации:', error);
       this.showNotification('Ошибка инициализации страницы', 'error');
@@ -179,6 +182,10 @@ class SettingsPage {
 
     document.getElementById('copyMLModel').addEventListener('click', () => {
       this.copyMLModel();
+    });
+
+    document.getElementById('analyzeTrainingData').addEventListener('click', () => {
+      this.displayTrainingDataInfo();
     });
 
     // Закрытие модальных окон по клику вне их
@@ -1132,6 +1139,112 @@ class SettingsPage {
   }
 
   /**
+   * Подробный анализ сохраненных данных обучения
+   */
+  displayTrainingDataInfo() {
+    console.log('\n📚 ========== АНАЛИЗ ДАННЫХ ОБУЧЕНИЯ ==========');
+    
+    try {
+      // Проверяем localStorage
+      const savedExamples = localStorage.getItem('ml_training_examples');
+      const savedCount = localStorage.getItem('ml_training_count');
+      const savedModel = localStorage.getItem('ml_trained_model');
+      
+      console.log('💾 LOCALSTORAGE ДАННЫЕ:');
+      console.log(`   📊 Счетчик примеров: ${savedCount || 'НЕТ'}`);
+      console.log(`   📋 Примеры сохранены: ${savedExamples ? 'ДА' : 'НЕТ'}`);
+      console.log(`   🧠 Обученная модель: ${savedModel ? 'ДА' : 'НЕТ'}`);
+      
+      if (savedExamples) {
+        try {
+          const examples = JSON.parse(savedExamples);
+          const positive = examples.filter(ex => ex.isCorrect).length;
+          const negative = examples.filter(ex => !ex.isCorrect).length;
+          
+          console.log('\n📊 ДЕТАЛИ СОХРАНЕННЫХ ПРИМЕРОВ:');
+          console.log(`   📈 Всего примеров: ${examples.length}`);
+          console.log(`   ✅ Положительных: ${positive}`);
+          console.log(`   ❌ Отрицательных: ${negative}`);
+          console.log(`   📊 Соотношение: ${positive}:${negative} (${(positive/examples.length*100).toFixed(1)}% положительных)`);
+          
+          // Показываем несколько примеров
+          console.log('\n📝 ПРИМЕРЫ ДАННЫХ (первые 3):');
+          examples.slice(0, 3).forEach((example, i) => {
+            console.log(`   ${i + 1}. ${example.isCorrect ? '✅' : '❌'} "${example.listing}" → "${example.candidate}"`);
+            if (example.features) {
+              console.log(`      🔢 Признаки: text=${example.features.textualSimilarity?.toFixed(3)}, semantic=${example.features.semanticSimilarity?.toFixed(3)}`);
+            }
+          });
+          
+          // Проверяем готовность к переобучению
+          const canRetrain = positive >= 5 && negative >= 5 && examples.length >= 20;
+          const nextRetrainAt = Math.ceil(examples.length / 50) * 50;
+          
+          console.log('\n🎯 ГОТОВНОСТЬ К ОБУЧЕНИЮ:');
+          console.log(`   📋 Минимальные требования: ${canRetrain ? '✅ ВЫПОЛНЕНЫ' : '❌ НЕ ВЫПОЛНЕНЫ'}`);
+          console.log(`   📊 Нужно: ≥5 положительных, ≥5 отрицательных, ≥20 общих`);
+          console.log(`   📈 Текущее: ${positive} положительных, ${negative} отрицательных, ${examples.length} общих`);
+          console.log(`   🔄 Следующее переобучение при: ${nextRetrainAt} примеров`);
+          console.log(`   📏 До следующего переобучения: ${nextRetrainAt - examples.length} примеров`);
+          
+        } catch (parseError) {
+          console.error('❌ Ошибка парсинга сохраненных примеров:', parseError);
+        }
+      } else {
+        console.log('\n⚠️ ПРИМЕРЫ НЕ СОХРАНЕНЫ');
+        console.log('   Система будет собирать новые примеры с нуля');
+        console.log('   Первое переобучение произойдет при 50 примерах');
+      }
+      
+      // Проверяем состояние SmartAddressMatcher
+      console.log('\n🧠 SMARTADDRESSMATCHER В ПАМЯТИ:');
+      if (window.smartAddressMatcher) {
+        const matcher = window.smartAddressMatcher;
+        const memoryPositive = matcher.training.examples.filter(ex => ex.isCorrect).length;
+        const memoryNegative = matcher.training.examples.filter(ex => !ex.isCorrect).length;
+        
+        console.log(`   📊 Примеров в памяти: ${matcher.training.examples.length}`);
+        console.log(`   ✅ Положительных в памяти: ${memoryPositive}`);
+        console.log(`   ❌ Отрицательных в памяти: ${memoryNegative}`);
+        console.log(`   🔧 Обучение включено: ${matcher.training.enabled ? 'ДА' : 'НЕТ'}`);
+        console.log(`   📈 Версия модели: ${matcher.model.version}`);
+        console.log(`   📅 Последнее обновление: ${matcher.model.lastUpdate}`);
+        
+        // Проверяем синхронизацию с localStorage
+        const syncMatch = matcher.training.examples.length === (savedExamples ? JSON.parse(savedExamples).length : 0);
+        console.log(`   🔄 Синхронизация с localStorage: ${syncMatch ? '✅ СИНХРОНИЗИРОВАНО' : '⚠️ РАССИНХРОНИЗИРОВАНО'}`);
+        
+      } else {
+        console.log('   ❌ SmartAddressMatcher не загружен в память');
+        console.log('   💡 Нажмите "🧠 Определить адреса (умный ML)" на странице area.html');
+      }
+      
+      // Рекомендации
+      console.log('\n💡 РЕКОМЕНДАЦИИ:');
+      if (!savedExamples) {
+        console.log('   1. 📚 Начните использовать подтверждения адресов для сбора примеров');
+        console.log('   2. 🎯 Первое переобучение произойдет автоматически при 50 примерах');
+      } else {
+        const examples = JSON.parse(savedExamples);
+        const negative = examples.filter(ex => !ex.isCorrect).length;
+        if (negative < 5) {
+          console.log('   1. ❌ Нужно больше отрицательных примеров (неправильных совпадений)');
+          console.log('   2. 🔧 Исправляйте неправильные привязки адресов для сбора отрицательных примеров');
+        }
+        if (examples.length >= 50) {
+          console.log('   1. ✅ Достаточно примеров для переобучения');
+          console.log('   2. 🔄 Переобучение должно произойти автоматически');
+        }
+      }
+      
+      console.log('\n📚 ============================================\n');
+      
+    } catch (error) {
+      console.error('❌ Ошибка анализа данных обучения:', error);
+    }
+  }
+
+  /**
    * Экспорт ML модели в textarea
    */
   async exportMLModel() {
@@ -1183,8 +1296,32 @@ class SettingsPage {
         }
       }
 
-      // Форматируем JSON для отображения
-      const formattedJson = JSON.stringify(modelData, null, 2);
+      // Форматируем JSON для отображения с точными весами
+      const formattedJson = JSON.stringify(modelData, (key, value) => {
+        // Если это веса модели, форматируем с 3 знаками после запятой
+        if (key === 'weights' && typeof value === 'object') {
+          const formattedWeights = {};
+          for (const [weightKey, weightValue] of Object.entries(value)) {
+            formattedWeights[weightKey] = typeof weightValue === 'number' ? 
+              weightValue.toFixed(3) : weightValue;
+          }
+          return formattedWeights;
+        }
+        // Если это пороги, тоже форматируем с 3 знаками
+        if (key === 'thresholds' && typeof value === 'object') {
+          const formattedThresholds = {};
+          for (const [thresholdKey, thresholdValue] of Object.entries(value)) {
+            formattedThresholds[thresholdKey] = typeof thresholdValue === 'number' ? 
+              thresholdValue.toFixed(3) : thresholdValue;
+          }
+          return formattedThresholds;
+        }
+        // Для других числовых значений (accuracy и т.д.) тоже 3 знака
+        if (typeof value === 'number' && (key === 'accuracy' || key.includes('similarity') || key.includes('Score'))) {
+          return parseFloat(value.toFixed(3));
+        }
+        return value;
+      }, 2);
       
       // Выводим в textarea
       const textarea = document.getElementById('mlModelExport');

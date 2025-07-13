@@ -736,12 +736,12 @@
                                     <div class="bg-cyan-50 border border-cyan-200 rounded-lg p-3 mt-4">
                                         <h5 class="text-sm font-medium text-cyan-900 mb-2">🔬 Анализ неопределенных адресов</h5>
                                         <p class="text-xs text-cyan-700">
-                                            🔍 Находит объявления без адресов<br>
+                                            🔍 Находит объявления с низким уровнем точности определения адреса<br>
                                             🧩 Группирует по схожести названий и координат<br>
                                             🏗️ Создает новые адреса из групп объявлений<br>
                                             📊 Анализирует этажность и характеристики<br>
                                             🎯 Автоматически привязывает объявления к адресам<br>
-                                            📈 Мин. 2 объявления в группе, радиус 50м
+                                            📈 Мин. 10 объявлений в группе, радиус 30м
                                         </p>
                                     </div>
 
@@ -917,7 +917,11 @@
                 </div>
             </div>
             <div id="addressTableContent" class="space-y-4" style="display: none;">
-                <div class="px-4 pb-2 flex justify-end">
+                <div class="px-4 pb-2 flex justify-between items-center">
+                    <div class="flex items-center space-x-4">
+                        <label for="sourceFilter" class="text-sm font-medium text-gray-700">Фильтр по источнику:</label>
+                        <div id="sourceFilter"></div>
+                    </div>
                     <button type="button" id="addAddressBtn" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200">
                         <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
@@ -929,6 +933,7 @@
                     <table id="addressesTable" class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Источник</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Адрес</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Тип</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Конструктив</th>
@@ -1380,6 +1385,7 @@
     <script src="../components/navigation.js"></script>
     <script src="../components/breadcrumbs.js"></script>
     <script src="../components/footer.js"></script>
+    
     <!-- Модальное окно добавления материала стен -->
     <div id="wallMaterialModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="wall-material-modal-title" role="dialog" aria-modal="true">
         <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">

@@ -1004,23 +1004,30 @@ class SmartAddressMatcher {
                 return;
             }
             
-            const savedCount = localStorage.getItem('ml_training_count');
-            if (savedCount) {
-                const count = parseInt(savedCount);
-                if (count > 0) {
-                    // Создаем пустые примеры для корректного отображения счетчика
-                    // (фактические примеры не сохраняются для экономии места)
-                    this.training.examples = new Array(count).fill({
-                        timestamp: Date.now(),
-                        isCorrect: true,
-                        listing: 'restored',
-                        candidate: 'restored'
-                    });
-                    console.log(`🔄 Restored ${count} training examples from localStorage`);
+            // Восстанавливаем реальные примеры обучения
+            const savedExamples = localStorage.getItem('ml_training_examples');
+            if (savedExamples) {
+                const examples = JSON.parse(savedExamples);
+                this.training.examples = examples;
+                console.log(`🔄 Restored ${examples.length} real training examples from localStorage`);
+                
+                // Проверяем, нужно ли переобучение
+                if (examples.length >= 50) {
+                    console.log('🎯 Triggering immediate retrain with restored examples');
+                    setTimeout(() => this.retrain(), 1000); // Даем время на инициализацию
+                }
+            } else {
+                // Fallback на старый метод для совместимости
+                const savedCount = localStorage.getItem('ml_training_count');
+                if (savedCount) {
+                    const count = parseInt(savedCount);
+                    console.log(`ℹ️ Found legacy count: ${count} examples (data lost, will start fresh)`);
+                    // Очищаем старый счетчик
+                    localStorage.removeItem('ml_training_count');
                 }
             }
         } catch (error) {
-            console.warn('Failed to restore training count:', error);
+            console.warn('Failed to restore training examples:', error);
         }
     }
 
@@ -1029,6 +1036,16 @@ class SmartAddressMatcher {
      */
     async loadPretrainedModel() {
         try {
+            // Сначала пытаемся загрузить обученную модель из localStorage
+            const trainedModel = localStorage.getItem('ml_trained_model');
+            if (trainedModel) {
+                const parsedModel = JSON.parse(trainedModel);
+                this.model = { ...this.model, ...parsedModel };
+                console.log(`🎓 Loaded trained model v${this.model.version} from localStorage (accuracy: ${this.model.accuracy})`);
+                return;
+            }
+            
+            // Если обученной модели нет, пытаемся загрузить предобученную
             const response = await fetch('/utils/pretrained-model.json');
             if (response.ok) {
                 const pretrainedModel = await response.json();
@@ -1064,11 +1081,23 @@ class SmartAddressMatcher {
             this.training.examples.shift();
         }
 
-        console.log(`📚 Added training example: ${isCorrect ? '✅' : '❌'} (total: ${this.training.examples.length})`);
+        const positive = this.training.examples.filter(ex => ex.isCorrect).length;
+        const negative = this.training.examples.filter(ex => !ex.isCorrect).length;
+        const nextRetrainAt = Math.ceil(this.training.examples.length / 50) * 50;
         
-        // Сохраняем счетчик примеров в localStorage
+        console.log(`📚 Added training example: ${isCorrect ? '✅' : '❌'}`);
+        console.log(`📊 Current stats: ${this.training.examples.length} total (${positive} positive, ${negative} negative)`);
+        console.log(`🎯 Next retrain at: ${nextRetrainAt} examples (${nextRetrainAt - this.training.examples.length} to go)`);
+        
+        // Сохраняем все примеры в localStorage (не только счетчик!)
         if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('ml_training_count', this.training.examples.length.toString());
+            try {
+                localStorage.setItem('ml_training_examples', JSON.stringify(this.training.examples));
+                localStorage.setItem('ml_training_count', this.training.examples.length.toString());
+                console.log(`💾 Saved ${this.training.examples.length} training examples to localStorage`);
+            } catch (error) {
+                console.warn('Failed to save training examples:', error);
+            }
         }
         
         // Переобучение каждые 50 примеров
@@ -1102,8 +1131,16 @@ class SmartAddressMatcher {
         const positiveExamples = this.training.examples.filter(ex => ex.isCorrect);
         const negativeExamples = this.training.examples.filter(ex => !ex.isCorrect);
 
-        if (positiveExamples.length < 10 || negativeExamples.length < 10) {
-            console.log('📊 Not enough examples for retraining');
+        console.log(`📊 Training data: ${positiveExamples.length} positive, ${negativeExamples.length} negative examples`);
+
+        // Снижаем требования для обучения
+        if (positiveExamples.length < 5 || negativeExamples.length < 5) {
+            console.log('📊 Not enough examples for retraining (need at least 5 positive and 5 negative)');
+            return;
+        }
+
+        if (this.training.examples.length < 20) {
+            console.log('📊 Not enough total examples for retraining (need at least 20)');
             return;
         }
 
@@ -1118,6 +1155,27 @@ class SmartAddressMatcher {
         this.model.lastUpdate = new Date().toISOString().split('T')[0];
         
         console.log(`🎯 Model retrained to v${this.model.version}`);
+        
+        // Показываем обновленные веса для визуального контроля
+        console.log('📊 Updated model weights:');
+        for (const [key, value] of Object.entries(this.model.weights)) {
+            console.log(`   ${key}: ${value.toFixed(3)}`);
+        }
+        
+        console.log('📊 Updated thresholds:');
+        for (const [key, value] of Object.entries(this.model.thresholds)) {
+            console.log(`   ${key}: ${value.toFixed(3)}`);
+        }
+        
+        // Сохраняем обученную модель в localStorage
+        if (typeof localStorage !== 'undefined') {
+            try {
+                localStorage.setItem('ml_trained_model', JSON.stringify(this.model));
+                console.log('💾 Saved trained model to localStorage');
+            } catch (error) {
+                console.warn('Failed to save trained model:', error);
+            }
+        }
         
         // Сохранение для экспорта
         this.saveModelForExport();
