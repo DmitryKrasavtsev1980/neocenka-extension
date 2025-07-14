@@ -1,9 +1,8 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.77",
   "trainedOn": "Moscow dataset - первичное обучение на примерах низкой точности",
   "accuracy": 0.87,
-  "lastUpdate": "2025-07-12",
-  "trainingExamples": 2,
+  "lastUpdate": "2025-07-14",
   "radii": {
     "exact": 25,
     "near": 75,
@@ -11,22 +10,25 @@
     "far": 500
   },
   "thresholds": {
-    "perfect": 0.90,
-    "excellent": 0.75,
-    "good": 0.60,
-    "acceptable": 0.45,
-    "minimal": 0.30
+    "perfect": "0.900",
+    "excellent": "0.366",
+    "good": "0.216",
+    "acceptable": "0.300",
+    "minimal": "0.300"
   },
   "weights": {
-    "geospatial": 0.20,
-    "textual": 0.35,
-    "semantic": 0.25,
-    "structural": 0.15,
-    "fuzzy": 0.05
+    "geospatial": "0.079",
+    "textual": "0.253",
+    "semantic": "0.080",
+    "structural": "0.262",
+    "fuzzy": "0.326"
   },
+  "trainingExamples": 97,
+  "lastTrainingDate": "2025-07-14",
   "improvements": [
     "Снижены пороги для лучшего покрытия очевидных совпадений",
     "Увеличен вес текстового сходства для лучшего распознавания сокращений",
-    "Добавлена система обучения на пользовательских подтверждениях"
+    "Добавлена система обучения на пользовательских подтверждениях",
+    "Обучена на 97 примерах пользователя"
   ]
 }
