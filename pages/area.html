@@ -253,13 +253,8 @@
     <!-- Навигация -->
     <div id="navigation-container"></div>
 
-    <!-- Основной контент -->
-    <div id="page-content" class="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-lg p-6">
-        <!-- Контент будет перенесен сюда -->
-    </div>
-
     <!-- Скрытый контент для переноса -->
-    <div id="area-content" class="hidden max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div id="area-content" class="hidden">
         <!-- Хлебные крошки -->
         <div id="breadcrumbs-container"></div>
 
@@ -279,12 +274,66 @@
                         </svg>
                         Редактировать
                     </button>
+                    <div class="relative inline-block text-left">
+                        <div>
+                            <button type="button" id="panelBtn" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50" aria-expanded="true" aria-haspopup="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="panelDropdown" class="hidden absolute right-0 z-10 mt-2 w-56 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black/5 focus:outline-hidden" role="menu" aria-orientation="vertical" aria-labelledby="menu-button" tabindex="-1">
+                            <label class="group flex items-center text-nowrap px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                <input type="checkbox" id="statisticsPanel" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="mr-3 size-5 text-gray-400">
+                                <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 1.5 1.5h1a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 16.5 2h-1ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9A1.5 1.5 0 0 0 9.5 18h1a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 10.5 6h-1ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5A1.5 1.5 0 0 0 3.5 18h1A1.5 1.5 0 0 0 6 16.5v-5A1.5 1.5 0 0 0 4.5 10h-1Z" />
+                                </svg>
+                                Статистика области
+                            </label>
+                            <label class="group flex items-center text-nowrap px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                <input type="checkbox" id="dataWorkPanel" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="mr-3 size-5 text-gray-400">
+                                <path d="M2 4.5A2.5 2.5 0 0 1 4.5 2h11a2.5 2.5 0 0 1 0 5h-11A2.5 2.5 0 0 1 2 4.5ZM2.75 9.083a.75.75 0 0 0 0 1.5h14.5a.75.75 0 0 0 0-1.5H2.75ZM2.75 12.663a.75.75 0 0 0 0 1.5h14.5a.75.75 0 0 0 0-1.5H2.75ZM2.75 16.25a.75.75 0 0 0 0 1.5h14.5a.75.75 0 1 0 0-1.5H2.75Z" />
+                                </svg>
+                                Работа с данными
+                            </label>
+                            <label class="group flex items-center text-nowrap px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                <input type="checkbox" id="mapPanel" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="mr-3 size-5 text-gray-400">
+                                <path fill-rule="evenodd" d="M8.157 2.176a1.5 1.5 0 0 0-1.147 0l-4.084 1.69A1.5 1.5 0 0 0 2 5.25v10.877a1.5 1.5 0 0 0 2.074 1.386l3.51-1.452 4.26 1.762a1.5 1.5 0 0 0 1.146 0l4.083-1.69A1.5 1.5 0 0 0 18 14.75V3.872a1.5 1.5 0 0 0-2.073-1.386l-3.51 1.452-4.26-1.762ZM7.58 5a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-1.5 0v-6.5A.75.75 0 0 1 7.58 5Zm5.59 2.75a.75.75 0 0 0-1.5 0v6.5a.75.75 0 0 0 1.5 0v-6.5Z" clip-rule="evenodd" />
+                                </svg>
+                                Карта области
+                            </label>
+                            <label class="group flex items-center text-nowrap px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                <input type="checkbox" id="addressesPanel" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="mr-3 size-5 text-gray-400">
+                                <path fill-rule="evenodd" d="m9.69 18.933.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 0 0 .281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 1 0 3 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 0 0 2.273 1.765 11.842 11.842 0 0 0 .976.544l.062.029.018.008.006.003ZM10 11.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z" clip-rule="evenodd" />
+                                </svg>
+                                Таблица адресов
+                            </label>
+                            <label class="group flex items-center text-nowrap px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                <input type="checkbox" id="segmentsPanel" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="mr-3 size-5 text-gray-400">
+                                <path d="M12 9a1 1 0 0 1-1-1V3c0-.552.45-1.007.997-.93a7.004 7.004 0 0 1 5.933 5.933c.078.547-.378.997-.93.997h-5Z" />
+                                <path d="M8.003 4.07C8.55 3.994 9 4.449 9 5v5a1 1 0 0 0 1 1h5c.552 0 1.008.45.93.997A7.001 7.001 0 0 1 2 11a7.002 7.002 0 0 1 6.003-6.93Z" />
+                                </svg>
+                                Сегменты
+                            </label>
+                            <label class="group flex items-center text-nowrap px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                <input type="checkbox" id="duplicatesPanel" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="mr-3 size-5 text-gray-400">
+                                <path fill-rule="evenodd" d="M6 4.75A.75.75 0 0 1 6.75 4h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 4.75ZM6 10a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75A.75.75 0 0 1 6 10Zm0 5.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H6.75a.75.75 0 0 1-.75-.75ZM1.99 4.75a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 15.25a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1v-.01ZM1.99 10a1 1 0 0 1 1-1H3a1 1 0 0 1 1 1v.01a1 1 0 0 1-1 1h-.01a1 1 0 0 1-1-1V10Z" clip-rule="evenodd" />
+                                </svg>
+                                Управление дублями
+                            </label>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Статистика области (сворачиваемая панель) -->
-        <div class="mt-6">
+        <div id="statisticsPanelContainer" class="mt-6">
             <div class="bg-white shadow overflow-hidden sm:rounded-md">
                 <div class="px-4 py-5 sm:px-6 cursor-pointer" id="statisticsPanelHeader">
                     <div class="flex items-center justify-between">
@@ -519,7 +568,7 @@
         </div>
 
         <!-- Панель работы с данными -->
-        <div class="mt-8">
+        <div id="dataWorkPanelContainer" class="mt-8">
             <div class="bg-white shadow overflow-hidden sm:rounded-md">
                 <div class="px-4 py-5 sm:px-6 cursor-pointer" id="dataWorkPanelHeader">
                     <div class="flex items-center justify-between">
@@ -850,7 +899,7 @@
         <!-- Карта -->
         <div class="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <!-- Карта -->
-            <div class="col-span-1 lg:col-span-3">
+            <div id="mapPanelContainer" class="col-span-1 lg:col-span-3">
                 <div class="bg-white shadow overflow-hidden sm:rounded-md">
                     <div class="px-4 py-5 sm:px-6 cursor-pointer" id="mapPanelHeader">
                         <div class="flex items-center justify-between">
@@ -904,7 +953,7 @@
         </div>
 
         <!-- Таблица адресов -->
-        <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+        <div id="addressTableContainer" class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
             <div class="px-4 py-5 sm:px-6 cursor-pointer" id="addressTableHeader">
                 <div class="flex items-center justify-between">
                     <div>
@@ -950,8 +999,78 @@
             </div>
         </div>
 
+        <!-- Сегменты (сворачиваемая панель) -->
+        <div id="segmentsPanelContainer" class="mt-8">
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6 cursor-pointer" id="segmentsPanelHeader">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">Сегменты</h3>
+                            <p class="mt-1 text-sm text-gray-500">Управление сегментами и подсегментами области</p>
+                        </div>
+                        <svg id="segmentsPanelChevron" class="h-5 w-5 text-gray-400 transform transition-transform duration-200" style="transform: rotate(-90deg);" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div id="segmentsPanelContent" class="px-4 pb-5 space-y-6" style="display: none;">
+                    
+                    <!-- Список сегментов -->
+                    <div>
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-md font-medium text-gray-900">Сегменты области</h4>
+                            <button type="button" id="addSegmentBtn" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Добавить сегмент
+                            </button>
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="segmentsList">
+                                <!-- Карточки сегментов будут загружены через JavaScript -->
+                                <div class="text-center text-gray-500 py-8 col-span-full">
+                                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                    </svg>
+                                    <p class="mt-2">Сегменты не найдены</p>
+                                    <p class="text-sm">Создайте первый сегмент для этой области</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Управление подсегментами -->
+                    <div>
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-md font-medium text-gray-900">Подсегменты</h4>
+                            <button type="button" id="addSubsegmentBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" disabled>
+                                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Добавить подсегмент
+                            </button>
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <div id="subsegmentsList" class="space-y-3">
+                                <!-- Список подсегментов будет загружен через JavaScript -->
+                                <div class="text-center text-gray-500 py-6">
+                                    <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                    </svg>
+                                    <p class="mt-2 text-sm">Выберите сегмент для управления подсегментами</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Таблица дублей и объектов -->
-        <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+        <div id="duplicatesPanelContainer" class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
             <div class="px-4 py-5 sm:px-6 cursor-pointer" id="duplicatesPanelHeader">
                 <div class="flex items-center justify-between">
                     <div>

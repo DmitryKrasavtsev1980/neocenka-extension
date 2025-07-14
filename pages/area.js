@@ -185,6 +185,8 @@ class AreaPage {
             this.restoreDataWorkPanelState();
             this.restoreMapPanelState();
             this.restoreDuplicatesPanelState();
+            this.restoreSegmentsPanelState();
+            this.restorePanelVisibilityStates();
 
             // Восстанавливаем состояние прогресса
             this.restoreProgressState();
@@ -2428,6 +2430,51 @@ class AreaPage {
         // Сворачивание панели управления дублями
         document.getElementById('duplicatesPanelHeader')?.addEventListener('click', () => {
             this.toggleDuplicatesPanel();
+        });
+
+        // Управление отображением панелей через dropdown меню
+        document.getElementById('panelBtn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.togglePanelDropdown();
+        });
+
+        // Закрытие dropdown при клике вне его
+        document.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('panelDropdown');
+            const button = document.getElementById('panelBtn');
+            if (dropdown && !dropdown.contains(e.target) && !button.contains(e.target)) {
+                dropdown.classList.add('hidden');
+            }
+        });
+
+        // Обработчики чек-боксов панелей
+        document.getElementById('statisticsPanel')?.addEventListener('change', (e) => {
+            this.togglePanelVisibility('statistics', e.target.checked);
+        });
+        
+        document.getElementById('dataWorkPanel')?.addEventListener('change', (e) => {
+            this.togglePanelVisibility('dataWork', e.target.checked);
+        });
+        
+        document.getElementById('mapPanel')?.addEventListener('change', (e) => {
+            this.togglePanelVisibility('map', e.target.checked);
+        });
+        
+        document.getElementById('addressesPanel')?.addEventListener('change', (e) => {
+            this.togglePanelVisibility('addresses', e.target.checked);
+        });
+        
+        document.getElementById('segmentsPanel')?.addEventListener('change', (e) => {
+            this.togglePanelVisibility('segments', e.target.checked);
+        });
+        
+        document.getElementById('duplicatesPanel')?.addEventListener('change', (e) => {
+            this.togglePanelVisibility('duplicates', e.target.checked);
+        });
+
+        // Сворачивание панели сегментов
+        document.getElementById('segmentsPanelHeader')?.addEventListener('click', () => {
+            this.toggleSegmentsPanel();
         });
 
         // Навигация по табам в панели работы с данными
@@ -8655,6 +8702,28 @@ ${methodStatsText}${mlResultsText}
     }
 
     /**
+     * Переключение панели сегментов
+     */
+    toggleSegmentsPanel() {
+        const content = document.getElementById('segmentsPanelContent');
+        const chevron = document.getElementById('segmentsPanelChevron');
+        
+        if (content && chevron) {
+            const isHidden = content.style.display === 'none';
+            
+            if (isHidden) {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+                localStorage.setItem('segmentsPanelCollapsed', 'false');
+            } else {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+                localStorage.setItem('segmentsPanelCollapsed', 'true');
+            }
+        }
+    }
+
+    /**
      * Переключение табов в панели работы с данными
      */
     switchDataWorkTab(tabId) {
@@ -8793,6 +8862,133 @@ ${methodStatsText}${mlResultsText}
                 chevron.style.transform = 'rotate(0deg)';
             }
         }
+    }
+
+    /**
+     * Восстановление состояния панели сегментов
+     */
+    restoreSegmentsPanelState() {
+        const content = document.getElementById('segmentsPanelContent');
+        const chevron = document.getElementById('segmentsPanelChevron');
+        
+        // По умолчанию панель сегментов свернута
+        const isCollapsed = localStorage.getItem('segmentsPanelCollapsed');
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (content && chevron) {
+            if (shouldCollapse) {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+            } else {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+    }
+
+    /**
+     * Переключение видимости dropdown меню панелей
+     */
+    togglePanelDropdown() {
+        const dropdown = document.getElementById('panelDropdown');
+        if (dropdown) {
+            dropdown.classList.toggle('hidden');
+        }
+    }
+
+    /**
+     * Управление видимостью панелей через чек-боксы
+     */
+    togglePanelVisibility(panelType, isVisible) {
+        const panelMapping = {
+            'statistics': {
+                container: 'statisticsPanelContainer',
+                checkbox: 'statisticsPanel'
+            },
+            'dataWork': {
+                container: 'dataWorkPanelContainer', 
+                checkbox: 'dataWorkPanel'
+            },
+            'map': {
+                container: 'mapPanelContainer',
+                checkbox: 'mapPanel'
+            },
+            'addresses': {
+                container: 'addressTableContainer',
+                checkbox: 'addressesPanel'
+            },
+            'segments': {
+                container: 'segmentsPanelContainer',
+                checkbox: 'segmentsPanel'
+            },
+            'duplicates': {
+                container: 'duplicatesPanelContainer',
+                checkbox: 'duplicatesPanel'
+            }
+        };
+
+        const panelConfig = panelMapping[panelType];
+        if (!panelConfig) return;
+
+        const container = document.getElementById(panelConfig.container);
+        if (container) {
+            if (isVisible) {
+                container.classList.remove('hidden');
+                container.style.display = 'block';
+            } else {
+                container.classList.add('hidden');
+                container.style.display = 'none';
+            }
+
+            // Сохраняем состояние в localStorage
+            localStorage.setItem(`panel_${panelType}_visible`, isVisible.toString());
+
+            // Специальная обработка для карты - обновляем размер при показе
+            if (panelType === 'map' && isVisible && this.map) {
+                setTimeout(() => {
+                    this.map.invalidateSize();
+                    if (this.areaPolygonLayer) {
+                        this.map.fitBounds(this.areaPolygonLayer.getBounds());
+                    }
+                }, 100);
+            }
+
+            // Обновляем графики при показе панели статистики
+            if (panelType === 'statistics' && isVisible) {
+                setTimeout(() => {
+                    this.updateSourcesChart();
+                    this.updateAddressAnalyticsCharts();
+                }, 100);
+            }
+        }
+    }
+
+    /**
+     * Восстановление состояния видимости панелей из localStorage
+     */
+    restorePanelVisibilityStates() {
+        const panels = ['statistics', 'dataWork', 'map', 'addresses', 'segments', 'duplicates'];
+        
+        panels.forEach(panelType => {
+            const isVisible = localStorage.getItem(`panel_${panelType}_visible`);
+            // По умолчанию все панели видимы
+            const shouldShow = isVisible === null || isVisible === 'true';
+            
+            const checkboxId = {
+                'statistics': 'statisticsPanel',
+                'dataWork': 'dataWorkPanel',
+                'map': 'mapPanel',
+                'addresses': 'addressesPanel',
+                'segments': 'segmentsPanel',
+                'duplicates': 'duplicatesPanel'
+            }[panelType];
+
+            const checkbox = document.getElementById(checkboxId);
+            if (checkbox) {
+                checkbox.checked = shouldShow;
+                this.togglePanelVisibility(panelType, shouldShow);
+            }
+        });
     }
 
     /**

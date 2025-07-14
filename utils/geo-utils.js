@@ -360,3 +360,8 @@ class GeoUtils {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = GeoUtils;
 }
+
+// Создаем глобальный экземпляр для использования в браузере
+if (typeof window !== 'undefined') {
+    window.geoUtils = new GeoUtils();
+}

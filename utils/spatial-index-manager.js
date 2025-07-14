@@ -5,7 +5,6 @@
 class SpatialIndexManager {
     constructor() {
         this.indexes = new Map();
-        // this.geoUtils = new GeoUtils();  // Закомментировано до исправления зависимости
     }
 
     /**
@@ -15,12 +14,15 @@ class SpatialIndexManager {
      * @param {Function} getCoordsFunction - Функция извлечения координат
      */
     async createIndex(indexName, data, getCoordsFunction) {
+        // Используем глобальный экземпляр geoUtils
+        if (!window.geoUtils) {
+            throw new Error('geoUtils not available. Make sure geo-utils.js is loaded first.');
+        }
 
-        // const geoUtils = new GeoUtils();
-        // geoUtils.buildSpatialIndex(data, getCoordsFunction);  // Закомментировано до исправления
+        window.geoUtils.buildSpatialIndex(data, getCoordsFunction);
 
         this.indexes.set(indexName, {
-            geoUtils: geoUtils,
+            geoUtils: window.geoUtils,
             dataCount: data.length,
             lastUpdated: new Date(),
             getCoordsFunction: getCoordsFunction
