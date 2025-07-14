@@ -1492,6 +1492,10 @@ class AreaPage {
         await this.loadHouseSeries();
         document.getElementById('editHouseSeries').value = address.house_series_id || '';
         
+        // Загружаем классы домов в select
+        await this.loadHouseClasses();
+        document.getElementById('editHouseClass').value = address.house_class_id || '';
+        
         // Загружаем материалы стен в select
         await this.loadWallMaterials();
         document.getElementById('editWallMaterial').value = address.wall_material_id || '';
@@ -1513,6 +1517,12 @@ class AreaPage {
         
         // Обновляем ссылки на внешние сервисы
         this.updateExternalServiceLinks(address);
+        
+        // Обновляем кнопки после заполнения всех значений
+        this.updateHouseSeriesButton();
+        this.updateHouseClassButton();
+        this.updateWallMaterialButton();
+        this.updateCeilingMaterialButton();
     }
 
     /**
@@ -1803,6 +1813,7 @@ class AreaPage {
                 house_series_id: formData.get('house_series_id') || null,
                 wall_material_id: formData.get('wall_material_id') || null,
                 ceiling_material_id: formData.get('ceiling_material_id') || null,
+                house_class_id: formData.get('house_class_id') || null,
                 gas_supply: formData.get('gas_supply') ? formData.get('gas_supply') === 'true' : null,
                 floors_count: formData.get('floors_count') ? parseInt(formData.get('floors_count')) : null,
                 build_year: formData.get('build_year') ? parseInt(formData.get('build_year')) : null,
@@ -2622,6 +2633,41 @@ class AreaPage {
         document.getElementById('wallMaterialModal')?.addEventListener('click', (e) => {
             if (e.target.id === 'wallMaterialModal') {
                 this.hideWallMaterialModal();
+            }
+        });
+
+        // ===== ОБРАБОТЧИКИ ДЛЯ КЛАССОВ ДОМОВ =====
+
+        // Обработчик изменения select класса дома
+        document.getElementById('editHouseClass')?.addEventListener('change', () => {
+            this.updateHouseClassButton();
+        });
+
+        // Кнопка добавления/редактирования класса дома
+        document.getElementById('houseClassActionBtn')?.addEventListener('click', () => {
+            const select = document.getElementById('editHouseClass');
+            if (select.value) {
+                // Редактирование существующего класса
+                this.showEditHouseClassModal(select.value);
+            } else {
+                // Добавление нового класса
+                this.showHouseClassModal();
+            }
+        });
+
+        // Кнопки модального окна классов домов
+        document.getElementById('cancelHouseClass')?.addEventListener('click', () => {
+            this.hideHouseClassModal();
+        });
+
+        document.getElementById('saveHouseClass')?.addEventListener('click', () => {
+            this.saveHouseClass();
+        });
+
+        // Закрытие модального окна по клику вне его
+        document.getElementById('houseClassModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'houseClassModal') {
+                this.hideHouseClassModal();
             }
         });
 
@@ -5153,7 +5199,7 @@ class AreaPage {
      */
     showWallMaterialModal() {
         document.getElementById('wallMaterialModal').classList.remove('hidden');
-        document.querySelector('#wallMaterialModal .modal-title').textContent = 'Добавить материал стен';
+        document.getElementById('wall-material-modal-title').textContent = 'Добавить материал стен';
         document.getElementById('wallMaterialName').focus();
     }
 
@@ -5174,7 +5220,7 @@ class AreaPage {
             document.getElementById('wallMaterialColor').value = material.color;
 
             // Меняем заголовок модального окна
-            document.querySelector('#wallMaterialModal .modal-title').textContent = 'Редактировать материал стен';
+            document.getElementById('wall-material-modal-title').textContent = 'Редактировать материал стен';
             
             // Показываем модальное окно
             document.getElementById('wallMaterialModal').classList.remove('hidden');
@@ -5183,6 +5229,168 @@ class AreaPage {
         } catch (error) {
             console.error('Ошибка загрузки материала для редактирования:', error);
             this.showError('Ошибка загрузки материала: ' + error.message);
+        }
+    }
+
+    /**
+     * Загрузка классов домов в select
+     */
+    async loadHouseClasses() {
+        try {
+            const houseClasses = await db.getAll('house_classes');
+            
+            const select = document.getElementById('editHouseClass');
+            
+            // Сохраняем текущее значение
+            const currentValue = select.value;
+            
+            // Очищаем существующие опции (кроме первой)
+            select.innerHTML = '<option value="">Выберите класс...</option>';
+            
+            // Добавляем классы домов
+            houseClasses.forEach(houseClass => {
+                const option = document.createElement('option');
+                option.value = houseClass.id;
+                option.textContent = houseClass.name;
+                select.appendChild(option);
+            });
+            
+            // Восстанавливаем значение
+            if (currentValue) {
+                select.value = currentValue;
+            }
+            
+            // Обновляем кнопку
+            this.updateHouseClassButton();
+            
+        } catch (error) {
+            console.error('Ошибка загрузки классов домов:', error);
+        }
+    }
+
+    /**
+     * Обновление кнопки действия с классом дома
+     */
+    updateHouseClassButton() {
+        const select = document.getElementById('editHouseClass');
+        const button = document.getElementById('houseClassActionBtn');
+        
+        if (select.value) {
+            button.textContent = '✏️ Редактировать';
+            button.className = 'mt-1 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500';
+        } else {
+            button.textContent = '+ Добавить';
+            button.className = 'mt-1 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500';
+        }
+    }
+
+    /**
+     * Показать модальное окно добавления класса дома
+     */
+    showHouseClassModal() {
+        document.getElementById('houseClassModal').classList.remove('hidden');
+        document.getElementById('house-class-modal-title').textContent = 'Добавить класс дома';
+        document.getElementById('houseClassName').focus();
+    }
+
+    /**
+     * Показать модальное окно редактирования класса дома
+     */
+    async showEditHouseClassModal(houseClassId) {
+        try {
+            const houseClass = await db.get('house_classes', houseClassId);
+            if (!houseClass) {
+                this.showError('Класс дома не найден');
+                return;
+            }
+
+            // Заполняем форму данными класса дома
+            document.getElementById('houseClassId').value = houseClass.id;
+            document.getElementById('houseClassName').value = houseClass.name;
+            document.getElementById('houseClassColor').value = houseClass.color;
+
+            // Меняем заголовок модального окна
+            document.getElementById('house-class-modal-title').textContent = 'Редактировать класс дома';
+            
+            // Показываем модальное окно
+            document.getElementById('houseClassModal').classList.remove('hidden');
+            document.getElementById('houseClassName').focus();
+            
+        } catch (error) {
+            console.error('Ошибка загрузки класса дома для редактирования:', error);
+            this.showError('Ошибка загрузки класса дома: ' + error.message);
+        }
+    }
+
+    /**
+     * Скрыть модальное окно класса дома
+     */
+    hideHouseClassModal() {
+        document.getElementById('houseClassModal').classList.add('hidden');
+        // Очищаем форму
+        document.getElementById('houseClassForm').reset();
+        document.getElementById('houseClassId').value = '';
+    }
+
+    /**
+     * Сохранение класса дома
+     */
+    async saveHouseClass() {
+        try {
+            const form = document.getElementById('houseClassForm');
+            const formData = new FormData(form);
+            
+            const houseClassId = formData.get('id');
+            const houseClass = {
+                name: formData.get('name').trim(),
+                color: formData.get('color')
+            };
+
+
+            if (!houseClass.name) {
+                this.showError('Название класса дома обязательно');
+                return;
+            }
+
+            // Проверяем уникальность названия (исключая редактируемый класс)
+            const existingClasses = await db.getAll('house_classes');
+            
+            const duplicate = existingClasses.find(c => 
+                c.name.toLowerCase() === houseClass.name.toLowerCase() && c.id !== houseClassId
+            );
+
+            if (duplicate) {
+                this.showError('Класс дома с таким названием уже существует');
+                return;
+            }
+
+            let savedClass;
+            
+            if (houseClassId) {
+                // Редактирование существующего класса дома
+                houseClass.id = houseClassId;
+                houseClass.updated_at = new Date();
+                savedClass = await db.update('house_classes', houseClass);
+                this.showSuccess('Класс дома обновлен успешно');
+            } else {
+                // Создание нового класса дома
+                savedClass = await db.add('house_classes', houseClass);
+                this.showSuccess('Класс дома добавлен успешно');
+            }
+            
+            // Обновляем select
+            await this.loadHouseClasses();
+            
+            // Выбираем класс дома
+            document.getElementById('editHouseClass').value = savedClass.id;
+            this.updateHouseClassButton();
+            
+            // Закрываем модальное окно
+            this.hideHouseClassModal();
+            
+        } catch (error) {
+            console.error('Ошибка сохранения класса дома:', error);
+            this.showError('Ошибка сохранения класса дома: ' + error.message);
         }
     }
 
@@ -5314,7 +5522,7 @@ class AreaPage {
      */
     showHouseSeriesModal() {
         document.getElementById('houseSeriesModal').classList.remove('hidden');
-        document.querySelector('#houseSeriesModal .modal-title').textContent = 'Добавить серию дома';
+        document.getElementById('house-series-modal-title').textContent = 'Добавить серию дома';
         document.getElementById('houseSeriesName').focus();
     }
 
@@ -5334,7 +5542,7 @@ class AreaPage {
             document.getElementById('houseSeriesName').value = series.name;
 
             // Меняем заголовок модального окна
-            document.querySelector('#houseSeriesModal .modal-title').textContent = 'Редактировать серию дома';
+            document.getElementById('house-series-modal-title').textContent = 'Редактировать серию дома';
             
             // Показываем модальное окно
             document.getElementById('houseSeriesModal').classList.remove('hidden');
@@ -5472,7 +5680,7 @@ class AreaPage {
      */
     showCeilingMaterialModal() {
         document.getElementById('ceilingMaterialModal').classList.remove('hidden');
-        document.querySelector('#ceilingMaterialModal .modal-title').textContent = 'Добавить материал перекрытий';
+        document.getElementById('ceiling-material-modal-title').textContent = 'Добавить материал перекрытий';
         document.getElementById('ceilingMaterialName').focus();
     }
 
@@ -5492,7 +5700,7 @@ class AreaPage {
             document.getElementById('ceilingMaterialName').value = material.name;
 
             // Меняем заголовок модального окна
-            document.querySelector('#ceilingMaterialModal .modal-title').textContent = 'Редактировать материал перекрытий';
+            document.getElementById('ceiling-material-modal-title').textContent = 'Редактировать материал перекрытий';
             
             // Показываем модальное окно
             document.getElementById('ceilingMaterialModal').classList.remove('hidden');

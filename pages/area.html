@@ -968,7 +968,7 @@
             <div id="addressTableContent" class="space-y-4" style="display: none;">
                 <div class="px-4 pb-2 flex justify-between items-center">
                     <div class="flex items-center space-x-4">
-                        <label for="sourceFilter" class="text-sm font-medium text-gray-700">Фильтр по источнику:</label>
+                        <label class="text-sm font-medium text-gray-700">Фильтр по источнику:</label>
                         <div id="sourceFilter"></div>
                     </div>
                     <button type="button" id="addAddressBtn" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200">
@@ -1341,6 +1341,20 @@
                                         </div>
 
                                         <div>
+                                            <label for="editHouseClass" class="block text-sm font-medium text-gray-700">Класс дома</label>
+                                            <div class="flex gap-2">
+                                                <select name="house_class_id" id="editHouseClass"
+                                                        class="mt-1 block flex-1 rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <option value="">Выберите класс...</option>
+                                                </select>
+                                                <button type="button" id="houseClassActionBtn" 
+                                                        class="mt-1 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                                    + Добавить
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div>
                                             <label for="editWallMaterial" class="block text-sm font-medium text-gray-700">Материал стен</label>
                                             <div class="flex gap-2">
                                                 <select name="wall_material_id" id="editWallMaterial"
@@ -1634,6 +1648,59 @@
                             Сохранить
                         </button>
                         <button type="button" id="cancelCeilingMaterial" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно добавления класса дома -->
+    <div id="houseClassModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="house-class-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md relative z-10">
+                <form id="houseClassForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="w-full">
+                                <h3 id="house-class-modal-title" class="text-lg leading-6 font-medium text-gray-900 mb-4">
+                                    Добавить класс дома
+                                </h3>
+                                
+                                <input type="hidden" name="id" id="houseClassId">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="houseClassName" class="block text-sm font-medium text-gray-700">Название класса</label>
+                                        <input type="text" name="name" id="houseClassName" required
+                                               class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                               placeholder="Например: Премиум">
+                                    </div>
+                                    <div>
+                                        <label for="houseClassColor" class="block text-sm font-medium text-gray-700">Цвет маркера</label>
+                                        <div class="flex gap-2 items-center mt-1">
+                                            <input type="color" name="color" id="houseClassColor" 
+                                                   value="#3b82f6"
+                                                   class="h-10 w-16 rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 cursor-pointer">
+                                            <span class="text-sm text-gray-500">Выберите цвет для маркеров на карте</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" id="saveHouseClass" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Сохранить
+                        </button>
+                        <button type="button" id="cancelHouseClass" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
                             Отмена
                         </button>
                     </div>

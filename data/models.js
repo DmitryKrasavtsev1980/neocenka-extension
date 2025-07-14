@@ -80,6 +80,33 @@ class WallMaterialModel {
 }
 
 /**
+ * Модель класса дома (справочник)
+ */
+class HouseClassModel {
+  constructor(data = {}) {
+    this.id = data.id || null;
+    this.name = data.name || '';
+    this.color = data.color || '#3b82f6'; // Цвет маркера на карте
+    this.created_at = data.created_at || new Date();
+    this.updated_at = data.updated_at || new Date();
+  }
+
+  validate() {
+    const errors = [];
+    
+    if (!this.name.trim()) {
+      errors.push('Название класса дома обязательно');
+    }
+    
+    if (!this.color.trim()) {
+      errors.push('Цвет обязателен');
+    }
+    
+    return errors;
+  }
+}
+
+/**
  * Модель серии дома (справочник)
  */
 class HouseSeriesModel {
@@ -137,6 +164,7 @@ class AddressModel {
     
     // Характеристики дома (если type === 'house')
     this.house_series_id = data.house_series_id || null; // ID из справочника серий домов
+    this.house_class_id = data.house_class_id || null; // ID из справочника классов домов
     this.ceiling_material_id = data.ceiling_material_id || null; // ID из справочника материалов перекрытий
     this.wall_material_id = data.wall_material_id || null; // ID из справочника материалов стен
     this.floors_count = data.floors_count || null;

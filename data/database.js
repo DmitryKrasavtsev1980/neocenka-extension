@@ -6,7 +6,7 @@
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 16; // Версия 16: добавлен индекс owner_status для objects
+    this.version = 17; // Версия 17: добавлен справочник классов домов (house_classes) и поле house_class_id в addresses
     this.db = null;
   }
 
@@ -185,6 +185,13 @@ class NeocenkaDB {
       const wallMaterialsStore = this.db.createObjectStore('wall_materials', { keyPath: 'id' });
       wallMaterialsStore.createIndex('name', 'name', { unique: true });
       wallMaterialsStore.createIndex('created_at', 'created_at', { unique: false });
+    }
+
+    // House classes store (справочник классов домов)
+    if (!this.db.objectStoreNames.contains('house_classes')) {
+      const houseClassesStore = this.db.createObjectStore('house_classes', { keyPath: 'id' });
+      houseClassesStore.createIndex('name', 'name', { unique: true });
+      houseClassesStore.createIndex('created_at', 'created_at', { unique: false });
     }
 
     // House series store (справочник серий домов)
@@ -1111,7 +1118,7 @@ class NeocenkaDB {
   async initDefaultData() {
     try {
       // Проверяем, что база данных инициализирована и stores созданы
-      if (!this.db || !this.db.objectStoreNames.contains('wall_materials')) {
+      if (!this.db || !this.db.objectStoreNames.contains('wall_materials') || !this.db.objectStoreNames.contains('house_classes')) {
         console.log('Database stores not ready yet, skipping default data initialization');
         return;
       }
@@ -1149,6 +1156,41 @@ class NeocenkaDB {
         }
         
         console.log('Инициализированы материалы стен по умолчанию');
+      }
+
+      // Проверяем и инициализируем классы домов
+      const existingHouseClasses = await this.getAll('house_classes');
+      
+      if (existingHouseClasses.length === 0) {
+        // Добавляем классы домов по умолчанию
+        const defaultHouseClasses = [
+          {
+            id: 'id_0000001',
+            name: 'Стандарт',
+            color: '#6B7280' // Серый
+          },
+          {
+            id: 'id_0000002',
+            name: 'Комфорт', 
+            color: '#3B82F6' // Синий
+          },
+          {
+            id: 'id_0000003',
+            name: 'Бизнес',
+            color: '#059669' // Зеленый
+          },
+          {
+            id: 'id_0000004',
+            name: 'Элит',
+            color: '#DC2626' // Красный
+          }
+        ];
+
+        for (const houseClass of defaultHouseClasses) {
+          await this.add('house_classes', houseClass);
+        }
+        
+        console.log('Инициализированы классы домов по умолчанию');
       }
 
       // Проверяем и инициализируем материалы перекрытий
