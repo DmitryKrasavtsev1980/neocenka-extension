@@ -1067,55 +1067,31 @@
                 </div>
                 <div id="segmentsPanelContent" class="px-4 pb-5 space-y-6" style="display: none;">
                     
-                    <!-- Список сегментов -->
-                    <div>
-                        <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-md font-medium text-gray-900">Сегменты области</h4>
-                            <button type="button" id="addSegmentBtn" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                                </svg>
-                                Добавить сегмент
-                            </button>
-                        </div>
-                        
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="segmentsList">
-                                <!-- Карточки сегментов будут загружены через JavaScript -->
-                                <div class="text-center text-gray-500 py-8 col-span-full">
-                                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                    </svg>
-                                    <p class="mt-2">Сегменты не найдены</p>
-                                    <p class="text-sm">Создайте первый сегмент для этой области</p>
-                                </div>
-                            </div>
-                        </div>
+                    <!-- Кнопка создания сегмента -->
+                    <div class="flex items-center justify-between">
+                        <h4 class="text-md font-medium text-gray-900">Сегменты области</h4>
+                        <button type="button" id="createSegmentBtn" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            Создать сегмент
+                        </button>
                     </div>
 
-                    <!-- Управление подсегментами -->
-                    <div>
-                        <div class="flex items-center justify-between mb-4">
-                            <h4 class="text-md font-medium text-gray-900">Подсегменты</h4>
-                            <button type="button" id="addSubsegmentBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" disabled>
-                                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                                </svg>
-                                Добавить подсегмент
-                            </button>
-                        </div>
-                        
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div id="subsegmentsList" class="space-y-3">
-                                <!-- Список подсегментов будет загружен через JavaScript -->
-                                <div class="text-center text-gray-500 py-6">
-                                    <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                                    </svg>
-                                    <p class="mt-2 text-sm">Выберите сегмент для управления подсегментами</p>
-                                </div>
-                            </div>
-                        </div>
+                    <!-- Таблица сегментов -->
+                    <div class="overflow-x-auto">
+                        <table id="segmentsTable" class="min-w-full divide-y divide-gray-200">
+                            <!-- DataTables будет автоматически создавать заголовки -->
+                        </table>
+                    </div>
+                    
+                    <!-- Заглушка для пустой таблицы -->
+                    <div id="segmentsTableEmpty" class="text-center py-12 hidden">
+                        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                        <h3 class="mt-2 text-sm font-medium text-gray-900">Нет сегментов</h3>
+                        <p class="mt-1 text-sm text-gray-500">Создайте первый сегмент для этой области</p>
                     </div>
                 </div>
             </div>
@@ -1848,6 +1824,180 @@
         </div>
     </div>
 
+    <!-- Модальное окно создания/редактирования сегмента -->
+    <div id="segmentModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="segment-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full relative z-10 max-h-[90vh]">
+                <form id="segmentForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="w-full">
+                                <!-- Заголовок -->
+                                <div class="flex items-center justify-between mb-6">
+                                    <h3 class="text-lg leading-6 font-medium text-gray-900" id="segment-modal-title">
+                                        Создать сегмент
+                                    </h3>
+                                    <button type="button" id="closeSegmentModalBtn" class="text-gray-400 hover:text-gray-600">
+                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <!-- Содержимое -->
+                                <div class="max-h-[70vh] overflow-y-auto">
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <!-- Левая колонка - параметры -->
+                                        <div class="space-y-4">
+                                            <input type="hidden" name="id" id="segmentId">
+                                            <input type="hidden" name="map_area_id" id="segmentMapAreaId">
+                                            
+                                            <!-- Название сегмента -->
+                                            <div>
+                                                <label for="segmentName" class="block text-sm font-medium text-gray-700">Название сегмента</label>
+                                                <input type="text" name="name" id="segmentName" required
+                                                       class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                       placeholder="Название будет сгенерировано автоматически">
+                                            </div>
+
+                                            <!-- Тип недвижимости -->
+                                            <div>
+                                                <label for="segmentType" class="block text-sm font-medium text-gray-700">Тип недвижимости</label>
+                                                <select name="type" id="segmentType" multiple
+                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <option value="house">Дом</option>
+                                                    <option value="house_with_land">Дом с участком</option>
+                                                    <option value="land">Участок</option>
+                                                    <option value="commercial">Коммерческая</option>
+                                                    <option value="building">Здание</option>
+                                                </select>
+                                            </div>
+
+                                            <!-- Класс дома -->
+                                            <div>
+                                                <label for="segmentHouseClass" class="block text-sm font-medium text-gray-700">Класс дома</label>
+                                                <select name="house_class_id" id="segmentHouseClass" multiple
+                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <!-- Опции будут загружены динамически -->
+                                                </select>
+                                            </div>
+
+                                            <!-- Серия дома -->
+                                            <div>
+                                                <label for="segmentHouseSeries" class="block text-sm font-medium text-gray-700">Серия дома</label>
+                                                <select name="house_series_id" id="segmentHouseSeries" multiple
+                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <!-- Опции будут загружены динамически -->
+                                                </select>
+                                            </div>
+
+                                            <!-- Материал стен -->
+                                            <div>
+                                                <label for="segmentWallMaterial" class="block text-sm font-medium text-gray-700">Материал стен</label>
+                                                <select name="wall_material_id" id="segmentWallMaterial" multiple
+                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <!-- Опции будут загружены динамически -->
+                                                </select>
+                                            </div>
+
+                                            <!-- Материал перекрытий -->
+                                            <div>
+                                                <label for="segmentCeilingMaterial" class="block text-sm font-medium text-gray-700">Материал перекрытий</label>
+                                                <select name="ceiling_material_id" id="segmentCeilingMaterial" multiple
+                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <!-- Опции будут загружены динамически -->
+                                                </select>
+                                            </div>
+
+                                            <!-- Газоснабжение -->
+                                            <div>
+                                                <label for="segmentGasSupply" class="block text-sm font-medium text-gray-700">Газоснабжение</label>
+                                                <select name="gas_supply" id="segmentGasSupply" multiple
+                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <option value="">Не указано</option>
+                                                    <option value="true">Да</option>
+                                                    <option value="false">Нет</option>
+                                                </select>
+                                            </div>
+
+                                            <!-- Этажность -->
+                                            <div class="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label for="segmentFloorsFrom" class="block text-sm font-medium text-gray-700">Этажей от</label>
+                                                    <input type="number" name="floors_from" id="segmentFloorsFrom" min="1" max="100"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           placeholder="1">
+                                                </div>
+                                                <div>
+                                                    <label for="segmentFloorsTo" class="block text-sm font-medium text-gray-700">Этажей до</label>
+                                                    <input type="number" name="floors_to" id="segmentFloorsTo" min="1" max="100"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           placeholder="100">
+                                                </div>
+                                            </div>
+
+                                            <!-- Годы постройки -->
+                                            <div class="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label for="segmentBuildYearFrom" class="block text-sm font-medium text-gray-700">Год постройки от</label>
+                                                    <input type="number" name="build_year_from" id="segmentBuildYearFrom" min="1800" max="2100"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           placeholder="1800">
+                                                </div>
+                                                <div>
+                                                    <label for="segmentBuildYearTo" class="block text-sm font-medium text-gray-700">Год постройки до</label>
+                                                    <input type="number" name="build_year_to" id="segmentBuildYearTo" min="1800" max="2100"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           placeholder="2024">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Правая колонка - карта и выбор адресов -->
+                                        <div class="space-y-4">
+                                            <!-- Карта -->
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Карта с адресами</label>
+                                                <div id="segmentMap" style="height: 400px; width: 100%;" class="border border-gray-300 rounded-md"></div>
+                                            </div>
+                                            
+                                            <!-- Выбор адресов -->
+                                            <div>
+                                                <label for="segmentAddresses" class="block text-sm font-medium text-gray-700">Выбор адресов (опционально)</label>
+                                                <select name="addresses" id="segmentAddresses" multiple
+                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                    <!-- Опции будут загружены динамически -->
+                                                </select>
+                                                <p class="mt-1 text-sm text-gray-500">
+                                                    Если адреса не выбраны, будут использованы все адреса, соответствующие фильтрам
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Сохранить сегмент
+                        </button>
+                        <button type="button" id="cancelSegmentBtn" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript библиотеки -->
     <script src="../libs/jquery/jquery-3.7.1.min.js"></script>
     <script src="../libs/datatables/datatables.min.js"></script>
@@ -1871,6 +2021,25 @@
     <script src="../utils/smart-address-matcher.js"></script>
     <script src="../utils/ml-address-analyzer.js"></script>
     
+    <!-- Модульная архитектура -->
+    <!-- Основные системы -->
+    <script src="core/DataState.js"></script>
+    <script src="core/EventBus.js"></script>
+    <script src="core/ProgressManager.js"></script>
+    
+    <!-- Общие утилиты -->
+    <script src="shared/constants.js"></script>
+    <script src="shared/helpers.js"></script>
+    <script src="shared/validators.js"></script>
+    
+    <!-- Менеджеры функциональности -->
+    <script src="managers/UIManager.js"></script>
+    <script src="managers/MapManager.js"></script>
+    <script src="managers/ParsingManager.js"></script>
+    <script src="managers/AddressManager.js"></script>
+    <script src="managers/DuplicatesManager.js"></script>
+    <script src="managers/SegmentsManager.js"></script>
+    
     <!-- Сервисная архитектура -->
     <script src="../services/base/BaseAPIService.js"></script>
     <script src="../services/base/ServiceManager.js"></script>
@@ -1881,9 +2050,8 @@
     <!-- Интеграция сервисов -->
     <script src="area_services_integration.js"></script>
     
-    <!-- Страница (обновлен для использования сервисов) -->
+    <!-- Главная страница (модульная версия) -->
     <script src="area.js"></script>
-    <script src="area_init.js"></script>
 
 </body>
 </html>
