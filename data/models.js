@@ -192,7 +192,7 @@ class AddressModel {
       errors.push('Координаты обязательны');
     }
     
-    if (!['house', 'land'].includes(this.type)) {
+    if (!['house', 'house_with_land', 'land', 'commercial', 'building'].includes(this.type)) {
       errors.push('Неверный тип недвижимости');
     }
     

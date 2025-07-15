@@ -28,6 +28,7 @@ dist/
 
 # Claude Code files
 .claude/
+CLAUDE.md
 
 # OS files
 .DS_Store

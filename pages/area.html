@@ -593,7 +593,7 @@
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
                                             </svg>
-                                            Импорт адресов
+                                            Импорт/экспорт адресов
                                         </a>
                                     </li>
                                     <li>
@@ -653,18 +653,58 @@
                             <!-- Импорт адресов -->
                             <div id="content-import-addresses" class="data-content-tab">
                                 <div class="bg-gray-50 border border-gray-200 rounded-lg p-6">
-                                    <h4 class="text-lg font-medium text-gray-900 mb-4">Импорт адресов</h4>
+                                    <h4 class="text-lg font-medium text-gray-900 mb-4">Импорт/экспорт адресов</h4>
                                     <p class="text-sm text-gray-600 mb-4">Загрузка адресов объектов недвижимости из внешних источников</p>
                                     
+                                    <!-- Импорт из OSM -->
                                     <button type="button" id="loadAddressesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed">
                                         <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                                         </svg>
-                                        Загрузить адреса
+                                        Загрузить адреса из OSM
                                     </button>
 
+                                    <!-- Панель импорта/экспорта из файла -->
+                                    <div class="mt-6 pt-6 border-t border-gray-200">
+                                        <h5 class="text-sm font-medium text-gray-900 mb-4">Импорт/экспорт адресов из файла</h5>
+                                        
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <!-- Экспорт адресов -->
+                                            <div class="space-y-3">
+                                                <label class="block text-sm font-medium text-gray-700">Экспорт адресов</label>
+                                                <div class="relative">
+                                                    <button type="button" id="exportAddressesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                                        </svg>
+                                                        Экспорт в файл
+                                                    </button>
+                                                </div>
+                                                <p class="text-xs text-gray-500">Сохранить адреса области в JSON файл</p>
+                                            </div>
+                                            
+                                            <!-- Импорт адресов -->
+                                            <div class="space-y-3">
+                                                <label class="block text-sm font-medium text-gray-700">Импорт адресов</label>
+                                                <div class="relative">
+                                                    <input type="file" id="importAddressesFile" accept=".json" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                                    <button type="button" id="importAddressesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
+                                                        </svg>
+                                                        Выбрать файл
+                                                    </button>
+                                                </div>
+                                                <p class="text-xs text-gray-500">Загрузить адреса из JSON файла</p>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Статус операций с файлами -->
+                                        <div id="fileOperationStatus" class="mt-4 text-sm text-gray-600 hidden"></div>
+                                    </div>
+
                                     <!-- Прогресс загрузки адресов -->
-                                    <div class="mt-4 pt-4 border-t border-gray-200">
+                                    <div class="mt-6 pt-6 border-t border-gray-200">
                                         <h5 class="text-sm font-medium text-gray-900 mb-3">Прогресс загрузки</h5>
                                         <div class="space-y-1" data-progress="import-addresses">
                                             <div class="flex justify-between text-xs text-gray-500">
@@ -864,15 +904,27 @@
                             <!-- Удаление данных -->
                             <div id="content-delete-data" class="data-content-tab hidden">
                                 <div class="bg-gray-50 border border-gray-200 rounded-lg p-6">
-                                    <h4 class="text-lg font-medium text-gray-900 mb-4">Удаление объявлений</h4>
-                                    <p class="text-sm text-gray-600 mb-4">Удаление объявлений из выбранной области</p>
+                                    <h4 class="text-lg font-medium text-gray-900 mb-4">Удаление данных области</h4>
+                                    <p class="text-sm text-gray-600 mb-4">Удаление различных типов данных из выбранной области</p>
                                     
-                                    <button type="button" id="deleteDataBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H8a1 1 0 00-1 1v3M4 7h16"></path>
-                                        </svg>
-                                        Удалить объявления
-                                    </button>
+                                    <div class="space-y-4">
+                                        <!-- Удаление объявлений -->
+                                        <button type="button" id="deleteDataBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                            </svg>
+                                            Удалить объявления области
+                                        </button>
+                                        
+                                        <!-- Удаление всех адресов -->
+                                        <button type="button" id="deleteAllAddressesBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                            </svg>
+                                            Удалить все адреса области
+                                        </button>
+                                    </div>
 
                                     <!-- Прогресс удаления -->
                                     <div class="mt-4 pt-4 border-t border-gray-200">

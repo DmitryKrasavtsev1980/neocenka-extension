@@ -66,6 +66,37 @@ class AreaPage {
         this.processingStatusSlimSelect = null;
         this.sourceFilterSlimSelect = null;
     }
+    
+    /**
+     * Проверка настроек отладки
+     */
+    async isDebugEnabled() {
+        try {
+            const settings = await window.db.getSettings();
+            return settings.find(s => s.key === 'debug_enabled')?.value === true;
+        } catch (error) {
+            return false;
+        }
+    }
+    
+    /**
+     * Отладочное сообщение с проверкой настроек
+     */
+    async debugLog(message, ...args) {
+        if (await this.isDebugEnabled()) {
+            console.log(message, ...args);
+        }
+    }
+    
+    /**
+     * Проверка существования полигона в области
+     */
+    hasAreaPolygon() {
+        return this.currentArea && 
+               this.currentArea.polygon && 
+               Array.isArray(this.currentArea.polygon) && 
+               this.currentArea.polygon.length >= 3;
+    }
 
     /**
      * Очистка ресурсов при уничтожении компонента
@@ -1994,6 +2025,8 @@ class AreaPage {
                                     return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Ручной</span>';
                                 case 'ml':
                                     return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">ML</span>';
+                                case 'imported':
+                                    return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">Импорт</span>';
                                 default:
                                     return data;
                             }
@@ -2376,6 +2409,16 @@ class AreaPage {
         document.getElementById('loadAddressesBtn')?.addEventListener('click', () => {
             this.loadAddressesFromAPI();
         });
+        
+        // Экспорт адресов в файл
+        document.getElementById('exportAddressesBtn')?.addEventListener('click', () => {
+            this.exportAddressesToFile();
+        });
+        
+        // Импорт адресов из файла
+        document.getElementById('importAddressesFile')?.addEventListener('change', (event) => {
+            this.importAddressesFromFile(event);
+        });
 
         // Обновление карты
         document.getElementById('refreshMapBtn')?.addEventListener('click', () => {
@@ -2414,6 +2457,11 @@ class AreaPage {
         
         document.getElementById('deleteDataBtn')?.addEventListener('click', () => {
             this.deleteDataFromTab();
+        });
+        
+        // Удаление всех адресов области
+        document.getElementById('deleteAllAddressesBtn')?.addEventListener('click', () => {
+            this.deleteAllAreaAddresses();
         });
 
         // События для интеграции сервисов обрабатываются в AreaServicesIntegration
@@ -4548,6 +4596,11 @@ class AreaPage {
 
                 address.objects_count = 0; // УДАЛЕН: подсчет объектов
                 address.listings_count = listings.length;
+                
+                // Нормализуем обязательные поля для DataTables
+                if (!address.source) {
+                    address.source = 'manual'; // Добавляем source по умолчанию
+                }
             }
 
             // Сохраняем адреса в переменную класса для использования в других функциях
@@ -12363,6 +12416,659 @@ ${methodStatsText}${mlResultsText}
                 }, 2000);
             }
         }
+    }
+    
+    /**
+     * Удаление всех адресов области
+     */
+    async deleteAllAreaAddresses() {
+        if (!this.currentArea) {
+            alert('Область не выбрана');
+            return;
+        }
+        
+        const confirmDelete = confirm(`Вы уверены, что хотите удалить все адреса области "${this.currentArea.name}"?\n\nЭто действие нельзя отменить.`);
+        if (!confirmDelete) {
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('deleteAllAddressesBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '🔄 Удаление...';
+            
+            // Получаем все адреса из базы данных
+            const allAddresses = await window.db.getAddresses();
+            await this.debugLog('🔍 Получено адресов из БД для удаления:', allAddresses.length);
+            
+            // Фильтруем адреса, которые входят в полигон области
+            const areaAddresses = allAddresses.filter(address => {
+                if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                    return false;
+                }
+                
+                const addressModel = new AddressModel(address);
+                return addressModel.belongsToMapArea(this.currentArea);
+            });
+            
+            if (areaAddresses.length === 0) {
+                button.innerHTML = '✅ Нет адресов для удаления';
+                button.classList.remove('bg-red-600', 'hover:bg-red-700');
+                button.classList.add('bg-gray-500', 'hover:bg-gray-600');
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('bg-gray-500', 'hover:bg-gray-600');
+                    button.classList.add('bg-red-600', 'hover:bg-red-700');
+                    button.disabled = false;
+                }, 2000);
+                return;
+            }
+            
+            // Удаляем адреса из базы данных
+            let deletedCount = 0;
+            for (const address of areaAddresses) {
+                await window.db.deleteAddress(address.id);
+                deletedCount++;
+            }
+            await this.debugLog('✅ Удалено адресов области:', deletedCount);
+            
+            // Обновляем статус (показываем уведомление)
+            const deleteStatusElement = document.getElementById('delete-dataStatus');
+            if (deleteStatusElement) {
+                deleteStatusElement.textContent = `Удалено ${deletedCount} адресов области`;
+                deleteStatusElement.classList.remove('hidden');
+                deleteStatusElement.classList.add('text-green-600');
+                
+                setTimeout(() => {
+                    deleteStatusElement.classList.add('hidden');
+                    deleteStatusElement.classList.remove('text-green-600');
+                }, 3000);
+            }
+            
+            // Обновляем карту и таблицы
+            await this.refreshMapData();
+            await this.refreshAddressData();
+            
+            button.innerHTML = `✅ Удалено ${deletedCount} адресов`;
+            button.classList.remove('bg-red-600', 'hover:bg-red-700');
+            button.classList.add('bg-green-600', 'hover:bg-green-700');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('bg-green-600', 'hover:bg-green-700');
+                button.classList.add('bg-red-600', 'hover:bg-red-700');
+                button.disabled = false;
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Ошибка при удалении адресов области:', error);
+            
+            // Обновляем статус с ошибкой
+            const deleteStatusElement = document.getElementById('delete-dataStatus');
+            if (deleteStatusElement) {
+                deleteStatusElement.textContent = 'Ошибка при удалении адресов';
+                deleteStatusElement.classList.remove('hidden');
+                deleteStatusElement.classList.add('text-red-600');
+                
+                setTimeout(() => {
+                    deleteStatusElement.classList.add('hidden');
+                    deleteStatusElement.classList.remove('text-red-600');
+                }, 3000);
+            }
+            
+            const button = document.getElementById('deleteAllAddressesBtn');
+            const originalText = button.innerHTML;
+            button.innerHTML = '❌ Ошибка';
+            button.classList.remove('bg-red-600', 'hover:bg-red-700');
+            button.classList.add('bg-gray-500', 'hover:bg-gray-600');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('bg-gray-500', 'hover:bg-gray-600');
+                button.classList.add('bg-red-600', 'hover:bg-red-700');
+                button.disabled = false;
+            }, 2000);
+        }
+    }
+    
+    /**
+     * Экспорт адресов области в JSON файл
+     */
+    async exportAddressesToFile() {
+        if (!this.currentArea) {
+            alert('Область не выбрана');
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('exportAddressesBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '📤 Экспорт...';
+            
+            // Получаем все адреса из базы данных
+            const allAddresses = await window.db.getAddresses();
+            await this.debugLog('🔍 Получено адресов из БД для экспорта:', allAddresses.length);
+            
+            // Фильтруем адреса, которые входят в полигон области
+            const areaAddresses = allAddresses.filter(address => {
+                if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                    return false;
+                }
+                
+                const addressModel = new AddressModel(address);
+                return addressModel.belongsToMapArea(this.currentArea);
+            });
+            
+            if (areaAddresses.length === 0) {
+                this.updateFileOperationStatus('Нет адресов для экспорта в данной области', 'warning');
+                button.innerHTML = '⚠️ Нет данных';
+                button.classList.remove('bg-green-600', 'hover:bg-green-700');
+                button.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+                    button.classList.add('bg-green-600', 'hover:bg-green-700');
+                    button.disabled = false;
+                }, 2000);
+                return;
+            }
+            
+            // Получаем справочники для экспорта
+            const [houseSeries, houseClasses, wallMaterials, ceilingMaterials] = await Promise.all([
+                window.db.getAll('house_series'),
+                window.db.getAll('house_classes'),
+                window.db.getAll('wall_materials'),
+                window.db.getAll('ceiling_materials')
+            ]);
+            
+            // Создаем экспортируемый объект
+            const exportData = {
+                metadata: {
+                    export_date: new Date().toISOString(),
+                    area_name: this.currentArea.name,
+                    area_id: this.currentArea.id,
+                    total_addresses: areaAddresses.length,
+                    export_version: '1.2', // Обновляем версию для поддержки справочников
+                    includes_polygon: this.currentArea.polygon && this.currentArea.polygon.length > 0,
+                    includes_references: true
+                },
+                area_polygon: this.currentArea.polygon || [], // Экспортируем полигон области
+                addresses: areaAddresses.map(address => ({
+                    ...address,
+                    source: address.source || 'manual' // Добавляем source по умолчанию
+                })),
+                // Справочники
+                reference_data: {
+                    house_series: houseSeries,
+                    house_classes: houseClasses,
+                    wall_materials: wallMaterials,
+                    ceiling_materials: ceilingMaterials
+                }
+            };
+            
+            await this.debugLog('📤 Экспорт данных:', {
+                area_name: this.currentArea.name,
+                total_addresses: areaAddresses.length,
+                includes_polygon: exportData.metadata.includes_polygon,
+                polygon_points: exportData.area_polygon.length,
+                includes_references: exportData.metadata.includes_references,
+                reference_counts: {
+                    house_series: exportData.reference_data.house_series.length,
+                    house_classes: exportData.reference_data.house_classes.length,
+                    wall_materials: exportData.reference_data.wall_materials.length,
+                    ceiling_materials: exportData.reference_data.ceiling_materials.length
+                }
+            });
+            
+            // Создаем файл и скачиваем
+            const jsonString = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `addresses_${this.currentArea.name.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            this.updateFileOperationStatus(`Экспортировано ${areaAddresses.length} адресов`, 'success');
+            
+            button.innerHTML = `✅ Экспортировано ${areaAddresses.length}`;
+            button.classList.remove('bg-green-600', 'hover:bg-green-700');
+            button.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                button.classList.add('bg-green-600', 'hover:bg-green-700');
+                button.disabled = false;
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Ошибка при экспорте адресов:', error);
+            this.updateFileOperationStatus('Ошибка при экспорте адресов', 'error');
+            
+            const button = document.getElementById('exportAddressesBtn');
+            const originalText = button.innerHTML;
+            button.innerHTML = '❌ Ошибка';
+            button.classList.remove('bg-green-600', 'hover:bg-green-700');
+            button.classList.add('bg-red-500', 'hover:bg-red-600');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('bg-red-500', 'hover:bg-red-600');
+                button.classList.add('bg-green-600', 'hover:bg-green-700');
+                button.disabled = false;
+            }, 2000);
+        }
+    }
+    
+    /**
+     * Импорт адресов из JSON файла
+     */
+    async importAddressesFromFile(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        if (!this.currentArea) {
+            alert('Область не выбрана');
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('importAddressesBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '📥 Импорт...';
+            
+            // Читаем файл
+            const fileContent = await this.readFileAsText(file);
+            let importData;
+            
+            try {
+                importData = JSON.parse(fileContent);
+            } catch (parseError) {
+                throw new Error('Неверный формат JSON файла');
+            }
+            
+            // Валидируем структуру файла
+            this.validateImportData(importData);
+            
+            const addresses = importData.addresses;
+            if (!Array.isArray(addresses) || addresses.length === 0) {
+                throw new Error('Файл не содержит адресов для импорта');
+            }
+            
+            await this.debugLog('📥 Импорт данных из файла:', {
+                area_name: importData.metadata?.area_name || 'неизвестно',
+                total_addresses: addresses.length,
+                export_version: importData.metadata?.export_version || 'неизвестно',
+                includes_polygon: importData.metadata?.includes_polygon || false,
+                polygon_points: importData.area_polygon?.length || 0
+            });
+            
+            // Обработка полигона области
+            let polygonImported = false;
+            let polygonMessage = '';
+            
+            if (importData.area_polygon && Array.isArray(importData.area_polygon) && importData.area_polygon.length >= 3) {
+                if (this.hasAreaPolygon()) {
+                    // Если в области уже есть полигон, игнорируем полигон из файла
+                    polygonMessage = 'Полигон из файла проигнорирован (область уже содержит полигон)';
+                    await this.debugLog('⚠️ Полигон из файла игнорируется - в области уже есть полигон');
+                } else {
+                    // Если в области нет полигона, импортируем его
+                    try {
+                        const updatedArea = new MapAreaModel({
+                            ...this.currentArea,
+                            polygon: importData.area_polygon,
+                            updated_at: new Date()
+                        });
+                        
+                        await window.db.updateMapArea(updatedArea);
+                        this.currentArea = updatedArea;
+                        
+                        // Обновляем полигон на карте
+                        if (this.map) {
+                            this.displayAreaPolygon(updatedArea.polygon);
+                        }
+                        
+                        polygonImported = true;
+                        polygonMessage = 'Полигон области импортирован из файла';
+                        await this.debugLog('✅ Полигон области импортирован из файла:', {
+                            points: importData.area_polygon.length
+                        });
+                    } catch (error) {
+                        console.error('Ошибка при импорте полигона:', error);
+                        polygonMessage = 'Ошибка при импорте полигона области';
+                        await this.debugLog('❌ Ошибка при импорте полигона:', error);
+                    }
+                }
+            } else {
+                polygonMessage = 'Файл не содержит валидного полигона области';
+                await this.debugLog('ℹ️ Файл не содержит валидного полигона области');
+            }
+            
+            // Импорт справочников (если присутствуют)
+            let referenceImportResults = null;
+            if (importData.reference_data) {
+                await this.debugLog('📚 Импорт справочников...');
+                referenceImportResults = await this.importReferenceData(importData.reference_data);
+                await this.debugLog('✅ Справочники импортированы:', referenceImportResults);
+            }
+            
+            // Фильтруем адреса, которые входят в полигон текущей области
+            const areaAddresses = addresses.filter(address => {
+                if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                    return false;
+                }
+                
+                const addressModel = new AddressModel(address);
+                return addressModel.belongsToMapArea(this.currentArea);
+            });
+            
+            if (areaAddresses.length === 0) {
+                this.updateFileOperationStatus('Ни один адрес из файла не входит в текущую область', 'warning');
+                button.innerHTML = '⚠️ Нет подходящих адресов';
+                button.classList.remove('bg-white', 'hover:bg-gray-50');
+                button.classList.add('bg-yellow-100', 'hover:bg-yellow-200');
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('bg-yellow-100', 'hover:bg-yellow-200');
+                    button.classList.add('bg-white', 'hover:bg-gray-50');
+                    button.disabled = false;
+                }, 3000);
+                return;
+            }
+            
+            // Проверяем на дубликаты и импортируем
+            let importedCount = 0;
+            let duplicatesCount = 0;
+            
+            for (const addressData of areaAddresses) {
+                // Проверяем существует ли адрес с такими же координатами
+                const existingAddresses = await window.db.getAddresses();
+                const duplicate = existingAddresses.find(existing => 
+                    existing.coordinates && 
+                    Math.abs(existing.coordinates.lat - addressData.coordinates.lat) < 0.0001 &&
+                    Math.abs(existing.coordinates.lng - addressData.coordinates.lng) < 0.0001
+                );
+                
+                if (duplicate) {
+                    duplicatesCount++;
+                    continue;
+                }
+                
+                // Создаем новый адрес
+                const newAddress = new AddressModel({
+                    ...addressData,
+                    id: null, // Создаем новый ID
+                    source: addressData.source || 'imported', // Добавляем source по умолчанию
+                    created_at: new Date(),
+                    updated_at: new Date()
+                });
+                
+                // Валидируем и сохраняем
+                const validationErrors = newAddress.validate();
+                if (validationErrors.length === 0) {
+                    await window.db.addAddress(newAddress);
+                    importedCount++;
+                }
+            }
+            
+            await this.debugLog('✅ Результат импорта:', {
+                imported: importedCount,
+                duplicates: duplicatesCount,
+                total_processed: areaAddresses.length,
+                polygon_imported: polygonImported,
+                polygon_message: polygonMessage,
+                reference_results: referenceImportResults
+            });
+            
+            // Формируем сообщение об импорте
+            let importMessage = `Импортировано ${importedCount} адресов`;
+            if (duplicatesCount > 0) {
+                importMessage += `, пропущено дубликатов: ${duplicatesCount}`;
+            }
+            if (referenceImportResults) {
+                const totalRefImported = Object.values(referenceImportResults).reduce((sum, ref) => sum + ref.imported, 0);
+                const totalRefDuplicates = Object.values(referenceImportResults).reduce((sum, ref) => sum + ref.duplicates, 0);
+                if (totalRefImported > 0) {
+                    importMessage += `. Импортировано справочников: ${totalRefImported}`;
+                }
+                if (totalRefDuplicates > 0) {
+                    importMessage += `, пропущено дубликатов справочников: ${totalRefDuplicates}`;
+                }
+            }
+            if (polygonImported) {
+                importMessage += `. ${polygonMessage}`;
+            } else if (polygonMessage) {
+                importMessage += `. ${polygonMessage}`;
+            }
+            
+            this.updateFileOperationStatus(importMessage, 'success');
+            
+            // Обновляем карту и таблицы
+            await this.refreshMapData();
+            await this.refreshAddressData();
+            
+            button.innerHTML = `✅ Импортировано ${importedCount}`;
+            button.classList.remove('bg-white', 'hover:bg-gray-50');
+            button.classList.add('bg-green-100', 'hover:bg-green-200');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('bg-green-100', 'hover:bg-green-200');
+                button.classList.add('bg-white', 'hover:bg-gray-50');
+                button.disabled = false;
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Ошибка при импорте адресов:', error);
+            this.updateFileOperationStatus(`Ошибка при импорте: ${error.message}`, 'error');
+            
+            const button = document.getElementById('importAddressesBtn');
+            const originalText = button.innerHTML;
+            button.innerHTML = '❌ Ошибка';
+            button.classList.remove('bg-white', 'hover:bg-gray-50');
+            button.classList.add('bg-red-100', 'hover:bg-red-200');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('bg-red-100', 'hover:bg-red-200');
+                button.classList.add('bg-white', 'hover:bg-gray-50');
+                button.disabled = false;
+            }, 2000);
+        } finally {
+            // Сбрасываем input файла
+            event.target.value = '';
+        }
+    }
+    
+    /**
+     * Чтение файла как текста
+     */
+    readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(new Error('Ошибка чтения файла'));
+            reader.readAsText(file);
+        });
+    }
+    
+    /**
+     * Валидация данных импорта
+     */
+    validateImportData(data) {
+        if (!data || typeof data !== 'object') {
+            throw new Error('Неверная структура файла');
+        }
+        
+        if (!data.metadata) {
+            throw new Error('Файл не содержит метаданных');
+        }
+        
+        if (!data.addresses || !Array.isArray(data.addresses)) {
+            throw new Error('Файл не содержит массива адресов');
+        }
+        
+        // Проверяем версию формата
+        const version = data.metadata.export_version;
+        if (version && version !== '1.0' && version !== '1.1' && version !== '1.2') {
+            console.warn('Версия формата файла отличается от поддерживаемых (1.0, 1.1, 1.2)');
+        }
+        
+        // Валидируем полигон если он присутствует
+        if (data.area_polygon !== undefined) {
+            if (!Array.isArray(data.area_polygon)) {
+                throw new Error('Полигон области должен быть массивом координат');
+            }
+            
+            // Проверяем структуру точек полигона
+            if (data.area_polygon.length > 0) {
+                for (let i = 0; i < data.area_polygon.length; i++) {
+                    const point = data.area_polygon[i];
+                    if (!point || typeof point !== 'object' || 
+                        typeof point.lat !== 'number' || typeof point.lng !== 'number') {
+                        throw new Error(`Неверная структура точки полигона в позиции ${i}`);
+                    }
+                }
+                
+                // Минимум 3 точки для валидного полигона
+                if (data.area_polygon.length < 3) {
+                    console.warn('Полигон содержит менее 3 точек и будет проигнорирован');
+                }
+            }
+        }
+        
+        // Валидируем справочники если они присутствуют
+        if (data.reference_data) {
+            if (typeof data.reference_data !== 'object') {
+                throw new Error('Справочники должны быть объектом');
+            }
+            
+            const expectedReferences = ['house_series', 'house_classes', 'wall_materials', 'ceiling_materials'];
+            for (const ref of expectedReferences) {
+                if (data.reference_data[ref] !== undefined && !Array.isArray(data.reference_data[ref])) {
+                    throw new Error(`Справочник ${ref} должен быть массивом`);
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Импорт справочников с синхронизацией
+     */
+    async importReferenceData(referenceData) {
+        const importResults = {
+            house_series: { imported: 0, duplicates: 0 },
+            house_classes: { imported: 0, duplicates: 0 },
+            wall_materials: { imported: 0, duplicates: 0 },
+            ceiling_materials: { imported: 0, duplicates: 0 }
+        };
+        
+        // Импорт серий домов
+        if (referenceData.house_series) {
+            const existing = await window.db.getAll('house_series');
+            for (const series of referenceData.house_series) {
+                const duplicate = existing.find(e => e.id === series.id || e.name === series.name);
+                if (!duplicate) {
+                    const newSeries = new HouseSeriesModel(series);
+                    await window.db.add('house_series', newSeries);
+                    importResults.house_series.imported++;
+                } else {
+                    importResults.house_series.duplicates++;
+                }
+            }
+        }
+        
+        // Импорт классов домов
+        if (referenceData.house_classes) {
+            const existing = await window.db.getAll('house_classes');
+            for (const houseClass of referenceData.house_classes) {
+                const duplicate = existing.find(e => e.id === houseClass.id || e.name === houseClass.name);
+                if (!duplicate) {
+                    const newHouseClass = new HouseClassModel(houseClass);
+                    await window.db.add('house_classes', newHouseClass);
+                    importResults.house_classes.imported++;
+                } else {
+                    importResults.house_classes.duplicates++;
+                }
+            }
+        }
+        
+        // Импорт материалов стен
+        if (referenceData.wall_materials) {
+            const existing = await window.db.getAll('wall_materials');
+            for (const material of referenceData.wall_materials) {
+                const duplicate = existing.find(e => e.id === material.id || e.name === material.name);
+                if (!duplicate) {
+                    const newMaterial = new WallMaterialModel(material);
+                    await window.db.add('wall_materials', newMaterial);
+                    importResults.wall_materials.imported++;
+                } else {
+                    importResults.wall_materials.duplicates++;
+                }
+            }
+        }
+        
+        // Импорт материалов перекрытий
+        if (referenceData.ceiling_materials) {
+            const existing = await window.db.getAll('ceiling_materials');
+            for (const material of referenceData.ceiling_materials) {
+                const duplicate = existing.find(e => e.id === material.id || e.name === material.name);
+                if (!duplicate) {
+                    const newMaterial = new CeilingMaterialModel(material);
+                    await window.db.add('ceiling_materials', newMaterial);
+                    importResults.ceiling_materials.imported++;
+                } else {
+                    importResults.ceiling_materials.duplicates++;
+                }
+            }
+        }
+        
+        return importResults;
+    }
+    
+    /**
+     * Обновление статуса операций с файлами
+     */
+    updateFileOperationStatus(message, type = 'info') {
+        const statusElement = document.getElementById('fileOperationStatus');
+        if (!statusElement) return;
+        
+        statusElement.classList.remove('hidden', 'text-gray-600', 'text-green-600', 'text-red-600', 'text-yellow-600');
+        
+        switch (type) {
+            case 'success':
+                statusElement.classList.add('text-green-600');
+                break;
+            case 'error':
+                statusElement.classList.add('text-red-600');
+                break;
+            case 'warning':
+                statusElement.classList.add('text-yellow-600');
+                break;
+            default:
+                statusElement.classList.add('text-gray-600');
+        }
+        
+        statusElement.textContent = message;
+        
+        // Автоматически скрываем сообщение через 5 секунд
+        setTimeout(() => {
+            statusElement.classList.add('hidden');
+        }, 5000);
     }
 
 }
