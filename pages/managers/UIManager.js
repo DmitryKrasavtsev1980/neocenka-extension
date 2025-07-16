@@ -127,8 +127,13 @@ class UIManager {
             const header = document.getElementById(config.header);
             if (header) {
                 header.addEventListener('click', () => {
+                    console.log(`🔵 UIManager: Клик по панели "${panelName}"`);
                     this.togglePanel(panelName);
                 });
+                console.log(`✅ UIManager: Панель "${panelName}" привязана к элементу #${config.header}`);
+            } else {
+                // Панель может отсутствовать на некоторых страницах - это нормально
+                console.debug(`💡 UIManager: Панель "${panelName}" пропущена (элемент #${config.header} не найден)`);
             }
             
             // Обработка чекбокса видимости панели
@@ -714,12 +719,19 @@ class UIManager {
      */
     onWindowResize() {
         // Пересчитываем размеры таблиц
-        if (window.DataTable) {
+        if (window.DataTable && window.$) {
             const tables = document.querySelectorAll('.dataTable');
             tables.forEach(table => {
-                const dt = window.DataTable(table);
-                if (dt) {
-                    dt.columns.adjust();
+                try {
+                    const $table = window.$(table);
+                    if ($table.length && $table.DataTable) {
+                        const dt = $table.DataTable();
+                        if (dt) {
+                            dt.columns.adjust();
+                        }
+                    }
+                } catch (error) {
+                    // Игнорируем ошибки для таблиц, которые не инициализированы
                 }
             });
         }

@@ -173,6 +173,12 @@ class EventBus {
      * Испускание события
      */
     emit(event, data = null) {
+        // Защита от undefined события
+        if (!event || event === 'undefined') {
+            console.error('EventBus: Попытка emit с undefined/null событием:', event);
+            return;
+        }
+        
         const timestamp = Date.now();
         
         // Сохраняем в истории

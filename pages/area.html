@@ -254,7 +254,7 @@
     <div id="navigation-container"></div>
 
     <!-- Скрытый контент для переноса -->
-    <div id="area-content" class="hidden">
+    <div id="area-content" class="hidden max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <!-- Хлебные крошки -->
         <div id="breadcrumbs-container"></div>
 
@@ -1528,6 +1528,11 @@
     <script src="../libs/datatables/datatables.min.js"></script>
     <script src="../libs/slimselect/slimselect.min.js"></script>
     
+    <!-- Компоненты интерфейса -->
+    <script src="../components/navigation.js"></script>
+    <script src="../components/breadcrumbs.js"></script>
+    <script src="../components/footer.js"></script>
+    
     <!-- Leaflet JS -->
     <script src="../libs/leaflet/leaflet.js"></script>
     
@@ -1542,10 +1547,6 @@
     
     <!-- OSM Overpass API utilities -->
     <script src="../utils/osm-overpass.js"></script>
-    
-    <script src="../components/navigation.js"></script>
-    <script src="../components/breadcrumbs.js"></script>
-    <script src="../components/footer.js"></script>
     
     <!-- Модальное окно добавления материала стен -->
     <div id="wallMaterialModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="wall-material-modal-title" role="dialog" aria-modal="true">
@@ -1870,8 +1871,7 @@
                                             <!-- Тип недвижимости -->
                                             <div>
                                                 <label for="segmentType" class="block text-sm font-medium text-gray-700">Тип недвижимости</label>
-                                                <select name="type" id="segmentType" multiple
-                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                <select name="type" id="segmentType" multiple class="slim-select">
                                                     <option value="house">Дом</option>
                                                     <option value="house_with_land">Дом с участком</option>
                                                     <option value="land">Участок</option>
@@ -1883,8 +1883,7 @@
                                             <!-- Класс дома -->
                                             <div>
                                                 <label for="segmentHouseClass" class="block text-sm font-medium text-gray-700">Класс дома</label>
-                                                <select name="house_class_id" id="segmentHouseClass" multiple
-                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                <select name="house_class_id" id="segmentHouseClass" multiple class="slim-select">
                                                     <!-- Опции будут загружены динамически -->
                                                 </select>
                                             </div>
@@ -1892,8 +1891,7 @@
                                             <!-- Серия дома -->
                                             <div>
                                                 <label for="segmentHouseSeries" class="block text-sm font-medium text-gray-700">Серия дома</label>
-                                                <select name="house_series_id" id="segmentHouseSeries" multiple
-                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                <select name="house_series_id" id="segmentHouseSeries" multiple class="slim-select">
                                                     <!-- Опции будут загружены динамически -->
                                                 </select>
                                             </div>
@@ -1901,8 +1899,7 @@
                                             <!-- Материал стен -->
                                             <div>
                                                 <label for="segmentWallMaterial" class="block text-sm font-medium text-gray-700">Материал стен</label>
-                                                <select name="wall_material_id" id="segmentWallMaterial" multiple
-                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                <select name="wall_material_id" id="segmentWallMaterial" multiple class="slim-select">
                                                     <!-- Опции будут загружены динамически -->
                                                 </select>
                                             </div>
@@ -1910,8 +1907,7 @@
                                             <!-- Материал перекрытий -->
                                             <div>
                                                 <label for="segmentCeilingMaterial" class="block text-sm font-medium text-gray-700">Материал перекрытий</label>
-                                                <select name="ceiling_material_id" id="segmentCeilingMaterial" multiple
-                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                <select name="ceiling_material_id" id="segmentCeilingMaterial" multiple class="slim-select">
                                                     <!-- Опции будут загружены динамически -->
                                                 </select>
                                             </div>
@@ -1919,8 +1915,7 @@
                                             <!-- Газоснабжение -->
                                             <div>
                                                 <label for="segmentGasSupply" class="block text-sm font-medium text-gray-700">Газоснабжение</label>
-                                                <select name="gas_supply" id="segmentGasSupply" multiple
-                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                <select name="gas_supply" id="segmentGasSupply" multiple class="slim-select">
                                                     <option value="">Не указано</option>
                                                     <option value="true">Да</option>
                                                     <option value="false">Нет</option>
@@ -1970,13 +1965,12 @@
                                             
                                             <!-- Выбор адресов -->
                                             <div>
-                                                <label for="segmentAddresses" class="block text-sm font-medium text-gray-700">Выбор адресов (опционально)</label>
-                                                <select name="addresses" id="segmentAddresses" multiple
-                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                                <label for="segmentAddresses" class="block text-sm font-medium text-gray-700">Выбор адресов<span class="text-red-500 ml-1">*</span></label>
+                                                <select name="addresses" id="segmentAddresses" multiple class="slim-select" required>
                                                     <!-- Опции будут загружены динамически -->
                                                 </select>
                                                 <p class="mt-1 text-sm text-gray-500">
-                                                    Если адреса не выбраны, будут использованы все адреса, соответствующие фильтрам
+                                                    Выберите адреса, которые должны входить в сегмент
                                                 </p>
                                             </div>
                                         </div>

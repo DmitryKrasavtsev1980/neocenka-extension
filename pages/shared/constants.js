@@ -56,9 +56,30 @@ const EVENTS = {
     // UI
     UI_INITIALIZED: 'ui:initialized',
     UI_UPDATED: 'ui:updated',
+    UI_STATE_RESET: 'ui:state_reset',
     MODAL_OPENED: 'modal:opened',
     MODAL_CLOSED: 'modal:closed',
     TABLE_UPDATED: 'table:updated',
+    
+    // Панели
+    PANEL_TOGGLED: 'panel:toggled',
+    PANEL_VISIBILITY_CHANGED: 'panel:visibility_changed',
+    
+    // Уведомления
+    NOTIFICATION_SHOW: 'notification:show',
+    NOTIFICATION_SHOWN: 'notification:shown',
+    NOTIFICATION_HIDDEN: 'notification:hidden',
+    
+    // Загрузка
+    LOADING_STARTED: 'loading:started',
+    LOADING_FINISHED: 'loading:finished',
+    LOADING_STATE_CHANGED: 'loading:state_changed',
+    
+    // Дополнительные UI события
+    WINDOW_RESIZED: 'window:resized',
+    THEME_CHANGED: 'theme:changed',
+    SORTABLE_CHANGED: 'sortable:changed',
+    GLOBAL_ERROR: 'global:error',
     
     // Прогресс
     PROGRESS_UPDATED: 'progress:updated',

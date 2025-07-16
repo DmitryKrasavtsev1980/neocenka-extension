@@ -786,7 +786,7 @@ class MapManager {
     /**
      * Переключение фильтра карты
      */
-    toggleMapFilter(filterType) {
+    async toggleMapFilter(filterType) {
         // Сбрасываем все кнопки фильтров
         const filterButtons = [
             'filterByYear',

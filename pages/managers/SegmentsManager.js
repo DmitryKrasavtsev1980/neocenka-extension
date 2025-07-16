@@ -73,13 +73,107 @@ class SegmentsManager {
     }
     
     /**
+     * Инициализация таблицы сегментов
+     */
+    initializeTable() {
+        if (this.segmentsTable) {
+            this.segmentsTable.destroy();
+        }
+        
+        this.segmentsTable = $('#segmentsTable').DataTable({
+            responsive: true,
+            pageLength: 25,
+            lengthChange: false,
+            searching: false,
+            ordering: true,
+            info: true,
+            autoWidth: false,
+            language: {
+                url: '../libs/datatables/ru.json'
+            },
+            columns: [
+                {
+                    title: '',
+                    data: null,
+                    width: '30px',
+                    orderable: false,
+                    className: 'details-control text-center',
+                    render: function(data, type, row) {
+                        return '<i class="fas fa-plus-circle text-gray-400 hover:text-blue-600 cursor-pointer"></i>';
+                    }
+                },
+                {
+                    title: 'Название сегмента',
+                    data: 'name',
+                    render: function(data, type, row) {
+                        return `<span class="font-medium text-gray-900">${data || 'Без названия'}</span>`;
+                    }
+                },
+                {
+                    title: 'Количество домов',
+                    data: 'addresses_count',
+                    className: 'text-center',
+                    render: function(data, type, row) {
+                        return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">${data || 0}</span>`;
+                    }
+                },
+                {
+                    title: 'Подсегменты',
+                    data: 'subsegments_count',
+                    className: 'text-center',
+                    render: function(data, type, row) {
+                        return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">${data || 0}</span>`;
+                    }
+                },
+                {
+                    title: 'Действия',
+                    data: null,
+                    width: '120px',
+                    orderable: false,
+                    className: 'text-right',
+                    render: function(data, type, row) {
+                        return `
+                            <div class="flex justify-end space-x-2">
+                                <button type="button" class="edit-segment-btn inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200" data-segment-id="${row.id}">
+                                    Изменить
+                                </button>
+                                <button type="button" class="delete-segment-btn inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-red-700 bg-red-100 hover:bg-red-200" data-segment-id="${row.id}">
+                                    Удалить
+                                </button>
+                            </div>
+                        `;
+                    }
+                }
+            ],
+            drawCallback: () => {
+                // Проверяем наличие данных
+                const info = this.segmentsTable.page.info();
+                if (info.recordsTotal === 0) {
+                    $('#segmentsTableEmpty').removeClass('hidden');
+                    $('#segmentsTable_wrapper').addClass('hidden');
+                } else {
+                    $('#segmentsTableEmpty').addClass('hidden');
+                    $('#segmentsTable_wrapper').removeClass('hidden');
+                }
+            }
+        });
+    }
+
+    /**
      * Привязка к кнопкам
      */
     bindButtons() {
         // Кнопка создания сегмента
-        document.getElementById('createSegmentBtn')?.addEventListener('click', () => {
-            this.openCreateSegmentModal();
-        });
+        const createBtn = document.getElementById('createSegmentBtn');
+        if (createBtn) {
+            createBtn.addEventListener('click', () => {
+                console.log('🔵 SegmentsManager: Клик по кнопке создания сегмента');
+                this.openCreateSegmentModal();
+            });
+            console.log('✅ SegmentsManager: Кнопка создания сегмента привязана');
+        } else {
+            console.warn('⚠️ SegmentsManager: Кнопка #createSegmentBtn не найдена');
+        }
         
         // Кнопка создания подсегмента
         document.getElementById('createSubsegmentBtn')?.addEventListener('click', () => {
@@ -114,7 +208,7 @@ class SegmentsManager {
         });
         
         // Кнопка закрытия модального окна
-        document.getElementById('closeSegmentModal')?.addEventListener('click', () => {
+        document.getElementById('closeSegmentModalBtn')?.addEventListener('click', () => {
             this.closeSegmentModal();
         });
         
@@ -207,15 +301,30 @@ class SegmentsManager {
      */
     async loadReferenceData() {
         try {
-            this.houseSeries = await window.db.getAll('house_series');
-            this.houseClasses = await window.db.getAll('house_classes');
-            this.wallMaterials = await window.db.getAll('wall_materials');
-            this.ceilingMaterials = await window.db.getAll('ceiling_materials');
+            console.log('🔄 Загружаем справочные данные из базы данных...');
             
-            await Helpers.debugLog('✅ Справочные данные для сегментов загружены');
+            // Загружаем данные из базы данных
+            this.houseSeries = await window.db.getAll('house_series') || [];
+            this.houseClasses = await window.db.getAll('house_classes') || [];
+            this.wallMaterials = await window.db.getAll('wall_materials') || [];
+            this.ceilingMaterials = await window.db.getAll('ceiling_materials') || [];
+            
+            console.log('📊 Загружено справочных данных:');
+            console.log('- Серии домов:', this.houseSeries.length, this.houseSeries);
+            console.log('- Классы домов:', this.houseClasses.length, this.houseClasses);
+            console.log('- Материалы стен:', this.wallMaterials.length, this.wallMaterials);
+            console.log('- Материалы перекрытий:', this.ceilingMaterials.length, this.ceilingMaterials);
+            
+            console.log('✅ Справочные данные для сегментов загружены');
             
         } catch (error) {
-            console.error('Error loading reference data:', error);
+            console.error('❌ Ошибка загрузки справочных данных:', error);
+            
+            // Создаем пустые массивы при ошибке
+            this.houseSeries = [];
+            this.houseClasses = [];
+            this.wallMaterials = [];
+            this.ceilingMaterials = [];
         }
     }
     
@@ -514,25 +623,60 @@ class SegmentsManager {
      * Открытие модального окна создания сегмента
      */
     openCreateSegmentModal() {
+        console.log('🔵 SegmentsManager: Открываем модальное окно создания сегмента');
+        
         this.segmentsState.editingSegment = null;
         this.segmentsState.modalOpen = true;
         
         // Очищаем форму
-        this.clearSegmentForm();
-        
-        // Заполняем справочники
-        this.populateSegmentFormSelects();
+        try {
+            this.clearSegmentForm();
+        } catch (error) {
+            console.error('❌ SegmentsManager: Ошибка очистки формы:', error);
+        }
         
         // Показываем модальное окно
         const modal = document.getElementById('segmentModal');
         if (modal) {
+            console.log('✅ SegmentsManager: Модальное окно найдено, показываем');
+            
+            // Убираем класс hidden и показываем модальное окно
+            modal.classList.remove('hidden');
             modal.style.display = 'flex';
             
             // Устанавливаем заголовок
-            const title = document.getElementById('segmentModalTitle');
+            const title = document.getElementById('segment-modal-title');
             if (title) {
                 title.textContent = 'Создать сегмент';
+                console.log('✅ SegmentsManager: Заголовок модального окна установлен');
+            } else {
+                console.warn('⚠️ SegmentsManager: Заголовок #segment-modal-title не найден');
             }
+            
+            // Инициализируем содержимое модального окна после показа
+            setTimeout(async () => {
+                try {
+                    // Принудительно загружаем справочные данные
+                    console.log('🔄 Принудительная загрузка справочных данных');
+                    await this.loadReferenceData();
+                    
+                    // Сначала заполняем селекты данными
+                    await this.populateSegmentFormSelects();
+                    
+                    // Затем инициализируем SlimSelect
+                    this.initializeSlimSelects();
+                    
+                    // И инициализируем карту
+                    this.initializeSegmentMap();
+                    
+                } catch (error) {
+                    console.error('❌ SegmentsManager: Ошибка инициализации модального окна:', error);
+                }
+            }, 100);
+            
+            console.log('✅ SegmentsManager: Модальное окно должно быть видимым');
+        } else {
+            console.error('❌ SegmentsManager: Модальное окно #segmentModal не найдено');
         }
     }
     
@@ -560,12 +704,6 @@ class SegmentsManager {
         this.segmentsState.editingSegment = segment;
         this.segmentsState.modalOpen = true;
         
-        // Заполняем форму данными сегмента
-        this.populateSegmentForm(segment);
-        
-        // Заполняем справочники
-        this.populateSegmentFormSelects();
-        
         // Показываем модальное окно
         const modal = document.getElementById('segmentModal');
         if (modal) {
@@ -576,6 +714,30 @@ class SegmentsManager {
             if (title) {
                 title.textContent = 'Редактировать сегмент';
             }
+            
+            // Инициализируем содержимое модального окна после показа
+            setTimeout(async () => {
+                try {
+                    // Принудительно загружаем справочные данные
+                    console.log('🔄 Принудительная загрузка справочных данных для редактирования');
+                    await this.loadReferenceData();
+                    
+                    // Сначала заполняем селекты данными
+                    await this.populateSegmentFormSelects();
+                    
+                    // Затем инициализируем SlimSelect
+                    this.initializeSlimSelects();
+                    
+                    // Заполняем форму данными сегмента
+                    this.populateSegmentForm(segment);
+                    
+                    // И инициализируем карту
+                    this.initializeSegmentMap();
+                    
+                } catch (error) {
+                    console.error('❌ SegmentsManager: Ошибка инициализации модального окна редактирования:', error);
+                }
+            }, 100);
         }
     }
     
@@ -682,6 +844,44 @@ class SegmentsManager {
     }
     
     /**
+     * Инициализация SlimSelect для всех селектов в модальном окне
+     */
+    initializeSlimSelects() {
+        const selectors = [
+            'segmentType',
+            'segmentHouseClass', 
+            'segmentHouseSeries',
+            'segmentWallMaterial',
+            'segmentCeilingMaterial',
+            'segmentGasSupply',
+            'segmentAddresses'
+        ];
+        
+        selectors.forEach(selectorId => {
+            const element = document.getElementById(selectorId);
+            if (element && !element.slimSelect) {
+                try {
+                    element.slimSelect = new SlimSelect({
+                        select: element,
+                        settings: {
+                            searchPlaceholder: 'Поиск...',
+                            searchText: 'Нет результатов',
+                            searchHighlight: true,
+                            closeOnSelect: false,
+                            showSearch: true,
+                            placeholderText: 'Выберите значения...'
+                        }
+                    });
+                    
+                    console.log(`✅ SlimSelect инициализирован для ${selectorId}`);
+                } catch (error) {
+                    console.error(`❌ Ошибка инициализации SlimSelect для ${selectorId}:`, error);
+                }
+            }
+        });
+    }
+    
+    /**
      * Закрытие модального окна сегмента
      */
     closeSegmentModal() {
@@ -691,6 +891,7 @@ class SegmentsManager {
         const modal = document.getElementById('segmentModal');
         if (modal) {
             modal.style.display = 'none';
+            modal.classList.add('hidden');
         }
         
         // Очищаем форму
@@ -938,50 +1139,395 @@ class SegmentsManager {
     /**
      * Заполнение селектов в форме сегмента
      */
-    populateSegmentFormSelects() {
-        // Серии домов
-        const houseSeriesContainer = document.getElementById('houseSeriesContainer');
-        if (houseSeriesContainer) {
-            houseSeriesContainer.innerHTML = this.houseSeries.map(series => `
-                <label class="inline-flex items-center">
-                    <input type="checkbox" name="house_series_id" value="${series.id}" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                    <span class="ml-2 text-sm text-gray-700">${series.name}</span>
-                </label>
-            `).join('');
+    async populateSegmentFormSelects() {
+        try {
+            console.log('🔄 SegmentsManager: Заполняем селекты формы сегмента');
+            
+            // Сначала убедимся, что данные загружены
+            if (!this.houseClasses || !this.houseSeries || !this.wallMaterials || !this.ceilingMaterials) {
+                console.warn('⚠️ SegmentsManager: Справочные данные не загружены, повторная загрузка');
+                await this.loadReferenceData();
+            }
+            
+            // Заполняем классы домов
+            const houseClassSelect = document.getElementById('segmentHouseClass');
+            if (houseClassSelect) {
+                console.log('🔍 Данные для классов домов:', this.houseClasses);
+                houseClassSelect.innerHTML = this.houseClasses.map(houseClass => 
+                    `<option value="${houseClass.id}">${houseClass.name}</option>`
+                ).join('');
+                console.log(`✅ Заполнен селект классов домов: ${this.houseClasses.length} элементов`);
+                console.log('🔍 HTML классов домов:', houseClassSelect.innerHTML);
+            } else {
+                console.error('❌ Элемент #segmentHouseClass не найден');
+            }
+            
+            // Заполняем серии домов
+            const houseSeriesSelect = document.getElementById('segmentHouseSeries');
+            if (houseSeriesSelect) {
+                console.log('🔍 Данные для серий домов:', this.houseSeries);
+                houseSeriesSelect.innerHTML = this.houseSeries.map(series => 
+                    `<option value="${series.id}">${series.name}</option>`
+                ).join('');
+                console.log(`✅ Заполнен селект серий домов: ${this.houseSeries.length} элементов`);
+                console.log('🔍 HTML серий домов:', houseSeriesSelect.innerHTML);
+            } else {
+                console.error('❌ Элемент #segmentHouseSeries не найден');
+            }
+            
+            // Заполняем материалы стен
+            const wallMaterialSelect = document.getElementById('segmentWallMaterial');
+            if (wallMaterialSelect) {
+                console.log('🔍 Данные для материалов стен:', this.wallMaterials);
+                wallMaterialSelect.innerHTML = this.wallMaterials.map(material => 
+                    `<option value="${material.id}">${material.name}</option>`
+                ).join('');
+                console.log(`✅ Заполнен селект материалов стен: ${this.wallMaterials.length} элементов`);
+                console.log('🔍 HTML материалов стен:', wallMaterialSelect.innerHTML);
+            } else {
+                console.error('❌ Элемент #segmentWallMaterial не найден');
+            }
+            
+            // Заполняем материалы перекрытий
+            const ceilingMaterialSelect = document.getElementById('segmentCeilingMaterial');
+            if (ceilingMaterialSelect) {
+                console.log('🔍 Данные для материалов перекрытий:', this.ceilingMaterials);
+                ceilingMaterialSelect.innerHTML = this.ceilingMaterials.map(material => 
+                    `<option value="${material.id}">${material.name}</option>`
+                ).join('');
+                console.log(`✅ Заполнен селект материалов перекрытий: ${this.ceilingMaterials.length} элементов`);
+                console.log('🔍 HTML материалов перекрытий:', ceilingMaterialSelect.innerHTML);
+            } else {
+                console.error('❌ Элемент #segmentCeilingMaterial не найден');
+            }
+            
+            // Заполняем адреса из текущей области
+            await this.populateAddressesSelect();
+            
+            console.log('✅ SegmentsManager: Все селекты заполнены');
+            
+        } catch (error) {
+            console.error('❌ SegmentsManager: Ошибка заполнения селектов:', error);
+        }
+    }
+    
+    /**
+     * Заполнение списка адресов
+     */
+    async populateAddressesSelect() {
+        try {
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea) {
+                console.error('❌ SegmentsManager: Нет текущей области');
+                console.log('🔍 Все состояния dataState:', this.dataState.getAllStates());
+                return;
+            }
+            
+            const addresses = this.dataState.getState('addresses') || [];
+            // Все адреса - фильтрация по области должна быть уже применена в основном коде
+            const addressesInArea = addresses.filter(addr => 
+                addr.coordinates && addr.coordinates.lat && addr.coordinates.lng
+            );
+            
+            console.log(`🔄 SegmentsManager: Загружаем ${addressesInArea.length} адресов в селект`);
+            console.log('🔍 Текущая область:', currentArea.name, 'ID:', currentArea.id);
+            console.log('🔍 Всего адресов:', addresses.length);
+            
+            const addressesSelect = document.getElementById('segmentAddresses');
+            if (addressesSelect) {
+                addressesSelect.innerHTML = addressesInArea.map(address => 
+                    `<option value="${address.id}">${address.address}</option>`
+                ).join('');
+                
+                console.log('✅ SegmentsManager: Список адресов заполнен');
+            } else {
+                console.error('❌ SegmentsManager: Элемент #segmentAddresses не найден');
+            }
+            
+        } catch (error) {
+            console.error('❌ SegmentsManager: Ошибка заполнения адресов:', error);
+        }
+    }
+    
+    /**
+     * Инициализация карты в модальном окне сегмента
+     */
+    initializeSegmentMap() {
+        try {
+            const mapContainer = document.getElementById('segmentMap');
+            if (!mapContainer) {
+                console.error('❌ SegmentsManager: Контейнер карты не найден');
+                return;
+            }
+            
+            console.log('🔄 SegmentsManager: Инициализируем карту сегмента');
+            console.log('🔍 Контейнер карты:', mapContainer);
+            console.log('🔍 Размеры контейнера:', mapContainer.offsetWidth, 'x', mapContainer.offsetHeight);
+            
+            // Очищаем существующую карту
+            if (this.segmentMap) {
+                console.log('🔄 Очищаем существующую карту');
+                this.segmentMap.remove();
+                this.segmentMap = null;
+                this.segmentAreaPolygon = null;
+                this.segmentAddressesLayer = null;
+            }
+            
+            // Создаем новую карту
+            this.segmentMap = L.map('segmentMap').setView([55.7558, 37.6176], 10);
+            console.log('✅ Карта создана:', this.segmentMap);
+            
+            // Добавляем тайловый слой
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(this.segmentMap);
+            console.log('✅ Тайловый слой добавлен');
+            
+            // Принудительно обновляем размеры карты
+            setTimeout(() => {
+                if (this.segmentMap) {
+                    this.segmentMap.invalidateSize();
+                    console.log('✅ Размеры карты обновлены');
+                    
+                    // Загружаем адреса области
+                    this.loadAddressesOnMap();
+                }
+            }, 200);
+            
+            console.log('✅ SegmentsManager: Карта сегмента инициализирована');
+            
+        } catch (error) {
+            console.error('❌ SegmentsManager: Ошибка инициализации карты:', error);
+        }
+    }
+    
+    /**
+     * Загрузка адресов на карту
+     */
+    async loadAddressesOnMap() {
+        try {
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea || !this.segmentMap) {
+                console.error('❌ SegmentsManager: Нет текущей области или карты');
+                console.log('🔍 currentArea:', currentArea);
+                console.log('🔍 segmentMap:', this.segmentMap);
+                console.log('🔍 Все состояния dataState:', this.dataState.getAllStates());
+                return;
+            }
+            
+            // Добавляем полигон области на карту
+            this.displayAreaPolygon(currentArea);
+            
+            const addresses = this.dataState.getState('addresses') || [];
+            // Все адреса с координатами - фильтрация по полигону делается в основном приложении
+            const addressesWithCoords = addresses.filter(addr => 
+                addr.coordinates && 
+                addr.coordinates.lat && 
+                addr.coordinates.lng
+            );
+            
+            console.log(`🔄 SegmentsManager: Загружаем ${addressesWithCoords.length} адресов на карту`);
+            
+            // Очищаем существующие маркеры
+            if (this.segmentAddressesLayer) {
+                this.segmentMap.removeLayer(this.segmentAddressesLayer);
+            }
+            
+            // Создаем группу маркеров для адресов
+            this.segmentAddressesLayer = L.layerGroup();
+            
+            // Добавляем маркеры для каждого адреса
+            addressesWithCoords.forEach(address => {
+                const marker = this.createAddressMarker(address);
+                this.segmentAddressesLayer.addLayer(marker);
+            });
+            
+            // Добавляем слой на карту
+            this.segmentAddressesLayer.addTo(this.segmentMap);
+            
+            // Подгоняем масштаб карты под область или адреса
+            if (this.segmentAreaPolygon) {
+                this.segmentMap.fitBounds(this.segmentAreaPolygon.getBounds(), { padding: [20, 20] });
+            } else if (addressesWithCoords.length > 0) {
+                const bounds = L.latLngBounds(
+                    addressesWithCoords.map(addr => [addr.coordinates.lat, addr.coordinates.lng])
+                );
+                this.segmentMap.fitBounds(bounds, { padding: [20, 20] });
+            }
+            
+            console.log(`✅ SegmentsManager: Загружено ${addressesWithCoords.length} адресов на карту`);
+            
+        } catch (error) {
+            console.error('❌ SegmentsManager: Ошибка загрузки адресов на карту:', error);
+        }
+    }
+    
+    /**
+     * Отображение полигона области (как в MapManager)
+     */
+    displayAreaPolygon(area) {
+        try {
+            if (!area || !this.hasAreaPolygon(area)) {
+                console.warn('⚠️ SegmentsManager: У области нет полигона или он некорректен');
+                return;
+            }
+            
+            // Если полигон уже существует, не создаем его повторно
+            if (this.segmentAreaPolygon) {
+                console.log('🔷 Полигон области уже отображен, пропускаем повторное создание');
+                return;
+            }
+            
+            console.log('🔷 Создаем полигон области на карте');
+            
+            // Конвертируем координаты в формат Leaflet
+            const latLngs = area.polygon.map(point => [point.lat, point.lng]);
+            
+            // Создаем полигон как отдельный слой
+            this.segmentAreaPolygon = L.polygon(latLngs, {
+                color: '#3b82f6',
+                fillColor: '#3b82f6',
+                fillOpacity: 0.1,
+                weight: 2,
+                opacity: 0.8
+            }).addTo(this.segmentMap);
+            
+            // Добавляем popup с информацией об области
+            this.segmentAreaPolygon.bindPopup(`
+                <div class="text-sm">
+                    <strong>Область: ${area.name}</strong><br>
+                    Создана: ${new Date(area.created_at).toLocaleDateString()}
+                </div>
+            `);
+            
+            console.log('✅ SegmentsManager: Полигон области добавлен на карту');
+            
+        } catch (error) {
+            console.error('❌ SegmentsManager: Ошибка добавления полигона области:', error);
+        }
+    }
+    
+    /**
+     * Проверка наличия полигона в области (как в MapManager)
+     */
+    hasAreaPolygon(area) {
+        return area && 
+               area.polygon && 
+               Array.isArray(area.polygon) && 
+               area.polygon.length >= 3;
+    }
+    
+    /**
+     * Создание маркера адреса (как в MapManager)
+     */
+    createAddressMarker(address) {
+        const color = this.getAddressColor(address);
+        
+        const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
+            addressId: address.id,
+            icon: L.divIcon({
+                className: 'address-marker',
+                html: `<div style="background: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></div>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            })
+        });
+        
+        marker.bindPopup(this.createAddressPopup(address));
+        
+        // Добавляем обработчик клика для выбора адреса
+        marker.on('click', () => {
+            this.toggleAddressSelection(address.id);
+        });
+        
+        return marker;
+    }
+    
+    /**
+     * Создание popup для адреса (как в MapManager)
+     */
+    createAddressPopup(address) {
+        const propertyTypeNames = {
+            'house': 'Дом',
+            'house_with_land': 'Дом с участком',
+            'land': 'Участок',
+            'commercial': 'Коммерческая',
+            'building': 'Здание'
+        };
+        
+        return `
+            <div class="max-w-xs">
+                <div class="font-medium text-gray-900 mb-2">📍 ${address.address}</div>
+                <div class="text-sm text-gray-600 space-y-1">
+                    <div>Тип: ${propertyTypeNames[address.type] || address.type}</div>
+                    ${address.floors_count ? `<div>Этажей: ${address.floors_count}</div>` : ''}
+                    ${address.build_year ? `<div>Год: ${address.build_year}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Получение цвета для адреса (как в MapManager)
+     */
+    getAddressColor(address) {
+        const typeColors = {
+            'house': '#3b82f6',
+            'house_with_land': '#10b981',
+            'land': '#f59e0b',
+            'commercial': '#ef4444',
+            'building': '#8b5cf6'
+        };
+        
+        return typeColors[address.type] || '#6b7280';
+    }
+
+    /**
+     * Переключение выбора адреса
+     */
+    toggleAddressSelection(addressId) {
+        const addressSelect = document.getElementById('segmentAddresses');
+        if (!addressSelect || !addressSelect.slimSelect) return;
+        
+        const currentValues = addressSelect.slimSelect.selected() || [];
+        const isSelected = currentValues.includes(addressId);
+        
+        if (isSelected) {
+            // Убираем из выбора
+            const newValues = currentValues.filter(id => id !== addressId);
+            addressSelect.slimSelect.set(newValues);
+        } else {
+            // Добавляем в выбор
+            addressSelect.slimSelect.set([...currentValues, addressId]);
         }
         
-        // Классы домов
-        const houseClassesContainer = document.getElementById('houseClassesContainer');
-        if (houseClassesContainer) {
-            houseClassesContainer.innerHTML = this.houseClasses.map(houseClass => `
-                <label class="inline-flex items-center">
-                    <input type="checkbox" name="house_class_id" value="${houseClass.id}" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                    <span class="ml-2 text-sm text-gray-700">${houseClass.name}</span>
-                </label>
-            `).join('');
-        }
+        // Обновляем внешний вид маркеров
+        this.updateMapMarkersStyle();
+    }
+    
+    /**
+     * Обновление стилей маркеров на карте
+     */
+    updateMapMarkersStyle() {
+        if (!this.segmentAddressesLayer || !this.segmentMap) return;
         
-        // Материалы стен
-        const wallMaterialsContainer = document.getElementById('wallMaterialsContainer');
-        if (wallMaterialsContainer) {
-            wallMaterialsContainer.innerHTML = this.wallMaterials.map(material => `
-                <label class="inline-flex items-center">
-                    <input type="checkbox" name="wall_material_id" value="${material.id}" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                    <span class="ml-2 text-sm text-gray-700">${material.name}</span>
-                </label>
-            `).join('');
-        }
+        const addressSelect = document.getElementById('segmentAddresses');
+        const selectedAddresses = addressSelect?.slimSelect?.selected() || [];
         
-        // Материалы перекрытий
-        const ceilingMaterialsContainer = document.getElementById('ceilingMaterialsContainer');
-        if (ceilingMaterialsContainer) {
-            ceilingMaterialsContainer.innerHTML = this.ceilingMaterials.map(material => `
-                <label class="inline-flex items-center">
-                    <input type="checkbox" name="ceiling_material_id" value="${material.id}" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                    <span class="ml-2 text-sm text-gray-700">${material.name}</span>
-                </label>
-            `).join('');
-        }
+        // Обновляем стили всех маркеров
+        this.segmentAddressesLayer.eachLayer(layer => {
+            if (layer.options && layer.options.addressId) {
+                const isSelected = selectedAddresses.includes(layer.options.addressId);
+                layer.setOpacity(isSelected ? 1.0 : 0.5);
+                
+                // Можно добавить изменение иконки для выбранных адресов
+                if (isSelected) {
+                    layer.getElement()?.style.setProperty('filter', 'hue-rotate(120deg)');
+                } else {
+                    layer.getElement()?.style.removeProperty('filter');
+                }
+            }
+        });
     }
     
     /**

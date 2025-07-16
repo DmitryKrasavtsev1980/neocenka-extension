@@ -234,6 +234,27 @@ class DataState {
             stats: this.getStats()
         };
     }
+    
+    /**
+     * Получение всех состояний для отладки
+     */
+    getAllStates() {
+        return {
+            currentAreaId: this.currentAreaId,
+            currentArea: this.currentArea,
+            addresses: this.addresses,
+            listings: this.listings,
+            segments: this.segments,
+            realEstateObjects: this.realEstateObjects,
+            processing: this.processing,
+            selectedDuplicates: Array.from(this.selectedDuplicates),
+            selectedElements: Array.from(this.selectedElements),
+            activeMapFilter: this.activeMapFilter,
+            processingFilters: this.processingFilters,
+            cache: this.cache,
+            flags: this.flags
+        };
+    }
 }
 
 // Экспорт для использования в других модулях

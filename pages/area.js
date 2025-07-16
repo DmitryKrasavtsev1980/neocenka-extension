@@ -39,6 +39,8 @@ class AreaPage {
             addresses: false,
             duplicates: false
         };
+        
+        // Менеджеры будут инициализированы в init() после загрузки DOM
 
         // Ключ для сохранения состояния в localStorage
         this.storageKey = 'neocenka_area_progress_';
@@ -173,15 +175,81 @@ class AreaPage {
             console.error('Ошибка при очистке ресурсов AreaPage:', error);
         }
     }
+    
+    /**
+     * Инициализация менеджеров
+     */
+    initializeManagers() {
+        // Инициализируем DataState
+        this.dataState = new DataState();
+        
+        // Инициализируем EventBus
+        this.eventBus = new EventBus();
+        
+        // Инициализируем ProgressManager
+        this.progressManager = new ProgressManager();
+        
+        // Инициализируем UIManager
+        this.uiManager = new UIManager(this.dataState, this.eventBus, this.progressManager);
+        
+        // Инициализируем SegmentsManager
+        this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
+    }
+
+    /**
+     * Инициализация компонентов интерфейса
+     */
+    async initUIComponents() {
+        // Инициализируем навигацию
+        if (typeof NavigationComponent !== 'undefined') {
+            const navigation = new NavigationComponent();
+            const navContainer = document.getElementById('navigation-container');
+            if (navContainer) {
+                navContainer.innerHTML = navigation.render();
+                navigation.init();
+                await Helpers.debugLog('✅ Навигация инициализирована');
+            }
+        }
+        
+        // Инициализируем хлебные крошки
+        if (typeof BreadcrumbsComponent !== 'undefined') {
+            const breadcrumbs = BreadcrumbsComponent.forPage('area');
+            const breadcrumbsContainer = document.getElementById('breadcrumbs-container');
+            if (breadcrumbsContainer) {
+                breadcrumbsContainer.innerHTML = breadcrumbs.render();
+                await Helpers.debugLog('✅ Хлебные крошки инициализированы');
+            }
+        }
+        
+        // Инициализируем футер
+        if (typeof FooterComponent !== 'undefined') {
+            const footer = new FooterComponent();
+            const footerContainer = document.getElementById('footer-container');
+            if (footerContainer) {
+                footerContainer.innerHTML = footer.render();
+                await Helpers.debugLog('✅ Футер инициализирован');
+            }
+        }
+    }
 
     /**
      * Инициализация страницы
      */
     async init() {
         try {
+            console.log('🚀 Инициализация страницы области...');
+            
+            // Инициализируем менеджеры (после загрузки DOM и готовности БД)
+            this.initializeManagers();
+            
+            // Инициализируем компоненты интерфейса
+            await this.initUIComponents();
+            
             // Получаем ID области из URL параметров
             const urlParams = new URLSearchParams(window.location.search);
             this.currentAreaId = urlParams.get('id');
+            
+            console.log('🔍 ID области из URL:', this.currentAreaId);
 
             if (!this.currentAreaId) {
                 this.showError('ID области не указан');
@@ -207,6 +275,15 @@ class AreaPage {
             
             // Инициализируем интеграцию с сервисами
             await this.initServicesIntegration();
+            
+            // Инициализируем таблицу сегментов
+            this.segmentsManager.initializeTable();
+            
+            // Инициализируем UI элементы (это должно быть после загрузки DOM)
+            if (this.uiManager) {
+                // UIManager уже инициализирован в конструкторе, панели должны работать
+                await Helpers.debugLog('✅ UIManager готов к работе');
+            }
 
             // Восстанавливаем состояние таблицы адресов
             this.restoreAddressTableState();
@@ -221,6 +298,13 @@ class AreaPage {
 
             // Восстанавливаем состояние прогресса
             this.restoreProgressState();
+            
+            // Показываем контент страницы
+            const areaContent = document.getElementById('area-content');
+            if (areaContent) {
+                areaContent.classList.remove('hidden');
+                console.log('✅ Контент страницы отображен');
+            }
 
         } catch (error) {
             console.error('Error initializing area page:', error);
@@ -233,7 +317,9 @@ class AreaPage {
      */
     async loadAreaData() {
         try {
+            console.log('📂 Загрузка данных области с ID:', this.currentAreaId);
             const areaData = await db.get('map_areas', this.currentAreaId);
+            console.log('📋 Данные области загружены:', areaData);
 
             if (!areaData) {
                 throw new Error('Область не найдена');
@@ -241,6 +327,9 @@ class AreaPage {
 
             // Создаем экземпляр MapAreaModel для доступа к методам
             this.currentArea = new MapAreaModel(areaData);
+            
+            // Синхронизируем с dataState для доступа из менеджеров
+            this.dataState.setState('currentArea', this.currentArea);
 
             // Обновляем заголовок и описание
             document.getElementById('areaTitle').textContent = this.currentArea.name;
@@ -13078,3 +13167,59 @@ let areaPage;
 
 // Делаем класс доступным глобально
 window.AreaPage = AreaPage;
+
+// Инициализация при загрузке DOM
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // Ждем готовности базы данных
+        if (!window.db || !window.db.db || typeof window.db.get !== 'function') {
+            console.log('⏳ Ожидание готовности базы данных...');
+            await new Promise((resolve, reject) => {
+                let attempts = 0;
+                const maxAttempts = 100; // 10 секунд максимум
+                
+                const checkDB = setInterval(() => {
+                    attempts++;
+                    
+                    // Более подробная проверка готовности БД
+                    const dbReady = window.db && 
+                                  window.db.db && 
+                                  typeof window.db.get === 'function';
+                    
+                    if (dbReady) {
+                        clearInterval(checkDB);
+                        console.log('✅ База данных полностью готова к работе');
+                        resolve();
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(checkDB);
+                        console.error('❌ Состояние БД при таймауте:', {
+                            hasDB: !!window.db,
+                            hasDBConnection: !!(window.db && window.db.db),
+                            hasGetMethod: window.db && typeof window.db.get === 'function',
+                            dbConstructor: window.db && window.db.constructor.name
+                        });
+                        reject(new Error('Таймаут ожидания готовности базы данных'));
+                    }
+                }, 100);
+            });
+        }
+        
+        // Дополнительная проверка готовности БД
+        if (!window.db || !window.db.db || typeof window.db.get !== 'function') {
+            const dbState = {
+                hasDB: !!window.db,
+                hasDBConnection: !!(window.db && window.db.db),
+                hasGetMethod: window.db && typeof window.db.get === 'function',
+                dbConstructor: window.db && window.db.constructor.name
+            };
+            console.error('❌ База данных не готова к работе:', dbState);
+            throw new Error(`База данных не готова к работе. Состояние: ${JSON.stringify(dbState)}`);
+        }
+        
+        console.log('✅ База данных готова, инициализируем страницу');
+        areaPage = new AreaPage();
+        await areaPage.init();
+    } catch (error) {
+        console.error('❌ Ошибка инициализации страницы области:', error);
+    }
+});
