@@ -68,7 +68,7 @@ class SegmentsManager {
         // Привязка к модальным окнам
         this.bindModalEvents();
         
-        // Привязка к панели управления
+        // Привязка к панели управления (только кнопки таблицы)
         this.bindPanelEvents();
     }
     
@@ -76,87 +76,108 @@ class SegmentsManager {
      * Инициализация таблицы сегментов
      */
     initializeTable() {
+        const tableElement = document.getElementById('segmentsTable');
+        if (!tableElement) {
+            console.warn('⚠️ Таблица сегментов не найдена');
+            return;
+        }
+        
         if (this.segmentsTable) {
             this.segmentsTable.destroy();
         }
         
-        this.segmentsTable = $('#segmentsTable').DataTable({
-            responsive: true,
-            pageLength: 25,
-            lengthChange: false,
-            searching: false,
-            ordering: true,
-            info: true,
-            autoWidth: false,
-            language: {
-                url: '../libs/datatables/ru.json'
-            },
-            columns: [
-                {
-                    title: '',
-                    data: null,
-                    width: '30px',
-                    orderable: false,
-                    className: 'details-control text-center',
-                    render: function(data, type, row) {
-                        return '<i class="fas fa-plus-circle text-gray-400 hover:text-blue-600 cursor-pointer"></i>';
+        try {
+            this.segmentsTable = $('#segmentsTable').DataTable({
+                responsive: true,
+                pageLength: 25,
+                lengthChange: false,
+                searching: false,
+                ordering: true,
+                info: true,
+                autoWidth: false,
+                language: {
+                    "processing": "Подождите...",
+                    "search": "Поиск:",
+                    "lengthMenu": "Показать _MENU_ записей",
+                    "info": "Записи с _START_ до _END_ из _TOTAL_ записей",
+                    "infoEmpty": "Записи с 0 до 0 из 0 записей",
+                    "infoFiltered": "(отфильтровано из _MAX_ записей)",
+                    "loadingRecords": "Загрузка записей...",
+                    "zeroRecords": "Записи отсутствуют.",
+                    "emptyTable": "В таблице отсутствуют данные",
+                    "paginate": {
+                        "first": "Первая",
+                        "previous": "Предыдущая",
+                        "next": "Следующая",
+                        "last": "Последняя"
                     }
                 },
-                {
-                    title: 'Название сегмента',
-                    data: 'name',
-                    render: function(data, type, row) {
-                        return `<span class="font-medium text-gray-900">${data || 'Без названия'}</span>`;
+                columnDefs: [
+                    {
+                        targets: 0,
+                        orderable: false,
+                        className: 'details-control text-center',
+                        width: '30px',
+                        render: function(data, type, row) {
+                            return '<i class="fas fa-plus-circle text-gray-400 hover:text-blue-600 cursor-pointer"></i>';
+                        }
+                    },
+                    {
+                        targets: 1,
+                        render: function(data, type, row) {
+                            return `<span class="font-medium text-gray-900">${data || 'Без названия'}</span>`;
+                        }
+                    },
+                    {
+                        targets: 2,
+                        className: 'text-center',
+                        render: function(data, type, row) {
+                            return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">${data || 0}</span>`;
+                        }
+                    },
+                    {
+                        targets: 3,
+                        className: 'text-center',
+                        render: function(data, type, row) {
+                            return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">${data || 0}</span>`;
+                        }
+                    },
+                    {
+                        targets: 4,
+                        orderable: false,
+                        className: 'text-right',
+                        width: '120px',
+                        render: function(data, type, row) {
+                            return `
+                                <div class="flex justify-end space-x-2">
+                                    <button type="button" class="edit-segment-btn inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200" data-segment-id="${row.id}">
+                                        Изменить
+                                    </button>
+                                    <button type="button" class="delete-segment-btn inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-red-700 bg-red-100 hover:bg-red-200" data-segment-id="${row.id}">
+                                        Удалить
+                                    </button>
+                                </div>
+                            `;
+                        }
                     }
-                },
-                {
-                    title: 'Количество домов',
-                    data: 'addresses_count',
-                    className: 'text-center',
-                    render: function(data, type, row) {
-                        return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">${data || 0}</span>`;
-                    }
-                },
-                {
-                    title: 'Подсегменты',
-                    data: 'subsegments_count',
-                    className: 'text-center',
-                    render: function(data, type, row) {
-                        return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">${data || 0}</span>`;
-                    }
-                },
-                {
-                    title: 'Действия',
-                    data: null,
-                    width: '120px',
-                    orderable: false,
-                    className: 'text-right',
-                    render: function(data, type, row) {
-                        return `
-                            <div class="flex justify-end space-x-2">
-                                <button type="button" class="edit-segment-btn inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200" data-segment-id="${row.id}">
-                                    Изменить
-                                </button>
-                                <button type="button" class="delete-segment-btn inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-red-700 bg-red-100 hover:bg-red-200" data-segment-id="${row.id}">
-                                    Удалить
-                                </button>
-                            </div>
-                        `;
+                ],
+                drawCallback: () => {
+                    // Проверяем наличие данных
+                    const info = this.segmentsTable.page.info();
+                    if (info.recordsTotal === 0) {
+                        $('#segmentsTableEmpty').removeClass('hidden');
+                        $('#segmentsTable_wrapper').addClass('hidden');
+                    } else {
+                        $('#segmentsTableEmpty').addClass('hidden');
+                        $('#segmentsTable_wrapper').removeClass('hidden');
                     }
                 }
-            ],
-            drawCallback: () => {
-                // Проверяем наличие данных
-                const info = this.segmentsTable.page.info();
-                if (info.recordsTotal === 0) {
-                    $('#segmentsTableEmpty').removeClass('hidden');
-                    $('#segmentsTable_wrapper').addClass('hidden');
-                } else {
-                    $('#segmentsTableEmpty').addClass('hidden');
-                    $('#segmentsTable_wrapper').removeClass('hidden');
-                }
-            }
-        });
+            });
+            
+            console.log('✅ Таблица сегментов инициализирована');
+        } catch (error) {
+            console.error('❌ Ошибка инициализации таблицы сегментов:', error);
+        }
     }
 
     /**
@@ -233,37 +254,56 @@ class SegmentsManager {
      * Привязка к панели управления
      */
     bindPanelEvents() {
-        // Сворачивание/разворачивание панели
-        document.getElementById('segmentsPanelHeader')?.addEventListener('click', () => {
-            this.toggleSegmentsPanel();
-        });
+        // Управление панелью перенесено в UIManager
+        // Здесь только обработчики кнопок таблицы
         
         // Делегированные обработчики для таблицы
         document.addEventListener('click', (e) => {
-            const button = e.target.closest('[data-action]');
-            if (!button) return;
+            // Обработка кнопок с data-action
+            const actionButton = e.target.closest('[data-action]');
+            if (actionButton) {
+                const action = actionButton.getAttribute('data-action');
+                const segmentId = actionButton.getAttribute('data-segment-id');
+                
+                if (segmentId) {
+                    switch (action) {
+                        case 'edit-segment':
+                            this.editSegment(segmentId);
+                            break;
+                        case 'delete-segment':
+                            this.deleteSegment(segmentId);
+                            break;
+                        case 'create-subsegment':
+                            this.createSubsegment(segmentId);
+                            break;
+                        case 'view-segment':
+                            this.viewSegment(segmentId);
+                            break;
+                        case 'toggle-segment':
+                            this.toggleSegmentExpansion(segmentId);
+                            break;
+                    }
+                }
+                return;
+            }
             
-            const action = button.getAttribute('data-action');
-            const segmentId = button.getAttribute('data-segment-id');
-            
-            if (!segmentId) return;
-            
-            switch (action) {
-                case 'edit-segment':
+            // Обработка кнопок с классами (для DataTables)
+            const editBtn = e.target.closest('.edit-segment-btn');
+            if (editBtn) {
+                const segmentId = editBtn.getAttribute('data-segment-id');
+                if (segmentId) {
                     this.editSegment(segmentId);
-                    break;
-                case 'delete-segment':
+                }
+                return;
+            }
+            
+            const deleteBtn = e.target.closest('.delete-segment-btn');
+            if (deleteBtn) {
+                const segmentId = deleteBtn.getAttribute('data-segment-id');
+                if (segmentId) {
                     this.deleteSegment(segmentId);
-                    break;
-                case 'create-subsegment':
-                    this.createSubsegment(segmentId);
-                    break;
-                case 'view-segment':
-                    this.viewSegment(segmentId);
-                    break;
-                case 'toggle-segment':
-                    this.toggleSegmentExpansion(segmentId);
-                    break;
+                }
+                return;
             }
         });
     }
@@ -373,7 +413,23 @@ class SegmentsManager {
         this.segmentsTable = new DataTable(tableElement, {
             pageLength: this.config.pageLength,
             lengthMenu: [[10, 25, 50, -1], [10, 25, 50, 'Все']],
-            language: CONSTANTS.DATATABLES_LANGUAGE,
+            language: {
+                "processing": "Подождите...",
+                "search": "Поиск:",
+                "lengthMenu": "Показать _MENU_ записей",
+                "info": "Записи с _START_ до _END_ из _TOTAL_ записей",
+                "infoEmpty": "Записи с 0 до 0 из 0 записей",
+                "infoFiltered": "(отфильтровано из _MAX_ записей)",
+                "loadingRecords": "Загрузка записей...",
+                "zeroRecords": "Записи отсутствуют.",
+                "emptyTable": "В таблице отсутствуют данные",
+                "paginate": {
+                    "first": "Первая",
+                    "previous": "Предыдущая",
+                    "next": "Следующая",
+                    "last": "Последняя"
+                }
+            },
             order: [[1, 'asc']], // Сортировка по названию
             columnDefs: [
                 { 
@@ -406,7 +462,7 @@ class SegmentsManager {
                 }
             ],
             initComplete: () => {
-                this.restoreSegmentsPanelState();
+                // Панель уже восстановлена в area.js, здесь ничего не делаем
             }
         });
         
@@ -1679,55 +1735,7 @@ class SegmentsManager {
         }
     }
     
-    /**
-     * Переключение панели сегментов
-     */
-    toggleSegmentsPanel() {
-        const panel = document.getElementById('segmentsPanelContent');
-        const chevron = document.getElementById('segmentsPanelChevron');
-        
-        if (!panel || !chevron) return;
-        
-        const isVisible = panel.style.display !== 'none';
-        
-        if (isVisible) {
-            panel.style.display = 'none';
-            chevron.style.transform = 'rotate(0deg)';
-        } else {
-            panel.style.display = 'block';
-            chevron.style.transform = 'rotate(90deg)';
-        }
-        
-        // Сохраняем состояние
-        const currentArea = this.dataState.getState('currentArea');
-        if (currentArea) {
-            localStorage.setItem(`segmentsPanel_${currentArea.id}`, !isVisible);
-        }
-    }
-    
-    /**
-     * Восстановление состояния панели сегментов
-     */
-    restoreSegmentsPanelState() {
-        const currentArea = this.dataState.getState('currentArea');
-        if (!currentArea) return;
-        
-        const savedState = localStorage.getItem(`segmentsPanel_${currentArea.id}`);
-        const isExpanded = savedState === 'true';
-        
-        const panel = document.getElementById('segmentsPanelContent');
-        const chevron = document.getElementById('segmentsPanelChevron');
-        
-        if (panel && chevron) {
-            if (isExpanded) {
-                panel.style.display = 'block';
-                chevron.style.transform = 'rotate(90deg)';
-            } else {
-                panel.style.display = 'none';
-                chevron.style.transform = 'rotate(0deg)';
-            }
-        }
-    }
+    // Методы управления панелью удалены - управление через UIManager
     
     /**
      * Рендеринг колонки разворачивания

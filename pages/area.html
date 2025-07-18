@@ -581,7 +581,7 @@
                         </svg>
                     </div>
                 </div>
-                <div id="dataWorkPanelContent" class="px-4 pb-5" style="display: none;">
+                <div id="dataWorkPanelContent" class="px-4 pb-5 hidden">
                     <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
                         <!-- Навигация -->
                         <div class="lg:col-span-1">
@@ -966,7 +966,7 @@
                             </div>
                         </div>
                     </div>
-                    <div id="mapPanelContent" class="px-4 pb-5" style="display: none;">
+                    <div id="mapPanelContent" class="px-4 pb-5 hidden">
                         <div class="mb-3 flex items-center justify-between">
                             <div class="flex items-center space-x-3">
                                 <!-- Кнопки фильтров над картой -->
@@ -1017,7 +1017,7 @@
                     </svg>
                 </div>
             </div>
-            <div id="addressTableContent" class="space-y-4" style="display: none;">
+            <div id="addressTableContent" class="space-y-4 hidden">
                 <div class="px-4 pb-2 flex justify-between items-center">
                     <div class="flex items-center space-x-4">
                         <label class="text-sm font-medium text-gray-700">Фильтр по источнику:</label>
@@ -1065,7 +1065,7 @@
                         </svg>
                     </div>
                 </div>
-                <div id="segmentsPanelContent" class="px-4 pb-5 space-y-6" style="display: none;">
+                <div id="segmentsPanelContent" class="px-4 pb-5 space-y-6 hidden">
                     
                     <!-- Кнопка создания сегмента -->
                     <div class="flex items-center justify-between">
@@ -1081,7 +1081,18 @@
                     <!-- Таблица сегментов -->
                     <div class="overflow-x-auto">
                         <table id="segmentsTable" class="min-w-full divide-y divide-gray-200">
-                            <!-- DataTables будет автоматически создавать заголовки -->
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style="width: 30px;"></th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Количество домов</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Подсегменты</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <!-- Данные будут добавлены через DataTables -->
+                            </tbody>
                         </table>
                     </div>
                     
@@ -1113,7 +1124,7 @@
                 </div>
             </div>
             
-            <div id="duplicatesPanelContent" class="px-4 pb-5" style="display: none;">
+            <div id="duplicatesPanelContent" class="px-4 pb-5 hidden">
                 <div class="mb-6 flex items-center justify-between">
                     <div>
                     </div>
@@ -1827,7 +1838,7 @@
 
     <!-- Модальное окно создания/редактирования сегмента -->
     <div id="segmentModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="segment-modal-title" role="dialog" aria-modal="true">
-        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+        <div class="mx-auto flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
             <!-- Overlay -->
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
             

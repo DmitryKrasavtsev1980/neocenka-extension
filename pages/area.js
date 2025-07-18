@@ -279,22 +279,25 @@ class AreaPage {
             // Инициализируем таблицу сегментов
             this.segmentsManager.initializeTable();
             
-            // Инициализируем UI элементы (это должно быть после загрузки DOM)
+            // Загружаем данные сегментов для текущей области
+            await this.segmentsManager.loadSegments();
+            
+            // Новая система управления панелями через UIManager
             if (this.uiManager) {
-                // UIManager уже инициализирован в конструкторе, панели должны работать
-                await Helpers.debugLog('✅ UIManager готов к работе');
+                // Инициализируем панели по умолчанию
+                this.uiManager.initializePanelsDefaults();
+                
+                // Восстанавливаем состояние панелей
+                this.uiManager.restorePanelStates(this.currentArea);
+                
+                console.log('✅ Новая система управления панелями активирована');
             }
 
             // Восстанавливаем состояние таблицы адресов
             this.restoreAddressTableState();
 
-            // Восстанавливаем состояние панели работы с данными
-            this.restoreStatisticsPanelState();
-            this.restoreDataWorkPanelState();
-            this.restoreMapPanelState();
-            this.restoreDuplicatesPanelState();
-            this.restoreSegmentsPanelState();
-            this.restorePanelVisibilityStates();
+            // Очищаем старые ключи localStorage
+            this.cleanupOldPanelKeys();
 
             // Восстанавливаем состояние прогресса
             this.restoreProgressState();
@@ -336,6 +339,12 @@ class AreaPage {
 
             // Устанавливаем хлебные крошки
             this.setBreadcrumbs();
+
+            // Уведомляем менеджеры о загрузке области
+            this.eventBus.emit(CONSTANTS.EVENTS.AREA_LOADED, {
+                area: this.currentArea,
+                timestamp: new Date()
+            });
 
             // Выводим все объявления и адреса в консоль при загрузке страницы
             await this.logAllListings();
@@ -2556,29 +2565,9 @@ class AreaPage {
         // События для интеграции сервисов обрабатываются в AreaServicesIntegration
 
         // Сворачивание таблицы адресов
-        document.getElementById('addressTableHeader')?.addEventListener('click', () => {
-            this.toggleAddressTable();
-        });
+        // Управление таблицей адресов делегировано UIManager
 
-        // Сворачивание панели статистики
-        document.getElementById('statisticsPanelHeader')?.addEventListener('click', () => {
-            this.toggleStatisticsPanel();
-        });
-
-        // Сворачивание панели работы с данными
-        document.getElementById('dataWorkPanelHeader')?.addEventListener('click', () => {
-            this.toggleDataWorkPanel();
-        });
-
-        // Сворачивание панели карты области
-        document.getElementById('mapPanelHeader')?.addEventListener('click', () => {
-            this.toggleMapPanel();
-        });
-
-        // Сворачивание панели управления дублями
-        document.getElementById('duplicatesPanelHeader')?.addEventListener('click', () => {
-            this.toggleDuplicatesPanel();
-        });
+        // Управление панелями теперь делегировано UIManager
 
         // Управление отображением панелей через dropdown меню
         document.getElementById('panelBtn')?.addEventListener('click', (e) => {
@@ -2620,10 +2609,7 @@ class AreaPage {
             this.togglePanelVisibility('duplicates', e.target.checked);
         });
 
-        // Сворачивание панели сегментов
-        document.getElementById('segmentsPanelHeader')?.addEventListener('click', () => {
-            this.toggleSegmentsPanel();
-        });
+        // Управление панелью сегментов делегировано UIManager
 
         // Навигация по табам в панели работы с данными
         document.querySelectorAll('.data-nav-item').forEach(item => {
@@ -4694,6 +4680,21 @@ class AreaPage {
 
             // Сохраняем адреса в переменную класса для использования в других функциях
             this.addresses = addresses;
+            
+            // Сохраняем адреса в dataState для доступа из менеджеров
+            this.dataState.setState('addresses', addresses);
+            
+            // Обновляем данные сегментов после загрузки адресов
+            if (this.segmentsManager) {
+                await this.segmentsManager.updateSegmentsData();
+            }
+            
+            // Уведомляем менеджеры о загрузке адресов
+            this.eventBus.emit(CONSTANTS.EVENTS.ADDRESSES_LOADED, {
+                addresses: addresses,
+                count: addresses.length,
+                timestamp: new Date()
+            });
 
             // Очищаем и заполняем таблицу
             if (this.addressesTable) {
@@ -8926,27 +8927,7 @@ ${methodStatsText}${mlResultsText}
         }
     }
 
-    /**
-     * Переключение состояния таблицы адресов (сворачивание/разворачивание)
-     */
-    toggleAddressTable() {
-        const content = document.getElementById('addressTableContent');
-        const chevron = document.getElementById('addressTableChevron');
-        
-        if (content && chevron) {
-            const isHidden = content.style.display === 'none';
-            
-            if (isHidden) {
-                content.style.display = 'block';
-                chevron.style.transform = 'rotate(0deg)';
-                localStorage.setItem('addressTableCollapsed', 'false');
-            } else {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-                localStorage.setItem('addressTableCollapsed', 'true');
-            }
-        }
-    }
+    // toggleAddressTable удален - управление перенесено в UIManager
 
     /**
      * Переключение состояния панели работы с данными (сворачивание/разворачивание)
@@ -8954,48 +8935,9 @@ ${methodStatsText}${mlResultsText}
     /**
      * Сворачивание/разворачивание панели статистики
      */
-    toggleStatisticsPanel() {
-        const content = document.getElementById('statisticsPanelContent');
-        const chevron = document.getElementById('statisticsPanelChevron');
-        
-        if (content && chevron) {
-            const isHidden = content.classList.contains('hidden');
-            
-            if (isHidden) {
-                content.classList.remove('hidden');
-                chevron.style.transform = 'rotate(0deg)';
-                localStorage.setItem('statisticsPanelCollapsed', 'false');
-                // Обновляем график при разворачивании
-                setTimeout(() => {
-                    this.updateSourcesChart();
-                    this.updateAddressAnalyticsCharts();
-                }, 100);
-            } else {
-                content.classList.add('hidden');
-                chevron.style.transform = 'rotate(-90deg)';
-                localStorage.setItem('statisticsPanelCollapsed', 'true');
-            }
-        }
-    }
+    // toggleStatisticsPanel удален - управление перенесено в UIManager
 
-    toggleDataWorkPanel() {
-        const content = document.getElementById('dataWorkPanelContent');
-        const chevron = document.getElementById('dataWorkPanelChevron');
-        
-        if (content && chevron) {
-            const isHidden = content.style.display === 'none';
-            
-            if (isHidden) {
-                content.style.display = 'block';
-                chevron.style.transform = 'rotate(0deg)';
-                localStorage.setItem('dataWorkPanelCollapsed', 'false');
-            } else {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-                localStorage.setItem('dataWorkPanelCollapsed', 'true');
-            }
-        }
-    }
+    // toggleDataWorkPanel удален - управление перенесено в UIManager
 
     /**
      * Переключение панели карты области
@@ -9215,26 +9157,91 @@ ${methodStatsText}${mlResultsText}
     }
 
     /**
-     * Восстановление состояния панели сегментов
+     * Очистка старых ключей localStorage панелей
      */
-    restoreSegmentsPanelState() {
-        const content = document.getElementById('segmentsPanelContent');
-        const chevron = document.getElementById('segmentsPanelChevron');
+    cleanupOldPanelKeys() {
+        console.log('🧹 Очистка старых ключей localStorage панелей...');
         
-        // По умолчанию панель сегментов свернута
-        const isCollapsed = localStorage.getItem('segmentsPanelCollapsed');
-        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        const oldKeys = [
+            'statisticsPanelCollapsed',
+            'dataWorkPanelCollapsed', 
+            'mapPanelCollapsed',
+            'duplicatesPanelCollapsed',
+            'segmentsPanelCollapsed',
+            `segmentsPanelCollapsed_${this.currentAreaId}`
+        ];
         
-        if (content && chevron) {
-            if (shouldCollapse) {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-            } else {
-                content.style.display = 'block';
-                chevron.style.transform = 'rotate(0deg)';
+        oldKeys.forEach(key => {
+            if (localStorage.getItem(key) !== null) {
+                console.log(`🗑️ Удаляем старый ключ: ${key}`);
+                localStorage.removeItem(key);
             }
+        });
+        
+        console.log('✅ Очистка завершена');
+    }
+
+    /**
+     * Логирование состояния всех панелей в localStorage
+     */
+    logAllPanelsState() {
+        console.log('📋 Обзор состояния всех панелей в localStorage:');
+        console.log('- ID области:', this.currentAreaId);
+        
+        const panels = [
+            'statisticsPanel',
+            'dataWorkPanel', 
+            'mapPanel',
+            'duplicatesPanel',
+            'segmentsPanel'
+        ];
+        
+        panels.forEach(panelName => {
+            const collapsedKey = `${panelName}Collapsed`;
+            const collapsedKeyWithId = `${panelName}Collapsed_${this.currentAreaId}`;
+            const visibleKey = `${panelName}Visible`;
+            
+            const collapsedValue = localStorage.getItem(collapsedKey);
+            const collapsedValueWithId = localStorage.getItem(collapsedKeyWithId);
+            const visibleValue = localStorage.getItem(visibleKey);
+            
+            console.log(`- ${panelName}:`);
+            console.log(`  - ${collapsedKey}: ${collapsedValue}`);
+            console.log(`  - ${collapsedKeyWithId}: ${collapsedValueWithId}`);
+            console.log(`  - ${visibleKey}: ${visibleValue}`);
+        });
+        
+        console.log('🔍 Состояние DOM элементов панелей:');
+        panels.forEach(panelName => {
+            const contentId = `${panelName}Content`;
+            const chevronId = `${panelName}Chevron`;
+            
+            const contentElement = document.getElementById(contentId);
+            const chevronElement = document.getElementById(chevronId);
+            
+            console.log(`- ${panelName}:`);
+            console.log(`  - content (${contentId}): ${contentElement ? contentElement.style.display : 'не найден'}`);
+            console.log(`  - chevron (${chevronId}): ${chevronElement ? chevronElement.style.transform : 'не найден'}`);
+        });
+        
+        console.log('🎛️ UIManager состояния панелей:');
+        if (this.uiManager) {
+            panels.forEach(panelName => {
+                const uiManagerKey = `panel_${panelName}_${this.currentAreaId}`;
+                const uiManagerValue = localStorage.getItem(uiManagerKey);
+                const uiState = this.uiManager.uiState?.panels?.[panelName];
+                
+                console.log(`- ${panelName}:`);
+                console.log(`  - UIManager ключ: ${uiManagerKey}`);
+                console.log(`  - UIManager localStorage: ${uiManagerValue}`);
+                console.log(`  - UIManager состояние:`, uiState);
+            });
+        } else {
+            console.log('- UIManager не инициализирован');
         }
     }
+
+    // Метод restoreSegmentsPanelState() удален - управление через UIManager
 
     /**
      * Переключение видимости dropdown меню панелей

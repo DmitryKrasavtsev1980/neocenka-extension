@@ -120,30 +120,32 @@ class UIManager {
      * Привязка к панелям
      */
     bindPanelEvents() {
-        Object.keys(this.panelConfig).forEach(panelName => {
-            const config = this.panelConfig[panelName];
-            
-            // Обработка клика по заголовку панели
-            const header = document.getElementById(config.header);
+        console.log('🔗 UIManager: Привязка событий панелей (новая простая система)...');
+        
+        // Все панели на странице (включая addressTable)
+        const panelMappings = [
+            { name: 'statistics', header: 'statisticsPanelHeader', content: 'statisticsPanelContent', chevron: 'statisticsPanelChevron' },
+            { name: 'dataWork', header: 'dataWorkPanelHeader', content: 'dataWorkPanelContent', chevron: 'dataWorkPanelChevron' },
+            { name: 'map', header: 'mapPanelHeader', content: 'mapPanelContent', chevron: 'mapPanelChevron' },
+            { name: 'segments', header: 'segmentsPanelHeader', content: 'segmentsPanelContent', chevron: 'segmentsPanelChevron' },
+            { name: 'duplicates', header: 'duplicatesPanelHeader', content: 'duplicatesPanelContent', chevron: 'duplicatesPanelChevron' },
+            { name: 'addressTable', header: 'addressTableHeader', content: 'addressTableContent', chevron: 'addressTableChevron' }
+        ];
+        
+        panelMappings.forEach(panel => {
+            const header = document.getElementById(panel.header);
             if (header) {
                 header.addEventListener('click', () => {
-                    console.log(`🔵 UIManager: Клик по панели "${panelName}"`);
-                    this.togglePanel(panelName);
+                    console.log(`🔵 UIManager: Клик по панели "${panel.name}"`);
+                    this.simpleTogglePanel(panel.name, panel.content, panel.chevron);
                 });
-                console.log(`✅ UIManager: Панель "${panelName}" привязана к элементу #${config.header}`);
+                console.log(`✅ UIManager: Панель "${panel.name}" привязана к элементу #${panel.header}`);
             } else {
-                // Панель может отсутствовать на некоторых страницах - это нормально
-                console.debug(`💡 UIManager: Панель "${panelName}" пропущена (элемент #${config.header} не найден)`);
-            }
-            
-            // Обработка чекбокса видимости панели
-            const checkbox = document.getElementById(config.checkbox);
-            if (checkbox) {
-                checkbox.addEventListener('change', (e) => {
-                    this.togglePanelVisibility(panelName, e.target.checked);
-                });
+                console.debug(`💡 UIManager: Панель "${panel.name}" пропущена (элемент #${panel.header} не найден)`);
             }
         });
+        
+        console.log('✅ UIManager: Привязка событий панелей завершена');
     }
     
     /**
@@ -223,126 +225,222 @@ class UIManager {
      * Переключение панели
      */
     togglePanel(panelName) {
+        console.log(`🔄 UIManager: Переключение панели "${panelName}"`);
+        
         const config = this.panelConfig[panelName];
-        if (!config) return;
+        if (!config) {
+            console.warn(`⚠️ UIManager: Конфигурация для панели "${panelName}" не найдена`);
+            return;
+        }
         
         const content = document.getElementById(config.content);
         const chevron = document.getElementById(config.chevron);
         
-        if (!content || !chevron) return;
+        console.log(`🔍 UIManager: Элементы панели "${panelName}":`); 
+        console.log(`   - content (#${config.content}):`, content ? 'найден' : 'НЕ НАЙДЕН');
+        console.log(`   - chevron (#${config.chevron}):`, chevron ? 'найден' : 'НЕ НАЙДЕН');
         
-        const isExpanded = this.uiState.panels[panelName].expanded;
+        if (!content || !chevron) {
+            console.error(`❌ UIManager: Не найдены необходимые элементы для панели "${panelName}"`);
+            return;
+        }
+        
+        const currentState = this.uiState.panels[panelName];
+        const isExpanded = currentState.expanded;
+        
+        console.log(`📊 UIManager: Текущее состояние панели "${panelName}":`, currentState);
+        console.log(`🔄 UIManager: isExpanded = ${isExpanded} -> ${!isExpanded}`);
+        
+        // Очищаем все inline стили display
+        content.style.display = '';
+        content.style.removeProperty('display');
         
         if (isExpanded) {
-            content.style.display = 'none';
-            chevron.style.transform = 'rotate(0deg)';
+            // Сворачиваем панель
+            content.classList.add('hidden');
+            chevron.style.transform = 'rotate(-90deg)';
+            console.log(`➡️ UIManager: Сворачиваем панель "${panelName}" - добавили 'hidden'`);
         } else {
-            content.style.display = 'block';
-            chevron.style.transform = 'rotate(90deg)';
+            // Разворачиваем панель
+            content.classList.remove('hidden');
+            chevron.style.transform = 'rotate(0deg)';
+            console.log(`⬇️ UIManager: Разворачиваем панель "${panelName}" - убрали 'hidden'`);
         }
         
+        // Обновляем состояние
         this.uiState.panels[panelName].expanded = !isExpanded;
         
+        console.log(`💾 UIManager: Новое состояние панели "${panelName}":`, this.uiState.panels[panelName]);
+        
         // Сохраняем состояние
         this.savePanelState(panelName);
         
         // Уведомляем о изменении
-        this.eventBus.emit(CONSTANTS.EVENTS.PANEL_TOGGLED, {
-            panelName,
-            expanded: !isExpanded,
-            timestamp: new Date()
-        });
+        if (this.eventBus) {
+            this.eventBus.emit(CONSTANTS.EVENTS.PANEL_TOGGLED, {
+                panelName,
+                expanded: !isExpanded,
+                timestamp: new Date()
+            });
+            console.log(`📡 UIManager: Событие PANEL_TOGGLED отправлено для "${panelName}"`);
+        }
+        
+        console.log(`✅ UIManager: Переключение панели "${panelName}" завершено`);
     }
     
+    // Новая простая система управления панелями
+    
     /**
-     * Переключение видимости панели
+     * Простое переключение панели
      */
-    togglePanelVisibility(panelName, visible) {
-        const config = this.panelConfig[panelName];
-        if (!config) return;
+    simpleTogglePanel(panelName, contentId, chevronId) {
+        console.log(`🔵 UIManager: Простое переключение панели "${panelName}"`);
         
-        const container = document.getElementById(config.container);
-        if (!container) return;
+        const content = document.getElementById(contentId);
+        const chevron = document.getElementById(chevronId);
         
-        container.style.display = visible ? 'block' : 'none';
-        this.uiState.panels[panelName].visible = visible;
+        if (!content || !chevron) {
+            console.warn(`⚠️ UIManager: Элементы панели "${panelName}" не найдены`);
+            return;
+        }
         
-        // Сохраняем состояние
-        this.savePanelState(panelName);
+        // Диагностика CSS перед изменениями
+        console.log(`🔍 UIManager: ПЕРЕД изменением панели "${panelName}":`);
+        console.log(`   - content.classList: ${content.className}`);
+        console.log(`   - content.style.display: "${content.style.display}"`);
+        console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
+        console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
         
-        // Уведомляем о изменении
-        this.eventBus.emit(CONSTANTS.EVENTS.PANEL_VISIBILITY_CHANGED, {
-            panelName,
-            visible,
-            timestamp: new Date()
-        });
+        // Очищаем любые inline стили display, которые могут конфликтовать с CSS классами
+        if (content.style.display) {
+            console.log(`⚠️ UIManager: Обнаружен inline стиль display: "${content.style.display}", очищаем`);
+            content.style.removeProperty('display');
+        }
+        
+        // Единый подход через CSS классы для всех панелей
+        const isCurrentlyHidden = content.classList.contains('hidden');
+        
+        if (isCurrentlyHidden) {
+            // Разворачиваем панель
+            content.classList.remove('hidden');
+            chevron.style.transform = 'rotate(0deg)';
+            this.saveSimplePanelState(panelName, true);
+            console.log(`⬇️ UIManager: Панель "${panelName}" развернута`);
+        } else {
+            // Сворачиваем панель
+            content.classList.add('hidden');
+            chevron.style.transform = 'rotate(-90deg)';
+            this.saveSimplePanelState(panelName, false);
+            console.log(`➡️ UIManager: Панель "${panelName}" свернута`);
+        }
+        
+        // Диагностика CSS после изменений
+        console.log(`🔍 UIManager: ПОСЛЕ изменения панели "${panelName}":`);
+        console.log(`   - content.classList: ${content.className}`);
+        console.log(`   - content.style.display: "${content.style.display}"`);
+        console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
+        console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
     }
     
     /**
-     * Восстановление состояния панелей
+     * Сохранение простого состояния панели
+     */
+    saveSimplePanelState(panelName, isExpanded) {
+        const currentArea = this.dataState.getState('currentArea');
+        if (!currentArea) return;
+        
+        const stateKey = `simple_panel_${panelName}_${currentArea.id}`;
+        localStorage.setItem(stateKey, isExpanded ? 'expanded' : 'collapsed');
+        console.log(`💾 UIManager: Простое состояние панели "${panelName}" сохранено: ${isExpanded ? 'expanded' : 'collapsed'}`);
+    }
+    
+    /**
+     * Простое восстановление состояния панелей
      */
     restorePanelStates(area) {
-        Object.keys(this.panelConfig).forEach(panelName => {
-            const savedState = localStorage.getItem(`panel_${panelName}_${area.id}`);
-            if (savedState) {
-                try {
-                    const state = JSON.parse(savedState);
-                    this.uiState.panels[panelName] = { ...this.uiState.panels[panelName], ...state };
-                    
-                    // Применяем состояние к UI
-                    this.applyPanelState(panelName);
-                } catch (error) {
-                    console.error(`Error restoring panel state for ${panelName}:`, error);
-                }
-            }
-        });
+        console.log('🔄 Восстановление состояния панелей для области:', area?.id);
         
-        // Восстанавливаем состояние видимости панелей
-        this.restorePanelVisibilityStates();
-    }
-    
-    /**
-     * Восстановление состояния видимости панелей
-     */
-    restorePanelVisibilityStates() {
-        Object.keys(this.panelConfig).forEach(panelName => {
-            const config = this.panelConfig[panelName];
-            const checkbox = document.getElementById(config.checkbox);
+        if (!area || !area.id) {
+            console.warn('⚠️ Нет области для восстановления состояния панелей');
+            return;
+        }
+        
+        // Все панели на странице (включая addressTable)
+        const panelMappings = [
+            { name: 'statistics', content: 'statisticsPanelContent', chevron: 'statisticsPanelChevron' },
+            { name: 'dataWork', content: 'dataWorkPanelContent', chevron: 'dataWorkPanelChevron' },
+            { name: 'map', content: 'mapPanelContent', chevron: 'mapPanelChevron' },
+            { name: 'segments', content: 'segmentsPanelContent', chevron: 'segmentsPanelChevron' },
+            { name: 'duplicates', content: 'duplicatesPanelContent', chevron: 'duplicatesPanelChevron' },
+            { name: 'addressTable', content: 'addressTableContent', chevron: 'addressTableChevron' }
+        ];
+        
+        panelMappings.forEach(panel => {
+            const stateKey = `simple_panel_${panel.name}_${area.id}`;
+            const savedState = localStorage.getItem(stateKey);
             
-            if (checkbox) {
-                checkbox.checked = this.uiState.panels[panelName].visible;
-                this.togglePanelVisibility(panelName, checkbox.checked);
+            console.log(`🔍 Панель ${panel.name}: ${savedState || 'нет сохраненного состояния'}`);
+            
+            const content = document.getElementById(panel.content);
+            const chevron = document.getElementById(panel.chevron);
+            
+            if (!content || !chevron) {
+                console.log(`⚠️ Элементы панели ${panel.name} не найдены, пропускаем`);
+                return;
+            }
+            
+            // Применяем состояние (по умолчанию - скрыто) - единый подход через CSS классы
+            const isExpanded = savedState === 'expanded';
+            
+            if (isExpanded) {
+                content.classList.remove('hidden');
+                chevron.style.transform = 'rotate(0deg)';
+                console.log(`✅ Панель ${panel.name} восстановлена как развернутая`);
+            } else {
+                content.classList.add('hidden');
+                chevron.style.transform = 'rotate(-90deg)';
+                console.log(`✅ Панель ${panel.name} восстановлена как свернутая`);
             }
         });
+        
+        console.log('✅ Восстановление панелей завершено');
     }
     
+    // Старые методы видимости удалены
+    
     /**
-     * Применение состояния панели к UI
+     * Инициализация панелей по умолчанию
      */
-    applyPanelState(panelName) {
-        const config = this.panelConfig[panelName];
-        const state = this.uiState.panels[panelName];
+    initializePanelsDefaults() {
+        console.log('🏁 Инициализация панелей по умолчанию...');
         
-        const container = document.getElementById(config.container);
-        const content = document.getElementById(config.content);
-        const chevron = document.getElementById(config.chevron);
-        const checkbox = document.getElementById(config.checkbox);
+        // Все панели на странице (включая addressTable)
+        const panelMappings = [
+            { name: 'statistics', content: 'statisticsPanelContent', chevron: 'statisticsPanelChevron' },
+            { name: 'dataWork', content: 'dataWorkPanelContent', chevron: 'dataWorkPanelChevron' },
+            { name: 'map', content: 'mapPanelContent', chevron: 'mapPanelChevron' },
+            { name: 'segments', content: 'segmentsPanelContent', chevron: 'segmentsPanelChevron' },
+            { name: 'duplicates', content: 'duplicatesPanelContent', chevron: 'duplicatesPanelChevron' },
+            { name: 'addressTable', content: 'addressTableContent', chevron: 'addressTableChevron' }
+        ];
         
-        if (container) {
-            container.style.display = state.visible ? 'block' : 'none';
-        }
+        panelMappings.forEach(panel => {
+            const content = document.getElementById(panel.content);
+            const chevron = document.getElementById(panel.chevron);
+            
+            if (!content || !chevron) {
+                console.log(`⚠️ Элементы панели ${panel.name} не найдены, пропускаем`);
+                return;
+            }
+            
+            // По умолчанию все панели скрыты - единый подход через CSS классы
+            content.classList.add('hidden');
+            chevron.style.transform = 'rotate(-90deg)';
+            
+            console.log(`✅ Панель ${panel.name} инициализирована как скрытая`);
+        });
         
-        if (content) {
-            content.style.display = state.expanded ? 'block' : 'none';
-        }
-        
-        if (chevron) {
-            chevron.style.transform = state.expanded ? 'rotate(90deg)' : 'rotate(0deg)';
-        }
-        
-        if (checkbox) {
-            checkbox.checked = state.visible;
-        }
+        console.log('✅ Инициализация панелей завершена');
     }
     
     /**
@@ -350,10 +448,16 @@ class UIManager {
      */
     savePanelState(panelName) {
         const currentArea = this.dataState.getState('currentArea');
-        if (!currentArea) return;
+        if (!currentArea) {
+            console.warn(`⚠️ UIManager: Область не найдена для сохранения состояния панели "${panelName}"`);
+            return;
+        }
         
         const state = this.uiState.panels[panelName];
-        localStorage.setItem(`panel_${panelName}_${currentArea.id}`, JSON.stringify(state));
+        const stateKey = `panel_${panelName}_${currentArea.id}`;
+        
+        localStorage.setItem(stateKey, JSON.stringify(state));
+        console.log(`💾 UIManager: Состояние панели "${panelName}" сохранено: ${stateKey} = ${JSON.stringify(state)}`);
     }
     
     /**
@@ -914,29 +1018,39 @@ class UIManager {
      */
     restoreUIState() {
         const currentArea = this.dataState.getState('currentArea');
-        if (!currentArea) return;
+        console.log('🔄 UIManager: Восстановление общего состояния UI для области:', currentArea?.id);
         
-        const savedState = localStorage.getItem(`ui-state_${currentArea.id}`);
+        if (!currentArea) {
+            console.warn('⚠️ UIManager: Область не найдена в dataState для восстановления UI');
+            return null;
+        }
+        
+        const stateKey = `ui-state_${currentArea.id}`;
+        const savedState = localStorage.getItem(stateKey);
+        console.log(`🔍 UIManager: Общее состояние UI - ключ: "${stateKey}", значение:`, savedState);
+        
         if (savedState) {
             try {
                 const state = JSON.parse(savedState);
+                console.log('✅ UIManager: Общее состояние UI восстановлено:', state);
                 
-                // Восстанавливаем состояние панелей
-                if (state.panels) {
-                    this.uiState.panels = { ...this.uiState.panels, ...state.panels };
-                    Object.keys(state.panels).forEach(panelName => {
-                        this.applyPanelState(panelName);
-                    });
-                }
+                // Общее состояние UI восстановлено (панели управляются отдельно)
+                console.log('✅ UIManager: Общее состояние UI применено');
                 
                 // Восстанавливаем тему
                 if (state.theme) {
                     this.setTheme(state.theme);
                 }
                 
+                return state;
+                
             } catch (error) {
-                console.error('Error restoring UI state:', error);
+                console.error('❌ UIManager: Ошибка восстановления общего состояния UI:', error);
+                return null;
             }
+        } else {
+            console.log('💡 UIManager: Общее состояние UI не найдено, используем значения по умолчанию');
+            return null;
         }
     }
     
