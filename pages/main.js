@@ -1014,16 +1014,27 @@ class MainPage {
           });
 
           // Добавляем popup с информацией об области
-          polygon.bindPopup(`
+          const popupContent = document.createElement('div');
+          popupContent.innerHTML = `
             <div>
               <strong>${area.name}</strong><br>
               <small>Область на карте</small><br>
-              <button onclick="window.location.href='area.html?id=${area.id}'" 
-                      class="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-sm">
+              <button id="openAreaBtn_${area.id}" 
+                      class="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
                 Открыть
               </button>
             </div>
-          `);
+          `;
+          
+          // Добавляем обработчик событий для кнопки
+          const openButton = popupContent.querySelector(`#openAreaBtn_${area.id}`);
+          if (openButton) {
+            openButton.addEventListener('click', () => {
+              window.location.href = `area.html?id=${area.id}`;
+            });
+          }
+          
+          polygon.bindPopup(popupContent);
 
           this.mapLayers.areas.addLayer(polygon);
         }

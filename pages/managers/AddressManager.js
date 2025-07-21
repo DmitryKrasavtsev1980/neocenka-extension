@@ -1719,13 +1719,9 @@ class AddressManager {
             return false;
         }
         
-        // Если полигон уже существует, игнорируем
-        if (currentArea.polygon && Array.isArray(currentArea.polygon) && currentArea.polygon.length >= 3) {
-            console.log('🔍 Полигон в области уже существует, пропускаем импорт');
-            return false;
-        }
-        
-        console.log('📥 Импортируем полигон из файла в область без полигона');
+        // Всегда перезаписываем полигон области данными из файла
+        const hasExistingPolygon = currentArea.polygon && Array.isArray(currentArea.polygon) && currentArea.polygon.length >= 3;
+        console.log(`📥 Импортируем полигон из файла (${hasExistingPolygon ? 'перезаписываем существующий' : 'создаем новый'})`);
         
         try {
             // Импортируем полигон
@@ -2695,7 +2691,11 @@ class AddressManager {
                 series.updated_at = series.created_at;
             }
 
-            await window.db.put('house_series', series);
+            if (seriesId) {
+                await window.db.update('house_series', series);
+            } else {
+                await window.db.add('house_series', series);
+            }
             
             this.closeModal('houseSeriesModal');
             await this.loadReferenceData();
@@ -2744,7 +2744,11 @@ class AddressManager {
                 houseClass.updated_at = houseClass.created_at;
             }
 
-            await window.db.put('house_classes', houseClass);
+            if (classId) {
+                await window.db.update('house_classes', houseClass);
+            } else {
+                await window.db.add('house_classes', houseClass);
+            }
             
             this.closeModal('houseClassModal');
             await this.loadReferenceData();
@@ -2793,7 +2797,11 @@ class AddressManager {
                 material.updated_at = material.created_at;
             }
 
-            await window.db.put('wall_materials', material);
+            if (materialId) {
+                await window.db.update('wall_materials', material);
+            } else {
+                await window.db.add('wall_materials', material);
+            }
             
             this.closeModal('wallMaterialModal');
             await this.loadReferenceData();
@@ -2841,7 +2849,11 @@ class AddressManager {
                 material.updated_at = material.created_at;
             }
 
-            await window.db.put('ceiling_materials', material);
+            if (materialId) {
+                await window.db.update('ceiling_materials', material);
+            } else {
+                await window.db.add('ceiling_materials', material);
+            }
             
             this.closeModal('ceilingMaterialModal');
             await this.loadReferenceData();

@@ -209,7 +209,7 @@ class MapManager {
         }
         
         // Добавляем контроллер на карту
-        const layerControl = L.control.layers(null, overlayMaps, {
+        this.layerControl = L.control.layers(null, overlayMaps, {
             position: 'topleft',
             collapsed: false
         }).addTo(this.map);
@@ -241,6 +241,41 @@ class MapManager {
                 this.map.removeLayer(this.listingsCluster.clusterLayer);
             }
         });
+    }
+    
+    /**
+     * Обновление контроллера слоев
+     */
+    updateLayerControl() {
+        // Удаляем существующий контроллер слоев
+        if (this.layerControl) {
+            this.map.removeControl(this.layerControl);
+        }
+        
+        // Создаем новый контроллер слоев
+        const overlayMaps = {
+            "📍 Адреса": this.mapLayers.addresses,
+            "🏠 Объекты": this.mapLayers.objects,
+            "📋 Объявления": this.mapLayers.listings
+        };
+        
+        // Добавляем полигон области, если он существует
+        if (this.areaPolygonLayer) {
+            overlayMaps["🔷 Полигон области"] = this.areaPolygonLayer;
+        }
+        
+        // Добавляем обновленный контроллер на карту
+        this.layerControl = L.control.layers(null, overlayMaps, {
+            position: 'topleft',
+            collapsed: false
+        }).addTo(this.map);
+        
+        // Добавляем полигон области на карту по умолчанию (если есть)
+        if (this.areaPolygonLayer && !this.map.hasLayer(this.areaPolygonLayer)) {
+            this.areaPolygonLayer.addTo(this.map);
+        }
+        
+        console.log('🔄 Контроллер слоев обновлен');
     }
     
     /**
@@ -356,24 +391,44 @@ class MapManager {
     /**
      * Обработка удаления полигона
      */
-    onPolygonDeleted(e) {
-        // Очищаем все ссылки на полигон
-        this.drawnPolygon = null;
-        this.areaPolygonLayer = null;
-        
-        // Очищаем полигон в области
-        const currentArea = this.dataState.getState('currentArea');
-        if (currentArea) {
-            currentArea.polygon = [];
-            this.dataState.setState('currentArea', currentArea);
+    async onPolygonDeleted(e) {
+        try {
+            // Очищаем все ссылки на полигон
+            this.drawnPolygon = null;
+            this.areaPolygonLayer = null;
+            
+            // Очищаем полигон в области и сохраняем в базу данных
+            const currentArea = this.dataState.getState('currentArea');
+            if (currentArea) {
+                const updatedArea = {
+                    ...currentArea,
+                    polygon: [],
+                    updated_at: new Date().toISOString()
+                };
+                
+                // Сохраняем в базу данных
+                await window.db.update('map_areas', updatedArea);
+                
+                // Обновляем состояние
+                this.dataState.setState('currentArea', updatedArea);
+                
+                // Обновляем контроллер слоев (убираем полигон из списка)
+                this.updateLayerControl();
+                
+                // Уведомляем о изменении
+                this.eventBus.emit(CONSTANTS.EVENTS.AREA_UPDATED, {
+                    area: updatedArea,
+                    polygonDeleted: true,
+                    timestamp: new Date()
+                });
+                
+                Helpers.debugLog('🗑️ Полигон области удален из базы данных');
+            }
+            
+        } catch (error) {
+            console.error('Ошибка при удалении полигона:', error);
+            this.progressManager?.showError('Ошибка удаления полигона из базы данных');
         }
-        
-        // Уведомляем о изменении
-        this.eventBus.emit(CONSTANTS.EVENTS.AREA_UPDATED, {
-            area: currentArea,
-            polygonDeleted: true,
-            timestamp: new Date()
-        });
     }
     
     /**
@@ -455,11 +510,16 @@ class MapManager {
             this.map.addLayer(this.areaPolygonLayer);
         }
         
+        // Обновляем контроллер слоев, добавляя полигон области
+        this.updateLayerControl();
+        
         // Центрируем карту на полигоне только если панель карты видима
         const mapContent = document.getElementById('mapPanelContent');
         if (mapContent && mapContent.style.display !== 'none') {
             this.map.fitBounds(this.areaPolygonLayer.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
         }
+        
+        Helpers.debugLog('✅ Полигон области отображен на карте');
     }
     
     /**

@@ -360,12 +360,30 @@ class UIManager {
             chevron.style.transform = 'rotate(0deg)';
             this.saveSimplePanelState(panelName, true);
             console.log(`⬇️ UIManager: Панель "${panelName}" развернута`);
+            
+            // Уведомляем о развертывании панели (для карты и других компонентов)
+            if (this.eventBus) {
+                this.eventBus.emit(CONSTANTS.EVENTS.PANEL_TOGGLED, {
+                    panelName,
+                    expanded: true,
+                    visible: true
+                });
+            }
         } else {
             // Сворачиваем панель
             content.classList.add('hidden');
             chevron.style.transform = 'rotate(-90deg)';
             this.saveSimplePanelState(panelName, false);
             console.log(`➡️ UIManager: Панель "${panelName}" свернута`);
+            
+            // Уведомляем о сворачивании панели
+            if (this.eventBus) {
+                this.eventBus.emit(CONSTANTS.EVENTS.PANEL_TOGGLED, {
+                    panelName,
+                    expanded: false,
+                    visible: false
+                });
+            }
         }
         
         // Диагностика CSS после изменений
