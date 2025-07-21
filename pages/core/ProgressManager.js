@@ -89,10 +89,13 @@ class ProgressManager {
      * Показ статусного сообщения
      */
     showStatus(message, type = 'info', duration = 5000) {
-        const statusElement = document.getElementById('statusMessage');
+        let statusElement = document.getElementById('statusMessage');
         if (!statusElement) {
-            console.warn('Status element not found: statusMessage');
-            return;
+            // Создаем элемент статуса если он не существует
+            statusElement = document.createElement('div');
+            statusElement.id = 'statusMessage';
+            statusElement.classList.add('hidden');
+            document.body.appendChild(statusElement);
         }
         
         // Очищаем предыдущие классы

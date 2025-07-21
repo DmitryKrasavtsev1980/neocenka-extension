@@ -21,6 +21,7 @@ const EVENTS = {
     ADDRESS_ADDED: 'address:added',
     ADDRESS_UPDATED: 'address:updated',
     ADDRESS_DELETED: 'address:deleted',
+    ADDRESS_EDIT_REQUESTED: 'address:edit:requested',
     
     // Объявления
     LISTINGS_LOADED: 'listings:loaded',
@@ -165,7 +166,11 @@ const MAP_CONFIG = {
     CLUSTER_MAX_ZOOM: 15,
     POLYGON_COLOR: '#3B82F6',
     POLYGON_OPACITY: 0.7,
-    POLYGON_FILL_OPACITY: 0.1
+    POLYGON_FILL_OPACITY: 0.1,
+    FIT_BOUNDS_OPTIONS: {
+        padding: [20, 20], // Отступы в пикселях
+        maxZoom: 16 // Максимальный зум при fitBounds
+    }
 };
 
 // Конфигурация таблиц

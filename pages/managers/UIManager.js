@@ -58,10 +58,10 @@ class UIManager {
                 checkbox: 'mapPanel'
             },
             addresses: {
-                container: 'addressesPanelContainer',
-                content: 'addressesPanelContent',
-                header: 'addressesPanelHeader',
-                chevron: 'addressesPanelChevron',
+                container: 'addressTableContainer',
+                content: 'addressTableContent',
+                header: 'addressTableHeader',
+                chevron: 'addressTableChevron',
                 checkbox: 'addressesPanel'
             },
             segments: {
@@ -85,6 +85,27 @@ class UIManager {
     }
     
     /**
+     * Проверка настроек отладки
+     */
+    async isDebugEnabled() {
+        try {
+            const settings = await window.db.getSettings();
+            return settings.find(s => s.key === 'debug_enabled')?.value === true;
+        } catch (error) {
+            return false;
+        }
+    }
+    
+    /**
+     * Отладочное сообщение с проверкой настроек
+     */
+    async debugLog(message, ...args) {
+        if (await this.isDebugEnabled()) {
+            console.log(message, ...args);
+        }
+    }
+    
+    /**
      * Привязка событий
      */
     bindEvents() {
@@ -104,6 +125,10 @@ class UIManager {
             this.eventBus.on(CONSTANTS.EVENTS.NOTIFICATION_SHOW, (notification) => {
                 this.showNotification(notification);
             });
+            
+            this.eventBus.on(CONSTANTS.EVENTS.AREA_UPDATED, async (area) => {
+                this.updateAreaStatistics();
+            });
         }
         
         // Привязка к панелям
@@ -119,8 +144,8 @@ class UIManager {
     /**
      * Привязка к панелям
      */
-    bindPanelEvents() {
-        console.log('🔗 UIManager: Привязка событий панелей (новая простая система)...');
+    async bindPanelEvents() {
+        await this.debugLog('🔗 UIManager: Привязка событий панелей (новая простая система)...');
         
         // Все панели на странице (включая addressTable)
         const panelMappings = [
@@ -132,20 +157,20 @@ class UIManager {
             { name: 'addressTable', header: 'addressTableHeader', content: 'addressTableContent', chevron: 'addressTableChevron' }
         ];
         
-        panelMappings.forEach(panel => {
+        for (const panel of panelMappings) {
             const header = document.getElementById(panel.header);
             if (header) {
-                header.addEventListener('click', () => {
-                    console.log(`🔵 UIManager: Клик по панели "${panel.name}"`);
+                header.addEventListener('click', async () => {
+                    await this.debugLog(`🔵 UIManager: Клик по панели "${panel.name}"`);
                     this.simpleTogglePanel(panel.name, panel.content, panel.chevron);
                 });
-                console.log(`✅ UIManager: Панель "${panel.name}" привязана к элементу #${panel.header}`);
+                await this.debugLog(`✅ UIManager: Панель "${panel.name}" привязана к элементу #${panel.header}`);
             } else {
                 console.debug(`💡 UIManager: Панель "${panel.name}" пропущена (элемент #${panel.header} не найден)`);
             }
-        });
+        }
         
-        console.log('✅ UIManager: Привязка событий панелей завершена');
+        await this.debugLog('✅ UIManager: Привязка событий панелей завершена');
     }
     
     /**
@@ -200,6 +225,12 @@ class UIManager {
         // Инициализируем UI элементы
         this.initializeUIElements();
         
+        // Инициализируем табы панели работы с данными
+        this.initDataWorkTabs();
+        
+        // Обновляем статистику области
+        this.updateAreaStatistics();
+        
         // Показываем уведомление
         this.showNotification({
             type: 'success',
@@ -212,9 +243,12 @@ class UIManager {
      * Обновление заголовка страницы
      */
     updatePageTitle(area) {
-        const titleElement = document.getElementById('pageTitle');
+        const titleElement = document.getElementById('areaTitle');
         if (titleElement) {
-            titleElement.textContent = `Область: ${area.name}`;
+            titleElement.textContent = area.name;
+            console.log('✅ UIManager: Название области обновлено:', area.name);
+        } else {
+            console.error('❌ UIManager: Элемент areaTitle не найден');
         }
         
         // Обновляем title документа
@@ -225,7 +259,7 @@ class UIManager {
      * Переключение панели
      */
     togglePanel(panelName) {
-        console.log(`🔄 UIManager: Переключение панели "${panelName}"`);
+        this.debugLog(`🔄 UIManager: Переключение панели "${panelName}"`);
         
         const config = this.panelConfig[panelName];
         if (!config) {
@@ -358,10 +392,10 @@ class UIManager {
      * Простое восстановление состояния панелей
      */
     restorePanelStates(area) {
-        console.log('🔄 Восстановление состояния панелей для области:', area?.id);
+        this.debugLog('🔄 Восстановление состояния панелей для области:', area?.id);
         
         if (!area || !area.id) {
-            console.warn('⚠️ Нет области для восстановления состояния панелей');
+            this.debugLog('⚠️ Нет области для восстановления состояния панелей');
             return;
         }
         
@@ -379,13 +413,13 @@ class UIManager {
             const stateKey = `simple_panel_${panel.name}_${area.id}`;
             const savedState = localStorage.getItem(stateKey);
             
-            console.log(`🔍 Панель ${panel.name}: ${savedState || 'нет сохраненного состояния'}`);
+            this.debugLog(`🔍 Панель ${panel.name}: ${savedState || 'нет сохраненного состояния'}`);
             
             const content = document.getElementById(panel.content);
             const chevron = document.getElementById(panel.chevron);
             
             if (!content || !chevron) {
-                console.log(`⚠️ Элементы панели ${panel.name} не найдены, пропускаем`);
+                this.debugLog(`⚠️ Элементы панели ${panel.name} не найдены, пропускаем`);
                 return;
             }
             
@@ -395,15 +429,15 @@ class UIManager {
             if (isExpanded) {
                 content.classList.remove('hidden');
                 chevron.style.transform = 'rotate(0deg)';
-                console.log(`✅ Панель ${panel.name} восстановлена как развернутая`);
+                this.debugLog(`✅ Панель ${panel.name} восстановлена как развернутая`);
             } else {
                 content.classList.add('hidden');
                 chevron.style.transform = 'rotate(-90deg)';
-                console.log(`✅ Панель ${panel.name} восстановлена как свернутая`);
+                this.debugLog(`✅ Панель ${panel.name} восстановлена как свернутая`);
             }
         });
         
-        console.log('✅ Восстановление панелей завершено');
+        this.debugLog('✅ Восстановление панелей завершено');
     }
     
     // Старые методы видимости удалены
@@ -461,13 +495,90 @@ class UIManager {
     }
     
     /**
+     * Инициализация переключателей панелей
+     */
+    initPanelToggles() {
+        try {
+            // Инициализация чекбоксов панелей
+            Object.keys(this.panelConfig).forEach(panelName => {
+                const config = this.panelConfig[panelName];
+                if (config.checkbox) {
+                    const checkbox = document.getElementById(config.checkbox);
+                    if (checkbox) {
+                        // Установка начального состояния
+                        checkbox.checked = this.uiState.panels[panelName]?.visible !== false;
+                        
+                        // Обработчик изменения
+                        checkbox.addEventListener('change', (e) => {
+                            this.togglePanelVisibility(panelName, e.target.checked);
+                        });
+                    }
+                }
+            });
+            
+            console.log('✅ UIManager: Переключатели панелей инициализированы');
+            
+        } catch (error) {
+            console.error('❌ UIManager: Ошибка инициализации переключателей панелей:', error);
+        }
+    }
+    
+    /**
+     * Переключение видимости панели
+     */
+    togglePanelVisibility(panelName, visible) {
+        try {
+            const config = this.panelConfig[panelName];
+            if (!config) {
+                console.warn(`⚠️ UIManager: Конфигурация панели "${panelName}" не найдена`);
+                return;
+            }
+            
+            // Обновление состояния
+            this.uiState.panels[panelName].visible = visible;
+            
+            // Получение контейнера панели
+            const container = document.getElementById(config.container);
+            if (container) {
+                if (visible) {
+                    container.classList.remove('hidden');
+                } else {
+                    container.classList.add('hidden');
+                }
+            }
+            
+            // Сохранение состояния
+            this.savePanelState(panelName);
+            
+            // Уведомление о изменении
+            this.eventBus.emit(CONSTANTS.EVENTS.PANEL_TOGGLED, {
+                panelName,
+                visible,
+                state: this.uiState.panels[panelName]
+            });
+            
+            console.log(`👁️ UIManager: Панель "${panelName}" ${visible ? 'показана' : 'скрыта'}`);
+            
+        } catch (error) {
+            console.error(`❌ UIManager: Ошибка переключения панели "${panelName}":`, error);
+        }
+    }
+    
+    /**
      * Открытие модального окна
      */
     openModal(modalName, options = {}) {
+        console.log(`🔓 UIManager: Открываем модальное окно "${modalName}"`);
         const modal = document.getElementById(modalName);
-        if (!modal) return;
+        if (!modal) {
+            console.error(`❌ UIManager: Модальное окно "${modalName}" не найдено`);
+            return;
+        }
         
-        // Показываем модальное окно
+        console.log(`✅ UIManager: Модальное окно "${modalName}" найдено, показываем...`);
+        
+        // Показываем модальное окно (убираем hidden класс и устанавливаем flex)
+        modal.classList.remove('hidden');
         modal.style.display = 'flex';
         modal.classList.add('modal-open');
         
@@ -510,10 +621,15 @@ class UIManager {
      * Закрытие модального окна
      */
     closeModal(modalName) {
+        console.log(`🔒 UIManager: Закрываем модальное окно "${modalName}"`);
         const modal = document.getElementById(modalName);
-        if (!modal) return;
+        if (!modal) {
+            console.error(`❌ UIManager: Модальное окно "${modalName}" не найдено`);
+            return;
+        }
         
-        // Скрываем модальное окно
+        // Скрываем модальное окно (добавляем hidden класс и убираем flex)
+        modal.classList.add('hidden');
         modal.style.display = 'none';
         modal.classList.remove('modal-open');
         
@@ -656,9 +772,9 @@ class UIManager {
         if (actions.length > 0) {
             actionsHTML = `
                 <div class="flex mt-2 space-x-2">
-                    ${actions.map(action => `
+                    ${actions.map((action, index) => `
                         <button class="text-sm font-medium underline hover:no-underline" 
-                                onclick="${action.handler}">${action.text}</button>
+                                data-action-index="${index}">${action.text}</button>
                     `).join('')}
                 </div>
             `;
@@ -674,12 +790,35 @@ class UIManager {
                     ${actionsHTML}
                 </div>
                 <div class="flex-shrink-0 ml-4">
-                    <button class="text-lg font-bold hover:opacity-75" onclick="this.parentElement.parentElement.parentElement.remove()">
+                    <button class="close-notification text-lg font-bold hover:opacity-75">
                         ×
                     </button>
                 </div>
             </div>
         `;
+        
+        // Добавляем обработчики событий через addEventListener для соответствия CSP
+        const closeBtn = element.querySelector('.close-notification');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                element.remove();
+            });
+        }
+        
+        // Добавляем обработчики для кнопок действий
+        if (actions.length > 0) {
+            const actionButtons = element.querySelectorAll('[data-action-index]');
+            actionButtons.forEach((button, index) => {
+                if (actions[index] && actions[index].handler) {
+                    const handler = actions[index].handler;
+                    if (typeof handler === 'function') {
+                        button.addEventListener('click', handler);
+                    } else {
+                        console.warn('UIManager: handler должен быть функцией, получен:', typeof handler, 'для действия:', actions[index]);
+                    }
+                }
+            });
+        }
         
         return element;
     }
@@ -1094,6 +1233,167 @@ class UIManager {
         
         // Сбрасываем состояние
         this.resetUIState();
+    }
+    
+    /**
+     * Обновление статистики области
+     */
+    async updateAreaStatistics() {
+        try {
+            if (!this.dataState.currentArea) {
+                console.warn('UIManager: Нет данных области для обновления статистики');
+                return;
+            }
+            
+            const areaId = this.dataState.currentArea.id;
+            
+            // Загружаем статистику из базы данных
+            const allAddresses = await window.db.getAll('addresses');
+            const addresses = allAddresses.filter(address => address.map_area_id === areaId);
+            
+            // Получаем объявления через адреса
+            let listingsCount = 0;
+            if (addresses.length > 0) {
+                const addressIds = addresses.map(addr => addr.id);
+                const listingsPromises = addressIds.map(id => window.db.getListingsByAddress(id));
+                const listingsArrays = await Promise.all(listingsPromises);
+                listingsCount = listingsArrays.flat().length;
+            }
+            
+            // Получаем сегменты
+            const allSegments = await window.db.getAll('segments').catch(() => []);
+            const segments = allSegments.filter(segment => segment.map_area_id === areaId);
+            
+            // Получаем объекты недвижимости через адреса
+            let objectsCount = 0;
+            if (addresses.length > 0) {
+                const addressIds = addresses.map(addr => addr.id);
+                const objectsPromises = addressIds.map(id => window.db.getObjectsByAddress(id));
+                const objectsArrays = await Promise.all(objectsPromises);
+                objectsCount = objectsArrays.flat().length;
+            }
+            
+            // Обновляем счетчики в интерфейсе
+            this.updateStatisticsCounters({
+                segments: segments?.length || 0,
+                addresses: addresses?.length || 0,
+                objects: objectsCount,
+                listings: listingsCount
+            });
+            
+            console.log('✅ UIManager: Статистика области обновлена');
+            
+        } catch (error) {
+            console.error('❌ UIManager: Ошибка обновления статистики области:', error);
+        }
+    }
+    
+    /**
+     * Обновление счетчиков в панели статистики
+     */
+    updateStatisticsCounters({ segments, addresses, objects, listings }) {
+        const counters = [
+            { id: 'segmentsCount', value: segments },
+            { id: 'addressesCount', value: addresses },
+            { id: 'objectsCount', value: objects },
+            { id: 'listingsCount', value: listings }
+        ];
+        
+        counters.forEach(({ id, value }) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value.toLocaleString();
+            } else {
+                console.warn(`UIManager: Элемент ${id} не найден в DOM`);
+            }
+        });
+    }
+    
+    /**
+     * Переключение табов в панели работы с данными
+     */
+    switchDataWorkTab(tabId) {
+        const navItems = document.querySelectorAll('.data-nav-item');
+        const contentTabs = document.querySelectorAll('.data-content-tab');
+        
+        // Убираем активный класс со всех элементов навигации
+        navItems.forEach(nav => {
+            nav.classList.remove('bg-indigo-50', 'text-indigo-600');
+            nav.classList.add('text-gray-700', 'hover:bg-gray-50', 'hover:text-indigo-600');
+        });
+        
+        // Скрываем все табы контента
+        contentTabs.forEach(tab => {
+            tab.classList.add('hidden');
+        });
+        
+        // Активируем нужную вкладку
+        const activeNavItem = document.querySelector(`[data-tab="${tabId}"]`);
+        const activeContentTab = document.getElementById(`content-${tabId}`);
+        
+        if (activeNavItem && activeContentTab) {
+            // Активируем элемент навигации
+            activeNavItem.classList.remove('text-gray-700', 'hover:bg-gray-50', 'hover:text-indigo-600');
+            activeNavItem.classList.add('bg-indigo-50', 'text-indigo-600');
+            
+            // Показываем активный таб
+            activeContentTab.classList.remove('hidden');
+            
+            // Сохраняем выбранный таб
+            localStorage.setItem('dataWorkActiveTab', tabId);
+            
+            console.log(`✅ UIManager: Переключен таб на "${tabId}"`);
+        } else {
+            console.warn(`UIManager: Не найдены элементы для таба "${tabId}"`);
+        }
+    }
+    
+    /**
+     * Инициализация табов панели работы с данными
+     */
+    initDataWorkTabs() {
+        // Навигация по табам в панели работы с данными
+        document.querySelectorAll('.data-nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const tabId = item.getAttribute('data-tab');
+                if (tabId) {
+                    this.switchDataWorkTab(tabId);
+                }
+            });
+        });
+        
+        // Восстанавливаем активный таб
+        const activeTab = localStorage.getItem('dataWorkActiveTab') || 'import-addresses';
+        this.switchDataWorkTab(activeTab);
+        
+        console.log('✅ UIManager: Табы панели работы с данными инициализированы');
+    }
+    
+    /**
+     * Восстановление состояния панели работы с данными
+     */
+    restoreDataWorkPanelState() {
+        const content = document.getElementById('dataWorkPanelContent');
+        const chevron = document.getElementById('dataWorkPanelChevron');
+        
+        // Восстанавливаем состояние сворачивания панели
+        const isCollapsed = localStorage.getItem('dataWorkPanelCollapsed');
+        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        
+        if (content && chevron) {
+            if (shouldCollapse) {
+                content.style.display = 'none';
+                chevron.style.transform = 'rotate(-90deg)';
+            } else {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(0deg)';
+            }
+        }
+        
+        // Восстанавливаем активный таб
+        const activeTab = localStorage.getItem('dataWorkActiveTab') || 'import-addresses';
+        this.switchDataWorkTab(activeTab);
     }
 }
 

@@ -172,6 +172,7 @@ class AddressModel {
     this.entrances_count = data.entrances_count || null;
     this.living_spaces_count = data.living_spaces_count || null;
     this.gas_supply = data.gas_supply || null; // Газоснабжение: true/false
+    this.individual_heating = data.individual_heating || null; // Индивидуальное отопление: true/false
     
     // Инфраструктура
     this.has_playground = data.has_playground || false;

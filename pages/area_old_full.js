@@ -39,6 +39,8 @@ class AreaPage {
             addresses: false,
             duplicates: false
         };
+        
+        // Менеджеры будут инициализированы в init() после загрузки DOM
 
         // Ключ для сохранения состояния в localStorage
         this.storageKey = 'neocenka_area_progress_';
@@ -173,15 +175,81 @@ class AreaPage {
             console.error('Ошибка при очистке ресурсов AreaPage:', error);
         }
     }
+    
+    /**
+     * Инициализация менеджеров
+     */
+    initializeManagers() {
+        // Инициализируем DataState
+        this.dataState = new DataState();
+        
+        // Инициализируем EventBus
+        this.eventBus = new EventBus();
+        
+        // Инициализируем ProgressManager
+        this.progressManager = new ProgressManager();
+        
+        // Инициализируем UIManager
+        this.uiManager = new UIManager(this.dataState, this.eventBus, this.progressManager);
+        
+        // Инициализируем SegmentsManager
+        this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
+    }
+
+    /**
+     * Инициализация компонентов интерфейса
+     */
+    async initUIComponents() {
+        // Инициализируем навигацию
+        if (typeof NavigationComponent !== 'undefined') {
+            const navigation = new NavigationComponent();
+            const navContainer = document.getElementById('navigation-container');
+            if (navContainer) {
+                navContainer.innerHTML = navigation.render();
+                navigation.init();
+                await Helpers.debugLog('✅ Навигация инициализирована');
+            }
+        }
+        
+        // Инициализируем хлебные крошки
+        if (typeof BreadcrumbsComponent !== 'undefined') {
+            const breadcrumbs = BreadcrumbsComponent.forPage('area');
+            const breadcrumbsContainer = document.getElementById('breadcrumbs-container');
+            if (breadcrumbsContainer) {
+                breadcrumbsContainer.innerHTML = breadcrumbs.render();
+                await Helpers.debugLog('✅ Хлебные крошки инициализированы');
+            }
+        }
+        
+        // Инициализируем футер
+        if (typeof FooterComponent !== 'undefined') {
+            const footer = new FooterComponent();
+            const footerContainer = document.getElementById('footer-container');
+            if (footerContainer) {
+                footerContainer.innerHTML = footer.render();
+                await Helpers.debugLog('✅ Футер инициализирован');
+            }
+        }
+    }
 
     /**
      * Инициализация страницы
      */
     async init() {
         try {
+            console.log('🚀 Инициализация страницы области...');
+            
+            // Инициализируем менеджеры (после загрузки DOM и готовности БД)
+            this.initializeManagers();
+            
+            // Инициализируем компоненты интерфейса
+            await this.initUIComponents();
+            
             // Получаем ID области из URL параметров
             const urlParams = new URLSearchParams(window.location.search);
             this.currentAreaId = urlParams.get('id');
+            
+            console.log('🔍 ID области из URL:', this.currentAreaId);
 
             if (!this.currentAreaId) {
                 this.showError('ID области не указан');
@@ -192,7 +260,7 @@ class AreaPage {
             await this.loadAreaData();
 
             // Инициализируем компоненты
-            await this.initMap();
+            // Карта инициализируется через MapManager при событии AREA_LOADED
             this.initDataTable();
             this.bindEvents();
             this.bindDataTableEvents();
@@ -207,20 +275,39 @@ class AreaPage {
             
             // Инициализируем интеграцию с сервисами
             await this.initServicesIntegration();
+            
+            // Инициализируем таблицу сегментов
+            this.segmentsManager.initializeTable();
+            
+            // Загружаем данные сегментов для текущей области
+            await this.segmentsManager.loadSegments();
+            
+            // Новая система управления панелями через UIManager
+            if (this.uiManager) {
+                // Инициализируем панели по умолчанию
+                this.uiManager.initializePanelsDefaults();
+                
+                // Восстанавливаем состояние панелей
+                this.uiManager.restorePanelStates(this.currentArea);
+                
+                console.log('✅ Новая система управления панелями активирована');
+            }
 
             // Восстанавливаем состояние таблицы адресов
             this.restoreAddressTableState();
 
-            // Восстанавливаем состояние панели работы с данными
-            this.restoreStatisticsPanelState();
-            this.restoreDataWorkPanelState();
-            this.restoreMapPanelState();
-            this.restoreDuplicatesPanelState();
-            this.restoreSegmentsPanelState();
-            this.restorePanelVisibilityStates();
+            // Очищаем старые ключи localStorage
+            this.cleanupOldPanelKeys();
 
             // Восстанавливаем состояние прогресса
             this.restoreProgressState();
+            
+            // Показываем контент страницы
+            const areaContent = document.getElementById('area-content');
+            if (areaContent) {
+                areaContent.classList.remove('hidden');
+                console.log('✅ Контент страницы отображен');
+            }
 
         } catch (error) {
             console.error('Error initializing area page:', error);
@@ -233,7 +320,9 @@ class AreaPage {
      */
     async loadAreaData() {
         try {
+            console.log('📂 Загрузка данных области с ID:', this.currentAreaId);
             const areaData = await db.get('map_areas', this.currentAreaId);
+            console.log('📋 Данные области загружены:', areaData);
 
             if (!areaData) {
                 throw new Error('Область не найдена');
@@ -241,12 +330,21 @@ class AreaPage {
 
             // Создаем экземпляр MapAreaModel для доступа к методам
             this.currentArea = new MapAreaModel(areaData);
+            
+            // Синхронизируем с dataState для доступа из менеджеров
+            this.dataState.setState('currentArea', this.currentArea);
 
             // Обновляем заголовок и описание
             document.getElementById('areaTitle').textContent = this.currentArea.name;
 
             // Устанавливаем хлебные крошки
             this.setBreadcrumbs();
+
+            // Уведомляем менеджеры о загрузке области
+            this.eventBus.emit(CONSTANTS.EVENTS.AREA_LOADED, {
+                area: this.currentArea,
+                timestamp: new Date()
+            });
 
             // Выводим все объявления и адреса в консоль при загрузке страницы
             await this.logAllListings();
@@ -359,278 +457,12 @@ class AreaPage {
         }
     }
 
-    /**
-     * Инициализация карты
-     */
-    async initMap() {
-        try {
-            // Создаем карту
-            this.map = L.map('map').setView([55.7558, 37.6176], 11); // Москва по умолчанию
-
-            // Добавляем слой карты
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(this.map);
-
-            // Если у области есть полигон, создаем его слой
-            if (this.currentArea.polygon && this.currentArea.polygon.length > 0) {
-                this.displayAreaPolygon();
-            }
-
-            // Инициализируем слои карты
-            this.initMapLayers();
-
-            // Инициализируем инструменты рисования
-            this.initDrawControls();
-
-            // Активируем фильтр "Год" по умолчанию (это также загрузит данные на карту)
-            this.setDefaultMapFilter();
-
-        } catch (error) {
-            console.error('Error initializing map:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Отображение полигона области на карте
-     */
-    displayAreaPolygon() {
-        if (!this.currentArea.polygon || this.currentArea.polygon.length === 0) {
-            return;
-        }
-
-        // Если полигон уже существует, не создаем его повторно
-        if (this.areaPolygonLayer) {
-            console.log('🔷 Полигон области уже отображен, пропускаем повторное создание');
-            return;
-        }
-
-        console.log('🔷 Создаем полигон области на карте');
-
-        // Конвертируем координаты в формат Leaflet
-        const latLngs = this.currentArea.polygon.map(point => [point.lat, point.lng]);
-
-        // Создаем полигон как отдельный слой
-        this.areaPolygonLayer = L.polygon(latLngs, {
-            color: '#3b82f6',
-            fillColor: '#3b82f6',
-            fillOpacity: 0.2,
-            weight: 2
-        });
-
-        // Сохраняем ссылку на полигон для редактирования
-        this.drawnPolygon = this.areaPolygonLayer;
-
-        // Добавляем полигон в группу для редактирования (если группа уже создана)
-        // Если группа еще не создана, полигон будет добавлен в неё позже в initDrawControls()
-        if (this.drawnItems) {
-            this.drawnItems.addLayer(this.areaPolygonLayer);
-        } else {
-            // Если группа еще не создана, добавляем полигон напрямую на карту
-            this.map.addLayer(this.areaPolygonLayer);
-        }
-
-        // Центрируем карту на полигоне только если панель карты видима
-        const mapContent = document.getElementById('mapPanelContent');
-        if (mapContent && mapContent.style.display !== 'none') {
-            this.map.fitBounds(this.areaPolygonLayer.getBounds());
-        }
-    }
-
-    /**
-     * Инициализация инструментов рисования
-     */
-    initDrawControls() {
-        // Создаем группу для рисования
-        this.drawnItems = new L.FeatureGroup();
-        this.map.addLayer(this.drawnItems);
-
-        // Если есть существующий полигон, добавляем его в группу для редактирования
-        if (this.areaPolygonLayer) {
-            // Сначала удаляем полигон с карты (если он был добавлен напрямую)
-            if (this.map.hasLayer(this.areaPolygonLayer)) {
-                this.map.removeLayer(this.areaPolygonLayer);
-            }
-            // Добавляем полигон в группу редактирования (это автоматически добавит его на карту)
-            this.drawnItems.addLayer(this.areaPolygonLayer);
-        }
-
-        // Настройки инструментов рисования
-        const drawControl = new L.Control.Draw({
-            position: 'topright',
-            draw: {
-                polygon: {
-                    allowIntersection: false,
-                    drawError: {
-                        color: '#e1e047',
-                        message: '<strong>Ошибка:</strong> границы полигона не должны пересекаться!'
-                    },
-                    shapeOptions: {
-                        color: '#3b82f6',
-                        fillColor: '#3b82f6',
-                        fillOpacity: 0.2
-                    }
-                },
-                polyline: false,
-                rectangle: false,
-                circle: false,
-                marker: false,
-                circlemarker: false
-            },
-            edit: {
-                featureGroup: this.drawnItems,
-                remove: true
-            }
-        });
-
-        this.drawControl = drawControl;
-        this.map.addControl(drawControl);
-
-        // Обработчики событий рисования
-        this.map.on(L.Draw.Event.CREATED, (e) => {
-            const layer = e.layer;
-
-            // Удаляем предыдущий полигон из группы редактирования (это автоматически удалит его с карты)
-            if (this.drawnPolygon && this.drawnItems.hasLayer(this.drawnPolygon)) {
-                this.drawnItems.removeLayer(this.drawnPolygon);
-            }
-            if (this.areaPolygonLayer && this.drawnItems.hasLayer(this.areaPolygonLayer)) {
-                this.drawnItems.removeLayer(this.areaPolygonLayer);
-            }
-            
-            // Также удаляем полигоны напрямую с карты (на случай если они были добавлены не через drawnItems)
-            if (this.drawnPolygon && this.map.hasLayer(this.drawnPolygon)) {
-                this.map.removeLayer(this.drawnPolygon);
-            }
-            if (this.areaPolygonLayer && this.map.hasLayer(this.areaPolygonLayer)) {
-                this.map.removeLayer(this.areaPolygonLayer);
-            }
-
-            // Добавляем новый полигон
-            this.drawnPolygon = layer;
-            this.areaPolygonLayer = layer;
-            this.drawnItems.addLayer(layer);
-
-            // Сохраняем полигон в область
-            this.savePolygon();
-        });
-
-        this.map.on(L.Draw.Event.EDITED, (e) => {
-            // Обновляем все отредактированные слои
-            const layers = e.layers;
-            layers.eachLayer((layer) => {
-                // Обновляем ссылки на полигон
-                this.drawnPolygon = layer;
-                this.areaPolygonLayer = layer;
-            });
-            
-            // Сохраняем изменения
-            this.savePolygon();
-        });
-
-        this.map.on(L.Draw.Event.DELETED, (e) => {
-            // Очищаем все ссылки на полигон
-            this.drawnPolygon = null;
-            this.areaPolygonLayer = null;
-            this.currentArea.polygon = [];
-            this.saveAreaChanges();
-        });
-    }
-
-    /**
-     * Инициализация слоев карты
-     */
-    initMapLayers() {
-        // Создаем группы слоев (только адреса включены по умолчанию)
-        this.mapLayers.addresses = L.layerGroup().addTo(this.map);
-        this.mapLayers.objects = L.layerGroup();
-        this.mapLayers.listings = L.layerGroup();
-
-        // Инициализируем кластеризацию для адресов (не создаем сразу)
-        this.addressesCluster = null;
-
-        // Инициализируем кластеризацию для объявлений (не создаем сразу)
-        this.listingsCluster = null;
-
-        // Создаем контроллер слоев
-        const overlayMaps = {
-            "📍 Адреса": this.mapLayers.addresses,
-            "🏠 Объекты": this.mapLayers.objects,
-            "📋 Объявления": this.mapLayers.listings
-        };
-
-        // Добавляем полигон области, если он существует
-        if (this.areaPolygonLayer) {
-            overlayMaps["🔷 Полигон области"] = this.areaPolygonLayer;
-        }
-
-        // Добавляем контроллер на карту
-        const layerControl = L.control.layers(null, overlayMaps, {
-            position: 'topleft',
-            collapsed: false
-        }).addTo(this.map);
-
-        // Добавляем полигон области на карту по умолчанию (если есть)
-        if (this.areaPolygonLayer) {
-            this.areaPolygonLayer.addTo(this.map);
-        }
-
-        // Добавляем обработчики для управления кластерами
-        this.map.on('overlayadd', (e) => {
-            console.log('Layer added:', e.name);
-            if (e.name === '📍 Адреса' && this.addressesCluster) {
-                this.addressesCluster.markerLayer.addTo(this.map);
-                this.addressesCluster.clusterLayer.addTo(this.map);
-            } else if (e.name === '📋 Объявления' && this.listingsCluster) {
-                this.listingsCluster.markerLayer.addTo(this.map);
-                this.listingsCluster.clusterLayer.addTo(this.map);
-            }
-        });
-
-        this.map.on('overlayremove', (e) => {
-            console.log('Layer removed:', e.name);
-            if (e.name === '📍 Адреса' && this.addressesCluster) {
-                this.map.removeLayer(this.addressesCluster.markerLayer);
-                this.map.removeLayer(this.addressesCluster.clusterLayer);
-            } else if (e.name === '📋 Объявления' && this.listingsCluster) {
-                this.map.removeLayer(this.listingsCluster.markerLayer);
-                this.map.removeLayer(this.listingsCluster.clusterLayer);
-            }
-        });
-
-    }
 
 
-    /**
-     * Загрузка данных на карту
-     */
-    async loadMapData() {
-        try {
-            console.log(`🔄 === ОБНОВЛЕНИЕ ВСЕХ ДАННЫХ КАРТЫ ===`);
-            
-            // Отображаем полигон области
-            this.displayAreaPolygon();
-            
-            console.log(`📍 Загружаем адреса на карту...`);
-            await this.loadAddressesOnMap();
-            
-            console.log(`🏢 Загружаем объекты на карту...`);
-            await this.loadObjectsOnMap();
-            
-            console.log(`📋 Загружаем объявления на карту...`);
-            await this.loadListingsOnMap();
-            
-            console.log(`✅ Обновление карты завершено`);
-        } catch (error) {
-            console.error('Error loading map data:', error);
-        }
-    }
 
-    /**
-     * Загрузка адресов на карту
-     */
-    async loadAddressesOnMap() {
+
+
+
         try {
             const addresses = await this.getAddressesInArea();
             
@@ -840,105 +672,7 @@ class AreaPage {
         }
     }
 
-    /**
-     * Загрузка объектов на карту
-     */
-    async loadObjectsOnMap() {
-        try {
-            const addresses = await this.getAddressesInArea();
-            const objects = [];
 
-            // УДАЛЕН: загрузка объектов недвижимости
-
-            // Очищаем предыдущие маркеры
-            this.mapLayers.objects.clearLayers();
-
-            objects.forEach(object => {
-                if (object.address?.coordinates?.lat && object.address?.coordinates?.lng) {
-                    const marker = L.marker([object.address.coordinates.lat, object.address.coordinates.lng], {
-                        icon: L.divIcon({
-                            className: 'object-marker',
-                            html: '<div style="background: #10b981; width: 14px; height: 14px; border-radius: 3px; border: 2px solid white;"></div>',
-                            iconSize: [18, 18],
-                            iconAnchor: [9, 9]
-                        })
-                    });
-
-                    marker.bindPopup(`
-                        <div>
-                            <strong>🏠 Объект</strong><br>
-                            ${object.name || object.address?.address || 'Не указан'}<br>
-                            <small>Тип: ${object.property_type || 'Не указан'}</small><br>
-                            <small>Объявлений: ${object.listings_count || 0}</small>
-                        </div>
-                    `);
-
-                    this.mapLayers.objects.addLayer(marker);
-                }
-            });
-
-            debugLogger.log(`Загружено ${objects.length} объектов на карту`);
-        } catch (error) {
-            console.error('Error loading objects on map:', error);
-        }
-    }
-
-    /**
-     * Загрузка объявлений на карту
-     */
-    async loadListingsOnMap() {
-        try {
-            const listings = await this.getListingsInArea();
-            
-            // Очищаем предыдущие маркеры
-            this.mapLayers.listings.clearLayers();
-            if (this.listingsCluster) {
-                this.listingsCluster.clearMarkers();
-            }
-
-            const markers = [];
-
-            listings.forEach(listing => {
-                if (listing.coordinates && listing.coordinates.lat && listing.coordinates.lng) {
-                    const marker = this.createListingMarker(listing);
-                    markers.push(marker);
-                }
-            });
-
-            // Если объявлений много, используем кластеризацию
-            if (listings.length > 20) {
-                // Создаем кластер если его еще нет
-                if (!this.listingsCluster) {
-                    this.listingsCluster = new MarkerCluster(this.map, {
-                        maxClusterRadius: 60,
-                        disableClusteringAtZoom: 16,
-                        zoomToBoundsOnClick: true,
-                        spiderfyOnMaxZoom: true,
-                        animate: true
-                    });
-                }
-                this.listingsCluster.addMarkers(markers);
-                // Скрываем кластер объявлений по умолчанию, так как слой не включен
-                if (!this.map.hasLayer(this.mapLayers.listings)) {
-                    this.map.removeLayer(this.listingsCluster.markerLayer);
-                    this.map.removeLayer(this.listingsCluster.clusterLayer);
-                }
-                console.log(`📋 Загружено ${listings.length} объявлений на карту с кластеризацией`);
-            } else {
-                // Для небольшого количества объявлений добавляем прямо на карту
-                markers.forEach(marker => {
-                    this.mapLayers.listings.addLayer(marker);
-                });
-                console.log(`📋 Загружено ${listings.length} объявлений на карту`);
-            }
-
-            // Обновляем счетчик в интерфейсе
-            this.updateListingsCount(listings.length);
-
-        } catch (error) {
-            console.error('Error loading listings on map:', error);
-        }
-    }
 
     /**
      * Создание маркера для объявления
@@ -1605,231 +1339,9 @@ class AreaPage {
         }
     }
 
-    /**
-     * Показ модального окна редактирования адреса
-     * @param {Object} address - Данные адреса
-     */
-    showAddressModal(address) {
-        const modal = document.getElementById('editAddressModal');
-        modal.classList.remove('hidden');
-        
-        // Инициализируем карту в модальном окне
-        setTimeout(() => {
-            this.initEditAddressMap(address);
-        }, 100);
-        
-        // Сохраняем ID редактируемого адреса
-        this.editingAddressId = address.id;
-    }
 
-    /**
-     * Инициализация карты в модальном окне редактирования
-     * @param {Object} address - Данные адреса
-     */
-    initEditAddressMap(address) {
-        const mapContainer = document.getElementById('editAddressMap');
-        
-        // Удаляем существующую карту если есть
-        if (this.editAddressMap) {
-            this.editAddressMap.remove();
-        }
-        
-        // Создаем новую карту
-        this.editAddressMap = L.map('editAddressMap').setView([
-            address.coordinates.lat, 
-            address.coordinates.lng
-        ], 16);
-        
-        // Добавляем тайлы OpenStreetMap
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(this.editAddressMap);
-        
-        // Добавляем перетаскиваемый маркер
-        this.editAddressMarker = L.marker([
-            address.coordinates.lat, 
-            address.coordinates.lng
-        ], {
-            draggable: true
-        }).addTo(this.editAddressMap);
-        
-        // Сохраняем новые координаты при перетаскивании
-        this.editAddressMarker.on('dragend', async (event) => {
-            const marker = event.target;
-            const position = marker.getLatLng();
-            console.log(`📍 Новые координаты: ${position.lat}, ${position.lng}`);
-            
-            // Обновляем визуальную подсказку о том, что координаты изменены
-            const coordsDisplay = document.querySelector('#editAddressMap + p');
-            if (coordsDisplay) {
-                coordsDisplay.innerHTML = `
-                    <span style="color: #059669; font-weight: 500;">
-                        ✅ Координаты обновлены: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}
-                    </span><br>
-                    <span style="font-size: 12px; color: #6b7280;">
-                        🔍 Поиск адреса по координатам...
-                    </span>
-                `;
-            }
-            
-            // Выполняем reverse geocoding для получения адреса
-            try {
-                const osmAPI = new OSMOverpassAPI();
-                const foundAddress = await osmAPI.reverseGeocode(position.lat, position.lng);
-                
-                if (foundAddress) {
-                    // Подставляем найденный адрес в поле формы
-                    const addressField = document.getElementById('editAddressText');
-                    if (addressField) {
-                        addressField.value = foundAddress;
-                        console.log(`✅ Адрес найден и подставлен: ${foundAddress}`);
-                    }
-                    
-                    // Обновляем подсказку
-                    if (coordsDisplay) {
-                        coordsDisplay.innerHTML = `
-                            <span style="color: #059669; font-weight: 500;">
-                                ✅ Координаты обновлены: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}
-                            </span><br>
-                            <span style="color: #10b981; font-size: 12px;">
-                                📍 Найден адрес: ${foundAddress}
-                            </span>
-                        `;
-                    }
-                } else {
-                    // Адрес не найден
-                    if (coordsDisplay) {
-                        coordsDisplay.innerHTML = `
-                            <span style="color: #059669; font-weight: 500;">
-                                ✅ Координаты обновлены: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}
-                            </span><br>
-                            <span style="color: #f59e0b; font-size: 12px;">
-                                ⚠️ Адрес по координатам не найден
-                            </span>
-                        `;
-                    }
-                }
-            } catch (error) {
-                console.error('Ошибка при поиске адреса:', error);
-                if (coordsDisplay) {
-                    coordsDisplay.innerHTML = `
-                        <span style="color: #059669; font-weight: 500;">
-                            ✅ Координаты обновлены: ${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}
-                        </span><br>
-                        <span style="color: #ef4444; font-size: 12px;">
-                            ❌ Ошибка поиска адреса
-                        </span>
-                    `;
-                }
-            }
-        });
-    }
 
-    /**
-     * Удаление адреса
-     * @param {string} addressId - ID адреса
-     */
-    async deleteAddress(addressId) {
-        try {
-            // Получаем данные адреса для отображения в подтверждении
-            const address = await db.get('addresses', addressId);
-            if (!address) {
-                this.showError('Адрес не найден');
-                return;
-            }
 
-            // Показываем подтверждение удаления
-            const confirmed = confirm(
-                `Вы уверены, что хотите удалить адрес?\n\n` +
-                `"${address.address}"\n\n` +
-                `Это действие необратимо.`
-            );
-
-            if (!confirmed) {
-                return;
-            }
-
-            console.log(`🗑️ Удаление адреса: ${addressId}`);
-            
-            // Удаляем адрес из базы данных
-            await db.delete('addresses', addressId);
-            
-            // Обновляем карту как при нажатии кнопки "Обновить карту"
-            await this.refreshMapData();
-            
-            // Также обновляем таблицу и статистику
-            await this.loadAddresses();
-            await this.loadAreaStats();
-            
-            this.showSuccess('Адрес успешно удален');
-            
-        } catch (error) {
-            console.error('Error deleting address:', error);
-            this.showError('Ошибка удаления адреса: ' + error.message);
-        }
-    }
-
-    /**
-     * Обновление данных адресов после изменений
-     */
-    async refreshAddressData() {
-        try {
-            // Обновляем карту
-            await this.loadAddressesOnMap();
-            
-            // Обновляем таблицу
-            await this.loadAddresses();
-            
-            // Обновляем статистику
-            await this.loadAreaStats();
-            
-        } catch (error) {
-            console.error('Error refreshing address data:', error);
-        }
-    }
-
-    /**
-     * Принудительное обновление всех данных адресов с очисткой кэша
-     */
-    async forceRefreshAddressData() {
-        try {
-            console.log(`🔄 === ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ ДАННЫХ АДРЕСОВ ===`);
-            
-            // Очищаем пространственный индекс
-            if (this.spatialManager) {
-                console.log(`🗑️ Очищаем пространственный индекс адресов`);
-                this.spatialManager.clearIndex('addresses');
-                // Также удаляем сам индекс для полного пересоздания
-                if (this.spatialManager.hasIndex('addresses')) {
-                    this.spatialManager.removeIndex('addresses');
-                }
-            }
-            
-            // Очищаем слой адресов на карте
-            if (this.mapLayers && this.mapLayers.addresses) {
-                console.log(`🗺️ Очищаем слой адресов на карте`);
-                this.mapLayers.addresses.clearLayers();
-            }
-            
-            // Принудительно перезагружаем адреса на карту
-            console.log(`📍 Перезагружаем адреса на карту`);
-            await this.loadAddressesOnMap();
-            
-            // Принудительно перезагружаем таблицу адресов
-            console.log(`📋 Перезагружаем таблицу адресов`);
-            await this.loadAddresses();
-            
-            // Обновляем статистику области
-            console.log(`📊 Обновляем статистику области`);
-            await this.loadAreaStats();
-            
-            console.log(`✅ Принудительное обновление данных завершено`);
-            
-        } catch (error) {
-            console.error('Error force refreshing address data:', error);
-            this.showError('Ошибка обновления данных: ' + error.message);
-        }
-    }
 
     /**
      * Сохранение изменений адреса
@@ -1947,16 +1459,6 @@ class AreaPage {
         return statusMap[status] || 'Неизвестно';
     }
 
-    /**
-     * Обновление данных на карте
-     */
-    async refreshMapData() {
-        try {
-            await this.loadMapData();
-        } catch (error) {
-            console.error('Error refreshing map data:', error);
-        }
-    }
 
     /**
      * Сохранение полигона
@@ -2399,6 +1901,14 @@ class AreaPage {
      * Привязка событий
      */
     bindEvents() {
+        // Подписка на событие инициализации карты
+        if (this.eventBus) {
+            this.eventBus.on(CONSTANTS.EVENTS.MAP_INITIALIZED, () => {
+                // Получаем ссылку на карту из MapManager
+                this.map = this.mapManager.map;
+            });
+        }
+        
         // Редактирование области
         document.getElementById('editAreaBtn')?.addEventListener('click', () => {
             this.openEditAreaModal();
@@ -2422,7 +1932,7 @@ class AreaPage {
 
         // Обновление карты
         document.getElementById('refreshMapBtn')?.addEventListener('click', () => {
-            this.refreshMapData();
+            this.mapManager.refreshMapData();
         });
 
         // Обработка данных
@@ -2467,29 +1977,9 @@ class AreaPage {
         // События для интеграции сервисов обрабатываются в AreaServicesIntegration
 
         // Сворачивание таблицы адресов
-        document.getElementById('addressTableHeader')?.addEventListener('click', () => {
-            this.toggleAddressTable();
-        });
+        // Управление таблицей адресов делегировано UIManager
 
-        // Сворачивание панели статистики
-        document.getElementById('statisticsPanelHeader')?.addEventListener('click', () => {
-            this.toggleStatisticsPanel();
-        });
-
-        // Сворачивание панели работы с данными
-        document.getElementById('dataWorkPanelHeader')?.addEventListener('click', () => {
-            this.toggleDataWorkPanel();
-        });
-
-        // Сворачивание панели карты области
-        document.getElementById('mapPanelHeader')?.addEventListener('click', () => {
-            this.toggleMapPanel();
-        });
-
-        // Сворачивание панели управления дублями
-        document.getElementById('duplicatesPanelHeader')?.addEventListener('click', () => {
-            this.toggleDuplicatesPanel();
-        });
+        // Управление панелями теперь делегировано UIManager
 
         // Управление отображением панелей через dropdown меню
         document.getElementById('panelBtn')?.addEventListener('click', (e) => {
@@ -2531,10 +2021,7 @@ class AreaPage {
             this.togglePanelVisibility('duplicates', e.target.checked);
         });
 
-        // Сворачивание панели сегментов
-        document.getElementById('segmentsPanelHeader')?.addEventListener('click', () => {
-            this.toggleSegmentsPanel();
-        });
+        // Управление панелью сегментов делегировано UIManager
 
         // Навигация по табам в панели работы с данными
         document.querySelectorAll('.data-nav-item').forEach(item => {
@@ -4261,134 +3748,7 @@ class AreaPage {
     /**
      * Получение адресов в области
      */
-    async getAddressesInArea() {
-        if (!this.currentArea.polygon || this.currentArea.polygon.length === 0) {
-            console.warn('Полигон области отсутствует или пуст');
-            return [];
-        }
 
-        try {
-            const allAddresses = await db.getAddresses();
-            //console.log(`🔍 Диагностика getAddressesInArea:`);
-            //console.log(`📊 Всего адресов в БД: ${allAddresses.length}`);
-            //console.log(`🗺️ Полигон области (${this.currentArea.polygon.length} точек):`, this.currentArea.polygon);
-            
-            // Проверяем формат адресов
-            if (allAddresses.length > 0) {
-                //console.log(`📋 Пример первого адреса:`, allAddresses[0]);
-            }
-            
-            // Используем пространственный индекс для быстрого поиска адресов
-            await this.ensureAddressesIndex(allAddresses);
-            
-            const addressesInArea = this.spatialManager.findInArea('addresses', this.currentArea.polygon);
-            //console.log(`✅ Адресов найдено в области: ${addressesInArea.length}`);
-            
-            if (addressesInArea.length > 0) {
-                //console.log(`📋 Пример найденного адреса:`, addressesInArea[0]);
-            }
-            
-            // Дополнительная проверка: мануальная фильтрация для сравнения
-            //console.log(`🔬 Выполняем мануальную проверку для сравнения...`);
-            const manualCheck = allAddresses.filter(address => {
-                // Проверяем разные форматы координат
-                let coords = null;
-                if (address.coordinates && address.coordinates.lat && address.coordinates.lng) {
-                    coords = address.coordinates;
-                } else if (address.coordinates && address.coordinates.lat && address.coordinates.lon) {
-                    coords = { lat: address.coordinates.lat, lng: address.coordinates.lon };
-                } else if (address.lat && address.lng) {
-                    coords = { lat: address.lat, lng: address.lng };
-                }
-                
-                if (!coords) {
-                    //console.warn(`⚠️ Адрес без координат:`, address);
-                    return false;
-                }
-                
-                try {
-                    const isInside = this.geoUtils.isPointInPolygon(coords, this.currentArea.polygon);
-                    if (isInside) {
-                        //console.log(`  ✓ ${address.address} (${coords.lat}, ${coords.lng}) - внутри полигона`);
-                    } else {
-                        //console.log(`  ✗ ${address.address} (${coords.lat}, ${coords.lng}) - вне полигона`);
-                    }
-                    return isInside;
-                } catch (error) {
-                    console.error('Error checking point in polygon:', error);
-                    return false;
-                }
-            });
-            //console.log(`🧪 Мануальная проверка найдено: ${manualCheck.length} адресов`);
-            
-            return addressesInArea;
-        } catch (error) {
-            console.error('Error getting addresses in area:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Обеспечение наличия актуального пространственного индекса для адресов
-     */
-    async ensureAddressesIndex(addresses) {
-        try {
-            console.log(`🔧 Создание индекса для ${addresses.length} адресов`);
-            
-            // Принудительно удаляем старый индекс для пересоздания с новой логикой
-            if (this.spatialManager.hasIndex('addresses')) {
-                console.log(`🗑️ Удаляем существующий индекс адресов`);
-                this.spatialManager.removeIndex('addresses');
-            }
-
-            // Анализируем координаты адресов перед созданием индекса
-            let validAddresses = 0;
-            let invalidAddresses = 0;
-            
-            const getCoordinatesFunction = (address) => {
-                // Поддерживаем различные форматы координат
-                let coords = null;
-                
-                if (address.coordinates) {
-                    coords = {
-                        lat: address.coordinates.lat || address.coordinates.latitude,
-                        lng: address.coordinates.lng || address.coordinates.lon || address.coordinates.longitude
-                    };
-                }
-                // Прямые координаты в объекте
-                else if (address.lat || address.latitude) {
-                    coords = {
-                        lat: address.lat || address.latitude,
-                        lng: address.lng || address.lon || address.longitude
-                    };
-                }
-                
-                if (coords && coords.lat && coords.lng && !isNaN(coords.lat) && !isNaN(coords.lng)) {
-                    validAddresses++;
-                    return coords;
-                } else {
-                    invalidAddresses++;
-                    return null;
-                }
-            };
-
-            // Создаем новый индекс с исправленной функцией извлечения координат
-            if (!this.spatialManager.hasIndex('addresses')) {
-                console.log(`🏗️ Создаем новый индекс адресов`);
-                await this.spatialManager.createIndex(
-                    'addresses',
-                    addresses,
-                    getCoordinatesFunction
-                );
-            }
-            
-            console.log(`✅ Индекс создан: ${validAddresses} валидных адресов, ${invalidAddresses} невалидных`);
-            console.log(`📊 Статистика индексов:`, this.spatialManager.getIndexesStats());
-            
-        } catch (error) {
-            console.error('Error ensuring addresses index:', error);
-        }
-    }
 
     /**
      * Получает настройки обновления из chrome.storage
@@ -4569,62 +3929,6 @@ class AreaPage {
     /**
      * Загрузка адресов в таблицу
      */
-    async loadAddresses() {
-        try {
-            console.log(`📋 Загрузка адресов в таблицу...`);
-            const addresses = await this.getAddressesInArea();
-            console.log(`📊 Адресов для отображения: ${addresses.length}`);
-
-            // Инициализируем ML-алгоритм определения адресов
-            if (typeof SmartAddressMatcher !== 'undefined' && !window.smartAddressMatcher) {
-                try {
-                    // Инициализируем пространственный индекс если еще не создан
-                    if (!window.spatialIndexManager) {
-                        window.spatialIndexManager = new SpatialIndexManager();
-                    }
-                    
-                    window.smartAddressMatcher = new SmartAddressMatcher(this.spatialManager || window.spatialIndexManager);
-                    console.log('🧠 SmartAddressMatcher initialized');
-                } catch (error) {
-                    console.warn('Failed to initialize SmartAddressMatcher:', error);
-                }
-            }
-
-            // Добавляем счетчики объявлений для каждого адреса
-            for (const address of addresses) {
-                const listings = await db.getListingsByAddress(address.id);
-
-                address.objects_count = 0; // УДАЛЕН: подсчет объектов
-                address.listings_count = listings.length;
-                
-                // Нормализуем обязательные поля для DataTables
-                if (!address.source) {
-                    address.source = 'manual'; // Добавляем source по умолчанию
-                }
-            }
-
-            // Сохраняем адреса в переменную класса для использования в других функциях
-            this.addresses = addresses;
-
-            // Очищаем и заполняем таблицу
-            if (this.addressesTable) {
-                console.log(`🔄 Обновляем таблицу адресов`);
-                this.addressesTable.clear();
-                this.addressesTable.rows.add(addresses); // Раскомментировал эту строку!
-                this.addressesTable.draw();
-                console.log(`✅ Таблица обновлена`);
-                
-                // Инициализируем фильтр по источнику после загрузки данных
-                this.initSourceFilter();
-            } else {
-                console.warn(`⚠️ Таблица адресов не инициализирована`);
-            }
-
-        } catch (error) {
-            console.error('Error loading addresses:', error);
-            this.showError('Ошибка загрузки адресов: ' + error.message);
-        }
-    }
 
     /**
      * Инициализация фильтра по источнику для таблицы адресов
@@ -4747,129 +4051,6 @@ class AreaPage {
     /**
      * Заглушки для методов обработки данных
      */
-    async loadAddressesFromAPI() {
-        console.log(`🚀 === НАЧАЛО ЗАГРУЗКИ АДРЕСОВ ИЗ OSM ===`);
-        
-        if (!this.currentArea || !this.currentArea.polygon) {
-            console.error(`❌ Область не имеет полигона для загрузки адресов`);
-            this.showError('Область не имеет полигона для загрузки адресов');
-            return;
-        }
-
-        console.log(`✅ Полигон области найден, точек: ${this.currentArea.polygon.length}`);
-
-        try {
-            // Создаем экземпляр OSM API
-            console.log(`🔧 Создаем экземпляр OSM API...`);
-            const osmAPI = new OSMOverpassAPI();
-            
-            // Валидируем полигон
-            console.log(`🔍 Валидируем полигон...`);
-            const validation = osmAPI.validatePolygon(this.currentArea.polygon);
-            console.log(`📊 Результат валидации:`, validation);
-            
-            if (!validation.valid) {
-                console.error(`❌ Полигон невалиден: ${validation.error}`);
-                this.showError(`Некорректный полигон: ${validation.error}`);
-                return;
-            }
-
-            // Проверяем статус Overpass API
-            console.log(`🌐 Проверяем статус Overpass API...`);
-            this.showInfo('Проверка доступности Overpass API...');
-            
-            const apiStatus = await osmAPI.getAPIStatus();
-            console.log(`📡 Статус API:`, apiStatus);
-            
-            if (!apiStatus.available) {
-                console.error(`❌ Overpass API недоступен:`, apiStatus);
-                this.showError('Overpass API недоступен. Попробуйте позже.');
-                return;
-            }
-
-            console.log(`✅ API доступен, начинаем загрузку...`);
-            this.showInfo('Загрузка адресов из OpenStreetMap...');
-            
-            // Показываем встроенный прогресс-бар
-            this.showProgressBar('import-addresses');
-            
-            // Колбэк для отслеживания прогресса
-            const progressCallback = (message, percent) => {
-                console.log(`📈 Прогресс: ${percent}% - ${message}`);
-                this.updateProgressBar('import-addresses', percent, message);
-            };
-
-            // Загружаем адреса
-            console.log(`🌍 Начинаем загрузку адресов из OSM...`);
-            const osmAddresses = await osmAPI.loadAddressesForArea(this.currentArea, progressCallback);
-            console.log(`📦 Получено адресов: ${osmAddresses ? osmAddresses.length : 'null'}`);
-
-            // Обновляем прогресс завершения
-            this.updateProgressBar('import-addresses', 100, 'Загрузка завершена');
-
-            if (osmAddresses.length === 0) {
-                this.hideProgressBar('import-addresses');
-                this.showInfo('В указанной области не найдено адресов OSM');
-                return;
-            }
-
-            // Сохраняем адреса в базу данных
-            this.showInfo(`Сохранение ${osmAddresses.length} адресов...`);
-            
-            let savedCount = 0;
-            let skippedCount = 0;
-            
-            for (const address of osmAddresses) {
-                try {
-                    // Проверяем, есть ли уже такой адрес
-                    const existingAddresses = await db.getAll('addresses');
-                    const duplicate = existingAddresses.find(existing => 
-                        existing.source === 'osm' && 
-                        existing.osm_id === address.osm_id && 
-                        existing.osm_type === address.osm_type
-                    );
-
-                    if (duplicate) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    // Привязываем адрес к текущей области
-                    address.map_area_id = this.currentAreaId;
-                    
-                    // Сохраняем в базу
-                    await db.add('addresses', address);
-                    savedCount++;
-                    
-                } catch (error) {
-                    console.error('Error saving address:', error);
-                }
-            }
-
-            // Обновляем карту и статистику
-            await this.loadAreaStats();
-            await this.loadAddresses();
-            await this.loadAddressesOnMap();
-
-            // Показываем результат
-            let resultMessage = `Загрузка завершена: ${savedCount} новых адресов`;
-            if (skippedCount > 0) {
-                resultMessage += `, ${skippedCount} пропущено (дубли)`;
-            }
-            
-            this.showSuccess(resultMessage);
-            
-            // Скрываем прогресс-бар через 2 секунды после успешного завершения
-            setTimeout(() => {
-                this.hideProgressBar('import-addresses');
-            }, 2000);
-
-        } catch (error) {
-            console.error('Error loading addresses from OSM:', error);
-            this.hideProgressBar('import-addresses');
-            this.showError('Ошибка загрузки адресов: ' + error.message);
-        }
-    }
 
     /**
      * Создание модального окна прогресса
@@ -5895,166 +5076,7 @@ class AreaPage {
     /**
      * Установка фильтра по умолчанию (Год)
      */
-    setDefaultMapFilter() {
-        // Устанавливаем активный фильтр
-        this.activeMapFilter = 'year';
-        
-        // Активируем кнопку "Год"
-        const yearButton = document.getElementById('filterByYear');
-        if (yearButton) {
-            yearButton.className = 'inline-flex items-center px-3 py-2 border border-sky-300 shadow-sm text-sm leading-4 font-medium rounded-md text-sky-700 bg-sky-100 hover:bg-sky-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500';
-        }
-        
-        console.log('🎯 Фильтр "Год" активирован по умолчанию');
-        
-        // Загружаем все данные на карту при первой инициализации
-        this.loadMapData();
-    }
 
-    async processAddresses() {
-        if (this.processing.addresses) {
-            this.showInfo('Обработка адресов уже выполняется');
-            return;
-        }
-
-        try {
-            this.processing.addresses = true;
-            console.log('🚀 Начинаем определение адресов для объявлений');
-            this.updateProgressBar('addresses', 0, 'Подготовка данных...');
-
-            // Загружаем объявления без привязанных адресов
-            const allListings = await db.getListings();
-            const unprocessedListings = allListings.filter(listing => 
-                !listing.address_id && 
-                listing.coordinates && 
-                listing.coordinates.lat && 
-                (listing.coordinates.lng || listing.coordinates.lon)
-            );
-
-            if (unprocessedListings.length === 0) {
-                this.showInfo('Нет объявлений для обработки (все уже имеют привязанные адреса)');
-                return;
-            }
-
-            this.updateProgressBar('addresses', 10, `Найдено ${unprocessedListings.length} объявлений для обработки`);
-
-            // Загружаем все адреса
-            const allAddresses = await db.getAddresses();
-            if (allAddresses.length === 0) {
-                this.showError('В базе данных нет адресов для сопоставления');
-                return;
-            }
-
-            this.updateProgressBar('addresses', 20, `Загружено ${allAddresses.length} адресов из базы`);
-
-            // Инициализируем алгоритм сопоставления
-            const AddressMatcher = await this.loadAddressMatcher();
-            const matcher = new AddressMatcher(this.spatialManager);
-
-            this.updateProgressBar('addresses', 30, 'Запуск алгоритма сопоставления...');
-
-            // Обрабатываем объявления батчами для отображения прогресса
-            const batchSize = 50;
-            let processedCount = 0;
-            let matchedCount = 0;
-            let results = {
-                processed: 0,
-                matched: 0,
-                highConfidence: 0,
-                mediumConfidence: 0,
-                lowConfidence: 0,
-                noMatch: 0,
-                errors: 0
-            };
-
-            for (let i = 0; i < unprocessedListings.length; i += batchSize) {
-                const batch = unprocessedListings.slice(i, i + batchSize);
-                const progress = 30 + ((i / unprocessedListings.length) * 60);
-                
-                this.updateProgressBar('addresses', progress, 
-                    `Обработка объявлений ${i + 1}-${Math.min(i + batchSize, unprocessedListings.length)} из ${unprocessedListings.length}`);
-
-                // Обрабатываем батч
-                for (const listing of batch) {
-                    try {
-                        const matchResult = await matcher.matchAddress(listing, allAddresses);
-                        processedCount++;
-                        results.processed++;
-
-                        if (matchResult.address) {
-                            matchedCount++;
-                            results.matched++;
-
-                            // Обновляем объявление в базе данных
-                            listing.address_id = matchResult.address.id;
-                            listing.address_match_confidence = matchResult.confidence;
-                            listing.address_match_method = matchResult.method;
-                            listing.address_match_score = matchResult.score;
-                            listing.address_distance = matchResult.distance;
-                            listing.updated_at = new Date();
-
-                            // Изменяем processing_status с 'address_needed' на 'duplicate_check_needed'
-                            // когда адрес успешно определен
-                            if (listing.processing_status === 'address_needed') {
-                                listing.processing_status = 'duplicate_check_needed';
-                            }
-
-                            await db.update('listings', listing);
-
-                            // Статистика по уровням доверия
-                            switch (matchResult.confidence) {
-                                case 'high':
-                                    results.highConfidence++;
-                                    break;
-                                case 'medium':
-                                    results.mediumConfidence++;
-                                    break;
-                                case 'low':
-                                case 'very_low':
-                                    results.lowConfidence++;
-                                    break;
-                            }
-                        } else {
-                            results.noMatch++;
-                        }
-                    } catch (error) {
-                        results.errors++;
-                        console.error('Ошибка обработки объявления:', error);
-                    }
-                }
-
-                // Небольшая задержка для обновления UI
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-
-            this.updateProgressBar('addresses', 100, 'Обработка завершена');
-
-            // Обновляем карту и статистику
-            await this.loadAreaStats();
-            await this.refreshMapData();
-
-            // Показываем результат
-            const message = `
-                Обработка адресов завершена:
-                • Обработано: ${results.processed}
-                • Найдены адреса: ${results.matched}
-                • Высокая точность: ${results.highConfidence}
-                • Средняя точность: ${results.mediumConfidence}
-                • Низкая точность: ${results.lowConfidence}
-                • Не найдено: ${results.noMatch}
-                • Ошибок: ${results.errors}
-            `;
-
-            this.showSuccess(message);
-
-        } catch (error) {
-            console.error('Error processing addresses:', error);
-            this.showError('Ошибка определения адресов: ' + error.message);
-        } finally {
-            this.processing.addresses = false;
-            this.hideProgressBar('addresses');
-        }
-    }
 
     /**
      * Загрузка модуля AddressMatcher
@@ -6075,505 +5097,10 @@ class AreaPage {
     /**
      * Обработка адресов с использованием продвинутого алгоритма
      */
-    async processAddressesAdvanced() {
-        if (this.processing.addresses) {
-            this.showInfo('Обработка адресов уже выполняется');
-            return;
-        }
-
-        try {
-            this.processing.addresses = true;
-            console.log('🚀 Начинаем продвинутое определение адресов для объявлений');
-            this.updateProgressBar('addresses', 0, 'Подготовка данных для продвинутого алгоритма...');
-
-            // Загружаем объявления без привязанных адресов или с низкой точностью
-            const allListings = await db.getListings();
-            const unprocessedListings = allListings.filter(listing => {
-                const needsReprocessing = 
-                    !listing.address_id || 
-                    listing.address_match_confidence === 'low' || 
-                    listing.address_match_confidence === 'very_low' ||
-                    listing.address_match_confidence === 'medium';
-                
-                const hasCoordinates = listing.coordinates && 
-                    listing.coordinates.lat && 
-                    (listing.coordinates.lng || listing.coordinates.lon);
-                
-                return needsReprocessing && hasCoordinates;
-            });
-
-            if (unprocessedListings.length === 0) {
-                this.showInfo('Нет объявлений для обработки продвинутым алгоритмом');
-                return;
-            }
-
-            this.updateProgressBar('addresses', 10, 
-                `Найдено ${unprocessedListings.length} объявлений для улучшенной обработки`);
-
-            // Загружаем все адреса
-            const allAddresses = await db.getAddresses();
-            if (allAddresses.length === 0) {
-                this.showError('В базе данных нет адресов для сопоставления');
-                return;
-            }
-
-            this.updateProgressBar('addresses', 20, 
-                `Загружено ${allAddresses.length} адресов из базы`);
-
-            // Инициализируем продвинутый алгоритм сопоставления
-            if (!window.advancedAddressMatcher) {
-                this.showError('Продвинутый алгоритм определения адресов не инициализирован');
-                return;
-            }
-
-            const matcher = window.advancedAddressMatcher;
-            matcher.spatialIndex = this.spatialManager;
-
-            this.updateProgressBar('addresses', 30, 
-                '🎯 Запуск продвинутого алгоритма сопоставления...');
-
-            // Обрабатываем объявления батчами для отображения прогресса
-            const batchSize = 30; // Меньший размер батча для более точного алгоритма
-            let processedCount = 0;
-            let improvedCount = 0;
-            let results = {
-                processed: 0,
-                matched: 0,
-                improved: 0,
-                highConfidence: 0,
-                mediumConfidence: 0,
-                lowConfidence: 0,
-                veryLowConfidence: 0,
-                noMatch: 0,
-                errors: 0,
-                methodStats: {}
-            };
-
-            for (let i = 0; i < unprocessedListings.length; i += batchSize) {
-                const batch = unprocessedListings.slice(i, i + batchSize);
-                const progress = 30 + ((i / unprocessedListings.length) * 60);
-                
-                this.updateProgressBar('addresses', progress, 
-                    `🔍 Продвинутая обработка ${i + 1}-${Math.min(i + batchSize, unprocessedListings.length)} из ${unprocessedListings.length}`);
-
-                // Обрабатываем батч
-                for (const listing of batch) {
-                    try {
-                        const oldConfidence = listing.address_match_confidence;
-                        const matchResult = await matcher.matchAddressAdvanced(listing, allAddresses);
-                        processedCount++;
-                        results.processed++;
-
-                        console.log(`📊 Результат для ${listing.id}: ${matchResult.confidence} (${matchResult.method}), скор: ${matchResult.score?.toFixed(3)}`);
-
-                        if (matchResult.address) {
-                            results.matched++;
-
-                            // Проверяем, улучшился ли результат
-                            const confidenceLevels = ['none', 'very_low', 'low', 'medium', 'high'];
-                            const oldLevel = confidenceLevels.indexOf(oldConfidence || 'none');
-                            const newLevel = confidenceLevels.indexOf(matchResult.confidence);
-                            
-                            if (newLevel > oldLevel) {
-                                improvedCount++;
-                                results.improved++;
-                                console.log(`✅ Улучшение для ${listing.id}: ${oldConfidence} → ${matchResult.confidence}`);
-                            }
-
-                            // Обновляем объявление в базе данных
-                            listing.address_id = matchResult.address.id;
-                            listing.address_match_confidence = matchResult.confidence;
-                            listing.address_match_method = matchResult.method;
-                            listing.address_match_score = matchResult.score || 0;
-                            listing.address_distance = matchResult.distance;
-                            listing.updated_at = new Date();
-
-                            // Добавляем дополнительные данные от продвинутого алгоритма
-                            if (matchResult.textSimilarity !== undefined) {
-                                listing.address_text_similarity = matchResult.textSimilarity;
-                            }
-                            if (matchResult.semanticSimilarity !== undefined) {
-                                listing.address_semantic_similarity = matchResult.semanticSimilarity;
-                            }
-                            if (matchResult.structuralSimilarity !== undefined) {
-                                listing.address_structural_similarity = matchResult.structuralSimilarity;
-                            }
-
-                            // Изменяем processing_status при успешном определении адреса
-                            if (listing.processing_status === 'address_needed') {
-                                listing.processing_status = 'duplicate_check_needed';
-                            }
-
-                            await db.update('listings', listing);
-
-                            // Статистика по уровням доверия
-                            switch (matchResult.confidence) {
-                                case 'high':
-                                    results.highConfidence++;
-                                    break;
-                                case 'medium':
-                                    results.mediumConfidence++;
-                                    break;
-                                case 'low':
-                                    results.lowConfidence++;
-                                    break;
-                                case 'very_low':
-                                    results.veryLowConfidence++;
-                                    break;
-                            }
-
-                            // Статистика методов
-                            const method = matchResult.method;
-                            results.methodStats[method] = (results.methodStats[method] || 0) + 1;
-
-                        } else {
-                            results.noMatch++;
-                        }
-                    } catch (error) {
-                        results.errors++;
-                        console.error('Ошибка продвинутой обработки объявления:', error);
-                    }
-                }
-
-                // Небольшая задержка для обновления UI
-                await new Promise(resolve => setTimeout(resolve, 150));
-            }
-
-            this.updateProgressBar('addresses', 100, '✅ Продвинутая обработка завершена');
-
-            // Обновляем карту и статистику
-            await this.loadAreaStats();
-            await this.loadAddresses();
-
-            // Показываем детальный результат
-            const methodStatsText = Object.entries(results.methodStats)
-                .map(([method, count]) => `  • ${method}: ${count}`)
-                .join('\n');
-
-            const message = `🎯 Продвинутая обработка адресов завершена:
-
-📊 Общая статистика:
-• Обработано: ${results.processed}
-• Найдены адреса: ${results.matched}
-• Улучшено: ${results.improved}
-
-🎯 По уровням точности:
-• Высокая точность: ${results.highConfidence}
-• Средняя точность: ${results.mediumConfidence}
-• Низкая точность: ${results.lowConfidence}
-• Очень низкая: ${results.veryLowConfidence}
-• Не найдено: ${results.noMatch}
-• Ошибок: ${results.errors}
-
-🔧 Методы определения:
-${methodStatsText}
-
-✨ Использован продвинутый алгоритм с семантическим анализом!`;
-
-            this.showSuccess(message);
-
-        } catch (error) {
-            console.error('Error in advanced address processing:', error);
-            this.showError('Ошибка продвинутого определения адресов: ' + error.message);
-        } finally {
-            this.processing.addresses = false;
-            this.hideProgressBar('addresses');
-        }
-    }
 
     /**
      * Обработка адресов с использованием умного алгоритма с ML
      */
-    async processAddressesSmart() {
-        if (this.processing.addresses) {
-            this.showInfo('Обработка адресов уже выполняется');
-            return;
-        }
-
-        try {
-            this.processing.addresses = true;
-            console.log('🧠 Начинаем умное определение адресов с ML');
-            this.updateProgressBar('addresses', 0, 'Инициализация умного алгоритма...');
-
-            // Загружаем объявления для обработки умным алгоритмом
-            const allListings = await db.getListings();
-            const targetListings = allListings.filter(listing => {
-                const needsProcessing = 
-                    !listing.address_id || 
-                    listing.address_match_confidence === 'very_low' ||
-                    listing.address_match_confidence === 'low' ||
-                    (listing.address_match_confidence === 'medium' && listing.address_match_score < 0.75);
-                
-                const hasCoordinates = listing.coordinates && 
-                    listing.coordinates.lat && 
-                    (listing.coordinates.lng || listing.coordinates.lon);
-                
-                return needsProcessing && hasCoordinates;
-            });
-
-            if (targetListings.length === 0) {
-                this.showInfo('Нет объявлений для обработки умным алгоритмом');
-                return;
-            }
-
-            this.updateProgressBar('addresses', 10, 
-                `🧠 Найдено ${targetListings.length} объявлений для умной обработки`);
-
-            // Загружаем все адреса
-            const allAddresses = await db.getAddresses();
-            if (allAddresses.length === 0) {
-                this.showError('В базе данных нет адресов для сопоставления');
-                return;
-            }
-
-            this.updateProgressBar('addresses', 20, 
-                `📍 Загружено ${allAddresses.length} адресов из базы`);
-
-            // Инициализируем умный алгоритм
-            if (!window.smartAddressMatcher) {
-                this.showError('Умный алгоритм определения адресов не инициализирован');
-                return;
-            }
-
-            const smartMatcher = window.smartAddressMatcher;
-            smartMatcher.spatialIndex = this.spatialManager;
-
-            this.updateProgressBar('addresses', 30, 
-                '🧠 Запуск умного алгоритма с машинным обучением...');
-
-            // Обрабатываем объявления меньшими батчами для ML-алгоритма
-            const batchSize = 20;
-            let processedCount = 0;
-            let significantImprovements = 0;
-            let results = {
-                processed: 0,
-                matched: 0,
-                improved: 0,
-                significantlyImproved: 0,
-                perfect: 0,
-                high: 0,
-                medium: 0,
-                low: 0,
-                veryLow: 0,
-                noMatch: 0,
-                errors: 0,
-                methodStats: {},
-                avgProcessingTime: 0,
-                totalProcessingTime: 0
-            };
-
-            const startTime = Date.now();
-
-            for (let i = 0; i < targetListings.length; i += batchSize) {
-                const batch = targetListings.slice(i, i + batchSize);
-                const progress = 30 + ((i / targetListings.length) * 60);
-                
-                this.updateProgressBar('addresses', progress, 
-                    `🧠 Умная ML-обработка ${i + 1}-${Math.min(i + batchSize, targetListings.length)} из ${targetListings.length}`);
-
-                // Обрабатываем батч
-                for (const listing of batch) {
-                    try {
-                        const oldConfidence = listing.address_match_confidence;
-                        const oldScore = listing.address_match_score || 0;
-                        
-                        const matchResult = await smartMatcher.matchAddressSmart(listing, allAddresses);
-                        processedCount++;
-                        results.processed++;
-                        results.totalProcessingTime += matchResult.processingTime || 0;
-
-                        console.log(`🧠 ML-результат для ${listing.id}: ${matchResult.confidence} (${matchResult.method}), скор: ${matchResult.score?.toFixed(3)}, время: ${matchResult.processingTime}ms`);
-
-                        if (matchResult.address) {
-                            results.matched++;
-
-                            // Проверяем улучшение
-                            const confidenceLevels = ['none', 'very_low', 'low', 'medium', 'high', 'perfect'];
-                            const oldLevel = confidenceLevels.indexOf(oldConfidence || 'none');
-                            const newLevel = confidenceLevels.indexOf(matchResult.confidence);
-                            
-                            if (newLevel > oldLevel || matchResult.score > oldScore + 0.1) {
-                                results.improved++;
-                                
-                                // Значительное улучшение
-                                if (newLevel > oldLevel + 1 || matchResult.score > oldScore + 0.2) {
-                                    significantImprovements++;
-                                    results.significantlyImproved++;
-                                    console.log(`🎯 Значительное улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
-                                } else {
-                                    console.log(`✅ Улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
-                                }
-                            }
-
-                            // Обновляем объявление
-                            listing.address_id = matchResult.address.id;
-                            listing.address_match_confidence = matchResult.confidence;
-                            listing.address_match_method = matchResult.method;
-                            listing.address_match_score = matchResult.score;
-                            listing.address_distance = matchResult.distance;
-                            listing.updated_at = new Date();
-
-                            // Дополнительные метрики от умного алгоритма
-                            if (matchResult.textSimilarity !== undefined) {
-                                listing.address_text_similarity = matchResult.textSimilarity;
-                            }
-                            if (matchResult.semanticSimilarity !== undefined) {
-                                listing.address_semantic_similarity = matchResult.semanticSimilarity;
-                            }
-                            if (matchResult.structuralSimilarity !== undefined) {
-                                listing.address_structural_similarity = matchResult.structuralSimilarity;
-                            }
-                            if (matchResult.fuzzyScore !== undefined) {
-                                listing.address_fuzzy_score = matchResult.fuzzyScore;
-                            }
-
-                            // Обновляем статус обработки
-                            if (listing.processing_status === 'address_needed') {
-                                listing.processing_status = 'duplicate_check_needed';
-                            }
-
-                            await db.update('listings', listing);
-
-                            // Статистика по уровням доверия
-                            switch (matchResult.confidence) {
-                                case 'perfect':
-                                    results.perfect++;
-                                    break;
-                                case 'high':
-                                    results.high++;
-                                    break;
-                                case 'medium':
-                                    results.medium++;
-                                    break;
-                                case 'low':
-                                    results.low++;
-                                    break;
-                                case 'very_low':
-                                    results.veryLow++;
-                                    break;
-                            }
-
-                            // Статистика методов
-                            const method = matchResult.method;
-                            results.methodStats[method] = (results.methodStats[method] || 0) + 1;
-
-                        } else {
-                            results.noMatch++;
-                        }
-                    } catch (error) {
-                        results.errors++;
-                        console.error('Ошибка умной обработки объявления:', error);
-                    }
-                }
-
-                // Задержка для ML-алгоритма
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
-
-            const totalTime = Date.now() - startTime;
-            results.avgProcessingTime = results.totalProcessingTime / results.processed;
-
-            this.updateProgressBar('addresses', 100, '🧠 Умная ML-обработка завершена');
-
-            // Получаем статистику алгоритма
-            const algorithmStats = smartMatcher.getStats();
-
-            // Обновляем карту и статистику
-            await this.loadAreaStats();
-            await this.loadAddresses();
-
-            // Автоматически запускаем ML-анализатор для неопределенных адресов (ОТКЛЮЧЕНО)
-            let mlAnalysisResults = {};
-            /*
-            if (results.noMatch > 0 || results.low > 0 || results.veryLow > 0) {
-                this.updateProgressBar('addresses', 95, '🔬 Запуск ML-анализатора неопределенных адресов...');
-                
-                try {
-                    // Загружаем ML-анализатор если он не загружен
-                    await this.loadMLAddressAnalyzer();
-                    
-                    if (window.MLAddressAnalyzer && window.smartAddressMatcher) {
-                        console.log('🔬 Автоматический запуск ML-анализатора для неопределенных адресов...');
-                        
-                        const mlAnalyzer = new MLAddressAnalyzer(db, window.smartAddressMatcher);
-                        const mlResult = await mlAnalyzer.analyzeInaccuratelyMatchedAddresses();
-                        
-                        if (mlResult.success) {
-                            mlAnalysisResults = {
-                                createdAddresses: mlResult.createdAddresses?.length || 0,
-                                processedListings: mlResult.stats?.processedListings || 0,
-                                foundGroups: mlResult.stats?.foundGroups || 0
-                            };
-                            
-                            if (mlAnalysisResults.createdAddresses > 0) {
-                                console.log(`🎉 ML-анализатор создал ${mlAnalysisResults.createdAddresses} новых адресов`);
-                                
-                                // Обновляем статистику после ML-обработки
-                                await this.loadAreaStats();
-                                await this.loadAddresses();
-                            } else {
-                                console.log('ℹ️ ML-анализатор не создал новых адресов');
-                            }
-                        }
-                    } else {
-                        console.warn('⚠️ ML-анализатор недоступен');
-                    }
-                } catch (mlError) {
-                    console.error('❌ Ошибка ML-анализатора:', mlError);
-                }
-            }
-            */
-
-            // Показываем детальный результат
-            const methodStatsText = Object.entries(results.methodStats)
-                .map(([method, count]) => `  • ${method}: ${count}`)
-                .join('\n');
-
-            const mlResultsText = mlAnalysisResults.createdAddresses > 0 ? `
-
-🔬 ML-анализатор неопределенных адресов:
-• Обработано объявлений: ${mlAnalysisResults.processedListings}
-• Найдено групп: ${mlAnalysisResults.foundGroups}
-• Создано новых адресов: ${mlAnalysisResults.createdAddresses}` : '';
-
-            const message = `🧠 Умная ML-обработка адресов завершена:
-
-📊 Общая статистика:
-• Обработано: ${results.processed}
-• Найдены адреса: ${results.matched}
-• Улучшено: ${results.improved}
-• Значительно улучшено: ${results.significantlyImproved}
-
-🎯 По уровням точности:
-• Идеальная точность: ${results.perfect}
-• Высокая точность: ${results.high}
-• Средняя точность: ${results.medium}
-• Низкая точность: ${results.low}
-• Очень низкая: ${results.veryLow}
-• Не найдено: ${results.noMatch}
-• Ошибок: ${results.errors}
-
-🔧 ML-методы определения:
-${methodStatsText}${mlResultsText}
-
-⚡ Производительность:
-• Общее время: ${(totalTime / 1000).toFixed(1)}с
-• Среднее время на объявление: ${results.avgProcessingTime.toFixed(1)}мс
-• Кэш размер: ${algorithmStats.cacheSize}
-• Общий успех ML: ${algorithmStats.overallSuccessRate.toFixed(1)}%
-
-🧠 Использован умный алгоритм с машинным обучением!`;
-
-            this.showSuccess(message);
-
-        } catch (error) {
-            console.error('Error in smart ML address processing:', error);
-            this.showError('Ошибка умного определения адресов: ' + error.message);
-        } finally {
-            this.processing.addresses = false;
-            this.hideProgressBar('addresses');
-        }
-    }
 
     /**
      * Анализ неточно определенных адресов с помощью ML
@@ -7671,148 +6198,7 @@ ${methodStatsText}${mlResultsText}
 
     // Удален дублирующий метод parseAvitoForArea - используется метод ниже
 
-    /**
-     * Парсинг Cian для области
-     */
-    async parseCianForArea() {
-        try {
-            debugLogger.log('Начинаем парсинг Cian по фильтру:', this.currentArea.cian_filter_url);
-            
-            // Отправляем сообщение в background script для начала парсинга
-            const response = await chrome.runtime.sendMessage({
-                action: 'parseMassByFilter',
-                source: 'cian',
-                filterUrl: this.currentArea.cian_filter_url,
-                areaId: this.currentArea.id
-            });
 
-            if (response && response.success) {
-                return {
-                    parsed: response.parsed || 0,
-                    errors: response.errors || 0
-                };
-            } else {
-                throw new Error(response?.error || 'Неизвестная ошибка парсинга Cian');
-            }
-        } catch (error) {
-            console.error('Ошибка парсинга Cian:', error);
-            return { parsed: 0, errors: 1 };
-        }
-    }
-
-    /**
-     * Просмотр деталей элемента
-     */
-    async viewDuplicateDetails(id, type) {
-        console.log(`👁️ Просмотр деталей ${type}:`, id);
-        
-        try {
-            const storeName = type === 'listing' ? 'listings' : 'objects';
-            const item = await db.get(storeName, id);
-            
-            if (!item) {
-                this.showError('Элемент не найден');
-                return;
-            }
-
-            // Показываем детали в модальном окне или консоли
-            console.log('Детали элемента:', item);
-            this.showInfo('Детали отображены в консоли разработчика');
-            
-        } catch (error) {
-            console.error('Ошибка загрузки деталей:', error);
-            this.showError('Ошибка загрузки деталей: ' + error.message);
-        }
-    }
-
-    /**
-     * Удаление элемента
-     */
-    async deleteDuplicate(id, type) {
-        if (!confirm(`Вы уверены, что хотите удалить этот ${type === 'listing' ? 'объявление' : 'объект'}?`)) {
-            return;
-        }
-
-        try {
-            const storeName = type === 'listing' ? 'listings' : 'objects';
-            await db.delete(storeName, id);
-            
-            this.showSuccess(`${type === 'listing' ? 'Объявление' : 'Объект'} удален`);
-            
-            // Обновляем таблицу
-            await this.loadDuplicatesTable();
-            
-            // Убираем из выбранных если был выбран
-            this.selectedDuplicates.delete(`${type}_${id}`);
-            this.updateDuplicatesSelection();
-            
-        } catch (error) {
-            console.error('Ошибка удаления:', error);
-            this.showError('Ошибка удаления: ' + error.message);
-        }
-    }
-
-    async addAddress() {
-        if (!this.currentArea || !this.currentArea.polygon) {
-            this.showError('Область не имеет полигона для добавления адреса');
-            return;
-        }
-
-        try {
-            console.log(`🆕 Открытие формы добавления нового адреса`);
-            
-            // Получаем центр полигона области
-            const center = this.geoUtils.getPolygonCenter(this.currentArea.polygon);
-            console.log(`📍 Центр полигона:`, center);
-            
-            // Создаем новый адрес с координатами в центре полигона
-            const newAddress = {
-                id: null, // null означает новый адрес
-                address: '', // Будет заполнено через reverse geocoding
-                coordinates: {
-                    lat: center.lat,
-                    lng: center.lng
-                },
-                type: 'house',
-                map_area_id: this.currentAreaId,
-                source: 'manual',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            };
-
-            // Заполняем форму данными нового адреса
-            await this.fillAddressForm(newAddress);
-            
-            // Показываем модальное окно
-            this.showAddressModal(newAddress);
-            
-            // Устанавливаем режим создания нового адреса
-            this.editingAddressId = null;
-            
-            // Выполняем reverse geocoding для получения адреса по координатам центра
-            setTimeout(async () => {
-                try {
-                    console.log(`🔍 Поиск адреса для центра полигона...`);
-                    const osmAPI = new OSMOverpassAPI();
-                    const foundAddress = await osmAPI.reverseGeocode(center.lat, center.lng);
-                    
-                    if (foundAddress) {
-                        const addressField = document.getElementById('editAddressText');
-                        if (addressField) {
-                            addressField.value = foundAddress;
-                            console.log(`✅ Адрес найден и подставлен: ${foundAddress}`);
-                        }
-                    }
-                } catch (error) {
-                    console.error('Ошибка при поиске адреса для центра:', error);
-                }
-            }, 200);
-
-        } catch (error) {
-            console.error('Error opening add address form:', error);
-            this.showError('Ошибка открытия формы добавления адреса: ' + error.message);
-        }
-    }
 
 
     /**
@@ -7927,78 +6313,7 @@ ${methodStatsText}${mlResultsText}
         }
     }
 
-    async deleteAddress(addressId) {
-        if (confirm('Вы уверены, что хотите удалить этот адрес?')) {
-            try {
-                await db.deleteAddress(addressId);
-                await this.loadAddresses();
-                await this.loadAreaStats();
-                this.showSuccess('Адрес удален');
-                this.refreshAddressData();
-            } catch (error) {
-                console.error('Error deleting address:', error);
-                this.showError('Ошибка удаления адреса: ' + error.message);
-            }
-        }
-    }
 
-    /**
-     * Парсинг Avito для области
-     */
-    async parseAvitoForArea() {
-        try {
-            debugLogger.log('Запускаем парсинг Avito для области:', this.currentArea.name);
-            
-            return new Promise((resolve) => {
-                // Добавляем задержку перед созданием вкладки
-                setTimeout(() => {
-                    this.createTabWithRetry(this.currentArea.avito_filter_url, 3)
-                        .then(async (newTab) => {
-                            debugLogger.log('Открыта вкладка Avito:', newTab.id);
-                            
-                            try {
-                                // Ждем загрузки страницы и инжектируем content script
-                                await this.waitForPageLoad(newTab.id);
-                                await this.injectContentScript(newTab.id);
-                                
-                                // Запускаем парсинг
-                                const response = await this.waitForContentScriptAndParse(newTab.id, {
-                                    areaId: this.currentAreaId,
-                                    areaName: this.currentArea.name,
-                                    maxPages: 10, // Можно сделать настраиваемым
-                                    delay: 2000,
-                                    avitoFilterUrl: this.currentArea.avito_filter_url,
-                                    listingsContainer: '.styles-container-rnTvX',
-                                    listingSelector: '.styles-snippet-ZgKUd',
-                                    linkSelector: 'a[href*="/kvartiry/"]'
-                                });
-
-                                // НЕ закрываем вкладку для отладки
-                                debugLogger.log('Парсинг Avito завершен, вкладка остается открытой для отладки');
-
-                                if (response && response.success) {
-                                    resolve({ parsed: response.parsed || 0, errors: response.errors || 0 });
-                                } else {
-                                    throw new Error(response?.error || 'Ошибка парсинга Avito');
-                                }
-                            } catch (error) {
-                                debugLogger.error('Ошибка парсинга Avito:', error);
-                                // НЕ закрываем вкладку в случае ошибки для отладки
-                                debugLogger.log('Ошибка парсинга, вкладка остается открытой для отладки');
-                                resolve({ parsed: 0, errors: 1 });
-                            }
-                        })
-                        .catch((error) => {
-                            debugLogger.error('Не удалось создать вкладку:', error);
-                            resolve({ parsed: 0, errors: 1 });
-                        });
-                }, 500); // Задержка 500мс перед созданием вкладки
-            });
-        } catch (error) {
-            console.error('Error parsing Avito:', error);
-            return { parsed: 0, errors: 1 };
-        }
-    }
 
     /**
      * Создание вкладки с повторными попытками
@@ -8837,27 +7152,7 @@ ${methodStatsText}${mlResultsText}
         }
     }
 
-    /**
-     * Переключение состояния таблицы адресов (сворачивание/разворачивание)
-     */
-    toggleAddressTable() {
-        const content = document.getElementById('addressTableContent');
-        const chevron = document.getElementById('addressTableChevron');
-        
-        if (content && chevron) {
-            const isHidden = content.style.display === 'none';
-            
-            if (isHidden) {
-                content.style.display = 'block';
-                chevron.style.transform = 'rotate(0deg)';
-                localStorage.setItem('addressTableCollapsed', 'false');
-            } else {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-                localStorage.setItem('addressTableCollapsed', 'true');
-            }
-        }
-    }
+    // toggleAddressTable удален - управление перенесено в UIManager
 
     /**
      * Переключение состояния панели работы с данными (сворачивание/разворачивание)
@@ -8865,48 +7160,9 @@ ${methodStatsText}${mlResultsText}
     /**
      * Сворачивание/разворачивание панели статистики
      */
-    toggleStatisticsPanel() {
-        const content = document.getElementById('statisticsPanelContent');
-        const chevron = document.getElementById('statisticsPanelChevron');
-        
-        if (content && chevron) {
-            const isHidden = content.classList.contains('hidden');
-            
-            if (isHidden) {
-                content.classList.remove('hidden');
-                chevron.style.transform = 'rotate(0deg)';
-                localStorage.setItem('statisticsPanelCollapsed', 'false');
-                // Обновляем график при разворачивании
-                setTimeout(() => {
-                    this.updateSourcesChart();
-                    this.updateAddressAnalyticsCharts();
-                }, 100);
-            } else {
-                content.classList.add('hidden');
-                chevron.style.transform = 'rotate(-90deg)';
-                localStorage.setItem('statisticsPanelCollapsed', 'true');
-            }
-        }
-    }
+    // toggleStatisticsPanel удален - управление перенесено в UIManager
 
-    toggleDataWorkPanel() {
-        const content = document.getElementById('dataWorkPanelContent');
-        const chevron = document.getElementById('dataWorkPanelChevron');
-        
-        if (content && chevron) {
-            const isHidden = content.style.display === 'none';
-            
-            if (isHidden) {
-                content.style.display = 'block';
-                chevron.style.transform = 'rotate(0deg)';
-                localStorage.setItem('dataWorkPanelCollapsed', 'false');
-            } else {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-                localStorage.setItem('dataWorkPanelCollapsed', 'true');
-            }
-        }
-    }
+    // toggleDataWorkPanel удален - управление перенесено в UIManager
 
     /**
      * Переключение панели карты области
@@ -8928,7 +7184,7 @@ ${methodStatsText}${mlResultsText}
                         this.map.invalidateSize();
                         // Восстанавливаем правильный зум на полигон области
                         if (this.areaPolygonLayer) {
-                            this.map.fitBounds(this.areaPolygonLayer.getBounds());
+                            this.map.fitBounds(this.areaPolygonLayer.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
                         }
                     }
                 }, 100);
@@ -9095,7 +7351,7 @@ ${methodStatsText}${mlResultsText}
                         this.map.invalidateSize();
                         // Восстанавливаем правильный зум на полигон области
                         if (this.areaPolygonLayer) {
-                            this.map.fitBounds(this.areaPolygonLayer.getBounds());
+                            this.map.fitBounds(this.areaPolygonLayer.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
                         }
                     }
                 }, 100);
@@ -9126,26 +7382,91 @@ ${methodStatsText}${mlResultsText}
     }
 
     /**
-     * Восстановление состояния панели сегментов
+     * Очистка старых ключей localStorage панелей
      */
-    restoreSegmentsPanelState() {
-        const content = document.getElementById('segmentsPanelContent');
-        const chevron = document.getElementById('segmentsPanelChevron');
+    cleanupOldPanelKeys() {
+        console.log('🧹 Очистка старых ключей localStorage панелей...');
         
-        // По умолчанию панель сегментов свернута
-        const isCollapsed = localStorage.getItem('segmentsPanelCollapsed');
-        const shouldCollapse = isCollapsed === null || isCollapsed === 'true';
+        const oldKeys = [
+            'statisticsPanelCollapsed',
+            'dataWorkPanelCollapsed', 
+            'mapPanelCollapsed',
+            'duplicatesPanelCollapsed',
+            'segmentsPanelCollapsed',
+            `segmentsPanelCollapsed_${this.currentAreaId}`
+        ];
         
-        if (content && chevron) {
-            if (shouldCollapse) {
-                content.style.display = 'none';
-                chevron.style.transform = 'rotate(-90deg)';
-            } else {
-                content.style.display = 'block';
-                chevron.style.transform = 'rotate(0deg)';
+        oldKeys.forEach(key => {
+            if (localStorage.getItem(key) !== null) {
+                console.log(`🗑️ Удаляем старый ключ: ${key}`);
+                localStorage.removeItem(key);
             }
+        });
+        
+        console.log('✅ Очистка завершена');
+    }
+
+    /**
+     * Логирование состояния всех панелей в localStorage
+     */
+    logAllPanelsState() {
+        console.log('📋 Обзор состояния всех панелей в localStorage:');
+        console.log('- ID области:', this.currentAreaId);
+        
+        const panels = [
+            'statisticsPanel',
+            'dataWorkPanel', 
+            'mapPanel',
+            'duplicatesPanel',
+            'segmentsPanel'
+        ];
+        
+        panels.forEach(panelName => {
+            const collapsedKey = `${panelName}Collapsed`;
+            const collapsedKeyWithId = `${panelName}Collapsed_${this.currentAreaId}`;
+            const visibleKey = `${panelName}Visible`;
+            
+            const collapsedValue = localStorage.getItem(collapsedKey);
+            const collapsedValueWithId = localStorage.getItem(collapsedKeyWithId);
+            const visibleValue = localStorage.getItem(visibleKey);
+            
+            console.log(`- ${panelName}:`);
+            console.log(`  - ${collapsedKey}: ${collapsedValue}`);
+            console.log(`  - ${collapsedKeyWithId}: ${collapsedValueWithId}`);
+            console.log(`  - ${visibleKey}: ${visibleValue}`);
+        });
+        
+        console.log('🔍 Состояние DOM элементов панелей:');
+        panels.forEach(panelName => {
+            const contentId = `${panelName}Content`;
+            const chevronId = `${panelName}Chevron`;
+            
+            const contentElement = document.getElementById(contentId);
+            const chevronElement = document.getElementById(chevronId);
+            
+            console.log(`- ${panelName}:`);
+            console.log(`  - content (${contentId}): ${contentElement ? contentElement.style.display : 'не найден'}`);
+            console.log(`  - chevron (${chevronId}): ${chevronElement ? chevronElement.style.transform : 'не найден'}`);
+        });
+        
+        console.log('🎛️ UIManager состояния панелей:');
+        if (this.uiManager) {
+            panels.forEach(panelName => {
+                const uiManagerKey = `panel_${panelName}_${this.currentAreaId}`;
+                const uiManagerValue = localStorage.getItem(uiManagerKey);
+                const uiState = this.uiManager.uiState?.panels?.[panelName];
+                
+                console.log(`- ${panelName}:`);
+                console.log(`  - UIManager ключ: ${uiManagerKey}`);
+                console.log(`  - UIManager localStorage: ${uiManagerValue}`);
+                console.log(`  - UIManager состояние:`, uiState);
+            });
+        } else {
+            console.log('- UIManager не инициализирован');
         }
     }
+
+    // Метод restoreSegmentsPanelState() удален - управление через UIManager
 
     /**
      * Переключение видимости dropdown меню панелей
@@ -9209,7 +7530,7 @@ ${methodStatsText}${mlResultsText}
                 setTimeout(() => {
                     this.map.invalidateSize();
                     if (this.areaPolygonLayer) {
-                        this.map.fitBounds(this.areaPolygonLayer.getBounds());
+                        this.map.fitBounds(this.areaPolygonLayer.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
                     }
                 }, 100);
             }
@@ -9224,33 +7545,6 @@ ${methodStatsText}${mlResultsText}
         }
     }
 
-    /**
-     * Восстановление состояния видимости панелей из localStorage
-     */
-    restorePanelVisibilityStates() {
-        const panels = ['statistics', 'dataWork', 'map', 'addresses', 'segments', 'duplicates'];
-        
-        panels.forEach(panelType => {
-            const isVisible = localStorage.getItem(`panel_${panelType}_visible`);
-            // По умолчанию все панели видимы
-            const shouldShow = isVisible === null || isVisible === 'true';
-            
-            const checkboxId = {
-                'statistics': 'statisticsPanel',
-                'dataWork': 'dataWorkPanel',
-                'map': 'mapPanel',
-                'addresses': 'addressesPanel',
-                'segments': 'segmentsPanel',
-                'duplicates': 'duplicatesPanel'
-            }[panelType];
-
-            const checkbox = document.getElementById(checkboxId);
-            if (checkbox) {
-                checkbox.checked = shouldShow;
-                this.togglePanelVisibility(panelType, shouldShow);
-            }
-        });
-    }
 
     /**
      * Инициализация фильтра адресов с SlimSelect
@@ -13078,3 +11372,59 @@ let areaPage;
 
 // Делаем класс доступным глобально
 window.AreaPage = AreaPage;
+
+// Инициализация при загрузке DOM
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // Ждем готовности базы данных
+        if (!window.db || !window.db.db || typeof window.db.get !== 'function') {
+            console.log('⏳ Ожидание готовности базы данных...');
+            await new Promise((resolve, reject) => {
+                let attempts = 0;
+                const maxAttempts = 100; // 10 секунд максимум
+                
+                const checkDB = setInterval(() => {
+                    attempts++;
+                    
+                    // Более подробная проверка готовности БД
+                    const dbReady = window.db && 
+                                  window.db.db && 
+                                  typeof window.db.get === 'function';
+                    
+                    if (dbReady) {
+                        clearInterval(checkDB);
+                        console.log('✅ База данных полностью готова к работе');
+                        resolve();
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(checkDB);
+                        console.error('❌ Состояние БД при таймауте:', {
+                            hasDB: !!window.db,
+                            hasDBConnection: !!(window.db && window.db.db),
+                            hasGetMethod: window.db && typeof window.db.get === 'function',
+                            dbConstructor: window.db && window.db.constructor.name
+                        });
+                        reject(new Error('Таймаут ожидания готовности базы данных'));
+                    }
+                }, 100);
+            });
+        }
+        
+        // Дополнительная проверка готовности БД
+        if (!window.db || !window.db.db || typeof window.db.get !== 'function') {
+            const dbState = {
+                hasDB: !!window.db,
+                hasDBConnection: !!(window.db && window.db.db),
+                hasGetMethod: window.db && typeof window.db.get === 'function',
+                dbConstructor: window.db && window.db.constructor.name
+            };
+            console.error('❌ База данных не готова к работе:', dbState);
+            throw new Error(`База данных не готова к работе. Состояние: ${JSON.stringify(dbState)}`);
+        }
+        
+        console.log('✅ База данных готова, инициализируем страницу');
+        areaPage = new AreaPage();
+        await areaPage.init();
+    } catch (error) {
+        console.error('❌ Ошибка инициализации страницы области:', error);
+    }
+});

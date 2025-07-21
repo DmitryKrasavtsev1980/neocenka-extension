@@ -30,10 +30,21 @@ class MapManager {
         // Состояние карты
         this.mapState = {
             initialized: false,
-            activeFilter: null,
+            activeFilter: 'year', // по умолчанию показываем год постройки
             defaultCenter: CONSTANTS.MAP_CONFIG.DEFAULT_CENTER,
             defaultZoom: CONSTANTS.MAP_CONFIG.DEFAULT_ZOOM
         };
+        
+        // Активный фильтр для отображения информации на маркерах (синхронизируем с mapState)
+        this.activeMapFilter = this.mapState.activeFilter;
+        
+        // События фильтров привязываются в bindEvents()
+        
+        // Устанавливаем начальное состояние кнопок фильтров и DataState
+        setTimeout(() => {
+            this.dataState.setState('activeMapFilter', this.activeMapFilter);
+            this.updateFilterButtons(this.activeMapFilter);
+        }, 100);
         
         // Привязываем события
         this.bindEvents();
@@ -52,12 +63,19 @@ class MapManager {
                 await this.loadAddressesOnMap();
             });
             
+            // Удален обработчик ADDRESS_DELETED - теперь перезагрузка происходит прямо в deleteAddress()
+            
             this.eventBus.on(CONSTANTS.EVENTS.LISTINGS_LOADED, async (listings) => {
                 await this.loadListingsOnMap();
             });
             
-            this.eventBus.on(CONSTANTS.EVENTS.MAP_FILTER_CHANGED, (filterType) => {
+            this.eventBus.on(CONSTANTS.EVENTS.MAP_FILTER_CHANGED, (data) => {
+                const filterType = typeof data === 'string' ? data : data.filterType;
                 this.toggleMapFilter(filterType);
+            });
+            
+            this.eventBus.on(CONSTANTS.EVENTS.PANEL_TOGGLED, (data) => {
+                this.onPanelToggled(data);
             });
         }
         
@@ -86,7 +104,7 @@ class MapManager {
             const button = document.getElementById(id);
             if (button) {
                 button.addEventListener('click', () => {
-                    this.toggleMapFilter(type);
+                    this.setMapFilter(type);
                 });
             }
         });
@@ -102,6 +120,9 @@ class MapManager {
         
         this.displayAreaPolygon();
         await this.loadMapData();
+        
+        // Центрируем карту на области после загрузки
+        this.centerOnArea();
     }
     
     /**
@@ -437,7 +458,7 @@ class MapManager {
         // Центрируем карту на полигоне только если панель карты видима
         const mapContent = document.getElementById('mapPanelContent');
         if (mapContent && mapContent.style.display !== 'none') {
-            this.map.fitBounds(this.areaPolygonLayer.getBounds());
+            this.map.fitBounds(this.areaPolygonLayer.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
         }
     }
     
@@ -498,12 +519,12 @@ class MapManager {
             
             const markers = [];
             
-            addresses.forEach(address => {
+            for (const address of addresses) {
                 if (address.coordinates && address.coordinates.lat && address.coordinates.lng) {
-                    const marker = this.createAddressMarker(address);
+                    const marker = await this.createAddressMarker(address);
                     markers.push(marker);
                 }
-            });
+            }
             
             // Если адресов много, используем кластеризацию
             if (addresses.length > 20) {
@@ -618,19 +639,114 @@ class MapManager {
     /**
      * Создание маркера адреса
      */
-    createAddressMarker(address) {
-        const color = this.getAddressColor(address);
+    async createAddressMarker(address) {
+        // Определяем высоту маркера по этажности
+        const floorCount = address.floors_count || 0;
+        let markerHeight;
+        if (floorCount >= 1 && floorCount <= 5) {
+            markerHeight = 10;
+        } else if (floorCount > 5 && floorCount <= 10) {
+            markerHeight = 15;
+        } else if (floorCount > 10 && floorCount <= 20) {
+            markerHeight = 20;
+        } else if (floorCount > 20) {
+            markerHeight = 25;
+        } else {
+            markerHeight = 10; // По умолчанию
+        }
+        
+        // Определяем цвет маркера
+        let markerColor = '#3b82f6'; // Цвет по умолчанию
+        if (address.wall_material_id) {
+            try {
+                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+                if (wallMaterial && wallMaterial.color) {
+                    markerColor = wallMaterial.color;
+                }
+            } catch (error) {
+                console.warn('MapManager: Не удалось получить материал стен для адреса:', address.id);
+            }
+        }
+        
+        // Определяем текст на маркере в зависимости от активного фильтра
+        let labelText = '';
+        switch (this.activeMapFilter) {
+            case 'year':
+                labelText = address.build_year || '';
+                break;
+            case 'series':
+                if (address.house_series_id) {
+                    try {
+                        const houseSeries = await window.db.get('house_series', address.house_series_id);
+                        labelText = houseSeries ? houseSeries.name : '';
+                    } catch (error) {
+                        console.warn('MapManager: Не удалось получить серию дома:', address.house_series_id);
+                    }
+                }
+                break;
+            case 'floors':
+                labelText = address.floors_count || '';
+                break;
+            case 'objects':
+                try {
+                    const objects = await window.db.getObjectsByAddress(address.id);
+                    labelText = objects.length > 0 ? objects.length.toString() : '';
+                } catch (error) {
+                    console.warn('MapManager: Не удалось получить объекты для адреса:', address.id);
+                }
+                break;
+            default:
+                labelText = address.build_year || '';
+        }
         
         const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
             icon: L.divIcon({
                 className: 'address-marker',
-                html: `<div style="background: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></div>`,
-                iconSize: [16, 16],
-                iconAnchor: [8, 8]
+                html: `
+                    <div class="leaflet-marker-icon-wrapper" style="position: relative;">
+                        <div style="
+                            width: 0; 
+                            height: 0; 
+                            border-left: 7.5px solid transparent; 
+                            border-right: 7.5px solid transparent; 
+                            border-top: ${markerHeight}px solid ${markerColor};
+                            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+                        "></div>
+                        ${labelText ? `<span class="leaflet-marker-iconlabel" style="
+                            position: absolute; 
+                            left: 15px; 
+                            top: 0px; 
+                            font-size: 11px; 
+                            font-weight: 600; 
+                            color: #374151; 
+                            background: rgba(255,255,255,0.9); 
+                            padding: 1px 4px; 
+                            border-radius: 3px; 
+                            white-space: nowrap;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                        ">${labelText}</span>` : ''}
+                    </div>
+                `,
+                iconSize: [15, markerHeight],
+                iconAnchor: [7.5, markerHeight]
             })
         });
         
-        marker.bindPopup(this.createAddressPopup(address));
+        // Сохраняем данные адреса в маркере для оптимизации
+        marker.addressData = address;
+        
+        // Создаем popup асинхронно
+        this.createAddressPopup(address).then(popupContent => {
+            marker.bindPopup(popupContent, {
+                maxWidth: 280,
+                className: 'address-popup-container'
+            });
+            
+            // Добавляем обработчики событий для кнопок в popup
+            marker.on('popupopen', () => {
+                this.bindPopupEvents(address);
+            });
+        });
         
         return marker;
     }
@@ -732,15 +848,47 @@ class MapManager {
     /**
      * Создание popup для адреса
      */
-    createAddressPopup(address) {
+    async createAddressPopup(address) {
+        // Получаем дополнительную информацию о материале стен
+        let wallMaterialText = 'Не указан';
+        if (address.wall_material_id) {
+            try {
+                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+                if (wallMaterial) {
+                    wallMaterialText = wallMaterial.name;
+                }
+            } catch (error) {
+                console.warn('MapManager: Не удалось получить материал стен:', error);
+            }
+        }
+        
+        const typeText = CONSTANTS.PROPERTY_TYPE_NAMES[address.type] || address.type || 'Не указан';
+        const sourceText = CONSTANTS.DATA_SOURCE_NAMES[address.source] || address.source || 'Не указан';
+        
         return `
-            <div class="max-w-xs">
-                <div class="font-medium text-gray-900 mb-2">📍 ${address.address}</div>
-                <div class="text-sm text-gray-600 space-y-1">
-                    <div>Тип: ${CONSTANTS.PROPERTY_TYPE_NAMES[address.type] || address.type}</div>
+            <div class="address-popup max-w-xs">
+                <div class="header mb-3">
+                    <div class="font-bold text-gray-900 text-lg">📍 Адрес</div>
+                    <div class="address-title font-medium text-gray-800">${address.address || 'Не указан'}</div>
+                </div>
+                
+                <div class="meta text-sm text-gray-600 space-y-1 mb-3">
+                    <div>Тип: <strong>${typeText}</strong></div>
+                    <div>Источник: ${sourceText}</div>
                     ${address.floors_count ? `<div>Этажей: ${address.floors_count}</div>` : ''}
-                    ${address.build_year ? `<div>Год: ${address.build_year}</div>` : ''}
-                    <div>Источник: ${CONSTANTS.DATA_SOURCE_NAMES[address.source] || address.source}</div>
+                    ${address.build_year ? `<div>Год постройки: ${address.build_year}</div>` : ''}
+                    <div>Материал: <strong>${wallMaterialText}</strong></div>
+                </div>
+                
+                <div class="actions flex gap-2">
+                    <button data-action="edit-address" data-address-id="${address.id}" 
+                            class="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                        ✏️ Редактировать
+                    </button>
+                    <button data-action="delete-address" data-address-id="${address.id}" 
+                            class="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                        🗑️ Удалить
+                    </button>
                 </div>
             </div>
         `;
@@ -787,41 +935,29 @@ class MapManager {
      * Переключение фильтра карты
      */
     async toggleMapFilter(filterType) {
-        // Сбрасываем все кнопки фильтров
-        const filterButtons = [
-            'filterByYear',
-            'filterBySeries',
-            'filterByFloors',
-            'filterByObjects',
-            'filterByListings'
-        ];
-        
-        filterButtons.forEach(buttonId => {
-            const button = document.getElementById(buttonId);
-            if (button) {
-                // Возвращаем к обычному состоянию (белый фон)
-                button.className = 'inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
-            }
-        });
+        // Проверяем тип параметра
+        if (typeof filterType !== 'string') {
+            console.warn('MapManager: filterType должен быть строкой, получен:', typeof filterType, filterType);
+            return;
+        }
         
         // Если тот же фильтр - отключаем
         if (this.mapState.activeFilter === filterType) {
             this.mapState.activeFilter = null;
+            this.activeMapFilter = null;
             this.dataState.setState('activeMapFilter', null);
+            this.updateFilterButtons(null);
             await Helpers.debugLog('🔄 Фильтр отключен');
             return;
         }
         
         // Активируем новый фильтр
         this.mapState.activeFilter = filterType;
+        this.activeMapFilter = filterType;
         this.dataState.setState('activeMapFilter', filterType);
         
-        const activeButton = document.getElementById(`filterBy${filterType.charAt(0).toUpperCase() + filterType.slice(1)}`);
-        
-        if (activeButton) {
-            // Устанавливаем активное состояние (sky цвет)
-            activeButton.className = 'inline-flex items-center px-3 py-2 border border-sky-300 shadow-sm text-sm leading-4 font-medium rounded-md text-sky-700 bg-sky-100 hover:bg-sky-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500';
-        }
+        // Обновляем кнопки фильтров
+        this.updateFilterButtons(filterType);
         
         // Уведомляем о смене фильтра
         this.eventBus.emit(CONSTANTS.EVENTS.MAP_FILTER_CHANGED, {
@@ -861,6 +997,10 @@ class MapManager {
     async refreshMapData() {
         try {
             await this.loadMapData();
+            
+            // После обновления данных центрируем карту на области
+            this.centerOnArea();
+            
             this.progressManager.showSuccess('Карта обновлена');
         } catch (error) {
             console.error('Error refreshing map data:', error);
@@ -883,8 +1023,19 @@ class MapManager {
      */
     centerOnArea() {
         const currentArea = this.dataState.getState('currentArea');
-        if (currentArea && this.hasAreaPolygon(currentArea) && this.areaPolygonLayer) {
-            this.map.fitBounds(this.areaPolygonLayer.getBounds());
+        if (currentArea && this.hasAreaPolygon(currentArea)) {
+            // Получаем полигон области - сначала из MapManager, затем из area.js как fallback
+            let areaPolygon = this.areaPolygonLayer;
+            if (!areaPolygon && window.areaPage?.areaPolygonLayer) {
+                areaPolygon = window.areaPage.areaPolygonLayer;
+            }
+            
+            if (areaPolygon && this.map) {
+                this.map.fitBounds(areaPolygon.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
+                Helpers.debugLog('🗺️ MapManager: Карта центрирована на области');
+            } else {
+                Helpers.debugLog('⚠️ MapManager: Не удалось центрировать карту - полигон или карта не найдены');
+            }
         }
     }
     
@@ -925,6 +1076,42 @@ class MapManager {
     }
     
     /**
+     * Обработка переключения панели
+     */
+    onPanelToggled(data) {
+        const { panelName, expanded } = data;
+        
+        // Обрабатываем только события панели карты
+        if (panelName === 'map' && expanded && this.map) {
+            // Небольшая задержка для завершения анимации CSS
+            setTimeout(async () => {
+                try {
+                    // Обновляем размеры карты
+                    this.map.invalidateSize();
+                    
+                    // Получаем полигон области - сначала из MapManager, затем из area.js как fallback
+                    let areaPolygon = this.areaPolygonLayer;
+                    if (!areaPolygon && window.areaPage?.areaPolygonLayer) {
+                        areaPolygon = window.areaPage.areaPolygonLayer;
+                    }
+                    
+                    // Если есть полигон области, подгоняем зум
+                    if (areaPolygon) {
+                        this.map.fitBounds(areaPolygon.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
+                        await Helpers.debugLog('🗺️ MapManager: Карта центрирована на полигоне области');
+                    } else {
+                        await Helpers.debugLog('⚠️ MapManager: Полигон области не найден для центрирования');
+                    }
+                    
+                    await Helpers.debugLog('🗺️ MapManager: Карта обновлена после показа панели');
+                } catch (error) {
+                    console.error('❌ MapManager: Ошибка обновления карты:', error);
+                }
+            }, 100);
+        }
+    }
+    
+    /**
      * Уничтожение менеджера карты
      */
     destroy() {
@@ -938,12 +1125,206 @@ class MapManager {
             this.eventBus.offAll(CONSTANTS.EVENTS.ADDRESSES_LOADED);
             this.eventBus.offAll(CONSTANTS.EVENTS.LISTINGS_LOADED);
             this.eventBus.offAll(CONSTANTS.EVENTS.MAP_FILTER_CHANGED);
+            this.eventBus.offAll(CONSTANTS.EVENTS.PANEL_TOGGLED);
         }
         
         // Очистка обработчиков
         document.getElementById('refreshMapBtn')?.removeEventListener('click', this.refreshMapData);
         
         this.mapState.initialized = false;
+    }
+    
+    /**
+     * Установка фильтра карты
+     */
+    setMapFilter(filterType) {
+        // Активируем фильтр - синхронизируем оба свойства
+        this.activeMapFilter = filterType;
+        this.mapState.activeFilter = filterType;
+        this.dataState.setState('activeMapFilter', filterType);
+        
+        // Обновляем активную кнопку
+        this.updateFilterButtons(filterType);
+        
+        // Перерисовываем маркеры с новой информацией
+        this.refreshAddressMarkers();
+        
+        console.log(`🗺️ MapManager: Установлен фильтр карты: ${filterType}`);
+    }
+    
+    /**
+     * Обновление активной кнопки фильтра
+     */
+    updateFilterButtons(activeFilter) {
+        // Маппинг фильтров к ID кнопок
+        const filterToButtonId = {
+            'year': 'filterByYear',
+            'series': 'filterBySeries', 
+            'floors': 'filterByFloors',
+            'objects': 'filterByObjects',
+            'listings': 'filterByListings'
+        };
+        
+        // Базовые классы для кнопок
+        const baseClasses = 'inline-flex items-center px-3 py-2 border shadow-sm text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
+        const inactiveClasses = 'text-gray-700 bg-white hover:bg-gray-50 border-gray-300';
+        const activeClasses = 'text-sky-700 bg-sky-100 hover:bg-sky-200 border-sky-300';
+        
+        const allButtons = Object.values(filterToButtonId);
+        const activeButtonId = activeFilter ? filterToButtonId[activeFilter] : null;
+        
+        allButtons.forEach(buttonId => {
+            const button = document.getElementById(buttonId);
+            if (button) {
+                if (buttonId === activeButtonId && activeFilter) {
+                    // Активная кнопка - устанавливаем sky цвета
+                    button.className = `${baseClasses} ${activeClasses}`;
+                } else {
+                    // Неактивная кнопка - возвращаем обычные цвета
+                    button.className = `${baseClasses} ${inactiveClasses}`;
+                }
+            }
+        });
+        
+        console.log(`🎯 MapManager: Подсвечена кнопка фильтра: ${activeButtonId} (${activeFilter})`);
+    }
+    
+    /**
+     * Обновление маркеров адресов с новой информацией (оптимизированное)
+     */
+    async refreshAddressMarkers() {
+        try {
+            // Для оптимизации производительности просто перезагружаем адреса
+            // TODO: В будущем можно оптимизировать обновление существующих маркеров
+            await this.loadAddressesOnMap();
+            
+            console.log(`🔄 MapManager: Маркеры адресов обновлены`);
+            
+        } catch (error) {
+            console.error('MapManager: Ошибка обновления маркеров адресов:', error);
+        }
+    }
+    
+    
+    /**
+     * Удаление конкретного адреса с карты
+     */
+    async removeAddressFromMap(address) {
+        try {
+            let found = false;
+            
+            // Проверяем кластер адресов
+            if (this.addressesCluster && this.addressesCluster.markerLayer) {
+                this.addressesCluster.markerLayer.eachLayer((marker) => {
+                    if (marker.addressData && marker.addressData.id === address.id) {
+                        if (this.addressesCluster.removeMarker) {
+                            this.addressesCluster.removeMarker(marker);
+                        } else {
+                            this.addressesCluster.markerLayer.removeLayer(marker);
+                        }
+                        found = true;
+                        console.log('🗑️ Адрес удален из кластера:', address.id);
+                    }
+                });
+            }
+            
+            // Проверяем обычные маркеры
+            if (this.mapLayers.addresses) {
+                this.mapLayers.addresses.eachLayer((marker) => {
+                    if (marker.addressData && marker.addressData.id === address.id) {
+                        this.mapLayers.addresses.removeLayer(marker);
+                        found = true;
+                        console.log('🗑️ Адрес удален из слоя:', address.id);
+                    }
+                });
+            }
+            
+            if (!found) {
+                console.warn('⚠️ Адрес не найден на карте для удаления, выполняем полную перезагрузку:', address.id);
+                // Выполняем полную перезагрузку если адрес не найден
+                await this.loadAddressesOnMap();
+            } else {
+                console.log('✅ Адрес успешно удален с карты:', address.id);
+            }
+            
+        } catch (error) {
+            console.warn('MapManager: Ошибка удаления адреса с карты, выполняем полную перезагрузку:', error);
+            // При ошибке выполняем полную перезагрузку
+            await this.loadAddressesOnMap();
+        }
+    }
+    
+    /**
+     * Очистка всех маркеров адресов с карты
+     */
+    clearAddresses() {
+        if (this.mapLayers.addresses) {
+            this.mapLayers.addresses.clearLayers();
+        }
+        if (this.addressesCluster) {
+            this.addressesCluster.clearMarkers();
+        }
+    }
+    
+    /**
+     * Привязка событий для кнопок в popup
+     */
+    bindPopupEvents(address) {
+        // Кнопка редактирования адреса
+        const editBtn = document.querySelector(`[data-action="edit-address"][data-address-id="${address.id}"]`);
+        if (editBtn) {
+            editBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation(); // Останавливаем всплытие чтобы AddressManager не обработал событие
+                this.editAddress(address);
+            });
+        }
+        
+        // Кнопка удаления адреса
+        const deleteBtn = document.querySelector(`[data-action="delete-address"][data-address-id="${address.id}"]`);
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation(); // Останавливаем всплытие чтобы AddressManager не обработал событие
+                this.deleteAddress(address);
+            });
+        }
+    }
+    
+    /**
+     * Редактирование адреса
+     */
+    editAddress(address) {
+        // Отправляем событие для открытия модального окна редактирования адреса
+        this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_EDIT_REQUESTED, address);
+        console.log('🖊️ MapManager: Запрошено редактирование адреса:', address.id);
+    }
+    
+    /**
+     * Удаление адреса
+     */
+    async deleteAddress(address) {
+        if (confirm(`Удалить адрес "${address.address}"?`)) {
+            try {
+                await window.db.delete('addresses', address.id);
+                
+                console.log('🗑️ MapManager: Адрес удален из БД:', address.id);
+                
+                // Простое решение - полная перезагрузка карты и таблицы
+                await this.loadAddressesOnMap();
+                
+                // Уведомляем AddressManager о необходимости обновить таблицу
+                this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_DELETED, {
+                    address,
+                    timestamp: new Date()
+                });
+                
+                console.log('✅ MapManager: Карта и таблица обновлены после удаления');
+                
+            } catch (error) {
+                console.error('MapManager: Ошибка удаления адреса:', error);
+            }
+        }
     }
 }
 

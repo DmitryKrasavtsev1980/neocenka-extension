@@ -6,7 +6,7 @@
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 17; // Версия 17: добавлен справочник классов домов (house_classes) и поле house_class_id в addresses
+    this.version = 18; // Версия 18: добавлено поле individual_heating в addresses
     this.db = null;
   }
 
@@ -697,6 +697,25 @@ class NeocenkaDB {
 
   async getListingsByStatus(status) {
     return this.getByIndex('listings', 'status', status);
+  }
+
+  async getListingsBySegment(segmentId) {
+    // Получаем все адреса в сегменте через область
+    const segment = await this.getSegment(segmentId);
+    if (!segment) return [];
+    
+    // Получаем все адреса в области сегмента
+    const addresses = await this.getAddressesInMapArea(segment.map_area_id);
+    if (addresses.length === 0) return [];
+    
+    // Получаем все объявления для этих адресов
+    const listings = [];
+    for (const address of addresses) {
+      const addressListings = await this.getListingsByAddress(address.id);
+      listings.push(...addressListings);
+    }
+    
+    return listings;
   }
 
   /**
@@ -1402,6 +1421,112 @@ class NeocenkaDB {
         reject(request.error);
       };
     });
+  }
+
+  // ===== МЕТОДЫ ДЛЯ ОБЪЕКТОВ НЕДВИЖИМОСТИ =====
+
+  async getObjects() {
+    return this.getAll('objects');
+  }
+
+  async addObject(objectData) {
+    return this.add('objects', objectData);
+  }
+
+  async updateObject(objectData) {
+    return this.update('objects', objectData);
+  }
+
+  async getObject(objectId) {
+    return this.get('objects', objectId);
+  }
+
+  async deleteObject(objectId) {
+    return this.delete('objects', objectId);
+  }
+
+  async getObjectsByAddress(addressId) {
+    return this.getByIndex('objects', 'address_id', addressId);
+  }
+
+  async getObjectsBySegment(segmentId) {
+    // Получаем все адреса в сегменте через область
+    const segment = await this.getSegment(segmentId);
+    if (!segment) return [];
+    
+    // Получаем все адреса в области сегмента
+    const addresses = await this.getAddressesInMapArea(segment.map_area_id);
+    if (addresses.length === 0) return [];
+    
+    // Получаем все объекты для этих адресов
+    const objects = [];
+    for (const address of addresses) {
+      const addressObjects = await this.getObjectsByAddress(address.id);
+      objects.push(...addressObjects);
+    }
+    
+    return objects;
+  }
+
+  async getObjectsByPropertyType(propertyType) {
+    return this.getByIndex('objects', 'property_type', propertyType);
+  }
+
+  async getObjectsByStatus(status) {
+    return this.getByIndex('objects', 'status', status);
+  }
+
+  async getActiveObjects() {
+    return this.getObjectsByStatus('active');
+  }
+
+  async getArchivedObjects() {
+    return this.getObjectsByStatus('archive');
+  }
+
+  /**
+   * Получение адресов в области карты
+   */
+  async getAddressesInMapArea(mapAreaId) {
+    try {
+      const mapArea = await this.getMapArea(mapAreaId);
+      if (!mapArea || !mapArea.polygon || mapArea.polygon.length === 0) {
+        return [];
+      }
+
+      const allAddresses = await this.getAddresses();
+      
+      // Фильтруем адреса, которые попадают в полигон области
+      return allAddresses.filter(address => {
+        if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+          return false;
+        }
+        
+        return this.isPointInPolygon(address.coordinates, mapArea.polygon);
+      });
+    } catch (error) {
+      console.error('Ошибка получения адресов в области:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Проверка, находится ли точка внутри полигона
+   */
+  isPointInPolygon(point, polygon) {
+    if (!polygon || polygon.length < 3) return false;
+    
+    let inside = false;
+    const lat = point.lat;
+    const lng = point.lng;
+    
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      if (((polygon[i].lat > lat) !== (polygon[j].lat > lat)) &&
+          (lng < (polygon[j].lng - polygon[i].lng) * (lat - polygon[i].lat) / (polygon[j].lat - polygon[i].lat) + polygon[i].lng)) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   /**
