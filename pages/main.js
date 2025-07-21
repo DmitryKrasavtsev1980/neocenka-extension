@@ -47,6 +47,9 @@ class MainPage {
     // Инициализируем таблицы
     this.initializeMapAreasTable();
     this.initializeSegmentsTable();
+    
+    // Инициализируем карту
+    this.initializeMap();
 
     // Настраиваем обработчики событий
     this.setupEventListeners();
@@ -819,6 +822,500 @@ class MainPage {
         setTimeout(() => element.remove(), 300);
       }
     }, 5000);
+  }
+
+  /**
+   * Инициализация карты
+   */
+  initializeMap() {
+    try {
+      // Инициализируем сворачиваемую панель карты
+      this.initializeMapPanel();
+      
+      // Карта будет создана при первом открытии панели
+      this.map = null;
+      this.mapInitialized = false;
+      this.activeMapFilter = 'year'; // По умолчанию фильтр по году
+      
+      // Кластеризация маркеров - как в MapManager
+      this.addressesCluster = null;
+      this.listingsCluster = null;
+      
+      this.mapLayers = {
+        areas: null,
+        addresses: null,
+        objects: null,
+        listings: null
+      };
+      
+    } catch (error) {
+      console.error('Ошибка инициализации карты:', error);
+    }
+  }
+
+  /**
+   * Инициализация сворачиваемой панели карты
+   */
+  initializeMapPanel() {
+    const header = document.getElementById('mainMapPanelHeader');
+    const content = document.getElementById('mainMapPanelContent');
+    const chevron = document.getElementById('mainMapPanelChevron');
+
+    if (header && content && chevron) {
+      header.addEventListener('click', () => {
+        const isHidden = content.classList.contains('hidden');
+        
+        if (isHidden) {
+          // Разворачиваем панель
+          content.classList.remove('hidden');
+          chevron.style.transform = 'rotate(0deg)';
+          
+          // Инициализируем карту при первом открытии
+          if (!this.mapInitialized) {
+            setTimeout(() => {
+              this.initializeMainMap();
+            }, 100);
+          }
+        } else {
+          // Сворачиваем панель
+          content.classList.add('hidden');
+          chevron.style.transform = 'rotate(-90deg)';
+        }
+      });
+    }
+
+    // Привязываем обработчики для фильтров и кнопок
+    this.setupMapEventListeners();
+  }
+
+  /**
+   * Инициализация Leaflet карты
+   */
+  initializeMainMap() {
+    try {
+      if (this.mapInitialized) return;
+
+      const mapElement = document.getElementById('mainMap');
+      if (!mapElement) {
+        console.error('Элемент карты не найден');
+        return;
+      }
+
+      // Создаем карту
+      this.map = L.map('mainMap').setView([55.0415, 82.9346], 10); // Новосибирск по умолчанию
+
+      // Добавляем базовый слой
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(this.map);
+
+      // Инициализируем группы слоев
+      this.mapLayers.areas = L.layerGroup().addTo(this.map);
+      this.mapLayers.addresses = L.layerGroup().addTo(this.map);
+      this.mapLayers.objects = L.layerGroup().addTo(this.map);
+      this.mapLayers.listings = L.layerGroup().addTo(this.map);
+
+      // Добавляем контроль слоев
+      const overlayMaps = {
+        "Области": this.mapLayers.areas,
+        "Адреса": this.mapLayers.addresses,
+        "Объекты": this.mapLayers.objects,
+        "Объявления": this.mapLayers.listings
+      };
+
+      L.control.layers(null, overlayMaps).addTo(this.map);
+
+      this.mapInitialized = true;
+      
+      // Загружаем данные на карту
+      this.loadMapData();
+
+    } catch (error) {
+      console.error('Ошибка создания карты:', error);
+    }
+  }
+
+  /**
+   * Настройка обработчиков событий для карты
+   */
+  setupMapEventListeners() {
+    // Кнопка обновления карты
+    document.getElementById('mainRefreshMapBtn')?.addEventListener('click', () => {
+      this.refreshMap();
+    });
+
+    // Фильтры карты - скопировано из MapManager
+    const filterButtons = [
+      { id: 'mainFilterByYear', type: 'year' },
+      { id: 'mainFilterBySeries', type: 'series' },
+      { id: 'mainFilterByFloors', type: 'floors' },
+      { id: 'mainFilterByObjects', type: 'objects' },
+      { id: 'mainFilterByListings', type: 'listings' }
+    ];
+    
+    filterButtons.forEach(({ id, type }) => {
+      const button = document.getElementById(id);
+      if (button) {
+        button.addEventListener('click', () => {
+          this.setMapFilter(type);
+        });
+      }
+    });
+  }
+
+  /**
+   * Загрузка данных на карту
+   */
+  async loadMapData() {
+    if (!this.map || !this.mapInitialized) return;
+
+    try {
+      // Очищаем существующие слои и кластеры
+      Object.values(this.mapLayers).forEach(layer => {
+        if (layer) layer.clearLayers();
+      });
+      
+      // Очищаем кластеры
+      if (this.addressesCluster) {
+        this.addressesCluster.clearMarkers();
+      }
+      if (this.listingsCluster) {
+        this.listingsCluster.clearMarkers();
+      }
+
+      // Загружаем и отображаем области
+      await this.loadAreasOnMap();
+      
+      // Загружаем и отображаем адреса с кластеризацией
+      await this.loadAddressesOnMap();
+      
+      // Устанавливаем фильтр по умолчанию
+      this.updateFilterButtons(this.activeMapFilter);
+
+    } catch (error) {
+      console.error('Ошибка загрузки данных карты:', error);
+    }
+  }
+
+  /**
+   * Загрузка областей на карту
+   */
+  async loadAreasOnMap() {
+    try {
+      const areas = await db.getAll('map_areas');
+      
+      for (const area of areas) {
+        if (area.polygon && area.polygon.length >= 3) {
+          // Создаем полигон области
+          const polygon = L.polygon(area.polygon.map(point => [point.lat, point.lng]), {
+            color: '#3b82f6',
+            weight: 2,
+            fillOpacity: 0.1
+          });
+
+          // Добавляем popup с информацией об области
+          polygon.bindPopup(`
+            <div>
+              <strong>${area.name}</strong><br>
+              <small>Область на карте</small><br>
+              <button onclick="window.location.href='area.html?id=${area.id}'" 
+                      class="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-sm">
+                Открыть
+              </button>
+            </div>
+          `);
+
+          this.mapLayers.areas.addLayer(polygon);
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки областей на карту:', error);
+    }
+  }
+
+  /**
+   * Загрузка адресов на карту с кластеризацией - скопировано из MapManager
+   */
+  async loadAddressesOnMap() {
+    try {
+      const addresses = await db.getAll('addresses');
+      console.log(`🏠 MainPage: Загружаем ${addresses.length} адресов на карту`);
+      
+      if (addresses.length === 0) {
+        console.log('📍 MainPage: Нет адресов для отображения');
+        return;
+      }
+
+      // Создаем маркеры адресов
+      const markers = [];
+      for (const address of addresses) {
+        if (address.coordinates && address.coordinates.lat && address.coordinates.lng) {
+          const marker = await this.createAddressMarker(address);
+          if (marker) {
+            markers.push(marker);
+          }
+        }
+      }
+
+      console.log(`📍 MainPage: Создано ${markers.length} маркеров адресов`);
+
+      if (markers.length === 0) return;
+
+      // Используем кластеризацию если адресов больше 20
+      if (addresses.length > 20) {
+        // Создаем кластер если его еще нет
+        if (!this.addressesCluster) {
+          this.addressesCluster = new MarkerCluster(this.map, {
+            maxClusterRadius: 80,
+            disableClusteringAtZoom: 16,
+            zoomToBoundsOnClick: true,
+            spiderfyOnMaxZoom: true,
+            animate: true
+          });
+        }
+        
+        this.addressesCluster.addMarkers(markers);
+        console.log(`🔗 MainPage: Адреса добавлены в кластер`);
+      } else {
+        // Добавляем маркеры напрямую в слой
+        markers.forEach(marker => {
+          this.mapLayers.addresses.addLayer(marker);
+        });
+        console.log(`📍 MainPage: Адреса добавлены как отдельные маркеры`);
+      }
+
+    } catch (error) {
+      console.error('Ошибка загрузки адресов на карту:', error);
+    }
+  }
+
+  /**
+   * Создание маркера адреса - скопировано из MapManager
+   */
+  async createAddressMarker(address) {
+    try {
+      // Определяем высоту маркера по этажности
+      const floorCount = address.floors_count || 0;
+      let markerHeight;
+      if (floorCount >= 1 && floorCount <= 5) {
+        markerHeight = 10;
+      } else if (floorCount > 5 && floorCount <= 10) {
+        markerHeight = 15;
+      } else if (floorCount > 10 && floorCount <= 20) {
+        markerHeight = 20;
+      } else if (floorCount > 20) {
+        markerHeight = 25;
+      } else {
+        markerHeight = 10; // По умолчанию
+      }
+      
+      // Определяем цвет маркера
+      let markerColor = '#3b82f6'; // Цвет по умолчанию
+      if (address.wall_material_id) {
+        try {
+          const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+          if (wallMaterial && wallMaterial.color) {
+            markerColor = wallMaterial.color;
+          }
+        } catch (error) {
+          console.warn('MainPage: Не удалось получить материал стен для адреса:', address.id);
+        }
+      }
+      
+      // Определяем текст на маркере в зависимости от активного фильтра
+      let labelText = '';
+      switch (this.activeMapFilter) {
+        case 'year':
+          labelText = address.build_year || '';
+          break;
+        case 'series':
+          if (address.house_series_id) {
+            try {
+              const houseSeries = await window.db.get('house_series', address.house_series_id);
+              labelText = houseSeries ? houseSeries.name : '';
+            } catch (error) {
+              console.warn('MainPage: Не удалось получить серию дома:', address.house_series_id);
+            }
+          }
+          break;
+        case 'floors':
+          labelText = address.floors_count || '';
+          break;
+        case 'objects':
+          try {
+            const objects = await window.db.getObjectsByAddress ? 
+                           await window.db.getObjectsByAddress(address.id) : [];
+            labelText = objects.length > 0 ? objects.length.toString() : '';
+          } catch (error) {
+            // Метод может не существовать, игнорируем
+            labelText = '';
+          }
+          break;
+        default:
+          labelText = address.build_year || '';
+      }
+      
+      const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
+        icon: L.divIcon({
+          className: 'address-marker',
+          html: `
+            <div class="leaflet-marker-icon-wrapper" style="position: relative;">
+              <div style="
+                width: 0; 
+                height: 0; 
+                border-left: 7.5px solid transparent; 
+                border-right: 7.5px solid transparent; 
+                border-top: ${markerHeight}px solid ${markerColor};
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+              "></div>
+              ${labelText ? `<span class="leaflet-marker-iconlabel" style="
+                position: absolute; 
+                left: 15px; 
+                top: 0px; 
+                font-size: 11px; 
+                font-weight: 600; 
+                color: #374151; 
+                background: rgba(255,255,255,0.9); 
+                padding: 1px 4px; 
+                border-radius: 3px; 
+                white-space: nowrap;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+              ">${labelText}</span>` : ''}
+            </div>
+          `,
+          iconSize: [15, markerHeight],
+          iconAnchor: [7.5, markerHeight]
+        })
+      });
+      
+      // Сохраняем данные адреса в маркере для оптимизации
+      marker.addressData = address;
+      
+      // Создаем popup с информацией об адресе
+      marker.bindPopup(`
+        <div class="p-2">
+          <strong>${address.address}</strong><br>
+          <small>Тип: ${this.getAddressTypeLabel(address.type)}</small><br>
+          ${address.floors_count ? `<small>Этажей: ${address.floors_count}</small><br>` : ''}
+          ${address.build_year ? `<small>Год: ${address.build_year}</small><br>` : ''}
+          ${address.source ? `<small>Источник: ${this.getSourceLabel(address.source)}</small>` : ''}
+        </div>
+      `, {
+        maxWidth: 280,
+        className: 'address-popup-container'
+      });
+      
+      return marker;
+    } catch (error) {
+      console.error('Ошибка создания маркера адреса:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Получение названия типа адреса
+   */
+  getAddressTypeLabel(type) {
+    const types = {
+      'house': 'Дом',
+      'house_with_land': 'Дом с участком',
+      'land': 'Участок',
+      'commercial': 'Коммерческая',
+      'building': 'Здание'
+    };
+    return types[type] || type;
+  }
+
+  /**
+   * Получение названия источника
+   */
+  getSourceLabel(source) {
+    const sources = {
+      'manual': 'Ручной ввод',
+      'osm': 'OSM',
+      'ml': 'ML адреса',
+      'imported': 'Импорт',
+      'avito': 'Авито',
+      'cian': 'Циан'
+    };
+    return sources[source] || source;
+  }
+
+  /**
+   * Установка фильтра карты - скопировано из MapManager
+   */
+  setMapFilter(filterType) {
+    // Активируем фильтр
+    this.activeMapFilter = filterType;
+    
+    // Обновляем активную кнопку
+    this.updateFilterButtons(filterType);
+    
+    // Перерисовываем маркеры с новой информацией
+    this.refreshAddressMarkers();
+    
+    console.log(`🗺️ MainPage: Установлен фильтр карты: ${filterType}`);
+  }
+
+  /**
+   * Обновление активной кнопки фильтра - скопировано из MapManager
+   */
+  updateFilterButtons(activeFilter) {
+    // Маппинг фильтров к ID кнопок
+    const filterToButtonId = {
+      'year': 'mainFilterByYear',
+      'series': 'mainFilterBySeries', 
+      'floors': 'mainFilterByFloors',
+      'objects': 'mainFilterByObjects',
+      'listings': 'mainFilterByListings'
+    };
+    
+    // Базовые классы для кнопок
+    const baseClasses = 'inline-flex items-center px-3 py-2 border shadow-sm text-sm leading-4 font-medium rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
+    const inactiveClasses = 'text-gray-700 bg-white hover:bg-gray-50 border-gray-300';
+    const activeClasses = 'text-sky-700 bg-sky-100 hover:bg-sky-200 border-sky-300';
+    
+    const allButtons = Object.values(filterToButtonId);
+    const activeButtonId = activeFilter ? filterToButtonId[activeFilter] : null;
+    
+    allButtons.forEach(buttonId => {
+      const button = document.getElementById(buttonId);
+      if (button) {
+        if (buttonId === activeButtonId && activeFilter) {
+          // Активная кнопка - устанавливаем sky цвета
+          button.className = `${baseClasses} ${activeClasses}`;
+        } else {
+          // Неактивная кнопка - возвращаем обычные цвета
+          button.className = `${baseClasses} ${inactiveClasses}`;
+        }
+      }
+    });
+    
+    console.log(`🎯 MainPage: Подсвечена кнопка фильтра: ${activeButtonId} (${activeFilter})`);
+  }
+
+  /**
+   * Обновление маркеров адресов - скопировано из MapManager
+   */
+  async refreshAddressMarkers() {
+    try {
+      // Для оптимизации производительности просто перезагружаем адреса
+      await this.loadAddressesOnMap();
+      
+      console.log(`🔄 MainPage: Маркеры адресов обновлены`);
+      
+    } catch (error) {
+      console.error('MainPage: Ошибка обновления маркеров адресов:', error);
+    }
+  }
+
+  /**
+   * Обновление карты
+   */
+  refreshMap() {
+    if (this.mapInitialized) {
+      this.loadMapData();
+    }
   }
 }
 

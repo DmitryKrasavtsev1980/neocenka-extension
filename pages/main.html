@@ -7,6 +7,79 @@
     <link rel="stylesheet" href="../libs/tailwind/tailwind.min.css">
     <link rel="stylesheet" href="../libs/datatables/datatables.min.css">
     <link rel="stylesheet" href="../assets/styles/main.css">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="../libs/leaflet/leaflet.css">
+    
+    <!-- Leaflet Draw CSS -->
+    <link rel="stylesheet" href="../libs/leaflet/leaflet.draw.css"/>
+    
+    <style>
+        /* Стили для маркеров карты */
+        .address-marker, .object-marker {
+            border: none !important;
+            background: transparent !important;
+        }
+        
+        /* Стили для контроллера слоев */
+        .leaflet-control-layers {
+            background: rgba(255, 255, 255, 0.95) !important;
+            border-radius: 6px !important;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1) !important;
+        }
+        
+        .leaflet-control-layers-list {
+            margin: 8px !important;
+        }
+        
+        .leaflet-control-layers label {
+            font-size: 14px !important;
+            padding: 4px 0 !important;
+        }
+        
+        /* Popup стили */
+        .leaflet-popup-content {
+            margin: 8px 12px !important;
+            line-height: 1.4 !important;
+            max-width: 300px !important;
+        }
+        
+        .leaflet-popup-content strong {
+            font-weight: 600 !important;
+        }
+        
+        /* Стили для кластеров объявлений */
+        .listing-cluster {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            border: 3px solid #ffffff;
+            border-radius: 50%;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
+        }
+        
+        .listing-cluster.small {
+            width: 30px;
+            height: 30px;
+            line-height: 24px;
+            font-size: 12px;
+        }
+        
+        .listing-cluster.medium {
+            width: 40px;
+            height: 40px;
+            line-height: 34px;
+            font-size: 14px;
+        }
+        
+        .listing-cluster.large {
+            width: 50px;
+            height: 50px;
+            line-height: 44px;
+            font-size: 16px;
+        }
+    </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
     <!-- Навигация -->
@@ -155,6 +228,58 @@
                             </dl>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Панель карты (сворачиваемая, по умолчанию свёрнута) -->
+        <div id="mainMapPanelContainer" class="mt-8">
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6 cursor-pointer" id="mainMapPanelHeader">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">Карта</h3>
+                            <p class="mt-1 text-sm text-gray-500">Интерактивная карта со всеми областями и адресами</p>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <svg id="mainMapPanelChevron" class="h-5 w-5 text-gray-400 transform transition-transform duration-200" style="transform: rotate(-90deg);" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div id="mainMapPanelContent" class="px-4 pb-5 hidden">
+                    <div class="mb-3 flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <!-- Кнопки фильтров над картой -->
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button type="button" id="mainFilterByYear" data-filter="year" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    Год
+                                </button>
+                                <button type="button" id="mainFilterBySeries" data-filter="series" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    Серия
+                                </button>
+                                <button type="button" id="mainFilterByFloors" data-filter="floors" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    Этажность
+                                </button>
+                                <button type="button" id="mainFilterByObjects" data-filter="objects" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    Объектов
+                                </button>
+                                <button type="button" id="mainFilterByListings" data-filter="listings" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                    Объявлений
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <button type="button" id="mainRefreshMapBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                Обновить карту
+                            </button>
+                        </div>
+                    </div>
+                    <div id="mainMap" style="height: 500px; width: 100%;z-index:0;"></div>
                 </div>
             </div>
         </div>
@@ -442,6 +567,12 @@
     <!-- Скрипты - ВАЖНО: jQuery должен быть первым! -->
     <script src="../libs/jquery/jquery-3.7.1.min.js"></script>
     <script src="../libs/datatables/datatables.min.js"></script>
+    
+    <!-- Leaflet JS -->
+    <script src="../libs/leaflet/leaflet.js"></script>
+    
+    <!-- Leaflet Draw JS -->
+    <script src="../libs/leaflet/leaflet.draw.js"></script>
     <script src="../components/navigation.js"></script>
     <script src="../components/breadcrumbs.js"></script>
     <script src="../components/footer.js"></script>
@@ -452,6 +583,10 @@
     <script src="../utils/update-manager.js"></script>
     <script src="../utils/auto-updater.js"></script>
     <script src="../components/update-notification.js"></script>
+    <script src="../shared/constants.js"></script>
+    <script src="../shared/helpers.js"></script>
+    <script src="../shared/validators.js"></script>
+    <script src="../utils/marker-cluster.js"></script>
     <script src="main.js"></script>
     <script src="main_init.js"></script>
 </body>
