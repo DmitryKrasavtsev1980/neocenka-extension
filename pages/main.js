@@ -1014,8 +1014,7 @@ class MainPage {
           });
 
           // Добавляем popup с информацией об области
-          const popupContent = document.createElement('div');
-          popupContent.innerHTML = `
+          polygon.bindPopup(`
             <div>
               <strong>${area.name}</strong><br>
               <small>Область на карте</small><br>
@@ -1024,17 +1023,17 @@ class MainPage {
                 Открыть
               </button>
             </div>
-          `;
+          `);
           
-          // Добавляем обработчик событий для кнопки
-          const openButton = popupContent.querySelector(`#openAreaBtn_${area.id}`);
-          if (openButton) {
-            openButton.addEventListener('click', () => {
-              window.location.href = `area.html?id=${area.id}`;
-            });
-          }
-          
-          polygon.bindPopup(popupContent);
+          // Добавляем обработчик событий для кнопки при открытии popup
+          polygon.on('popupopen', () => {
+            const openButton = document.getElementById(`openAreaBtn_${area.id}`);
+            if (openButton) {
+              openButton.addEventListener('click', () => {
+                window.location.href = `area.html?id=${area.id}`;
+              });
+            }
+          });
 
           this.mapLayers.areas.addLayer(polygon);
         }

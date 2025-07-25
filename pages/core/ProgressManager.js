@@ -89,50 +89,69 @@ class ProgressManager {
      * Показ статусного сообщения
      */
     showStatus(message, type = 'info', duration = 5000) {
-        let statusElement = document.getElementById('statusMessage');
-        if (!statusElement) {
-            // Создаем элемент статуса если он не существует
-            statusElement = document.createElement('div');
-            statusElement.id = 'statusMessage';
-            statusElement.classList.add('hidden');
-            document.body.appendChild(statusElement);
+        // Используем тот же контейнер, что и UIManager
+        let container = document.getElementById('notificationContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'notificationContainer';
+            container.className = 'fixed top-4 right-4 z-50 max-w-md';
+            document.body.appendChild(container);
         }
         
-        // Очищаем предыдущие классы
-        statusElement.className = 'fixed top-4 right-4 px-4 py-3 rounded-md shadow-lg z-50 max-w-md';
+        // Создаем элемент уведомления в стиле UIManager
+        const statusElement = document.createElement('div');
+        const notificationId = Date.now() + Math.random();
+        statusElement.setAttribute('data-notification-id', notificationId);
         
-        // Применяем стили в зависимости от типа
-        switch (type) {
-            case 'success':
-                statusElement.classList.add('bg-green-100', 'border', 'border-green-400', 'text-green-700');
-                break;
-            case 'error':
-                statusElement.classList.add('bg-red-100', 'border', 'border-red-400', 'text-red-700');
-                break;
-            case 'warning':
-                statusElement.classList.add('bg-yellow-100', 'border', 'border-yellow-400', 'text-yellow-700');
-                break;
-            case 'info':
-            default:
-                statusElement.classList.add('bg-blue-100', 'border', 'border-blue-400', 'text-blue-700');
-                break;
+        // Применяем единые стили как в UIManager
+        const typeClasses = {
+            success: 'bg-green-100 border-green-500 text-green-700',
+            error: 'bg-red-100 border-red-500 text-red-700',
+            warning: 'bg-yellow-100 border-yellow-500 text-yellow-700',
+            info: 'bg-blue-100 border-blue-500 text-blue-700'
+        };
+        
+        const typeIcons = {
+            success: '✓',
+            error: '✗',
+            warning: '⚠',
+            info: 'ℹ'
+        };
+        
+        statusElement.className = `notification border-l-4 p-4 mb-3 rounded ${typeClasses[type] || typeClasses.info}`;
+        
+        statusElement.innerHTML = `
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <span class="text-lg font-bold">${typeIcons[type] || typeIcons.info}</span>
+                </div>
+                <div class="ml-3 flex-1">
+                    <p class="text-sm font-medium">${message}</p>
+                </div>
+                <div class="flex-shrink-0 ml-4">
+                    <button class="close-notification text-lg font-bold hover:opacity-75">×</button>
+                </div>
+            </div>
+        `;
+        
+        // Добавляем обработчик кнопки закрытия
+        const closeBtn = statusElement.querySelector('.close-notification');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                statusElement.remove();
+            });
         }
         
-        // Устанавливаем сообщение
-        statusElement.textContent = message;
-        statusElement.classList.remove('hidden');
-        
-        // Очищаем предыдущий таймер
-        if (this.statusTimeouts.has('main')) {
-            clearTimeout(this.statusTimeouts.get('main'));
-        }
+        // Добавляем в контейнер
+        container.appendChild(statusElement);
         
         // Автоматически скрываем сообщение
         if (duration > 0) {
-            const timeoutId = setTimeout(() => {
-                this.hideStatus();
+            setTimeout(() => {
+                if (statusElement.parentNode) {
+                    statusElement.remove();
+                }
             }, duration);
-            this.statusTimeouts.set('main', timeoutId);
         }
         
         // Эмитируем событие

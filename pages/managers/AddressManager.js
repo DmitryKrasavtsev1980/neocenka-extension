@@ -33,6 +33,9 @@ class AddressManager {
             individualHeatingSelect: null
         };
         
+        // SlimSelect для фильтра по источнику
+        this.sourceFilterSlimSelect = null;
+        
         // Конфигурация
         this.config = {
             pageLength: 10,
@@ -107,6 +110,11 @@ class AddressManager {
         // Кнопка удаления всех адресов области
         document.getElementById('deleteAllAddressesBtn')?.addEventListener('click', () => {
             this.deleteAllAddressesInArea();
+        });
+        
+        // Кнопка умного определения адресов (ML)
+        document.getElementById('processAddressesSmartBtn')?.addEventListener('click', () => {
+            this.processAddressesSmart();
         });
     }
     
@@ -184,6 +192,8 @@ class AddressManager {
         await this.loadReferenceData();
         await this.initializeAddressTable();
         await this.loadAddresses();
+        await this.loadListings();
+        await this.loadObjects();
     }
     
     /**
@@ -395,11 +405,26 @@ class AddressManager {
             // Инициализируем ML-алгоритм определения адресов
             await this.initializeSmartMatcher();
             
+            // ОПТИМИЗАЦИЯ: Загружаем все объявления один раз вместо множественных запросов
+            console.log('⚡ Оптимизированная загрузка счетчиков объявлений...');
+            const allListings = await window.db.getAll('listings');
+            
+            // Группируем объявления по address_id для быстрого подсчета
+            const listingsByAddress = {};
+            allListings.forEach(listing => {
+                if (listing.address_id) {
+                    if (!listingsByAddress[listing.address_id]) {
+                        listingsByAddress[listing.address_id] = [];
+                    }
+                    listingsByAddress[listing.address_id].push(listing);
+                }
+            });
+            
             // Добавляем счетчики объявлений для каждого адреса
             for (const address of addresses) {
-                const listings = await this.getListingsByAddress(address.id);
+                const addressListings = listingsByAddress[address.id] || [];
                 address.objects_count = 0;
-                address.listings_count = listings.length;
+                address.listings_count = addressListings.length;
                 
                 // Нормализуем обязательные поля для DataTables
                 if (!address.source) {
@@ -410,11 +435,19 @@ class AddressManager {
             // Сохраняем адреса в состояние
             this.dataState.setState('addresses', addresses);
             
+            // Сохраняем объявления в состояние для использования другими менеджерами
+            // Это избежит повторной загрузки в loadListings()
+            this.dataState.setState('allListingsCache', allListings);
+            console.log('💾 Кешированы объявления для оптимизации:', allListings.length);
+            
             // Обновляем таблицу
             if (this.addressesTable) {
                 this.addressesTable.clear();
                 this.addressesTable.rows.add(addresses);
                 this.addressesTable.draw();
+                
+                // Инициализируем фильтр по источнику после обновления таблицы
+                this.initSourceFilter();
             }
             
             // Уведомляем о загрузке
@@ -1868,6 +1901,97 @@ class AddressManager {
     }
     
     /**
+     * Загрузка объявлений для области
+     */
+    async loadListings() {
+        try {
+            console.log('🚀 AddressManager.loadListings: Начинаем загрузку объявлений для области');
+            console.log('🔍 AddressManager.loadListings: DataState экземпляр:', this.dataState);
+            await Helpers.debugLog('📋 Загрузка объявлений для области...');
+            
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea) {
+                console.log('❌ AddressManager.loadListings: Область не выбрана');
+                await Helpers.debugLog('❌ Область не выбрана для загрузки объявлений');
+                return;
+            }
+            
+            console.log('📍 AddressManager.loadListings: Область:', currentArea.name, 'ID:', currentArea.id);
+            
+            // ОПТИМИЗАЦИЯ: Используем кешированные объявления если доступны
+            let allListings = this.dataState.getState('allListingsCache');
+            if (!allListings) {
+                console.log('📦 Загружаем объявления из БД (кеш недоступен)');
+                allListings = await window.db.getAll('listings');
+            } else {
+                console.log('⚡ Используем кешированные объявления:', allListings.length);
+            }
+            let areaListings = [];
+            
+            await Helpers.debugLog(`📊 Всего объявлений в базе: ${allListings.length}`);
+            await Helpers.debugLog(`🔍 Полигон области: ${currentArea.polygon ? currentArea.polygon.length : 0} точек`);
+            
+            if (currentArea.polygon && currentArea.polygon.length >= 3) {
+                // Фильтруем объявления по полигону области
+                areaListings = allListings.filter(listing => {
+                    if (!listing.coordinates || !listing.coordinates.lat || !listing.coordinates.lng) {
+                        return false;
+                    }
+                    
+                    // Используем метод проверки точки в полигоне из базы данных
+                    const isInside = window.db.isPointInPolygon(listing.coordinates, currentArea.polygon);
+                    if (isInside) {
+                        //console.log('🎯 Объявление в области:', listing.title, listing.coordinates);
+                    }
+                    return isInside;
+                });
+                
+                await Helpers.debugLog(`🔍 Объявлений с координатами: ${allListings.filter(l => l.coordinates && l.coordinates.lat && l.coordinates.lng).length}`);
+                
+                // Проверим первые 3 объявления для отладки
+                const debugListings = allListings.slice(0, 3);
+                for (const listing of debugListings) {
+                    if (listing.coordinates) {
+                        const isInside = window.db.isPointInPolygon(listing.coordinates, currentArea.polygon);
+                        console.log(`🔍 Отладка: ${listing.title} (${listing.coordinates.lat}, ${listing.coordinates.lng}) -> ${isInside ? 'ВНУТРИ' : 'ВНЕ'} области`);
+                    }
+                }
+            } else {
+                await Helpers.debugLog('⚠️ Область не имеет полигона, объявления не загружены');
+                if (!currentArea.polygon) {
+                    await Helpers.debugLog('❌ Полигон полностью отсутствует');
+                } else {
+                    await Helpers.debugLog(`❌ Полигон слишком мал: ${currentArea.polygon.length} точек (нужно минимум 3)`);
+                }
+            }
+            
+            await Helpers.debugLog(`📊 Объявлений для области найдено: ${areaListings.length}`);
+            
+            // Сохраняем объявления в состояние
+            console.log(`🔧 AddressManager.loadListings: Сохраняем ${areaListings.length} объявлений в DataState`);
+            this.dataState.setState('listings', areaListings);
+            console.log(`✅ AddressManager.loadListings: Объявления сохранены. Проверка:`, this.dataState.getState('listings')?.length);
+            
+            // Уведомляем о загрузке объявлений
+            this.eventBus.emit(CONSTANTS.EVENTS.LISTINGS_LOADED, {
+                listings: areaListings,
+                count: areaListings.length,
+                area: currentArea,
+                timestamp: new Date()
+            });
+            
+            // Дополнительно уведомляем о том, что статистику нужно обновить
+            this.eventBus.emit(CONSTANTS.EVENTS.AREA_UPDATED, currentArea);
+            
+            await Helpers.debugLog('✅ Объявления загружены в состояние');
+            
+        } catch (error) {
+            console.error('❌ Ошибка загрузки объявлений:', error);
+            this.progressManager.showError('Ошибка загрузки объявлений: ' + error.message);
+        }
+    }
+    
+    /**
      * Загрузка справочных данных
      */
     async loadReferenceData() {
@@ -2878,6 +3002,393 @@ class AddressManager {
         };
     }
     
+    /**
+     * Инициализация фильтра по источнику для таблицы адресов
+     */
+    initSourceFilter() {
+        try {
+            // Уничтожаем существующий SlimSelect если есть
+            if (this.sourceFilterSlimSelect) {
+                this.sourceFilterSlimSelect.destroy();
+                this.sourceFilterSlimSelect = null;
+            }
+
+            // Очищаем контейнер фильтра
+            const sourceFilterContainer = document.getElementById('sourceFilter');
+            if (!sourceFilterContainer) {
+                console.warn('⚠️ AddressManager: Контейнер sourceFilter не найден');
+                return;
+            }
+            
+            sourceFilterContainer.innerHTML = '';
+
+            if (!this.addressesTable) {
+                console.warn('⚠️ AddressManager: Таблица адресов не инициализирована');
+                return;
+            }
+
+            // Получаем колонку с источниками (первая колонка, индекс 0)
+            const column = this.addressesTable.column(0);
+            
+            // Создаем select элемент
+            const select = document.createElement('select');
+            select.id = 'sourceFilterSelect';
+            select.className = 'text-sm';
+            
+            // Добавляем опцию "Все источники"
+            const allOption = document.createElement('option');
+            allOption.value = '';
+            allOption.textContent = 'Все источники';
+            select.appendChild(allOption);
+            
+            // Получаем уникальные источники из данных колонки
+            const uniqueSources = [];
+            column.data().unique().each(function(value) {
+                if (value && value.trim() && !uniqueSources.includes(value.trim())) {
+                    uniqueSources.push(value.trim());
+                }
+            });
+
+            // Сортируем источники
+            uniqueSources.sort();
+            
+            // Добавляем опции для каждого источника
+            uniqueSources.forEach(source => {
+                const option = document.createElement('option');
+                option.value = source;
+                option.textContent = CONSTANTS.DATA_SOURCE_NAMES[source] || source;
+                select.appendChild(option);
+            });
+            
+            sourceFilterContainer.appendChild(select);
+
+            console.log('🔍 Найдено источников для фильтра:', uniqueSources);
+
+            // Инициализируем SlimSelect
+            this.sourceFilterSlimSelect = new SlimSelect({
+                select: '#sourceFilterSelect',
+                settings: {
+                    showSearch: false,
+                    placeholderText: 'Все источники'
+                },
+                events: {
+                    afterChange: (newVal) => {
+                        const val = newVal && newVal.length > 0 ? newVal[0].value : '';
+                        const searchVal = val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '';
+                        column.search(searchVal, true, false).draw();
+                        
+                        console.log('🔍 Фильтр по источнику изменен:', val || 'Все источники');
+                    }
+                }
+            });
+            
+            console.log('✅ Фильтр по источнику инициализирован');
+
+        } catch (error) {
+            console.error('❌ Ошибка инициализации фильтра по источнику:', error);
+        }
+    }
+    
+    /**
+     * Загрузка объектов недвижимости для области
+     */
+    async loadObjects() {
+        try {
+            await Helpers.debugLog('🏢 Загрузка объектов недвижимости для области...');
+            
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea) {
+                await Helpers.debugLog('❌ Область не выбрана для загрузки объектов');
+                return;
+            }
+            
+            // Получаем все объекты из базы данных
+            const allObjects = await window.db.getAll('objects');
+            
+            // Получаем адреса области для фильтрации объектов
+            const addresses = await window.db.getAll('addresses');
+            const areaAddresses = addresses.filter(address => address.map_area_id === currentArea.id);
+            const areaAddressIds = new Set(areaAddresses.map(addr => addr.id));
+            const addressesMap = new Map(addresses.map(addr => [addr.id, addr]));
+            
+            // Фильтруем объекты по адресам в области
+            const areaObjects = allObjects.filter(object => 
+                object.address_id && 
+                areaAddressIds.has(object.address_id) && 
+                object.status !== 'deleted'
+            ).map(object => ({
+                ...object,
+                address: addressesMap.get(object.address_id)
+            })).filter(object => object.address);
+            
+            await Helpers.debugLog(`📊 Объектов для области найдено: ${areaObjects.length}`);
+            
+            // Сохраняем объекты в состояние
+            this.dataState.setState('objects', areaObjects);
+            
+            // Уведомляем о загрузке объектов
+            this.eventBus.emit(CONSTANTS.EVENTS.DATA_LOADED, {
+                type: 'objects',
+                objects: areaObjects,
+                count: areaObjects.length,
+                area: currentArea,
+                timestamp: new Date()
+            });
+            
+            await Helpers.debugLog('✅ Объекты загружены в состояние');
+            
+        } catch (error) {
+            console.error('❌ Ошибка загрузки объектов:', error);
+            this.progressManager.showError('Ошибка загрузки объектов: ' + error.message);
+        }
+    }
+    
+    /**
+     * Обработка адресов с использованием умного алгоритма с ML
+     */
+    async processAddressesSmart() {
+        if (this.isLoading) {
+            console.log('⚠️ Обработка адресов уже выполняется');
+            return;
+        }
+
+        try {
+            this.isLoading = true;
+            console.log('🧠 Начинаем умное определение адресов с ML');
+            this.progressManager.updateProgressBar('addresses', 0, 'Инициализация умного алгоритма...');
+
+            // Загружаем объявления для обработки умным алгоритмом
+            const allListings = await window.db.getAll('listings');
+            const targetListings = allListings.filter(listing => {
+                const needsProcessing = 
+                    !listing.address_id || 
+                    listing.address_match_confidence === 'very_low' ||
+                    listing.address_match_confidence === 'low' ||
+                    (listing.address_match_confidence === 'medium' && listing.address_match_score < 0.75);
+                
+                const hasCoordinates = listing.coordinates && 
+                    listing.coordinates.lat && 
+                    (listing.coordinates.lng || listing.coordinates.lon);
+                
+                return needsProcessing && hasCoordinates;
+            });
+
+            if (targetListings.length === 0) {
+                this.progressManager.showInfo('Нет объявлений для обработки умным алгоритмом');
+                return;
+            }
+
+            this.progressManager.updateProgressBar('addresses', 10, 
+                `🧠 Найдено ${targetListings.length} объявлений для умной обработки`);
+
+            // Загружаем все адреса
+            const allAddresses = await window.db.getAll('addresses');
+            if (allAddresses.length === 0) {
+                this.progressManager.showError('В базе данных нет адресов для сопоставления');
+                return;
+            }
+
+            this.progressManager.updateProgressBar('addresses', 20, 
+                `📍 Загружено ${allAddresses.length} адресов из базы`);
+
+            // Инициализируем умный алгоритм
+            if (!window.smartAddressMatcher) {
+                this.progressManager.showError('Умный алгоритм определения адресов не инициализирован');
+                return;
+            }
+
+            const smartMatcher = window.smartAddressMatcher;
+            if (window.spatialIndexManager) {
+                smartMatcher.spatialIndex = window.spatialIndexManager;
+            }
+
+            this.progressManager.updateProgressBar('addresses', 30, 
+                '🧠 Запуск умного алгоритма с машинным обучением...');
+
+            // Обрабатываем объявления меньшими батчами для ML-алгоритма
+            const batchSize = 20;
+            let processedCount = 0;
+            let significantImprovements = 0;
+            let results = {
+                processed: 0,
+                matched: 0,
+                improved: 0,
+                significantlyImproved: 0,
+                perfect: 0,
+                high: 0,
+                medium: 0,
+                low: 0,
+                veryLow: 0,
+                noMatch: 0,
+                errors: 0,
+                methodStats: {},
+                avgProcessingTime: 0,
+                totalProcessingTime: 0
+            };
+
+            const startTime = Date.now();
+
+            for (let i = 0; i < targetListings.length; i += batchSize) {
+                const batch = targetListings.slice(i, i + batchSize);
+                const progress = 30 + ((i / targetListings.length) * 60);
+                
+                this.progressManager.updateProgressBar('addresses', progress, 
+                    `🧠 Умная ML-обработка ${i + 1}-${Math.min(i + batchSize, targetListings.length)} из ${targetListings.length}`);
+
+                // Обрабатываем батч
+                for (const listing of batch) {
+                    try {
+                        const oldConfidence = listing.address_match_confidence;
+                        const oldScore = listing.address_match_score || 0;
+
+                        const matchResult = await smartMatcher.matchAddressSmart(listing, allAddresses);
+                        processedCount++;
+                        results.processed++;
+                        results.totalProcessingTime += matchResult.processingTime || 0;
+
+                        console.log(`🧠 ML-результат для ${listing.id}: ${matchResult.confidence} (${matchResult.method}), скор: ${matchResult.score?.toFixed(3)}, время: ${matchResult.processingTime}ms`);
+
+                        if (matchResult.address) {
+                            results.matched++;
+
+                            // Проверяем улучшение
+                            const confidenceLevels = ['none', 'very_low', 'low', 'medium', 'high', 'perfect'];
+                            const oldLevel = confidenceLevels.indexOf(oldConfidence || 'none');
+                            const newLevel = confidenceLevels.indexOf(matchResult.confidence);
+                            
+                            if (newLevel > oldLevel || matchResult.score > oldScore + 0.1) {
+                                results.improved++;
+                                
+                                // Значительное улучшение
+                                if (newLevel > oldLevel + 1 || matchResult.score > oldScore + 0.2) {
+                                    significantImprovements++;
+                                    results.significantlyImproved++;
+                                    console.log(`🎯 Значительное улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
+                                } else {
+                                    console.log(`✅ Улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
+                                }
+                            }
+
+                            // Обновляем объявление
+                            listing.address_id = matchResult.address.id;
+                            listing.address_match_confidence = matchResult.confidence;
+                            listing.address_match_method = matchResult.method;
+                            listing.address_match_score = matchResult.score;
+                            listing.address_distance = matchResult.distance;
+                            listing.updated_at = new Date();
+
+                            // Дополнительные метрики от умного алгоритма
+                            if (matchResult.textSimilarity !== undefined) {
+                                listing.address_text_similarity = matchResult.textSimilarity;
+                            }
+                            if (matchResult.semanticSimilarity !== undefined) {
+                                listing.address_semantic_similarity = matchResult.semanticSimilarity;
+                            }
+                            if (matchResult.structuralSimilarity !== undefined) {
+                                listing.address_structural_similarity = matchResult.structuralSimilarity;
+                            }
+                            if (matchResult.fuzzyScore !== undefined) {
+                                listing.address_fuzzy_score = matchResult.fuzzyScore;
+                            }
+
+                            // Обновляем статус обработки
+                            if (listing.processing_status === 'address_needed') {
+                                listing.processing_status = 'duplicate_check_needed';
+                            }
+
+                            await window.db.update('listings', listing);
+
+                            // Статистика по уровням доверия
+                            switch (matchResult.confidence) {
+                                case 'perfect':
+                                    results.perfect++;
+                                    break;
+                                case 'high':
+                                    results.high++;
+                                    break;
+                                case 'medium':
+                                    results.medium++;
+                                    break;
+                                case 'low':
+                                    results.low++;
+                                    break;
+                                case 'very_low':
+                                    results.veryLow++;
+                                    break;
+                            }
+
+                            // Статистика методов
+                            const method = matchResult.method;
+                            results.methodStats[method] = (results.methodStats[method] || 0) + 1;
+
+                        } else {
+                            results.noMatch++;
+                        }
+                    } catch (error) {
+                        results.errors++;
+                        console.error('Ошибка умной обработки объявления:', error);
+                    }
+                }
+
+                // Задержка для ML-алгоритма
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            const totalTime = Date.now() - startTime;
+            results.avgProcessingTime = results.totalProcessingTime / results.processed;
+
+            this.progressManager.updateProgressBar('addresses', 100, '🧠 Умная ML-обработка завершена');
+
+            // Получаем статистику алгоритма
+            const algorithmStats = smartMatcher.getStats();
+
+            // Обновляем данные и события
+            await this.loadAddresses();
+
+            // Показываем детальный результат
+            const methodStatsText = Object.entries(results.methodStats)
+                .map(([method, count]) => `  • ${method}: ${count}`)
+                .join('\n');
+
+            const message = `🧠 Умная ML-обработка адресов завершена:
+
+📊 Общая статистика:
+• Обработано: ${results.processed}
+• Найдены адреса: ${results.matched}
+• Улучшено: ${results.improved}
+• Значительно улучшено: ${results.significantlyImproved}
+
+🎯 По уровням точности:
+• Идеальная точность: ${results.perfect}
+• Высокая точность: ${results.high}
+• Средняя точность: ${results.medium}
+• Низкая точность: ${results.low}
+• Очень низкая: ${results.veryLow}
+• Не найдено: ${results.noMatch}
+• Ошибок: ${results.errors}
+
+🔧 ML-методы определения:
+${methodStatsText}
+
+⚡ Производительность:
+• Общее время: ${(totalTime / 1000).toFixed(1)}с
+• Среднее время на объявление: ${results.avgProcessingTime.toFixed(1)}мс
+• Кэш размер: ${algorithmStats.cacheSize}
+• Общий успех ML: ${algorithmStats.overallSuccessRate.toFixed(1)}%
+
+🧠 Использован умный алгоритм с машинным обучением!`;
+
+            this.progressManager.showSuccess(message);
+
+        } catch (error) {
+            console.error('❌ Error in smart ML address processing:', error);
+            this.progressManager.showError('Ошибка умного определения адресов: ' + error.message);
+        } finally {
+            this.isLoading = false;
+            // Прогресс-бар автоматически скрывается при 100%
+        }
+    }
+
     /**
      * Уничтожение менеджера
      */

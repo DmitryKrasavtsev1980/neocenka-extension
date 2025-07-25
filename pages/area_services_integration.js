@@ -31,9 +31,7 @@ class AreaServicesIntegration {
             this.inparsService = this.serviceManager.getService('inpars');
             console.log('✅ InparsService ready');
             
-            // Инициализируем UI панель
-            await this.initInparsPanel();
-            console.log('✅ InparsPanel ready');
+            // InparsPanel инициализируется в area.js через initInparsPanel()
             
             // Настраиваем обработчики событий
             this.setupEventHandlers();
@@ -45,36 +43,21 @@ class AreaServicesIntegration {
         }
     }
 
-    /**
-     * Инициализация панели Inpars
-     */
-    async initInparsPanel() {
-        // Находим контейнер для панели в HTML
-        const panelContainer = document.getElementById('inparsPanelContainer');
-        
-        if (!panelContainer) {
-            console.error('Inpars panel container not found in HTML');
-            return;
-        }
-        
-        // Создаем новую панель с использованием InparsPanel компонента
-        this.inparsPanel = new InparsPanel(panelContainer, this.serviceManager);
-        
-        // Настраиваем функцию получения полигона
-        this.inparsPanel.setPolygonProvider(() => {
-            return this.areaPage.currentArea?.polygon || [];
-        });
-    }
+    // Метод initInparsPanel удален - панель инициализируется в area.js
 
     /**
      * Настройка обработчиков событий
      */
     setupEventHandlers() {
-        // События завершения импорта
-        if (this.inparsPanel && this.inparsPanel.container) {
-            this.inparsPanel.container.addEventListener('import:completed', (event) => {
+        // События завершения импорта - слушаем на контейнере из initInparsPanel
+        const inparsContainer = document.getElementById('inparsPanelContainer');
+        if (inparsContainer) {
+            inparsContainer.addEventListener('import:completed', (event) => {
                 this.onImportCompleted(event.detail);
             });
+            console.log('✅ Event listener для import:completed добавлен на inparsPanelContainer');
+        } else {
+            console.error('❌ inparsPanelContainer не найден для добавления event listener');
         }
         
         // События сервиса Inpars
@@ -106,18 +89,39 @@ class AreaServicesIntegration {
     async onImportCompleted(result) {
         try {
             console.log('📊 Import completed:', result);
+            console.log('📊 result.count:', result.count);
+            console.log('📊 result.listings:', result.listings);
+            console.log('📊 result.listings?.length:', result.listings?.length);
             
             // Обрабатываем полученные объявления через существующую логику
             if (result.listings && result.listings.length > 0) {
                 await this.processImportedListings(result.listings);
+                
+                // После сохранения в БД обновляем DataState новыми данными из базы
+                console.log('🔄 Обновляем DataState после импорта...');
+                if (this.areaPage.addressManager) {
+                    await this.areaPage.addressManager.loadListings();
+                }
             }
             
-            // Обновляем интерфейс
-            await this.areaPage.loadListingsOnMap();
-            await this.areaPage.loadAreaStats();
+            // Обновляем интерфейс - уведомляем менеджеры об обновлении данных
+            if (this.areaPage.eventBus) {
+                this.areaPage.eventBus.emit(CONSTANTS.EVENTS.LISTINGS_IMPORTED, {
+                    result,
+                    timestamp: new Date()
+                });
+            }
             
             // Показываем уведомление
-            this.showSuccess(`Успешно импортировано ${result.listings.length} объявлений`);
+            const importedCount = (result.listings && result.listings.length) || result.count || 0;
+            console.log('🔍 Отладка уведомления: result =', result);
+            console.log('🔍 Отладка уведомления: importedCount =', importedCount);
+            
+            if (importedCount > 0) {
+                this.showSuccess(`Успешно импортировано ${importedCount} объявлений`);
+            } else {
+                this.showSuccess('Импорт завершен');
+            }
             
         } catch (error) {
             console.error('❌ Error processing import results:', error);
@@ -129,6 +133,9 @@ class AreaServicesIntegration {
      * Обработка импортированных объявлений
      */
     async processImportedListings(listings) {
+        console.log(`🔍 processImportedListings: Получено ${listings.length} объявлений для сохранения`);
+        console.log(`🔍 processImportedListings: currentAreaId = ${this.areaPage.currentAreaId}`);
+        
         // Устанавливаем map_area_id для всех объявлений
         const processedListings = listings.map(listing => ({
             ...listing,
@@ -137,9 +144,13 @@ class AreaServicesIntegration {
             updated_at: new Date()
         }));
         
+        console.log(`🔍 processImportedListings: Первое объявление после обработки:`, processedListings[0]);
+        
         try {
+            console.log(`💾 processImportedListings: Вызываем db.saveListings с ${processedListings.length} объявлениями`);
+            
             // Используем единый метод сохранения с правильной обработкой истории цен
-            const result = await db.saveListings(processedListings);
+            const result = await window.db.saveListings(processedListings);
             
             console.log(`📊 Import results: ${result.added} new, ${result.updated} updated, ${result.skipped} errors`);
             return { 
@@ -220,32 +231,33 @@ class AreaServicesIntegration {
      * Утилиты для уведомлений (интегрируются с существующей системой)
      */
     showSuccess(message) {
-        if (this.areaPage.showNotification) {
-            this.areaPage.showNotification(message, 'success');
+        console.log('🔍 showSuccess вызван с message =', message, typeof message);
+        if (this.areaPage.showSuccess) {
+            this.areaPage.showSuccess(message);
         } else {
             console.log('✅ ' + message);
         }
     }
 
     showError(message) {
-        if (this.areaPage.showNotification) {
-            this.areaPage.showNotification(message, 'error');
+        if (this.areaPage.showError) {
+            this.areaPage.showError(message);
         } else {
             console.error('❌ ' + message);
         }
     }
 
     showWarning(message) {
-        if (this.areaPage.showNotification) {
-            this.areaPage.showNotification(message, 'warning');
+        if (this.areaPage.showInfo) {
+            this.areaPage.showInfo(message);
         } else {
             console.warn('⚠️ ' + message);
         }
     }
 
     showInfo(message) {
-        if (this.areaPage.showNotification) {
-            this.areaPage.showNotification(message, 'info');
+        if (this.areaPage.showInfo) {
+            this.areaPage.showInfo(message);
         } else {
             console.info('ℹ️ ' + message);
         }

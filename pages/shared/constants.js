@@ -60,6 +60,7 @@ const EVENTS = {
     UI_STATE_RESET: 'ui:state_reset',
     MODAL_OPENED: 'modal:opened',
     MODAL_CLOSED: 'modal:closed',
+    MODAL_OPEN: 'modal:open',
     TABLE_UPDATED: 'table:updated',
     
     // Панели
@@ -89,7 +90,10 @@ const EVENTS = {
     
     // Сервисы
     SERVICES_INITIALIZED: 'services:initialized',
-    SERVICE_ERROR: 'service:error'
+    SERVICE_ERROR: 'service:error',
+    
+    // Импорт
+    LISTINGS_IMPORTED: 'listings:imported'
 };
 
 // Типы недвижимости

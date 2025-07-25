@@ -69,6 +69,11 @@ class MapManager {
                 await this.loadListingsOnMap();
             });
             
+            this.eventBus.on(CONSTANTS.EVENTS.LISTINGS_IMPORTED, async (data) => {
+                console.log('🔄 MapManager: Получено событие LISTINGS_IMPORTED, обновляем карту');
+                await this.loadListingsOnMap();
+            });
+            
             this.eventBus.on(CONSTANTS.EVENTS.MAP_FILTER_CHANGED, (data) => {
                 const filterType = typeof data === 'string' ? data : data.filterType;
                 this.toggleMapFilter(filterType);
@@ -618,7 +623,7 @@ class MapManager {
      */
     async loadObjectsOnMap() {
         try {
-            const objects = this.dataState.getState('realEstateObjects') || [];
+            const objects = this.dataState.getState('objects') || [];
             
             // Очищаем предыдущие маркеры
             this.mapLayers.objects.clearLayers();
@@ -644,6 +649,9 @@ class MapManager {
         try {
             const listings = this.dataState.getState('listings') || [];
             
+            console.log('🗺️ MapManager: Начинаем загрузку объявлений на карту');
+            console.log('📊 MapManager: Получено объявлений из DataState:', listings.length);
+            
             // Очищаем предыдущие маркеры
             this.mapLayers.listings.clearLayers();
             if (this.listingsCluster) {
@@ -652,20 +660,28 @@ class MapManager {
             
             if (listings.length === 0) {
                 await Helpers.debugLog('📋 Нет объявлений для отображения на карте');
+                console.log('⚠️ MapManager: Объявления отсутствуют в DataState');
                 return;
             }
             
             const markers = [];
             
-            listings.forEach(listing => {
+            listings.forEach((listing, index) => {
+                //console.log(`🔍 MapManager: Обрабатываем объявление ${index + 1}:`, listing.title, listing.coordinates);
                 if (listing.coordinates && listing.coordinates.lat && listing.coordinates.lng) {
                     const marker = this.createListingMarker(listing);
                     markers.push(marker);
+                    //console.log(`✅ MapManager: Создан маркер для объявления:`, listing.title);
+                } else {
+                    console.log(`⚠️ MapManager: Пропущено объявление без координат:`, listing.title);
                 }
             });
             
+            console.log('📊 MapManager: Создано маркеров:', markers.length);
+            
             // Если объявлений много, используем кластеризацию
             if (listings.length > 20) {
+                console.log('🔗 MapManager: Используем кластеризацию для', listings.length, 'объявлений');
                 // Создаем кластер если его еще нет
                 if (!this.listingsCluster) {
                     this.listingsCluster = new MarkerCluster(this.map, {
@@ -675,19 +691,36 @@ class MapManager {
                         spiderfyOnMaxZoom: true,
                         animate: true
                     });
+                    console.log('✅ MapManager: Кластер объявлений создан');
                 }
                 this.listingsCluster.addMarkers(markers);
-                // Скрываем кластер объявлений по умолчанию
-                if (!this.map.hasLayer(this.mapLayers.listings)) {
+                console.log('✅ MapManager: Маркеры добавлены в кластер');
+                
+                // Проверяем, включен ли слой объявлений
+                const layerEnabled = this.map.hasLayer(this.mapLayers.listings);
+                console.log('🔍 MapManager: Слой объявлений включен:', layerEnabled);
+                
+                // Скрываем кластер объявлений по умолчанию если слой выключен
+                if (!layerEnabled) {
                     this.map.removeLayer(this.listingsCluster.markerLayer);
                     this.map.removeLayer(this.listingsCluster.clusterLayer);
+                    console.log('⚠️ MapManager: Кластер скрыт (слой выключен)');
+                } else {
+                    console.log('✅ MapManager: Кластер отображен (слой включен)');
                 }
                 await Helpers.debugLog(`📋 Загружено ${listings.length} объявлений на карту с кластеризацией`);
             } else {
+                console.log('📍 MapManager: Добавляем', markers.length, 'маркеров напрямую в слой');
                 // Для небольшого количества объявлений добавляем прямо на карту
-                markers.forEach(marker => {
+                markers.forEach((marker, index) => {
                     this.mapLayers.listings.addLayer(marker);
+                    console.log(`✅ MapManager: Маркер ${index + 1} добавлен в слой`);
                 });
+                
+                // Проверяем, добавлен ли слой на карту
+                const layerOnMap = this.map.hasLayer(this.mapLayers.listings);
+                console.log('🔍 MapManager: Слой объявлений на карте:', layerOnMap);
+                
                 await Helpers.debugLog(`📋 Загружено ${listings.length} объявлений на карту`);
             }
             
@@ -835,16 +868,26 @@ class MapManager {
     createListingMarker(listing) {
         const color = this.getListingColor(listing);
         
-        const marker = L.marker([listing.coordinates.lat, listing.coordinates.lng], {
-            icon: L.divIcon({
-                className: 'listing-marker',
-                html: `<div style="background: ${color}; width: 10px; height: 10px; border-radius: 50%; border: 2px solid white;"></div>`,
-                iconSize: [14, 14],
-                iconAnchor: [7, 7]
-            })
+        // Используем circleMarker как в старой версии
+        const marker = L.circleMarker([listing.coordinates.lat, listing.coordinates.lng], {
+            radius: 8,
+            fillColor: color,
+            color: 'white',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.8,
+            listingData: listing // Сохраняем данные для кластеризации
         });
         
-        marker.bindPopup(this.createListingPopup(listing));
+        marker.bindPopup(this.createListingPopup(listing), {
+            maxWidth: 350,
+            className: 'listing-popup-container'
+        });
+        
+        // Добавляем обработчики событий для кнопок в popup
+        marker.on('popupopen', () => {
+            this.bindListingPopupEvents(listing);
+        });
         
         return marker;
     }
@@ -869,7 +912,24 @@ class MapManager {
      * Получение цвета для объявления
      */
     getListingColor(listing) {
-        return CONSTANTS.DATA_SOURCE_COLORS[listing.source] || '#6B7280';
+        // Проверяем точность определения адреса (приоритет)
+        if (listing.address_match_confidence === 'low' || listing.address_match_confidence === 'very_low') {
+            return '#ef4444'; // красный для низкой точности
+        }
+        
+        // Цвет по статусу объявления
+        switch (listing.status) {
+            case 'active':
+                return '#22c55e'; // зеленый для активных
+            case 'archived':
+                return '#6b7280'; // серый для архивных
+            case 'needs_processing':
+                return '#f59e0b'; // желтый для требующих обработки
+            case 'processing':
+                return '#3b82f6'; // синий для обрабатываемых
+            default:
+                return '#ef4444'; // красный по умолчанию
+        }
     }
     
     /**
@@ -909,44 +969,73 @@ class MapManager {
      * Создание popup для адреса
      */
     async createAddressPopup(address) {
-        // Получаем дополнительную информацию о материале стен
+        // Получаем справочные данные
+        let houseSeriesText = 'Не указана';
+        let houseClassText = 'Не указан';
         let wallMaterialText = 'Не указан';
-        if (address.wall_material_id) {
-            try {
-                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
-                if (wallMaterial) {
-                    wallMaterialText = wallMaterial.name;
-                }
-            } catch (error) {
-                console.warn('MapManager: Не удалось получить материал стен:', error);
+        let ceilingMaterialText = 'Не указан';
+        
+        try {
+            // Серия дома
+            if (address.house_series_id) {
+                const houseSeries = await window.db.get('house_series', address.house_series_id);
+                if (houseSeries) houseSeriesText = houseSeries.name;
             }
+            
+            // Класс дома
+            if (address.house_class_id) {
+                const houseClass = await window.db.get('house_classes', address.house_class_id);
+                if (houseClass) houseClassText = houseClass.name;
+            }
+            
+            // Материал стен
+            if (address.wall_material_id) {
+                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+                if (wallMaterial) wallMaterialText = wallMaterial.name;
+            }
+            
+            // Материал перекрытий
+            if (address.ceiling_material_id) {
+                const ceilingMaterial = await window.db.get('ceiling_materials', address.ceiling_material_id);
+                if (ceilingMaterial) ceilingMaterialText = ceilingMaterial.name;
+            }
+        } catch (error) {
+            console.warn('MapManager: Ошибка получения справочных данных:', error);
         }
         
+        // Подготавливаем текстовые значения
         const typeText = CONSTANTS.PROPERTY_TYPE_NAMES[address.type] || address.type || 'Не указан';
         const sourceText = CONSTANTS.DATA_SOURCE_NAMES[address.source] || address.source || 'Не указан';
+        const gasSupplyText = address.gas_supply ? 'Да' : (address.gas_supply === false ? 'Нет' : 'Не указано');
+        const individualHeatingText = address.individual_heating ? 'Да' : (address.individual_heating === false ? 'Нет' : 'Не указано');
+        const playgroundText = address.playground ? 'Да' : (address.playground === false ? 'Нет' : 'Не указано');
+        const sportsGroundText = address.sports_ground ? 'Да' : (address.sports_ground === false ? 'Нет' : 'Не указано');
         
         return `
-            <div class="address-popup max-w-xs">
-                <div class="header mb-3">
-                    <div class="font-bold text-gray-900 text-lg">📍 Адрес</div>
-                    <div class="address-title font-medium text-gray-800">${address.address || 'Не указан'}</div>
+            <div class="address-popup" style="width: 260px; max-width: 260px;">
+                <div class="header mb-2">
+                    <div class="font-bold text-gray-900 text-sm">📍 Адрес</div>
+                    <div class="address-title font-medium text-gray-800 text-xs mb-1">${address.address || 'Не указан'}</div>
                 </div>
                 
-                <div class="meta text-sm text-gray-600 space-y-1 mb-3">
-                    <div>Тип: <strong>${typeText}</strong></div>
-                    <div>Источник: ${sourceText}</div>
-                    ${address.floors_count ? `<div>Этажей: ${address.floors_count}</div>` : ''}
-                    ${address.build_year ? `<div>Год постройки: ${address.build_year}</div>` : ''}
-                    <div>Материал: <strong>${wallMaterialText}</strong></div>
+                <div class="space-y-0.5 text-xs text-gray-600 mb-2">
+                    <div><strong>Серия дома:</strong> ${houseSeriesText}</div>
+                    <div><strong>Класс дома:</strong> ${houseClassText}</div>
+                    <div><strong>Материал стен:</strong> ${wallMaterialText}</div>
+                    <div><strong>Материал перекрытий:</strong> ${ceilingMaterialText}</div>
+                    <div><strong>Газоснабжение:</strong> ${gasSupplyText}</div>
+                    <div><strong>Индивидуальное отопление:</strong> ${individualHeatingText}</div>
+                    <div><strong>Этажей:</strong> ${address.floors_count || 'Не указано'}</div>
+                    <div><strong>Год постройки:</strong> ${address.build_year || 'Не указан'}</div>
                 </div>
                 
-                <div class="actions flex gap-2">
+                <div class="actions flex gap-1">
                     <button data-action="edit-address" data-address-id="${address.id}" 
-                            class="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                            class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
                         ✏️ Редактировать
                     </button>
                     <button data-action="delete-address" data-address-id="${address.id}" 
-                            class="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                            class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
                         🗑️ Удалить
                     </button>
                 </div>
@@ -973,19 +1062,43 @@ class MapManager {
      * Создание popup для объявления
      */
     createListingPopup(listing) {
+        // Определяем цвет для статуса
+        const color = this.getListingColor(listing);
+        const sourceText = CONSTANTS.DATA_SOURCE_NAMES[listing.source] || listing.source;
+        const priceText = listing.price ? Helpers.formatPrice(listing.price) : 'Цена не указана';
+        const propertyTypeText = this.formatPropertyType(listing.property_type) || 'Тип не указан';
+        
         return `
-            <div class="max-w-xs">
-                <div class="font-medium text-gray-900 mb-2">📋 ${Helpers.truncateText(listing.title, 50)}</div>
-                <div class="text-sm text-gray-600 space-y-1">
-                    ${listing.price ? `<div>Цена: ${Helpers.formatPrice(listing.price)}</div>` : ''}
-                    ${listing.area ? `<div>Площадь: ${listing.area} м²</div>` : ''}
-                    ${listing.floor ? `<div>Этаж: ${listing.floor}</div>` : ''}
-                    <div>Источник: ${CONSTANTS.DATA_SOURCE_NAMES[listing.source] || listing.source}</div>
+            <div class="listing-popup" style="width: 320px; max-width: 320px;">
+                <div class="header mb-2">
+                    <div class="font-bold text-gray-900 text-sm">📋 Объявление</div>
+                    <div style="font-size: 12px; color: #6b7280;">
+                        Источник: ${sourceText}
+                    </div>
                 </div>
-                <div class="mt-2">
-                    <a href="${listing.url}" target="_blank" class="text-blue-600 hover:text-blue-800 text-xs">
-                        Открыть объявление →
-                    </a>
+                
+                <div class="content mb-2" style="font-size: 13px;">
+                    <div class="font-semibold" style="color: ${color}; margin-bottom: 4px;">${priceText}</div>
+                    ${listing.property_type ? `<div class="text-gray-700">${propertyTypeText}</div>` : ''}
+                    ${listing.area_total ? `<div class="text-gray-600">${listing.area_total} м²</div>` : ''}
+                    ${listing.floor && listing.floors_total ? `<div class="text-gray-600">${listing.floor}/${listing.floors_total} эт.</div>` : ''}
+                    ${listing.title ? `<div class="text-gray-700 text-xs mt-1">${Helpers.truncateText(listing.title, 60)}</div>` : ''}
+                </div>
+                
+                <div class="actions flex gap-1">
+                    <button data-action="view-listing" data-listing-id="${listing.id}" 
+                            class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                        📋 Подробнее
+                    </button>
+                    ${listing.url ? `
+                    <button data-action="open-listing" data-listing-url="${listing.url}" 
+                            class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
+                        🔗 Открыть
+                    </button>` : ''}
+                    <button data-action="delete-listing" data-listing-id="${listing.id}" 
+                            class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                        🗑️ Удалить
+                    </button>
                 </div>
             </div>
         `;
@@ -1385,6 +1498,141 @@ class MapManager {
                 console.error('MapManager: Ошибка удаления адреса:', error);
             }
         }
+    }
+    
+    /**
+     * Привязка событий для кнопок в popup объявления
+     */
+    bindListingPopupEvents(listing) {
+        // Кнопка подробной информации
+        const viewBtn = document.querySelector(`[data-action="view-listing"][data-listing-id="${listing.id}"]`);
+        if (viewBtn) {
+            viewBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.viewListingDetails(listing);
+            });
+        }
+        
+        // Кнопка открытия объявления
+        const openBtn = document.querySelector(`[data-action="open-listing"][data-listing-url="${listing.url}"]`);
+        if (openBtn) {
+            openBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.openListing(listing.url);
+            });
+        }
+        
+        // Кнопка удаления объявления
+        const deleteBtn = document.querySelector(`[data-action="delete-listing"][data-listing-id="${listing.id}"]`);
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.deleteListing(listing);
+            });
+        }
+    }
+    
+    /**
+     * Просмотр подробной информации об объявлении
+     */
+    viewListingDetails(listing) {
+        // Эмитим событие для открытия модального окна с деталями объявления
+        this.eventBus.emit(CONSTANTS.EVENTS.MODAL_OPENED, {
+            modalType: CONSTANTS.MODAL_TYPES.LISTING_DETAIL,
+            listing: listing
+        });
+        console.log('👁️ MapManager: Запрошен просмотр деталей объявления:', listing.id);
+    }
+    
+    /**
+     * Открытие объявления в новой вкладке
+     */
+    openListing(url) {
+        if (url) {
+            chrome.tabs.create({ url: url });
+            console.log('🔗 MapManager: Открыто объявление:', url);
+        }
+    }
+    
+    /**
+     * Удаление объявления
+     */
+    async deleteListing(listing) {
+        if (confirm(`Удалить объявление "${Helpers.truncateText(listing.title, 30)}"?`)) {
+            try {
+                await window.db.delete('listings', listing.id);
+                
+                // Удаляем объявление с карты
+                await this.removeListingFromMap(listing);
+                
+                // Уведомляем об удалении
+                this.eventBus.emit(CONSTANTS.EVENTS.LISTING_DELETED, { listing });
+                this.progressManager.showSuccess('Объявление удалено');
+                
+                console.log('🗑️ MapManager: Объявление удалено:', listing.title);
+            } catch (error) {
+                console.error('❌ Ошибка удаления объявления:', error);
+                this.progressManager.showError('Ошибка удаления объявления');
+            }
+        }
+    }
+    
+    /**
+     * Удаление конкретного объявления с карты
+     */
+    async removeListingFromMap(listing) {
+        try {
+            let found = false;
+            
+            // Проверяем кластер объявлений
+            if (this.listingsCluster && this.listingsCluster.markerLayer) {
+                this.listingsCluster.markerLayer.eachLayer((marker) => {
+                    if (marker.options.listingData && marker.options.listingData.id === listing.id) {
+                        if (this.listingsCluster.removeMarker) {
+                            this.listingsCluster.removeMarker(marker);
+                        } else {
+                            this.listingsCluster.markerLayer.removeLayer(marker);
+                        }
+                        found = true;
+                        console.log('🗑️ Объявление удалено из кластера:', listing.id);
+                    }
+                });
+            }
+            
+            // Проверяем обычные маркеры
+            if (this.mapLayers.listings) {
+                this.mapLayers.listings.eachLayer((marker) => {
+                    if (marker.options.listingData && marker.options.listingData.id === listing.id) {
+                        this.mapLayers.listings.removeLayer(marker);
+                        found = true;
+                        console.log('🗑️ Объявление удалено из слоя:', listing.id);
+                    }
+                });
+            }
+            
+            if (!found) {
+                console.warn('⚠️ Объявление не найдено на карте для удаления, выполняем полную перезагрузку:', listing.id);
+                // Выполняем полную перезагрузку если объявление не найдено
+                await this.loadListingsOnMap();
+            } else {
+                console.log('✅ Объявление успешно удалено с карты:', listing.id);
+            }
+            
+        } catch (error) {
+            console.warn('MapManager: Ошибка удаления объявления с карты, выполняем полную перезагрузку:', error);
+            // При ошибке выполняем полную перезагрузку
+            await this.loadListingsOnMap();
+        }
+    }
+    
+    /**
+     * Форматирование типа недвижимости
+     */
+    formatPropertyType(type) {
+        return CONSTANTS.PROPERTY_TYPE_NAMES[type] || type;
     }
 }
 

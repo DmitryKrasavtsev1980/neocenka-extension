@@ -839,15 +839,20 @@
                                     <!-- Прогресс обработки адресов -->
                                     <div class="mt-4 pt-4 border-t border-gray-200">
                                         <h5 class="text-sm font-medium text-gray-900 mb-3">Прогресс обработки</h5>
-                                        <div class="space-y-1" data-progress="addresses">
-                                            <div class="flex justify-between text-xs text-gray-500">
-                                                <span>Определение адресов</span>
-                                                <span id="addressesProgress">0%</span>
+                                        <div id="addressesProgress" class="hidden">
+                                            <div class="mb-2">
+                                                <div class="progress-text text-sm text-gray-600"></div>
+                                                <div class="progress-percentage text-sm font-medium text-gray-900"></div>
                                             </div>
                                             <div class="w-full bg-gray-200 rounded-full h-2">
-                                                <div id="addressesProgressBar" class="bg-sky-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                                <div class="progress-bar bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                                                     style="width: 0%" 
+                                                     role="progressbar" 
+                                                     aria-valuenow="0" 
+                                                     aria-valuemin="0" 
+                                                     aria-valuemax="100">
+                                                </div>
                                             </div>
-                                            <div id="addressesStatus" class="text-xs text-gray-500 hidden"></div>
                                         </div>
                                     </div>
                                 </div>

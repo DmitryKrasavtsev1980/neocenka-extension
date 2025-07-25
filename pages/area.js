@@ -147,6 +147,25 @@ class AreaPage {
             this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager);
             this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
             
+            // Инициализация сервисов через ServiceConfig
+            console.log('🔌 initArchitecture: Инициализируем сервисы через ServiceConfig...');
+            this.serviceManager = await ServiceConfig.initializeServices();
+            console.log('✅ initArchitecture: Сервисы инициализированы:', !!this.serviceManager);
+            
+            // Инициализация интеграции сервисов
+            if (typeof initializeAreaServicesIntegration === 'function') {
+                this.servicesIntegration = await initializeAreaServicesIntegration(this);
+                console.log('✅ AreaServicesIntegration инициализирован');
+            } else {
+                console.error('❌ initializeAreaServicesIntegration функция не найдена');
+            }
+            
+            // Инициализация панели Inpars для импорта объявлений
+            this.initInparsPanel();
+            
+            // Инициализация умного алгоритма определения адресов
+            await this.initSmartAddressMatcher();
+            
             console.log('✅ Архитектура инициализирована');
             console.log('🔧 UIManager создан:', !!this.uiManager);
             
@@ -209,7 +228,11 @@ class AreaPage {
      */
     showError(message) {
         if (this.uiManager) {
-            this.uiManager.showNotification(message, 'error');
+            this.uiManager.showNotification({
+                type: 'error',
+                message: message,
+                duration: 5000
+            });
         } else {
             console.error('❌', message);
         }
@@ -220,7 +243,11 @@ class AreaPage {
      */
     showSuccess(message) {
         if (this.uiManager) {
-            this.uiManager.showNotification(message, 'success');
+            this.uiManager.showNotification({
+                type: 'success',
+                message: message,
+                duration: 5000
+            });
         } else {
             console.log('✅', message);
         }
@@ -231,9 +258,53 @@ class AreaPage {
      */
     showInfo(message) {
         if (this.uiManager) {
-            this.uiManager.showNotification(message, 'info');
+            this.uiManager.showNotification({
+                type: 'info',
+                message: message,
+                duration: 5000
+            });
         } else {
             console.info('ℹ️', message);
+        }
+    }
+    
+    /**
+     * Обработчик событий модальных окон
+     */
+    handleModalEvent(data) {
+        try {
+            console.log('🔍 Обработка модального события:', data);
+            
+            switch (data.modalType) {
+                case CONSTANTS.MODAL_TYPES.LISTING_DETAIL:
+                    this.showListingDetailModal(data.listing);
+                    break;
+                default:
+                    console.log('⚠️ Неизвестный тип модального окна:', data.modalType);
+            }
+        } catch (error) {
+            console.error('❌ Ошибка обработки модального события:', error);
+        }
+    }
+    
+    /**
+     * Показать модальное окно деталей объявления
+     */
+    showListingDetailModal(listing) {
+        try {
+            console.log('📋 Показываем детали объявления:', listing);
+            
+            // Используем UIManager для показа модального окна
+            if (this.uiManager) {
+                this.uiManager.openModal('listingModal', {
+                    listing: listing,
+                    title: `Детали объявления: ${listing.title || 'Без названия'}`
+                });
+            } else {
+                console.error('❌ UIManager не инициализирован');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка показа модального окна деталей:', error);
         }
     }
     
@@ -263,6 +334,11 @@ class AreaPage {
             if (this.eventBus) {
                 this.eventBus.on(CONSTANTS.EVENTS.MAP_INITIALIZED, () => {
                     console.log('📍 Карта инициализирована');
+                });
+                
+                // Обработчик модальных окон
+                this.eventBus.on(CONSTANTS.EVENTS.MODAL_OPENED, (data) => {
+                    this.handleModalEvent(data);
                 });
             }
             
@@ -603,6 +679,72 @@ class AreaPage {
         const cianUrl = document.getElementById('editCianUrl')?.value?.trim();
         if (cianUrl && this.isValidUrl(cianUrl)) {
             chrome.tabs.create({ url: cianUrl });
+        }
+    }
+    
+    /**
+     * Инициализация умного алгоритма определения адресов
+     */
+    async initSmartAddressMatcher() {
+        try {
+            // Инициализируем ML-алгоритм определения адресов
+            if (typeof SmartAddressMatcher !== 'undefined' && !window.smartAddressMatcher) {
+                console.log('🧠 Инициализация SmartAddressMatcher...');
+                
+                // Инициализируем пространственный индекс если еще не создан
+                if (!window.spatialIndexManager) {
+                    console.log('📍 Создание SpatialIndexManager...');
+                    window.spatialIndexManager = new SpatialIndexManager();
+                }
+                
+                window.smartAddressMatcher = new SmartAddressMatcher(this.spatialManager || window.spatialIndexManager);
+                console.log('✅ SmartAddressMatcher инициализирован');
+            } else if (!window.SmartAddressMatcher && typeof SmartAddressMatcher === 'undefined') {
+                console.warn('⚠️ SmartAddressMatcher класс не найден');
+            } else {
+                console.log('✅ SmartAddressMatcher уже инициализирован');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка инициализации SmartAddressMatcher:', error);
+        }
+    }
+
+    /**
+     * Инициализация панели Inpars для импорта объявлений
+     */
+    initInparsPanel() {
+        try {
+            console.log('🔧 initInparsPanel: Начинаем инициализацию панели Inpars');
+            
+            const container = document.getElementById('inparsPanelContainer');
+            console.log('📦 initInparsPanel: Контейнер найден:', !!container, container);
+            
+            if (!container) {
+                console.error('❌ initInparsPanel: Контейнер inparsPanelContainer не найден');
+                return;
+            }
+            
+            console.log('🔌 initInparsPanel: ServiceManager доступен:', !!this.serviceManager);
+            console.log('📚 initInparsPanel: InparsPanel класс доступен:', typeof InparsPanel);
+            
+            // Создаем панель Inpars
+            console.log('🔨 initInparsPanel: Создаем экземпляр InparsPanel...');
+            this.inparsPanel = new InparsPanel(container, this.serviceManager);
+            console.log('✅ initInparsPanel: InparsPanel создан:', !!this.inparsPanel);
+            
+            // Настраиваем провайдер полигона
+            this.inparsPanel.setPolygonProvider(() => {
+                const currentArea = this.dataState.getState('currentArea');
+                return currentArea?.polygon || [];
+            });
+            
+            // Обработка импорта осуществляется через area_services_integration.js
+            // который правильно сохраняет данные в БД и показывает уведомления
+            
+            console.log('✅ Панель Inpars инициализирована');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации панели Inpars:', error);
         }
     }
 }
