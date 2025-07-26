@@ -147,6 +147,12 @@ class AreaPage {
             this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager);
             this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
             
+            // Инициализация RealEstateObjectManager для совместимости со старой архитектурой
+            if (typeof RealEstateObjectManager !== 'undefined') {
+                window.realEstateObjectManager = new RealEstateObjectManager();
+                console.log('✅ RealEstateObjectManager инициализирован');
+            }
+            
             // Инициализация сервисов через ServiceConfig
             console.log('🔌 initArchitecture: Инициализируем сервисы через ServiceConfig...');
             this.serviceManager = await ServiceConfig.initializeServices();
