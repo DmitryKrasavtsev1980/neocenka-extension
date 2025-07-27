@@ -97,6 +97,14 @@ class DuplicatesManager {
                 await this.loadDuplicatesTable();
                 await this.updateDuplicatesStats();
             });
+            
+            this.eventBus.on('refreshDuplicatesTable', async () => {
+                console.log('📨 DuplicatesManager: Получено событие refreshDuplicatesTable');
+                if (this.duplicatesTable) {
+                    await this.loadDuplicatesTable();
+                    await this.updateDuplicatesStats();
+                }
+            });
         }
         
         // Привязка к кнопкам

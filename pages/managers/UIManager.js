@@ -3353,14 +3353,21 @@ class UIManager {
      * Address accuracy display
      */
     renderAddressAccuracyInfo(listing) {
-        let addressInfo = '';
-        let accuracyInfo = '';
-        let coordinatesInfo = '';
-
+        // Всегда показываем поля в одинаковом порядке для консистентности
+        let html = '';
+        
+        // 1. Адрес из объявления (всегда первым)
+        html += `
+            <div class="mb-2">
+                <span class="text-sm font-medium text-gray-500">Адрес из объявления:</span>
+                <span class="text-sm text-gray-600 ml-2">${this.escapeHtml(listing.address || 'Не указан')}</span>
+            </div>
+        `;
+        
+        // 2. Определение адреса (всегда вторым)
         if (listing.address_id) {
-            // Адрес определён через связанный address_id
-            const linkedAddress = this.getAddressNameById(listing.address_id);
-            addressInfo = `
+            // Адрес определён
+            html += `
                 <div class="mb-2">
                     <span class="text-sm font-medium text-gray-500">Определённый адрес:</span>
                     <div class="mt-1 flex items-center space-x-2">
@@ -3372,65 +3379,10 @@ class UIManager {
                         </button>
                     </div>
                 </div>
-                <div class="mb-2">
-                    <span class="text-sm font-medium text-gray-500">Адрес из объявления:</span>
-                    <span class="text-sm text-gray-600 ml-2">${this.escapeHtml(listing.address || 'Не указан')}</span>
-                </div>
             `;
-            
-            // Информация о точности определения на основе реальных полей
-            if (listing.address_match_confidence) {
-                const confidence = this.getAddressConfidenceText(listing.address_match_confidence);
-                const method = this.getAddressMethodText(listing.address_match_method);
-                const distance = listing.address_distance ? ` (${Math.round(listing.address_distance)}м)` : '';
-                const score = listing.address_match_score ? ` • Оценка: ${(listing.address_match_score * 100).toFixed(0)}%` : '';
-                
-                // Показываем кнопки обучения для всех объявлений с определённым адресом
-                console.log('🔍 Modal button check:', {
-                    listingId: listing.id,
-                    address_match_confidence: listing.address_match_confidence,
-                    hasAddress: !!listing.address_id
-                });
-                
-                const addressButtons = listing.address_id ? `
-                    <div class="ml-2 space-x-2">
-                        <button id="correctAddressModal_${listing.id}" class="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
-                            ✅ Верный адрес
-                        </button>
-                        <button id="incorrectAddressModal_${listing.id}" class="text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500">
-                            ❌ Неверный адрес
-                        </button>
-                    </div>
-                ` : '';
-                
-                console.log('🔍 Modal button HTML:', addressButtons);
-                
-                accuracyInfo = `
-                    <div class="mb-2">
-                        <span class="text-sm font-medium text-gray-500">Точность:</span>
-                        <span class="text-sm ${this.getConfidenceColor(listing.address_match_confidence)} ml-2">${confidence}${distance}</span>
-                        ${addressButtons}
-                    </div>
-                    <div class="mb-2">
-                        <span class="text-xs text-gray-500">Метод: ${method}${score}</span>
-                    </div>
-                `;
-            } else {
-                accuracyInfo = `
-                    <div class="mb-2">
-                        <span class="text-sm font-medium text-gray-500">Точность:</span>
-                        <span class="text-sm text-green-600 ml-2">Адрес определён</span>
-                    </div>
-                `;
-            }
-            coordinatesInfo = 'Используются координаты определённого адреса';
         } else {
-            // Адрес не определён, используем данные из объявления
-            addressInfo = `
-                <div class="mb-2">
-                    <span class="text-sm font-medium text-gray-500">Адрес из объявления:</span>
-                    <span class="text-sm text-gray-900 ml-2">${this.escapeHtml(listing.address || 'Не указан')}</span>
-                </div>
+            // Адрес не определён
+            html += `
                 <div class="mb-2">
                     <span class="text-sm font-medium text-gray-500">Определить адрес:</span>
                     <div class="mt-1 flex items-center space-x-2">
@@ -3443,8 +3395,47 @@ class UIManager {
                     </div>
                 </div>
             `;
-            
-            accuracyInfo = `
+        }
+        
+        // 3. Информация о точности/статусе (всегда третьим)
+        if (listing.address_id) {
+            if (listing.address_match_confidence) {
+                const confidence = this.getAddressConfidenceText(listing.address_match_confidence);
+                const method = this.getAddressMethodText(listing.address_match_method);
+                const distance = listing.address_distance ? ` (${Math.round(listing.address_distance)}м)` : '';
+                const score = listing.address_match_score ? ` • Оценка: ${(listing.address_match_score * 100).toFixed(0)}%` : '';
+                
+                const addressButtons = `
+                    <div class="ml-2 space-x-2">
+                        <button id="correctAddressModal_${listing.id}" class="text-xs px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            ✅ Верный адрес
+                        </button>
+                        <button id="incorrectAddressModal_${listing.id}" class="text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500">
+                            ❌ Неверный адрес
+                        </button>
+                    </div>
+                `;
+                
+                html += `
+                    <div class="mb-2">
+                        <span class="text-sm font-medium text-gray-500">Точность:</span>
+                        <span class="text-sm ${this.getConfidenceColor(listing.address_match_confidence)} ml-2">${confidence}${distance}</span>
+                        ${addressButtons}
+                    </div>
+                    <div class="mb-2">
+                        <span class="text-xs text-gray-500">Метод: ${method}${score}</span>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="mb-2">
+                        <span class="text-sm font-medium text-gray-500">Точность:</span>
+                        <span class="text-sm text-green-600 ml-2">Адрес определён</span>
+                    </div>
+                `;
+            }
+        } else {
+            html += `
                 <div class="mb-2">
                     <span class="text-sm font-medium text-gray-500">Статус:</span>
                     <span class="text-sm text-orange-600 ml-2">Адрес не определён</span>
@@ -3453,22 +3444,31 @@ class UIManager {
                     <span class="text-xs text-gray-500">Требуется обработка для определения адреса</span>
                 </div>
             `;
-            coordinatesInfo = 'Используются координаты из объявления';
+        }
+        
+        // 4. Координаты (всегда последними)
+        const coords = this.getListingCoordinates(listing);
+        const coordinatesInfo = listing.address_id ? 
+            'Используются координаты определённого адреса' : 
+            'Используются координаты из объявления';
+            
+        if (coords) {
+            html += `
+                <div class="mb-2">
+                    <span class="text-sm font-medium text-gray-500">Координаты:</span>
+                    <span class="text-sm text-gray-700 ml-2">${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}</span>
+                    <span class="text-xs text-gray-500 block">${coordinatesInfo}</span>
+                </div>
+            `;
+        } else {
+            html += `
+                <div class="mb-2">
+                    <span class="text-sm text-red-600">⚠️ Координаты не найдены</span>
+                </div>
+            `;
         }
 
-        // Координаты для отображения
-        const coords = this.getListingCoordinates(listing);
-        const coordsDisplay = coords ? 
-            `<div class="mb-2">
-                <span class="text-sm font-medium text-gray-500">Координаты:</span>
-                <span class="text-sm text-gray-700 ml-2">${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}</span>
-                <span class="text-xs text-gray-500 block">${coordinatesInfo}</span>
-            </div>` : 
-            `<div class="mb-2">
-                <span class="text-sm text-red-600">⚠️ Координаты не найдены</span>
-            </div>`;
-
-        return addressInfo + accuracyInfo + coordsDisplay;
+        return html;
     }
     
     /**
@@ -3902,56 +3902,62 @@ class UIManager {
      */
     async saveListingAddress(listingId) {
         try {
-            const debugEnabled = await this.isDebugEnabled();
-            
-            const selectElement = document.getElementById(`addressSelect_${listingId}`);
-            if (!selectElement) return;
-            
-            const selectedAddressId = selectElement.value;
-            if (!selectedAddressId) {
-                this.showNotification({
-                    type: 'warning',
-                    message: 'Выберите адрес из списка',
-                    duration: 3000
-                });
+            const select = document.getElementById(`addressSelect_${listingId}`);
+            if (!select) {
+                console.error('Селектор адреса не найден:', `addressSelect_${listingId}`);
                 return;
             }
+
+            const selectedAddressId = select.value;
+            console.log(`🔄 Сохраняем адрес для объявления ${listingId}:`, selectedAddressId);
             
-            // Получаем объявление из базы данных
-            const listing = await window.db.getListing(listingId);
+            // Получаем текущее объявление
+            const listing = await db.getListing(listingId);
             if (!listing) {
-                console.error('❌ Объявление не найдено:', listingId);
+                console.error('Объявление не найдено:', listingId);
                 return;
             }
-            
+
             // Обновляем адрес
-            const updatedListing = {
-                ...listing,
-                address_id: selectedAddressId,
-                updated_at: new Date()
-            };
+            listing.address_id = selectedAddressId || null;
             
-            // Сохраняем в базу данных
-            await window.db.updateListing(updatedListing);
-            
-            // Показываем уведомление
-            this.showNotification({
-                type: 'success',
-                message: 'Адрес объявления обновлен',
-                duration: 3000
-            });
-            
-            // Обновляем отображение адреса в модальном окне
-            await this.refreshAddressInfo(listingId, updatedListing);
-            
-            if (debugEnabled) {
-                console.log('✅ Адрес объявления сохранен:', selectedAddressId);
+            // Если адрес выбран, сбрасываем информацию о автоматическом определении
+            if (selectedAddressId) {
+                listing.address_match_confidence = 'manual';
+                listing.address_match_method = 'manual_selection';
+                listing.address_match_score = 1.0;
+                listing.address_distance = null;
+                listing.processing_status = 'processed';
+            } else {
+                // Если адрес убран, очищаем информацию о совпадении
+                listing.address_match_confidence = null;
+                listing.address_match_method = null;
+                listing.address_match_score = null;
+                listing.address_distance = null;
             }
+            
+            // Сохраняем в базе данных
+            await db.updateListing(listing);
+            
+            console.log(`✅ Адрес обновлен для объявления ${listingId}:`, selectedAddressId);
+            
+            // Получаем обновленное объявление
+            const updatedListing = await db.getListing(listingId);
+            
+            // Обновляем модальное окно
+            this.updateModalAddressInfo(listingId, updatedListing);
+            
+            // Обновляем состояние данных
+            this.eventBus.emit('listingAddressUpdated', { listingId, listing: updatedListing });
+            
+            // Обновляем таблицу дублей
+            this.eventBus.emit('refreshDuplicatesTable');
+            
         } catch (error) {
-            console.error('❌ Ошибка сохранения адреса объявления:', error);
+            console.error('Ошибка сохранения адреса:', error);
             this.showNotification({
                 type: 'error',
-                message: 'Ошибка при сохранении адреса',
+                message: 'Ошибка при сохранении адреса: ' + error.message,
                 duration: 5000
             });
         }
@@ -4073,18 +4079,312 @@ class UIManager {
                             </div>
                         `);
 
-                        // Подгоняем карту чтобы показать оба маркера
+                                    // Добавляем линию между маркерами
+                        L.polyline([
+                            [coords.lat, coords.lng],
+                            [addressCoords.lat, addressCoords.lng]
+                        ], {
+                            color: '#6b7280',
+                            weight: 2,
+                            opacity: 0.7,
+                            dashArray: '5, 5'
+                        }).addTo(listingMap);
+
+                        // Подгоняем вид карты под оба маркера
                         const group = new L.featureGroup([listingMarker, addressMarker]);
                         listingMap.fitBounds(group.getBounds().pad(0.1));
                     }
                 }
             }
 
+            // Добавляем слой адресов из области
+            this.addAddressLayerToListingMap(listingMap, coords, listing.id);
+
+            // Сохраняем ссылку на карту для возможной очистки
+            mapContainer._leafletMap = listingMap;
+
         } catch (error) {
-            console.error('❌ Ошибка отрисовки карты объявления:', error);
+            console.error('Ошибка инициализации карты объявления:', error);
+            const mapContainer = document.getElementById(`listing-map-${listing.id}`);
+            if (mapContainer) {
+                mapContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка загрузки карты</div>';
+            }
+        }
+    }
+
+    /**
+     * Добавляет слой адресов из области на карту объявления
+     */
+    async addAddressLayerToListingMap(listingMap, centerCoords, listingId) {
+        try {
+            // Получаем адреса из области через состояние
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea) {
+                return;
+            }
+
+            // Создаем временный AddressManager для получения адресов
+            const addressManager = new AddressManager(this.dataState, this.eventBus, this.progressManager);
+            const addresses = await addressManager.getAddressesInArea(currentArea.id);
+            
+            if (!Array.isArray(addresses) || addresses.length === 0) {
+                return;
+            }
+
+            // Определяем радиус для отображения близлежащих адресов (в метрах)
+            const radiusMeters = 500;
+            
+            // Фильтруем адреса по расстоянию
+            const nearbyAddresses = addresses.filter(address => {
+                if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                    return false;
+                }
+                
+                const addressCoords = {
+                    lat: parseFloat(address.coordinates.lat),
+                    lng: parseFloat(address.coordinates.lng)
+                };
+                
+                const distance = this.calculateDistance(centerCoords, addressCoords);
+                return distance <= radiusMeters;
+            });
+
+            console.log(`🗺️ Найдено ${nearbyAddresses.length} адресов в радиусе ${radiusMeters}м от объявления`);
+
+            // Создаем маркеры для близлежащих адресов
+            for (const address of nearbyAddresses) {
+                try {
+                    // Получаем цвет материала стен
+                    let markerColor = '#3b82f6'; // Цвет по умолчанию
+                    if (address.wall_material_id) {
+                        try {
+                            const wallMaterial = await db.get('wall_materials', address.wall_material_id);
+                            if (wallMaterial && wallMaterial.color) {
+                                markerColor = wallMaterial.color;
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось получить материал стен для адреса:', address.id);
+                        }
+                    }
+
+                    // Определяем высоту маркера в зависимости от этажности
+                    const floorCount = address.floors_count || 0;
+                    let markerHeight;
+                    if (floorCount >= 1 && floorCount <= 5) {
+                        markerHeight = 8;
+                    } else if (floorCount > 5 && floorCount <= 10) {
+                        markerHeight = 12;
+                    } else if (floorCount > 10 && floorCount <= 20) {
+                        markerHeight = 16;
+                    } else if (floorCount > 20) {
+                        markerHeight = 20;
+                    } else {
+                        markerHeight = 8; // По умолчанию для адресов без указанной этажности
+                    }
+
+                    // Создаем маркер адреса
+                    const addressMarker = L.marker([address.coordinates.lat, address.coordinates.lng], {
+                        icon: L.divIcon({
+                            className: 'address-marker',
+                            html: `
+                                <div class="leaflet-marker-icon-wrapper" style="position: relative;">
+                                    <div style="
+                                        width: 0; 
+                                        height: 0; 
+                                        border-left: 6px solid transparent; 
+                                        border-right: 6px solid transparent; 
+                                        border-top: ${markerHeight}px solid ${markerColor};
+                                        filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+                                        opacity: 0.7;
+                                    "></div>
+                                    ${address.build_year ? `<span class="leaflet-marker-iconlabel" style="
+                                        position: absolute; 
+                                        left: 12px; 
+                                        top: 0px; 
+                                        font-size: 9px; 
+                                        font-weight: 500; 
+                                        color: #374151; 
+                                        background: rgba(255,255,255,0.8); 
+                                        padding: 1px 3px; 
+                                        border-radius: 2px; 
+                                        white-space: nowrap;
+                                        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                                    ">${address.build_year}</span>` : ''}
+                                </div>
+                            `,
+                            iconSize: [12, markerHeight],
+                            iconAnchor: [6, markerHeight]
+                        })
+                    }).addTo(listingMap);
+
+                    // Добавляем popup с информацией об адресе
+                    const typeText = this.getAddressTypeText(address.type);
+                    
+                    // Получаем название материала стен
+                    let wallMaterialText = 'Не указан';
+                    if (address.wall_material_id) {
+                        try {
+                            const wallMaterial = await db.get('wall_materials', address.wall_material_id);
+                            if (wallMaterial) {
+                                wallMaterialText = wallMaterial.name;
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось получить материал стен для popup:', address.id);
+                        }
+                    }
+
+                    // Вычисляем расстояние до объявления
+                    const distance = this.calculateDistance(centerCoords, {
+                        lat: parseFloat(address.coordinates.lat),
+                        lng: parseFloat(address.coordinates.lng)
+                    });
+                    
+                    addressMarker.bindPopup(`
+                        <div class="address-popup" style="min-width: 200px;">
+                            <div class="header">
+                                <strong>📍 Адрес</strong><br>
+                                <div class="address-title" style="font-size: 13px;">${address.address || 'Не указан'}</div>
+                            </div>
+                            
+                            <div class="meta" style="margin-top: 6px;">
+                                <small>Тип: <strong>${typeText}</strong></small><br>
+                                <small>Расстояние: <strong>${Math.round(distance)}м</strong></small>
+                                ${address.floors_count ? `<br><small>Этажей: ${address.floors_count}</small>` : ''}
+                                <br><small>Материал: <strong>${wallMaterialText}</strong></small>
+                                ${address.build_year ? `<br><small>Год постройки: ${address.build_year}</small>` : ''}
+                            </div>
+                            
+                            <div class="actions" style="margin-top: 12px;">
+                                <button class="select-address-btn" 
+                                        data-address-id="${address.id}" 
+                                        data-address-name="${this.escapeHtml(address.address || 'Не указан')}"
+                                        style="width: 100%; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; transition: background-color 0.2s;">
+                                    ✓ Выбрать этот адрес
+                                </button>
+                            </div>
+                        </div>
+                    `, {
+                        maxWidth: 250,
+                        className: 'address-popup-container'
+                    });
+
+                } catch (markerError) {
+                    console.error(`Ошибка создания маркера для адреса ${address.id}:`, markerError);
+                }
+            }
+
+            // Добавляем обработчики событий для кнопок выбора адреса
+            setTimeout(() => {
+                this.attachAddressSelectionHandlers(listingId);
+            }, 100);
+
+        } catch (error) {
+            console.error('Ошибка добавления слоя адресов на карту объявления:', error);
+        }
+    }
+
+    /**
+     * Добавляет обработчики событий для кнопок выбора адреса в popup-ах карты
+     */
+    attachAddressSelectionHandlers(listingId) {
+        // Используем делегирование событий для избежания CSP ошибок
+        document.addEventListener('click', (event) => {
+            if (event.target.classList.contains('select-address-btn')) {
+                const addressId = event.target.getAttribute('data-address-id');
+                const addressName = event.target.getAttribute('data-address-name');
+                
+                console.log(`🎯 Выбран адрес ${addressId}: ${addressName}`);
+                
+                // Устанавливаем значение в выпадающий список
+                this.setAddressInSelector(listingId, addressId, addressName);
+                
+                // Закрываем popup
+                const popup = event.target.closest('.leaflet-popup');
+                if (popup) {
+                    popup.style.display = 'none';
+                }
+            }
+        });
+
+        // Добавляем CSS стили для hover эффекта
+        const style = document.createElement('style');
+        style.textContent = `
+            .select-address-btn:hover {
+                background-color: #2563eb !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    /**
+     * Устанавливает выбранный адрес в выпадающий список
+     */
+    setAddressInSelector(listingId, addressId, addressName) {
+        try {
+            // Получаем элемент select
+            const selectElement = document.getElementById(`addressSelect_${listingId}`);
+            if (!selectElement) {
+                console.error('Элемент select не найден:', `addressSelect_${listingId}`);
+                return;
+            }
+
+            // Устанавливаем значение в обычном select
+            selectElement.value = addressId;
+
+            // Если есть экземпляр SlimSelect, обновляем его
+            const slimSelectInstance = this[`addressSlimSelect_${listingId}`];
+            if (slimSelectInstance) {
+                try {
+                    // Используем правильный метод для установки значения в SlimSelect
+                    slimSelectInstance.setSelected(addressId);
+                    console.log(`📍 Адрес установлен в SlimSelect: ${addressName}`);
+                } catch (slimError) {
+                    console.warn('Ошибка установки в SlimSelect, используем обычный select:', slimError);
+                    // Fallback на обычный select
+                    selectElement.value = addressId;
+                    selectElement.dispatchEvent(new Event('change'));
+                    console.log(`📍 Адрес установлен в обычном select: ${addressName}`);
+                }
+            } else {
+                console.log(`📍 Адрес установлен в обычном select: ${addressName}`);
+            }
+
+            // Показываем уведомление пользователю
+            this.showNotification({
+                type: 'success',
+                message: `Адрес "${addressName}" выбран. Нажмите "Сохранить" для применения.`,
+                duration: 3000
+            });
+
+        } catch (error) {
+            console.error('Ошибка установки адреса в селектор:', error);
+            this.showNotification({
+                type: 'error',
+                message: 'Ошибка при выборе адреса',
+                duration: 3000
+            });
         }
     }
     
+    /**
+     * Получение текста типа адреса
+     */
+    getAddressTypeText(type) {
+        switch(type) {
+            case 'house':
+            case 'building':
+                return 'Дом';
+            case 'house_with_land':
+                return 'Дом с участком';
+            case 'land':
+                return 'Участок';
+            case 'commercial':
+                return 'Коммерция';
+            default:
+                return 'Здание';
+        }
+    }
+
     /**
      * Вычисление расстояния между двумя точками
      */
@@ -4227,19 +4527,72 @@ class UIManager {
         try {
             const debugEnabled = await this.isDebugEnabled();
             
-            if (debugEnabled) {
-                console.log('✅ Отметка адреса как верного для объявления:', listingId);
+            // Получаем объявление через состояние
+            const allListings = this.dataState.getState('listings') || [];
+            const listing = allListings.find(l => l.id === listingId);
+            if (!listing) {
+                this.showNotification({
+                    type: 'error',
+                    message: 'Объявление не найдено',
+                    duration: 3000
+                });
+                return;
             }
+
+            if (debugEnabled) {
+                console.log('🏠 Marking single address as correct for listing:', listingId);
+            }
+
+            // Добавляем пример для обучения ML-модели (ПОЗИТИВНЫЙ пример)
+            if (window.smartAddressMatcher && listing.address && listing.address_id) {
+                try {
+                    const matchedAddress = await db.get('addresses', listing.address_id);
+                    if (matchedAddress) {
+                        window.smartAddressMatcher.addTrainingExample(
+                            listing.address,
+                            matchedAddress.address,
+                            true // Пользователь подтвердил, что это правильный адрес
+                        );
+                        if (debugEnabled) {
+                            console.log('📚 ML training example added: POSITIVE');
+                        }
+                    }
+                } catch (error) {
+                    console.warn('ML training failed:', error);
+                }
+            }
+
+            // Обновляем статус определения адреса на "manual"
+            listing.address_match_confidence = 'manual';
             
-            // Здесь будет логика обучения системы определения адресов
+            // Обновляем в базе данных
+            await db.update('listings', listing);
+            if (debugEnabled) {
+                console.log(`✅ Single address marked as correct for listing ${listingId}`);
+            }
+
             this.showNotification({
                 type: 'success',
-                message: 'Адрес отмечен как верный. Спасибо за обучение системы!',
+                message: 'Адрес подтвержден',
                 duration: 3000
             });
             
+            // Обновляем модальное окно
+            this.updateModalAddressInfo(listingId, listing);
+            
+            // Обновляем состояние данных
+            this.eventBus.emit('listingAddressUpdated', { listingId, listing });
+            
+            // Обновляем таблицу дублей
+            this.eventBus.emit('refreshDuplicatesTable');
+
         } catch (error) {
-            console.error('❌ Ошибка обучения (верный адрес):', error);
+            console.error('Ошибка при подтверждении адреса:', error);
+            this.showNotification({
+                type: 'error',
+                message: 'Ошибка при подтверждении адреса: ' + error.message,
+                duration: 5000
+            });
         }
     }
     
@@ -4250,19 +4603,160 @@ class UIManager {
         try {
             const debugEnabled = await this.isDebugEnabled();
             
-            if (debugEnabled) {
-                console.log('❌ Отметка адреса как неверного для объявления:', listingId);
+            // Получаем объявление через состояние
+            const allListings = this.dataState.getState('listings') || [];
+            const listing = allListings.find(l => l.id === listingId);
+            if (!listing) {
+                this.showNotification({
+                    type: 'error',
+                    message: 'Объявление не найдено',
+                    duration: 3000
+                });
+                return;
             }
+
+            if (debugEnabled) {
+                console.log('🏠 Marking single address as incorrect for listing:', listingId);
+            }
+
+            // Добавляем пример для обучения ML-модели (НЕГАТИВНЫЙ пример)
+            if (window.smartAddressMatcher && listing.address && listing.address_id) {
+                try {
+                    const matchedAddress = await db.get('addresses', listing.address_id);
+                    if (matchedAddress) {
+                        window.smartAddressMatcher.addTrainingExample(
+                            listing.address,
+                            matchedAddress.address,
+                            false // Пользователь указал, что это неправильный адрес
+                        );
+                        if (debugEnabled) {
+                            console.log('📚 ML training example added: NEGATIVE');
+                        }
+                    }
+                } catch (error) {
+                    console.warn('ML training failed:', error);
+                }
+            }
+
+            // Обновляем статус определения адреса на "very_low" чтобы показать неточность
+            listing.address_match_confidence = 'very_low';
             
-            // Здесь будет логика обучения системы определения адресов
+            // Очищаем привязку к адресу
+            listing.address_id = null;
+            
+            // Обновляем в базе данных
+            await db.update('listings', listing);
+            if (debugEnabled) {
+                console.log(`❌ Single address marked as incorrect for listing ${listingId}`);
+            }
+
             this.showNotification({
-                type: 'info',
-                message: 'Адрес отмечен как неверный. Система учтет эту информацию.',
+                type: 'success',
+                message: 'Адрес отмечен как неверный',
                 duration: 3000
             });
             
+            // Обновляем модальное окно
+            this.updateModalAddressInfo(listingId, listing);
+            
+            // Обновляем состояние данных
+            this.eventBus.emit('listingAddressUpdated', { listingId, listing });
+            
+            // Обновляем таблицу дублей
+            this.eventBus.emit('refreshDuplicatesTable');
+
         } catch (error) {
-            console.error('❌ Ошибка обучения (неверный адрес):', error);
+            console.error('Ошибка при отметке адреса как неверного:', error);
+            this.showNotification({
+                type: 'error',
+                message: 'Ошибка при отметке адреса как неверного: ' + error.message,
+                duration: 5000
+            });
+        }
+    }
+
+    /**
+     * Обновить информацию об адресе в модальном окне
+     */
+    updateModalAddressInfo(listingId, listing) {
+        const locationContent = document.getElementById(`locationPanelContent-${listingId}`);
+        if (locationContent) {
+            // Найдем контейнер карты и сохраним его
+            const mapContainer = document.getElementById(`listing-map-${listingId}`);
+            let savedMapNode = null;
+            if (mapContainer) {
+                savedMapNode = mapContainer.cloneNode(true);
+                // Сохраняем ссылку на Leaflet карту
+                if (mapContainer._leafletMap) {
+                    savedMapNode._leafletMap = mapContainer._leafletMap;
+                }
+            }
+            
+            // Обновляем информацию об адресе
+            const addressInfoHtml = this.renderAddressAccuracyInfo(listing);
+            locationContent.innerHTML = addressInfoHtml;
+            
+            // Возвращаем карту обратно
+            if (savedMapNode) {
+                locationContent.appendChild(savedMapNode);
+            }
+            
+            // Обновляем заголовок панели местоположения
+            const locationHeader = document.getElementById(`locationPanelHeader-${listingId}`);
+            if (locationHeader) {
+                const statusElement = locationHeader.querySelector('.text-sm');
+                if (statusElement) {
+                    statusElement.textContent = this.getAddressStatusText(listing);
+                    statusElement.className = `text-sm ${this.getAddressStatusClass(listing)}`;
+                }
+            }
+            
+            // Повторно инициализируем адресный селектор
+            setTimeout(async () => {
+                await this.initializeAddressSelector(listingId, listing.address_id); // Сохраняем текущий выбор
+                
+                // Добавляем обработчик для кнопки сохранения
+                const saveButton = document.getElementById(`saveAddress_${listingId}`);
+                if (saveButton) {
+                    // Удаляем старые обработчики, клонируя элемент
+                    const newSaveButton = saveButton.cloneNode(true);
+                    saveButton.parentNode.replaceChild(newSaveButton, saveButton);
+                    
+                    newSaveButton.addEventListener('click', () => {
+                        this.saveListingAddress(listingId);
+                    });
+                }
+                
+                // Добавляем обработчик для кнопки "Верный адрес" если она есть
+                const correctAddressModalButton = document.getElementById(`correctAddressModal_${listingId}`);
+                if (correctAddressModalButton) {
+                    // Удаляем старые обработчики
+                    const newCorrectButton = correctAddressModalButton.cloneNode(true);
+                    correctAddressModalButton.parentNode.replaceChild(newCorrectButton, correctAddressModalButton);
+                    
+                    newCorrectButton.addEventListener('click', () => {
+                        this.markSingleAddressAsCorrect(listingId);
+                    });
+                }
+                
+                // Добавляем обработчик для кнопки "Неверный адрес" если она есть
+                const incorrectAddressModalButton = document.getElementById(`incorrectAddressModal_${listingId}`);
+                if (incorrectAddressModalButton) {
+                    // Удаляем старые обработчики
+                    const newIncorrectButton = incorrectAddressModalButton.cloneNode(true);
+                    incorrectAddressModalButton.parentNode.replaceChild(newIncorrectButton, incorrectAddressModalButton);
+                    
+                    newIncorrectButton.addEventListener('click', () => {
+                        this.markSingleAddressAsIncorrect(listingId);
+                    });
+                }
+                
+                // Если карта была инициализирована, переинициализируем её
+                const mapContainer = document.getElementById(`listing-map-${listingId}`);
+                if (mapContainer && mapContainer._leafletMap) {
+                    this.renderListingMap(listing);
+                }
+            }, 100);
         }
     }
 }
