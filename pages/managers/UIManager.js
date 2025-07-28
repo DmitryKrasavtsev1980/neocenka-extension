@@ -698,7 +698,9 @@ class UIManager {
         
         // Специальная обработка для модального окна объявления
         if (modalName === 'listingModal' && options.listing) {
-            this.populateListingModal(modal, options.listing);
+            this.populateListingModal(modal, options.listing).catch(error => {
+                console.error('❌ Ошибка загрузки данных объявления:', error);
+            });
         }
         
         // Фокусируемся на первом элементе
@@ -753,7 +755,11 @@ class UIManager {
             
             switch (data.modalType) {
                 case CONSTANTS.MODAL_TYPES.LISTING_DETAIL:
-                    this.openListingDetailModal(data.listing);
+                    // Используем стандартный способ открытия модального окна
+                    this.openModal('listingModal', {
+                        listing: data.listing,
+                        title: `Детали объявления: ${data.listing.title || 'Без названия'}`
+                    });
                     break;
                 case CONSTANTS.MODAL_TYPES.OBJECT_DETAIL:
                     this.openObjectDetailModal(data.object);
@@ -763,134 +769,6 @@ class UIManager {
             }
         } catch (error) {
             console.error('❌ UIManager: Ошибка обработки модального окна:', error);
-        }
-    }
-    
-    /**
-     * Открытие модального окна с деталями объявления
-     */
-    async openListingDetailModal(listing) {
-        try {
-            console.log('📋 UIManager: Открываем модальное окно объявления:', listing.id);
-            
-            // Заполняем содержимое модального окна
-            const modalContent = document.getElementById('modalContent');
-            if (!modalContent) {
-                console.error('❌ UIManager: Элемент modalContent не найден');
-                return;
-            }
-            
-            // Генерируем HTML для деталей объявления
-            modalContent.innerHTML = await this.renderListingDetails(listing);
-            
-            // Открываем модальное окно
-            this.openModal('listingModal');
-            
-        } catch (error) {
-            console.error('❌ UIManager: Ошибка открытия модального окна объявления:', error);
-        }
-    }
-    
-    /**
-     * Рендеринг деталей объявления для модального окна
-     */
-    async renderListingDetails(listing) {
-        try {
-            // Базовая информация об объявлении
-            const title = listing.title || 'Объявление без названия';
-            const price = listing.price ? listing.price.toLocaleString() + ' ₽' : 'Цена не указана';
-            const address = listing.address || 'Адрес не указан';
-            const url = listing.url || '#';
-            
-            // Характеристики квартиры
-            const propertyTypeMap = {
-                'studio': 'Студия',
-                '1k': '1-комнатная',
-                '2k': '2-комнатная', 
-                '3k': '3-комнатная',
-                '4k+': '4+ комнатная'
-            };
-            const propertyType = propertyTypeMap[listing.property_type] || listing.property_type || 'Не указано';
-            
-            const areas = [];
-            if (listing.area_total) areas.push(`общая: ${listing.area_total} м²`);
-            if (listing.area_living) areas.push(`жилая: ${listing.area_living} м²`);
-            if (listing.area_kitchen) areas.push(`кухня: ${listing.area_kitchen} м²`);
-            const areaText = areas.length > 0 ? areas.join(', ') : 'Не указано';
-            
-            const floor = listing.floor && listing.total_floors ? 
-                `${listing.floor} из ${listing.total_floors}` : 'Не указано';
-            
-            // Даты
-            const createdDate = listing.created ? 
-                new Date(listing.created).toLocaleDateString('ru-RU') : 'Не указано';
-            const updatedDate = listing.updated ? 
-                new Date(listing.updated).toLocaleDateString('ru-RU') : 'Не указано';
-                
-            // Контакт
-            const sellerTypeMap = {
-                'private': 'Собственник',
-                'agency': 'Агентство',
-                'agent': 'Агент'
-            };
-            const sellerType = sellerTypeMap[listing.seller_type] || listing.seller_type || 'Не указано';
-            const sellerName = listing.seller_name || 'Не указано';
-            
-            return `
-                <div class="bg-white rounded-lg p-6 max-w-4xl mx-auto">
-                    <div class="flex justify-between items-start mb-4">
-                        <h2 class="text-xl font-semibold text-gray-900">${title}</h2>
-                        <button onclick="window.areaPage?.uiManager?.closeModal('listingModal')" 
-                                class="text-gray-400 hover:text-gray-600">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                            </svg>
-                        </button>
-                    </div>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <h3 class="text-lg font-medium text-gray-900 mb-3">Основная информация</h3>
-                            <div class="space-y-2 text-sm">
-                                <div><span class="font-medium">Цена:</span> <span class="text-green-600 font-semibold">${price}</span></div>
-                                <div><span class="font-medium">Тип:</span> ${propertyType}</div>
-                                <div><span class="font-medium">Площадь:</span> ${areaText}</div>
-                                <div><span class="font-medium">Этаж:</span> ${floor}</div>
-                                <div><span class="font-medium">Адрес:</span> ${address}</div>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h3 class="text-lg font-medium text-gray-900 mb-3">Дополнительно</h3>
-                            <div class="space-y-2 text-sm">
-                                <div><span class="font-medium">Размещено:</span> ${createdDate}</div>
-                                <div><span class="font-medium">Обновлено:</span> ${updatedDate}</div>
-                                <div><span class="font-medium">Продавец:</span> ${sellerType}</div>
-                                <div><span class="font-medium">Контакт:</span> ${sellerName}</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mt-6 flex justify-between items-center">
-                        <a href="${url}" target="_blank" 
-                           class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-                            </svg>
-                            Открыть объявление
-                        </a>
-                        
-                        <button onclick="window.areaPage?.uiManager?.closeModal('listingModal')" 
-                                class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors">
-                            Закрыть
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-        } catch (error) {
-            console.error('❌ UIManager: Ошибка рендеринга деталей объявления:', error);
-            return '<div class="p-4 text-center text-red-600">Ошибка загрузки деталей объявления</div>';
         }
     }
     
@@ -908,9 +786,13 @@ class UIManager {
     /**
      * Заполнение модального окна данными объявления
      */
-    populateListingModal(modal, listing) {
+    async populateListingModal(modal, listing) {
         try {
             console.log('📋 UIManager: Заполняем модальное окно данными объявления:', listing);
+            
+            // Загружаем свежие данные из базы данных
+            const freshListing = await window.db.getListing(listing.id);
+            const dataToUse = freshListing || listing;
             
             const modalContent = modal.querySelector('#modalContent');
             if (!modalContent) {
@@ -918,8 +800,8 @@ class UIManager {
                 return;
             }
             
-            // Формируем HTML с деталями объявления
-            const listingHtml = this.generateListingDetailHtml(listing);
+            // Формируем HTML с деталями объявления (используем свежие данные)
+            const listingHtml = this.generateListingDetailHtml(dataToUse);
             modalContent.innerHTML = listingHtml;
             
             // Настраиваем кнопку "Открыть объявление"
@@ -3781,12 +3663,15 @@ class UIManager {
                 console.log(`🔄 Обновление статуса объявления ${listingId} на:`, newStatus);
             }
             
-            // Получаем объявление из базы данных
+            // Получаем объявление из базы данных  
             const listing = await window.db.getListing(listingId);
             if (!listing) {
                 console.error('❌ Объявление не найдено:', listingId);
                 return;
             }
+            
+            // Сохраняем старое состояние для сравнения
+            const oldListing = { ...listing };
             
             // Обновляем статус
             const updatedListing = {
@@ -3798,12 +3683,23 @@ class UIManager {
             // Сохраняем в базу данных
             await window.db.updateListing(updatedListing);
             
+            // Обновляем связанный объект недвижимости, если объявление входит в объект
+            if (listing.object_id && window.realEstateObjectManager) {
+                await window.realEstateObjectManager.updateObjectOnListingChange(listingId, oldListing, updatedListing);
+                if (debugEnabled) {
+                    console.log(`🏠 Обновлен объект ${listing.object_id} после изменения статуса объявления ${listingId}`);
+                }
+            }
+            
             // Показываем уведомление
             this.showNotification({
                 type: 'success',
                 message: `Статус объявления изменен на "${this.getStatusText(newStatus)}"`,
                 duration: 3000
             });
+            
+            // Обновляем таблицу дублей
+            this.eventBus.emit('refreshDuplicatesTable');
             
             if (debugEnabled) {
                 console.log('✅ Статус объявления обновлен:', newStatus);
@@ -3819,7 +3715,7 @@ class UIManager {
     }
     
     /**
-     * Актуализация объявления
+     * Актуализация объявления (обновление даты updated)
      */
     async actualizeListing(listingId) {
         try {
@@ -3829,22 +3725,66 @@ class UIManager {
                 console.log('🔄 Актуализация объявления:', listingId);
             }
             
-            // Показываем уведомление о начале процесса
+            // Получаем объявление из базы данных
+            const listing = await window.db.getListing(listingId);
+            if (!listing) {
+                console.error('❌ Объявление не найдено:', listingId);
+                this.showNotification({
+                    type: 'error',
+                    message: 'Объявление не найдено',
+                    duration: 5000
+                });
+                return;
+            }
+            
+            // Сохраняем старое состояние для сравнения  
+            const oldListing = { ...listing };
+            
+            // Обновляем дату последнего обновления и статус на "Активный"
+            const updatedListing = {
+                ...listing,
+                status: 'active',
+                updated: new Date().toISOString()
+            };
+            
+            // Сохраняем в базу данных
+            await window.db.update('listings', updatedListing);
+            
+            // Обновляем связанный объект недвижимости, если объявление входит в объект
+            if (listing.object_id && window.realEstateObjectManager) {
+                await window.realEstateObjectManager.updateObjectOnListingChange(listingId, oldListing, updatedListing);
+                if (debugEnabled) {
+                    console.log(`🏠 Обновлен объект ${listing.object_id} после актуализации объявления ${listingId}`);
+                }
+            }
+            
+            // Обновляем отображение даты в интерфейсе
+            this.updateLastUpdatedDisplay(listingId, updatedListing.updated);
+            
+            // Обновляем статус в интерфейсе
+            const statusSelect = document.getElementById(`statusSelect-${listingId}`);
+            if (statusSelect) {
+                statusSelect.value = 'active';
+                // Обновляем SlimSelect если есть
+                const slimSelect = this[`statusSlimSelect_${listingId}`];
+                if (slimSelect) {
+                    slimSelect.setSelected('active');
+                }
+            }
+            
+            // Обновляем таблицу дублей
+            this.eventBus.emit('refreshDuplicatesTable');
+            
+            // Показываем уведомление
             this.showNotification({
-                type: 'info',
-                message: 'Процесс актуализации запущен...',
+                type: 'success',
+                message: 'Объявление актуализировано',
                 duration: 3000
             });
             
-            // Здесь будет логика актуализации объявления
-            // Пока что просто показываем успешное завершение
-            setTimeout(() => {
-                this.showNotification({
-                    type: 'success',
-                    message: 'Объявление актуализировано',
-                    duration: 3000
-                });
-            }, 2000);
+            if (debugEnabled) {
+                console.log('✅ Объявление актуализировано:', listingId);
+            }
             
         } catch (error) {
             console.error('❌ Ошибка актуализации объявления:', error);
@@ -3852,6 +3792,22 @@ class UIManager {
                 type: 'error',
                 message: 'Ошибка при актуализации объявления',
                 duration: 5000
+            });
+        }
+    }
+    
+    /**
+     * Обновление отображения даты последнего обновления
+     */
+    updateLastUpdatedDisplay(listingId, updatedDate) {
+        const lastUpdatedElement = document.getElementById(`lastUpdated-${listingId}`);
+        if (lastUpdatedElement && updatedDate) {
+            lastUpdatedElement.textContent = new Date(updatedDate).toLocaleDateString('ru-RU', {
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
             });
         }
     }
@@ -3886,6 +3842,9 @@ class UIManager {
             
             // Обновляем карту через EventBus
             this.eventBus.emit(CONSTANTS.EVENTS.LISTINGS_UPDATED);
+            
+            // Обновляем таблицу дублей
+            this.eventBus.emit('refreshDuplicatesTable');
             
         } catch (error) {
             console.error('❌ Ошибка удаления объявления:', error);

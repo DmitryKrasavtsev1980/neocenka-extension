@@ -101,8 +101,14 @@ class DuplicatesManager {
             this.eventBus.on('refreshDuplicatesTable', async () => {
                 console.log('📨 DuplicatesManager: Получено событие refreshDuplicatesTable');
                 if (this.duplicatesTable) {
+                    // Сохраняем полное состояние таблицы перед обновлением
+                    const tableState = this.saveTableState();
+                    
                     await this.loadDuplicatesTable();
                     await this.updateDuplicatesStats();
+                    
+                    // Восстанавливаем полное состояние таблицы после обновления
+                    this.restoreTableState(tableState);
                 }
             });
         }
@@ -295,8 +301,8 @@ class DuplicatesManager {
         try {
             console.log('📋 Загрузка таблицы дублей');
             
-            // Сохраняем состояние открытых child rows перед обновлением
-            const expandedRows = this.saveExpandedRowsState();
+            // Сохраняем полное состояние таблицы перед обновлением
+            const tableState = this.saveTableState();
             
             // Загружаем объявления, которые попадают в область (полигон)
             const allListings = await this.getListingsInArea();
@@ -368,10 +374,8 @@ class DuplicatesManager {
                 // Применяем текущие фильтры (включая статус и фильтры обработки)
                 this.applyProcessingFilters();
                 
-                // Восстанавливаем состояние открытых child rows после небольшой задержки
-                setTimeout(() => {
-                    this.restoreExpandedRowsState(expandedRows);
-                }, 300);
+                // Восстанавливаем полное состояние таблицы после небольшой задержки
+                this.restoreTableState(tableState);
             } else {
                 console.error('❌ duplicatesTable не инициализирована!');
             }
@@ -485,14 +489,14 @@ class DuplicatesManager {
                                 const listingsCount = row.listings_count || 0;
                                 const activeCount = row.active_listings_count || 0;
                                 if (listingsCount > 0) {
-                                    html += `<br><span class="text-xs text-gray-600 cursor-pointer hover:text-blue-600 expand-object-listings" data-object-id="${row.id}" title="Нажмите для просмотра объявлений">
+                                    html += `<br><span class="text-xs text-nowrap text-gray-600 cursor-pointer hover:text-blue-600 expand-object-listings" data-object-id="${row.id}" title="Нажмите для просмотра объявлений">
                                         <svg class="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                                         </svg>
                                         Объявления: ${listingsCount} (${activeCount} акт.)
                                     </span>`;
                                 } else {
-                                    html += `<br><span class="text-xs text-gray-600">Объявления: ${listingsCount} (${activeCount} акт.)</span>`;
+                                    html += `<br><span class="text-xs text-nowrap text-gray-600">Объявления: ${listingsCount} (${activeCount} акт.)</span>`;
                                 }
                             }
                             
@@ -2603,45 +2607,68 @@ class DuplicatesManager {
     }
     
     /**
-     * Сохранение состояния развернутых строк
+     * Сохранение полного состояния таблицы (раскрытые объекты + пагинация)
      */
-    saveExpandedRowsState() {
-        if (!this.duplicatesTable) return [];
+    saveTableState() {
+        if (!this.duplicatesTable) return null;
         
-        const expandedRows = [];
-        const shownRows = document.querySelectorAll('#duplicatesTable tr.shown');
+        const state = {
+            expandedRows: [],
+            currentPage: this.duplicatesTable.page.info().page
+        };
         
-        shownRows.forEach(row => {
-            const rowData = this.duplicatesTable.row(row).data();
-            if (rowData) {
-                expandedRows.push(`${rowData.type}_${rowData.id}`);
+        // Сохраняем раскрытые строки
+        this.duplicatesTable.rows().every(function() {
+            const row = this;
+            const data = row.data();
+            
+            if (row.child.isShown()) {
+                state.expandedRows.push({
+                    id: data.id,
+                    type: data.type
+                });
             }
         });
         
-        return expandedRows;
+        console.log('💾 Сохранено состояние таблицы:', state);
+        return state;
     }
     
     /**
-     * Восстановление состояния развернутых строк
+     * Восстановление полного состояния таблицы (раскрытые объекты + пагинация)
      */
-    restoreExpandedRowsState(expandedRows) {
-        if (!this.duplicatesTable || !expandedRows || expandedRows.length === 0) return;
+    restoreTableState(state) {
+        if (!this.duplicatesTable || !state) return;
         
         setTimeout(() => {
-            this.duplicatesTable.rows().every(function() {
-                const rowData = this.data();
-                const rowKey = `${rowData.type}_${rowData.id}`;
-                
-                if (expandedRows.includes(rowKey)) {
-                    const row = this.node();
-                    const detailsControl = row.querySelector('.details-control');
-                    if (detailsControl) {
-                        detailsControl.click();
+            // Восстанавливаем страницу
+            if (state.currentPage !== undefined) {
+                this.duplicatesTable.page(state.currentPage).draw(false);
+            }
+            
+            // Восстанавливаем раскрытые строки
+            if (state.expandedRows && state.expandedRows.length > 0) {
+                this.duplicatesTable.rows().every(function() {
+                    const row = this;
+                    const data = row.data();
+                    
+                    const wasExpanded = state.expandedRows.find(item => 
+                        item.id === data.id && item.type === data.type
+                    );
+                    
+                    if (wasExpanded && data.type === 'object') {
+                        const tr = this.node();
+                        const expandControl = tr.querySelector('.expand-object-listings');
+                        if (expandControl) {
+                            expandControl.click();
+                        }
                     }
-                }
-                return true;
-            });
-        }, 100);
+                    return true;
+                });
+            }
+            
+            console.log('🔄 Восстановлено состояние таблицы:', state);
+        }, 300);
     }
     
     /**
