@@ -226,7 +226,7 @@ class RealEstateObjectManager {
 
     try {
       // Определяем ID объекта недвижимости
-      const objectId = newListing.object_id || (oldListing && oldListing.object_id);
+      const objectId = (newListing && newListing.object_id) || (oldListing && oldListing.object_id);
       if (!objectId) {
         // Объявление не связано с объектом
         return;

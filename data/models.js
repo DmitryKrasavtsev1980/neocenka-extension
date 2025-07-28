@@ -1087,7 +1087,10 @@ class RealEstateObjectModel {
       .map(date => new Date(date))
       .sort((a, b) => b - a);
     
+    // При пересборке объекта всегда пересчитываем дату создания из оставшихся объявлений
     this.created = createdDates.length > 0 ? createdDates[0] : null;
+    
+    // Дата обновления всегда обновляется до самой последней
     this.updated = updatedDates.length > 0 ? updatedDates[0] : null;
   }
 
@@ -1102,15 +1105,32 @@ class RealEstateObjectModel {
       const sortedHistory = [...this.price_history].sort((a, b) => b.date - a.date);
       this.current_price = sortedHistory[0].price;
     } else {
-      // Если истории нет, ищем любую цену из объявлений как fallback
-      let fallbackPrice = null;
-      for (const listing of listings) {
+      // Если истории цен пуста, создаем первую запись с датой создания объекта
+      // Ищем подходящую цену из активных объявлений
+      const activeListings = listings.filter(l => l.status === 'active');
+      const listingsWithPrice = activeListings.length > 0 ? activeListings : listings;
+      
+      let initialPrice = null;
+      for (const listing of listingsWithPrice) {
         if (listing.price && listing.price > 0) {
-          fallbackPrice = listing.price;
+          initialPrice = listing.price;
           break;
         }
       }
-      this.current_price = fallbackPrice;
+      
+      if (initialPrice && this.created) {
+        // Создаем первую запись в истории цен
+        this.price_history = [{
+          date: this.created,
+          price: initialPrice,
+          listing_id: listingsWithPrice[0]?.id || null,
+          listing_external_id: listingsWithPrice[0]?.external_id || null,
+          listing_source: listingsWithPrice[0]?.source || null,
+          change_type: 'initial'
+        }];
+      }
+      
+      this.current_price = initialPrice;
     }
     
     // Пересчитываем цену за м²
@@ -1125,6 +1145,7 @@ class RealEstateObjectModel {
   mergePriceHistory(listings) {
     const allPriceHistory = [];
     
+    // При пересборке объекта строим историю только из текущих объявлений
     listings.forEach(listing => {
       // Добавляем только реальную историю цен из объявлений
       // НЕ добавляем текущие цены объявлений как исторические записи

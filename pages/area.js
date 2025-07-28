@@ -144,7 +144,7 @@ class AreaPage {
             this.mapManager = new MapManager(this.dataState, this.eventBus, this.progressManager);
             this.parsingManager = new ParsingManager(this.dataState, this.eventBus, this.progressManager);
             this.addressManager = new AddressManager(this.dataState, this.eventBus, this.progressManager);
-            this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager);
+            this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager, this.uiManager);
             this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
             
             // Инициализация RealEstateObjectManager для совместимости со старой архитектурой

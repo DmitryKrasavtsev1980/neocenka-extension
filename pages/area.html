@@ -1787,13 +1787,11 @@
                         </div>
                     </div>
                 </div>
-                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button type="button" id="openListingBtn" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
-                        Открыть объявление
-                    </button>
-                    <button type="button" id="closeModalBtn2" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
-                        Закрыть
-                    </button>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 border-t border-gray-200">
+                    <!-- Панель управления объявлением -->
+                    <div id="modalFooterManagement" class="p-3 bg-white rounded-lg border border-gray-200">
+                        <!-- Содержимое панели управления будет загружено динамически -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -1801,7 +1799,7 @@
 
     <!-- Модальное окно просмотра объекта недвижимости -->
     <div id="objectModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="object-modal-title" role="dialog" aria-modal="true">
-        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+        <div class="mx-auto flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
             <!-- Overlay -->
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
 

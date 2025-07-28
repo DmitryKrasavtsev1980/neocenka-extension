@@ -6,10 +6,11 @@
 console.log('📁 Загружаем DuplicatesManager.js');
 
 class DuplicatesManager {
-    constructor(dataState, eventBus, progressManager) {
+    constructor(dataState, eventBus, progressManager, uiManager) {
         this.dataState = dataState;
         this.eventBus = eventBus;
         this.progressManager = progressManager;
+        this.uiManager = uiManager;
         
         // Таблица дублей
         this.duplicatesTable = null;
@@ -2658,9 +2659,11 @@ class DuplicatesManager {
                     
                     if (wasExpanded && data.type === 'object') {
                         const tr = this.node();
-                        const expandControl = tr.querySelector('.expand-object-listings');
-                        if (expandControl) {
-                            expandControl.click();
+                        if (tr) {
+                            const expandControl = tr.querySelector('.expand-object-listings');
+                            if (expandControl) {
+                                expandControl.click();
+                            }
                         }
                     }
                     return true;
@@ -3437,39 +3440,41 @@ class DuplicatesManager {
             const realEstateObject = objectWithData.object;
             const objectListings = objectWithData.listings || [];
             
-            // Показываем модальное окно для объекта
-            const objectModalContent = document.getElementById('objectModalContent');
-            objectModalContent.innerHTML = this.renderObjectDetails(realEstateObject, objectListings);
-
             // Сохраняем текущий объект для других операций
             this.currentObject = realEstateObject;
             this.currentObjectListings = objectListings;
 
-            // Показываем модальное окно объекта
-            document.getElementById('objectModal').classList.remove('hidden');
-
-            // Инициализируем компоненты после отображения модального окна
-            setTimeout(() => {
-                // Инициализируем карту объекта
-                this.renderObjectMap(realEstateObject);
+            // Показываем модальное окно объекта через UIManager с данными
+            if (this.uiManager) {
+                await this.uiManager.openModal('objectModal', {
+                    title: `Объект недвижимости #${realEstateObject.id}`,
+                    size: 'large',
+                    objectData: {
+                        realEstateObject: realEstateObject,
+                        objectListings: objectListings,
+                        duplicatesManager: this
+                    }
+                });
+            } else {
+                // Fallback для обратной совместимости
+                const objectModalContent = document.getElementById('objectModalContent');
+                objectModalContent.innerHTML = this.renderObjectDetails(realEstateObject, objectListings);
+                document.getElementById('objectModal').classList.remove('hidden');
                 
-                // Инициализируем график изменения цены объекта
-                this.renderObjectPriceChart(realEstateObject);
+                // Инициализируем компоненты после отображения модального окна
+                setTimeout(() => {
+                    this.renderObjectMap(realEstateObject);
+                    this.renderObjectPriceChart(realEstateObject);
+                    if (objectListings.length > 0) {
+                        this.loadObjectPhotosGallery(objectListings[0]);
+                        this.loadObjectDescription(objectListings[0]);
+                    }
+                    this.initializeObjectPriceHistoryPanel(realEstateObject);
+                    this.initializeObjectListingsTable(objectListings, realEstateObject.id);
                 
-                // Загружаем фотографии из первого объявления
-                if (objectListings.length > 0) {
-                    this.loadObjectPhotos(objectListings[0]);
-                }
-                
-                // Инициализируем панель истории изменения цен
-                this.initializeObjectPriceHistoryPanel(realEstateObject);
-                
-                // Инициализируем таблицу объявлений объекта
-                this.initializeObjectListingsTable(objectListings, realEstateObject.id);
-                
-                console.log('🏠 Детали объекта загружены:', realEstateObject.id);
-            }, 100);
-            
+                    console.log('🏠 Детали объекта загружены:', realEstateObject.id);
+                }, 100);
+            }
         } catch (error) {
             console.error('❌ Ошибка при загрузке деталей объекта:', error);
             this.progressManager.showError('Ошибка загрузки объекта: ' + error.message);
@@ -3488,14 +3493,17 @@ class DuplicatesManager {
             }
         }
         
-        document.getElementById('objectModal').classList.add('hidden');
+        // Закрываем модальное окно через UIManager
+        if (this.uiManager) {
+            this.uiManager.closeModal('objectModal');
+        } else {
+            // Fallback для обратной совместимости
+            document.getElementById('objectModal').classList.add('hidden');
+        }
         this.currentObject = null;
         this.currentObjectListings = null;
     }
     
-    /**
-     * Отрендерить детали объекта (заглушка - нужно будет реализовать полностью)
-     */
     /**
      * Формирование кратких характеристик объекта
      */
@@ -3610,11 +3618,29 @@ class DuplicatesManager {
                 </div>
             </div>
             
-            <!-- Фотогалерея -->
+            <!-- Фотогалерея и описание -->
             <div class="mb-6">
-                <h4 class="text-lg font-medium text-gray-900 mb-4">Фотографии</h4>
-                <div id="object-photos-${realEstateObject.id}" class="w-full">
-                    <!-- Фотографии будут загружены из выбранного объявления -->
+                <h4 class="text-lg font-medium text-gray-900 mb-4">Фотографии и описание</h4>
+                <div class="flex space-x-6">
+                    <!-- Левая часть: Фотографии -->
+                    <div class="w-1/2">
+                        <div id="object-photos-${realEstateObject.id}" class="w-full">
+                            <!-- Фотографии будут загружены из выбранного объявления -->
+                        </div>
+                    </div>
+                    
+                    <!-- Правая часть: Описание -->
+                    <div class="w-1/2">
+                        <div class="bg-gray-50 rounded-lg p-4 h-[400px] overflow-y-auto">
+                            <h5 class="text-sm font-medium text-gray-700 mb-3">Описание объявления:</h5>
+                            <div id="object-description-${realEstateObject.id}" class="text-sm text-gray-600 leading-relaxed">
+                                <!-- Описание будет загружено из выбранного объявления -->
+                                <div class="text-center text-gray-400 py-8">
+                                    Выберите объявление в таблице ниже для просмотра описания
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -4143,7 +4169,10 @@ class DuplicatesManager {
     /**
      * Загрузка фотографий объекта из объявления
      */
-    loadObjectPhotos(listing) {
+    /**
+     * Загрузка фотогалереи объекта
+     */
+    loadObjectPhotosGallery(listing) {
         try {
             if (!this.currentObject) {
                 console.warn('Текущий объект не найден');
@@ -4208,6 +4237,61 @@ class DuplicatesManager {
     }
 
     /**
+     * Загрузка описания объекта
+     */
+    loadObjectDescription(listing) {
+        try {
+            if (!this.currentObject) {
+                console.warn('Текущий объект не найден');
+                return;
+            }
+
+            const descriptionContainer = document.getElementById(`object-description-${this.currentObject.id}`);
+            if (!descriptionContainer) {
+                console.warn('Контейнер описания объекта не найден');
+                return;
+            }
+
+            console.log(`📝 Загружаем описание для объекта ${this.currentObject.id} из объявления ${listing.id}`);
+
+            // Получаем описание из объявления
+            const description = this.getListingDescription(listing);
+            
+            if (!description || description.trim() === '') {
+                descriptionContainer.innerHTML = `
+                    <div class="text-center text-gray-400 py-8">
+                        📝 Нет описания в выбранном объявлении
+                    </div>
+                `;
+                return;
+            }
+
+            // Форматируем описание с переносами строк
+            const formattedDescription = description
+                .replace(/\n/g, '<br>')
+                .replace(/\r/g, '')
+                .trim();
+
+            descriptionContainer.innerHTML = `
+                <div class="text-sm text-gray-600 leading-relaxed">
+                    ${formattedDescription}
+                </div>
+            `;
+
+        } catch (error) {
+            console.error('Ошибка загрузки описания объекта:', error);
+            const descriptionContainer = document.getElementById(`object-description-${this.currentObject.id}`);
+            if (descriptionContainer) {
+                descriptionContainer.innerHTML = `
+                    <div class="bg-red-100 rounded-lg p-4 text-center text-red-500">
+                        ❌ Ошибка загрузки описания
+                    </div>
+                `;
+            }
+        }
+    }
+
+    /**
      * Получить фотографии из объявления
      */
     getListingPhotos(listing) {
@@ -4229,6 +4313,24 @@ class DuplicatesManager {
             return photo && typeof photo === 'string' && 
                    (photo.startsWith('http://') || photo.startsWith('https://'));
         });
+    }
+
+    /**
+     * Получить описание из объявления
+     */
+    getListingDescription(listing) {
+        // Получаем описание из разных полей в зависимости от источника
+        if (listing.description && typeof listing.description === 'string') {
+            return listing.description;
+        } else if (listing.desc && typeof listing.desc === 'string') {
+            return listing.desc;
+        } else if (listing.text && typeof listing.text === 'string') {
+            return listing.text;
+        } else if (listing.content && typeof listing.content === 'string') {
+            return listing.content;
+        }
+        
+        return '';
     }
     
     /**
@@ -4418,7 +4520,8 @@ class DuplicatesManager {
                 const listing = this.currentObjectListings.find(l => l.id === listingId);
                 if (listing) {
                     console.log(`📸 Загружаем фотографии из объявления ${listingId} для объекта ${currentObjectId}`);
-                    this.loadObjectPhotos(listing);
+                    this.loadObjectPhotosGallery(listing);
+                    this.loadObjectDescription(listing);
                     
                     // Обновляем активную строку в таблице
                     this.updateActiveObjectListingRow(listingId, currentObjectId);

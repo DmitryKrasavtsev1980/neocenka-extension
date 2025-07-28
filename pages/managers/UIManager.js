@@ -243,7 +243,7 @@ class UIManager {
      */
     bindModalCloseButtons() {
         // Кнопки закрытия модального окна объявления
-        const closeButtons = document.querySelectorAll('#closeModalBtn, #closeModalBtn2, .modal-close');
+        const closeButtons = document.querySelectorAll('#closeModalBtn, .modal-close');
         closeButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 // Найдем родительское модальное окно
@@ -253,8 +253,37 @@ class UIManager {
                 }
             });
         });
+
+        // Кнопки закрытия модального окна объекта недвижимости
+        const objectCloseButtons = document.querySelectorAll('#closeObjectModalBtn, #closeObjectModalBtn2');
+        objectCloseButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const modal = document.getElementById('objectModal');
+                if (modal) {
+                    this.closeModal(modal.id);
+                }
+            });
+        });
         
         console.log('✅ UIManager: Привязано обработчиков кнопок закрытия:', closeButtons.length);
+    }
+
+    /**
+     * Инициализация обработки ошибок загрузки изображений
+     * @param {HTMLElement} container - Контейнер для поиска изображений
+     */
+    initializeImageErrorHandling(container) {
+        const images = container.querySelectorAll('img.listing-photo');
+        images.forEach(img => {
+            img.addEventListener('error', function() {
+                this.style.display = 'none';
+            });
+            
+            // Также скрываем изображения, которые уже не загрузились
+            if (img.complete && !img.naturalWidth) {
+                img.style.display = 'none';
+            }
+        });
     }
     
     /**
@@ -660,7 +689,7 @@ class UIManager {
     /**
      * Открытие модального окна
      */
-    openModal(modalName, options = {}) {
+    async openModal(modalName, options = {}) {
         console.log(`🔓 UIManager: Открываем модальное окно "${modalName}"`);
         const modal = document.getElementById(modalName);
         if (!modal) {
@@ -669,6 +698,32 @@ class UIManager {
         }
         
         console.log(`✅ UIManager: Модальное окно "${modalName}" найдено, показываем...`);
+        
+        // Специальная обработка для модального окна объекта - заполняем контент ДО показа
+        if (modalName === 'objectModal' && options.objectData) {
+            try {
+                // Применяем опции до заполнения контента
+                if (options.title) {
+                    const titleElement = modal.querySelector('.modal-title, #modal-title');
+                    if (titleElement) {
+                        titleElement.textContent = options.title;
+                    }
+                }
+                
+                if (options.size) {
+                    const content = modal.querySelector('.modal-content');
+                    if (content) {
+                        content.className = `modal-content ${options.size}`;
+                    }
+                }
+                
+                // Заполняем контент ПЕРЕД показом модального окна
+                await this.populateObjectModal(modal, options.objectData);
+            } catch (error) {
+                console.error('❌ Ошибка загрузки данных объекта:', error);
+                // Продолжаем показ модального окна даже при ошибке
+            }
+        }
         
         // Показываем модальное окно (убираем hidden класс и устанавливаем flex)
         modal.classList.remove('hidden');
@@ -681,18 +736,20 @@ class UIManager {
         // Обновляем состояние
         this.uiState.modals[modalName] = true;
         
-        // Применяем опции
-        if (options.title) {
-            const titleElement = modal.querySelector('.modal-title, #modal-title');
-            if (titleElement) {
-                titleElement.textContent = options.title;
+        // Применяем опции для остальных модальных окон
+        if (modalName !== 'objectModal') {
+            if (options.title) {
+                const titleElement = modal.querySelector('.modal-title, #modal-title');
+                if (titleElement) {
+                    titleElement.textContent = options.title;
+                }
             }
-        }
-        
-        if (options.size) {
-            const content = modal.querySelector('.modal-content');
-            if (content) {
-                content.className = `modal-content ${options.size}`;
+            
+            if (options.size) {
+                const content = modal.querySelector('.modal-content');
+                if (content) {
+                    content.className = `modal-content ${options.size}`;
+                }
             }
         }
         
@@ -709,6 +766,22 @@ class UIManager {
             setTimeout(() => firstFocusable.focus(), 100);
         }
         
+        // Инициализируем карту после показа модального окна (только для objectModal)
+        if (modalName === 'objectModal' && this._pendingMapInitialization) {
+            setTimeout(() => {
+                const { duplicatesManager, realEstateObject } = this._pendingMapInitialization;
+                
+                // Инициализируем карту объекта (требует видимого контейнера)
+                if (duplicatesManager && duplicatesManager.renderObjectMap) {
+                    duplicatesManager.renderObjectMap(realEstateObject);
+                    console.log('🗺️ Карта объекта инициализирована после показа модального окна');
+                }
+                
+                // Очищаем временные данные
+                this._pendingMapInitialization = null;
+            }, 100); // Небольшая задержка для полной отрисовки модального окна
+        }
+
         // Уведомляем об открытии
         this.eventBus.emit(CONSTANTS.EVENTS.MODAL_OPENED, {
             modalName,
@@ -804,12 +877,19 @@ class UIManager {
             const listingHtml = this.generateListingDetailHtml(dataToUse);
             modalContent.innerHTML = listingHtml;
             
+            // Заполняем панель управления в футере модального окна
+            const footerManagement = modal.querySelector('#modalFooterManagement');
+            if (footerManagement) {
+                const managementHtml = this.generateManagementPanelHtml(dataToUse);
+                footerManagement.innerHTML = managementHtml;
+            }
+            
             // Настраиваем кнопку "Открыть объявление"
             const openBtn = modal.querySelector('#openListingBtn');
             if (openBtn) {
                 openBtn.onclick = () => {
-                    if (listing.url) {
-                        chrome.tabs.create({ url: listing.url });
+                    if (dataToUse.url) {
+                        chrome.tabs.create({ url: dataToUse.url });
                     } else {
                         console.warn('⚠️ UIManager: URL объявления не найден');
                     }
@@ -821,93 +901,96 @@ class UIManager {
                 const debugEnabled = await this.isDebugEnabled();
                 
                 if (debugEnabled) {
-                    console.log('🚀 Инициализация компонентов модального окна для объявления:', listing.id);
+                    console.log('🚀 Инициализация компонентов модального окна для объявления:', dataToUse.id);
                 }
                 
                 // Инициализируем галерею Fotorama
-                const galleryElement = document.getElementById(`listing-gallery-${listing.id}`);
+                const galleryElement = document.getElementById(`listing-gallery-${dataToUse.id}`);
                 if (galleryElement && window.$ && $.fn.fotorama) {
                     $(galleryElement).fotorama();
                     if (debugEnabled) {
-                        console.log('📸 Fotorama инициализирован для объявления:', listing.id);
+                        console.log('📸 Fotorama инициализирован для объявления:', dataToUse.id);
                     }
                 }
                 
-                // Инициализируем график изменения цены
-                this.renderPriceChart(listing);
+                // Инициализируем график изменения цены (используем свежие данные!)
+                this.renderPriceChart(dataToUse);
                 
                 // Добавляем обработчик для сворачивания панели местоположения
-                const locationHeader = document.getElementById(`locationPanelHeader-${listing.id}`);
+                const locationHeader = document.getElementById(`locationPanelHeader-${dataToUse.id}`);
                 if (locationHeader) {
                     locationHeader.addEventListener('click', async () => {
-                        await this.toggleLocationPanel(listing.id);
+                        await this.toggleLocationPanel(dataToUse.id);
                     });
                 }
                 
                 // Инициализируем выпадающий список адресами
-                await this.initializeAddressSelector(listing.id, listing.address_id);
+                await this.initializeAddressSelector(dataToUse.id, dataToUse.address_id);
                 
                 // Добавляем обработчик для сохранения адреса
-                const saveButton = document.getElementById(`saveAddress_${listing.id}`);
+                const saveButton = document.getElementById(`saveAddress_${dataToUse.id}`);
                 if (saveButton) {
                     saveButton.addEventListener('click', () => {
-                        this.saveListingAddress(listing.id);
+                        this.saveListingAddress(dataToUse.id);
                     });
                 }
                 
                 // Добавляем обработчик для кнопки "Верный адрес" в модальном окне
-                const correctAddressModalButton = document.getElementById(`correctAddressModal_${listing.id}`);
+                const correctAddressModalButton = document.getElementById(`correctAddressModal_${dataToUse.id}`);
                 if (correctAddressModalButton) {
                     correctAddressModalButton.addEventListener('click', () => {
                         // Логика обучения для верного адреса
-                        this.markSingleAddressAsCorrect(listing.id);
+                        this.markSingleAddressAsCorrect(dataToUse.id);
                     });
                 }
                 
                 // Добавляем обработчик для кнопки "Неверный адрес" в модальном окне
-                const incorrectAddressModalButton = document.getElementById(`incorrectAddressModal_${listing.id}`);
+                const incorrectAddressModalButton = document.getElementById(`incorrectAddressModal_${dataToUse.id}`);
                 if (incorrectAddressModalButton) {
                     incorrectAddressModalButton.addEventListener('click', () => {
                         // Логика обучения для неверного адреса
-                        this.markSingleAddressAsIncorrect(listing.id);
+                        this.markSingleAddressAsIncorrect(dataToUse.id);
                     });
                 }
                 
                 // Добавляем обработчик для сворачивания панели истории цен
-                const priceHistoryHeader = document.getElementById(`priceHistoryPanelHeader-${listing.id}`);
+                const priceHistoryHeader = document.getElementById(`priceHistoryPanelHeader-${dataToUse.id}`);
                 if (priceHistoryHeader) {
                     priceHistoryHeader.addEventListener('click', () => {
-                        this.togglePriceHistoryPanel(listing.id);
+                        this.togglePriceHistoryPanel(dataToUse.id);
                     });
                 }
                 
-                // Инициализируем таблицу истории цен
-                await this.initializePriceHistoryTable(listing.id, listing);
+                // Инициализируем таблицу истории цен (используем свежие данные!)
+                await this.initializePriceHistoryTable(dataToUse.id, dataToUse);
                 
                 // Добавляем обработчик для добавления новой цены
-                const addPriceButton = document.getElementById(`addPriceEntry-${listing.id}`);
+                const addPriceButton = document.getElementById(`addPriceEntry-${dataToUse.id}`);
                 if (addPriceButton) {
                     addPriceButton.addEventListener('click', () => {
-                        this.addPriceEntry(listing.id);
+                        this.addPriceEntry(dataToUse.id);
                     });
                 }
                 
                 // Добавляем обработчик для сохранения истории цен
-                const savePriceHistoryButton = document.getElementById(`savePriceHistory-${listing.id}`);
+                const savePriceHistoryButton = document.getElementById(`savePriceHistory-${dataToUse.id}`);
                 if (savePriceHistoryButton) {
                     savePriceHistoryButton.addEventListener('click', () => {
-                        this.savePriceHistory(listing.id);
+                        this.savePriceHistory(dataToUse.id);
                     });
                 }
                 
                 // Инициализируем модальное окно редактирования цены
-                this.initializePriceEditModal(listing.id);
+                this.initializePriceEditModal(dataToUse.id);
                 
                 // Инициализируем панель управления (SlimSelect для статуса)
-                await this.initializeManagementPanel(listing.id);
+                await this.initializeManagementPanel(dataToUse.id);
+                
+                // Добавляем обработчик для сломанных изображений
+                this.initializeImageErrorHandling(modal);
                 
                 if (debugEnabled) {
-                    console.log('✅ Все компоненты модального окна инициализированы для объявления:', listing.id);
+                    console.log('✅ Все компоненты модального окна инициализированы для объявления:', dataToUse.id);
                 }
                 
             }, 100);
@@ -917,6 +1000,127 @@ class UIManager {
         }
     }
     
+    /**
+     * Заполнение модального окна данными объекта недвижимости
+     */
+    async populateObjectModal(modal, objectData) {
+        try {
+            console.log('🏠 UIManager: Заполняем модальное окно данными объекта:', objectData);
+            
+            const { realEstateObject, objectListings, duplicatesManager } = objectData;
+            
+            const modalContent = modal.querySelector('#objectModalContent');
+            if (!modalContent) {
+                console.error('❌ UIManager: Контейнер objectModalContent не найден');
+                return;
+            }
+            
+            // Формируем HTML с деталями объекта (используем метод из DuplicatesManager)
+            if (duplicatesManager && duplicatesManager.renderObjectDetails) {
+                const objectHtml = duplicatesManager.renderObjectDetails(realEstateObject, objectListings);
+                modalContent.innerHTML = objectHtml;
+            } else {
+                console.error('❌ UIManager: DuplicatesManager или метод renderObjectDetails не найден');
+                return;
+            }
+            
+            // Инициализируем компоненты, которые не требуют видимого контейнера
+            // Инициализируем график изменения цены объекта (может работать до показа окна)
+            if (duplicatesManager && duplicatesManager.renderObjectPriceChart) {
+                duplicatesManager.renderObjectPriceChart(realEstateObject);
+            }
+            
+            // Загружаем фотографии и описание из первого объявления
+            if (duplicatesManager && objectListings.length > 0) {
+                if (duplicatesManager.loadObjectPhotosGallery) {
+                    duplicatesManager.loadObjectPhotosGallery(objectListings[0]);
+                }
+                if (duplicatesManager.loadObjectDescription) {
+                    duplicatesManager.loadObjectDescription(objectListings[0]);
+                }
+            }
+            
+            // Инициализируем панель истории изменения цен
+            if (duplicatesManager && duplicatesManager.initializeObjectPriceHistoryPanel) {
+                duplicatesManager.initializeObjectPriceHistoryPanel(realEstateObject);
+            }
+            
+            // Инициализируем таблицу объявлений объекта
+            if (duplicatesManager && duplicatesManager.initializeObjectListingsTable) {
+                duplicatesManager.initializeObjectListingsTable(objectListings, realEstateObject.id);
+            }
+            
+            // Сохраняем данные для последующей инициализации карты
+            this._pendingMapInitialization = {
+                duplicatesManager,
+                realEstateObject
+            };
+            
+            console.log('✅ Базовые компоненты модального окна объекта инициализированы:', realEstateObject.id);
+            
+        } catch (error) {
+            console.error('❌ UIManager: Ошибка заполнения модального окна объекта:', error);
+        }
+    }
+    
+    /**
+     * Генерирует HTML для панели управления объявлением (компактная версия для футера)
+     * @param {Object} listing - Объект объявления
+     * @returns {string} HTML код панели управления
+     */
+    generateManagementPanelHtml(listing) {
+        return `
+            <div class="flex items-center justify-between w-full">
+                <!-- Левая сторона: Статус и актуализация -->
+                <div class="flex items-center space-x-4">
+                    <!-- Переключатель статуса -->
+                    <div class="flex items-center">
+                        <label class="text-sm font-medium text-gray-700 mr-2">Статус:</label>
+                        <select id="statusSelect-${listing.id}" class="form-select text-sm">
+                            <option value="active" ${listing.status === 'active' ? 'selected' : ''}>Активное</option>
+                            <option value="archived" ${listing.status === 'archived' ? 'selected' : ''}>Архив</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Кнопка актуализации -->
+                    <button id="actualizeBtn-${listing.id}" 
+                            class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors">
+                        🔄 Актуализировать
+                    </button>
+                </div>
+
+                <!-- Центр: Кнопка открытия объявления -->
+                <div class="flex-shrink-0">
+                    <button type="button" id="openListingBtn" class="inline-flex items-center justify-center rounded-md border border-transparent shadow-sm px-4 py-1 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
+                        🔗 Открыть объявление
+                    </button>
+                </div>
+                
+                <!-- Правая сторона: Дата обновления и удаление -->
+                <div class="flex items-center space-x-3">
+                    <!-- Дата последнего обновления -->
+                    <div class="flex items-center">
+                        <span class="text-xs text-gray-500">Обновлено:</span>
+                        <span id="lastUpdated-${listing.id}" class="ml-1 text-xs text-gray-700">
+                            ${listing.updated ? new Date(listing.updated).toLocaleDateString('ru-RU', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            }) : 'Не указано'}
+                        </span>
+                    </div>
+                    
+                    <!-- Кнопка удаления -->
+                    <button id="deleteBtn-${listing.id}" 
+                            class="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 focus:outline-none focus:ring-1 focus:ring-red-500 transition-colors">
+                        🗑️ Удалить
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
     /**
      * Генерация HTML с деталями объявления
      */
@@ -957,31 +1161,8 @@ class UIManager {
                     </div>
                 </div>
             </div>
-            
-            <!-- Фотогалерея -->
-            <div class="mb-6">
-                <h4 class="text-lg font-medium text-gray-900 mb-4">Фотографии ${photos.length > 0 ? `(${photos.length})` : '(не найдены)'}</h4>
-                ${photos.length > 0 ? `
-                    <div class="fotorama" 
-                         data-nav="thumbs" 
-                         data-width="100%" 
-                         data-height="400"
-                         data-thumbheight="50"
-                         data-thumbwidth="50"
-                         data-allowfullscreen="true"
-                         data-transition="slide"
-                         data-loop="true"
-                         id="listing-gallery-${listing.id}">
-                        ${photos.map(photo => `<img src="${photo}" alt="Фото объявления">`).join('')}
-                    </div>
-                ` : `
-                    <div class="bg-gray-100 rounded-lg p-8 text-center text-gray-500">
-                        📷 Фотографии не найдены
-                    </div>
-                `}
-            </div>
-            
-            <!-- График изменения цены -->
+
+             <!-- График изменения цены -->
             <div class="mb-6">
                 <h4 class="text-lg font-medium text-gray-900 mb-4">График изменения цены</h4>
                 <div id="listing-price-chart-${listing.id}" class="w-full">
@@ -989,12 +1170,12 @@ class UIManager {
                 </div>
             </div>
             
-            <!-- История изменения цен -->
+            <!-- История изменения цены -->
             <div class="mb-6">
                 <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
                     <div id="priceHistoryPanelHeader-${listing.id}" class="px-4 py-3 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors duration-150">
                         <div class="flex items-center justify-between">
-                            <h4 class="text-lg font-medium text-gray-900">История изменения цен</h4>
+                            <h4 class="text-lg font-medium text-gray-900">История изменения цены</h4>
                             <svg id="priceHistoryPanelChevron-${listing.id}" class="h-5 w-5 text-gray-400 transform transition-transform duration-200 rotate-[-90deg]" fill="currentColor" viewBox="0 0 20 20">
                                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
                             </svg>
@@ -1027,57 +1208,27 @@ class UIManager {
                 </div>
             </div>
             
-            <!-- Панель управления объявлением -->
+            <!-- Фотогалерея -->
             <div class="mb-6">
-                <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
-                    <div class="px-4 py-3 border-b border-gray-200">
-                        <h4 class="text-lg font-medium text-gray-900">Управление</h4>
+                <h4 class="text-lg font-medium text-gray-900 mb-4">Фотографии ${photos.length > 0 ? `(${photos.length})` : '(не найдены)'}</h4>
+                ${photos.length > 0 ? `
+                    <div class="fotorama" 
+                         data-nav="thumbs" 
+                         data-width="100%" 
+                         data-height="400"
+                         data-thumbheight="50"
+                         data-thumbwidth="50"
+                         data-allowfullscreen="true"
+                         data-transition="slide"
+                         data-loop="true"
+                         id="listing-gallery-${listing.id}">
+                        ${photos.map(photo => `<img src="${photo}" alt="Фото объявления" class="listing-photo">`).join('')}
                     </div>
-                    <div class="px-4 py-4">
-                        <div class="flex items-center justify-between">
-                            <!-- Левая сторона: Статус и актуализация -->
-                            <div class="flex items-center space-x-6">
-                                <!-- Переключатель статуса -->
-                                <div class="flex items-center">
-                                    <label class="text-sm font-medium text-gray-700 mr-3">Статус:</label>
-                                    <select id="statusSelect-${listing.id}" class="form-select">
-                                        <option value="active" ${listing.status === 'active' ? 'selected' : ''}>Активное</option>
-                                        <option value="archived" ${listing.status === 'archived' ? 'selected' : ''}>Архив</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- Кнопка актуализации -->
-                                <button id="actualizeBtn-${listing.id}" 
-                                        class="px-4 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
-                                    🔄 Актуализировать
-                                </button>
-                            </div>
-                            
-                            <!-- Правая сторона: Удаление -->
-                            <div class="flex items-center space-x-4">
-                                <!-- Дата последнего обновления -->
-                                <div class="flex items-center">
-                                    <span class="text-sm text-gray-500">Последнее обновление:</span>
-                                    <span id="lastUpdated-${listing.id}" class="ml-2 text-sm text-gray-900">
-                                        ${listing.updated ? new Date(listing.updated).toLocaleDateString('ru-RU', {
-                                            year: 'numeric', 
-                                            month: 'short', 
-                                            day: 'numeric',
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        }) : 'Не указано'}
-                                    </span>
-                                </div>
-                                
-                                <!-- Кнопка удаления -->
-                                <button id="deleteBtn-${listing.id}" 
-                                        class="px-4 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors">
-                                    🗑️ Удалить
-                                </button>
-                            </div>
-                        </div>
+                ` : `
+                    <div class="bg-gray-100 rounded-lg p-8 text-center text-gray-500">
+                        📷 Фотографии не найдены
                     </div>
-                </div>
+                `}
             </div>
             
             <!-- Модальное окно редактирования цены -->
@@ -1237,165 +1388,6 @@ class UIManager {
         `;
     }
     
-    // Старая версия метода generateListingDetailHtml заменена выше
-    OLD_generateListingDetailHtml(listing) {
-        const formatPrice = (price) => {
-            if (!price) return 'Не указана';
-            return new Intl.NumberFormat('ru-RU').format(price) + ' ₽';
-        };
-        
-        const formatDate = (dateStr) => {
-            if (!dateStr) return 'Не указана';
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('ru-RU');
-        };
-        
-        // Получаем фотографии из различных полей
-        const photos = this.getListingPhotos(listing);
-        
-        return `
-            <!-- Карта местоположения -->
-            <div class="mb-6">
-                <div class="bg-white shadow overflow-hidden sm:rounded-md border border-gray-200">
-                    <div class="px-4 py-3 cursor-pointer" id="locationPanelHeader-${listing.id}">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center space-x-3">
-                                <span class="text-lg font-medium text-gray-900">📍 Местоположение</span>
-                                <span class="text-sm text-green-600">Адрес подтвержден</span>
-                            </div>
-                            <svg id="locationPanelChevron-${listing.id}" class="h-5 w-5 text-gray-400 transform transition-transform duration-200" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-                            </svg>
-                        </div>
-                    </div>
-                    <div id="locationPanelContent-${listing.id}" class="px-4 pb-4" style="display: none;">
-                        <div class="text-sm text-gray-600 mb-3">
-                            <strong>Адрес:</strong> ${listing.address || 'Не указан'}
-                            ${listing.coordinates ? `<br><strong>Координаты:</strong> ${listing.coordinates.lat}, ${listing.coordinates.lng}` : ''}
-                        </div>
-                        <div id="listing-map-${listing.id}" class="h-64 bg-gray-200 rounded-md">
-                            <!-- Карта будет отрендерена здесь -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Фотогалерея -->
-            <div class="mb-6">
-                <h4 class="text-lg font-medium text-gray-900 mb-4">Фотографии ${photos.length > 0 ? `(${photos.length})` : '(не найдены)'}</h4>
-                ${photos.length > 0 ? `
-                    <div class="fotorama" 
-                         data-nav="thumbs" 
-                         data-width="100%" 
-                         data-height="400"
-                         data-thumbheight="50"
-                         data-thumbwidth="50"
-                         data-allowfullscreen="true"
-                         data-transition="slide"
-                         data-loop="true"
-                         id="listing-gallery-${listing.id}">
-                        ${photos.map(photo => `<img src="${photo}" alt="Фото объявления">`).join('')}
-                    </div>
-                ` : `
-                    <div class="bg-gray-100 rounded-lg p-8 text-center text-gray-500">
-                        📷 Фотографии не найдены
-                    </div>
-                `}
-            </div>
-            
-            <!-- График изменения цены -->
-            <div class="mb-6">
-                <h4 class="text-lg font-medium text-gray-900 mb-4">График изменения цены</h4>
-                <div id="listing-price-chart-${listing.id}" class="w-full">
-                    <!-- График будет отрендерен здесь -->
-                </div>
-            </div>
-            
-            <!-- История изменения цен -->
-            <div class="mb-6">
-                <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
-                    <div id="priceHistoryPanelHeader-${listing.id}" class="px-4 py-3 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors duration-150">
-                        <div class="flex items-center justify-between">
-                            <h4 class="text-lg font-medium text-gray-900">История изменения цен</h4>
-                            <svg id="priceHistoryPanelChevron-${listing.id}" class="h-5 w-5 text-gray-400 transform transition-transform duration-200 rotate-[-90deg]" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-                            </svg>
-                        </div>
-                    </div>
-                    <div id="priceHistoryPanelContent-${listing.id}" class="px-4 pb-4" style="display: none;">
-                        <div class="mt-4 mb-4 flex items-center justify-between">
-                            <button id="addPriceEntry-${listing.id}" class="px-4 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                Добавить изменение цены
-                            </button>
-                            <button id="savePriceHistory-${listing.id}" class="px-4 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                💾 Сохранить историю цен
-                            </button>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table id="priceHistoryTable-${listing.id}" class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-200">
-                                    <!-- Данные будут загружены через DataTable -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Основная информация объявления -->
-            <div class="mb-6">
-                <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
-                    <div class="px-4 py-3 border-b border-gray-200">
-                        <h4 class="text-lg font-medium text-gray-900">Характеристики</h4>
-                    </div>
-                    <div class="px-4 py-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="space-y-2">
-                                <h5 class="font-semibold text-gray-900">Основные параметры</h5>
-                                ${listing.price ? `<p><span class="font-medium">Цена:</span> ${formatPrice(listing.price)}</p>` : ''}
-                                ${listing.property_type ? `<p><span class="font-medium">Тип:</span> ${listing.property_type}</p>` : ''}
-                                ${listing.area_total ? `<p><span class="font-medium">Площадь:</span> ${listing.area_total} м²</p>` : ''}
-                                ${listing.area_living ? `<p><span class="font-medium">Жилая площадь:</span> ${listing.area_living} м²</p>` : ''}
-                                ${listing.area_kitchen ? `<p><span class="font-medium">Площадь кухни:</span> ${listing.area_kitchen} м²</p>` : ''}
-                                ${listing.rooms ? `<p><span class="font-medium">Комнат:</span> ${listing.rooms}</p>` : ''}
-                                ${listing.floor && listing.floors_total ? `<p><span class="font-medium">Этаж:</span> ${listing.floor} из ${listing.floors_total}</p>` : ''}
-                            </div>
-                            
-                            <div class="space-y-2">
-                                <h5 class="font-semibold text-gray-900">Дополнительная информация</h5>
-                                ${listing.source ? `<p><span class="font-medium">Источник:</span> ${listing.source}</p>` : ''}
-                                ${listing.created_at ? `<p><span class="font-medium">Создано:</span> ${formatDate(listing.created_at)}</p>` : ''}
-                                ${listing.updated_at ? `<p><span class="font-medium">Обновлено:</span> ${formatDate(listing.updated_at)}</p>` : ''}
-                                ${listing.status ? `<p><span class="font-medium">Статус:</span> ${listing.status === 'active' ? 'Активное' : 'Архив'}</p>` : ''}
-                            </div>
-                        </div>
-                        
-                        ${listing.title ? `
-                        <div class="mt-4">
-                            <h5 class="font-semibold text-gray-900 mb-2">Описание</h5>
-                            <p class="text-gray-700 bg-gray-50 p-3 rounded-md">${listing.title}</p>
-                        </div>
-                        ` : ''}
-                        
-                        ${listing.description ? `
-                        <div class="mt-4">
-                            <h5 class="font-semibold text-gray-900 mb-2">Полное описание</h5>
-                            <p class="text-gray-700 bg-gray-50 p-3 rounded-md">${listing.description}</p>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-    
     /**
      * Получение фотографий объявления из различных полей
      */
@@ -1487,7 +1479,7 @@ class UIManager {
                                 "exportToCSV": "Сохранить CSV",
                                 "menu": "Меню",
                                 "selection": "Выбор",
-                                "selectionZoom": "Увеличить выбранное",
+                                "selectionZoom": "Выбор с увеличением",
                                 "zoomIn": "Увеличить",
                                 "zoomOut": "Уменьшить",
                                 "pan": "Перемещение",
@@ -1497,58 +1489,102 @@ class UIManager {
                     }],
                     defaultLocale: "ru",
                     type: 'line',
-                    zoom: {
-                        enabled: true
+                    shadow: {
+                        enabled: false,
+                        color: 'rgba(187,187,187,0.47)',
+                        top: 3,
+                        left: 2,
+                        blur: 3,
+                        opacity: 1
                     },
                     toolbar: {
-                        show: true
+                        show: false
                     }
+                },
+                stroke: {
+                    curve: 'stepline',
+                    width: widths
                 },
                 series: series,
                 colors: colors,
-                stroke: {
-                    width: widths
-                },
                 xaxis: {
                     type: 'datetime',
                     labels: {
-                        formatter: function(value) {
-                            return new Date(value).toLocaleDateString('ru-RU');
-                        }
+                        format: 'dd MMM'
+                    }
+                },
+                markers: {
+                    size: 4,
+                    opacity: 0.9,
+                    colors: ["#56c2d6"],
+                    strokeColor: "#fff",
+                    strokeWidth: 2,
+                    style: 'inverted',
+                    hover: {
+                        size: 8
+                    }
+                },
+                tooltip: {
+                    shared: false,
+                    intersect: true,
+                    x: {
+                        format: 'dd MMM yyyy'
+                    },
+                    y: {
+                        formatter: (value) => this.formatPrice(value)
                     }
                 },
                 yaxis: {
+                    min: Math.floor(minPrice * 0.95),
+                    max: Math.ceil(maxPrice * 1.05),
+                    title: {
+                        text: 'Цена, ₽'
+                    },
                     labels: {
-                        formatter: function(value) {
-                            return new Intl.NumberFormat('ru-RU').format(value) + ' ₽';
-                        }
-                    },
-                    min: Math.max(0, minPrice * 0.95),
-                    max: maxPrice * 1.05
+                        formatter: (value) => this.formatPrice(value)
+                    }
                 },
-                tooltip: {
-                    x: {
-                        formatter: function(value) {
-                            return new Date(value).toLocaleDateString('ru-RU');
+                grid: {
+                    show: true,
+                    position: 'back',
+                    xaxis: {
+                        lines: {
+                            show: true,
                         }
                     },
-                    y: {
-                        formatter: function(value) {
-                            return new Intl.NumberFormat('ru-RU').format(value) + ' ₽';
+                    yaxis: {
+                        lines: {
+                            show: true,
+                        }
+                    },
+                    borderColor: '#eeeeee',
+                },
+                legend: {
+                    show: false
+                },
+                responsive: [{
+                    breakpoint: 600,
+                    options: {
+                        chart: {
+                            toolbar: {
+                                show: false
+                            }
                         }
                     }
-                }
+                }]
             };
 
-            if (window.ApexCharts) {
-                const chart = new ApexCharts(chartContainer, options);
-                chart.render();
-            } else {
-                chartContainer.innerHTML = '<div class="text-center text-gray-500 py-8">ApexCharts не загружен</div>';
-            }
+            // Очищаем контейнер и создаем график
+            chartContainer.innerHTML = '';
+            const chart = new ApexCharts(chartContainer, options);
+            chart.render();
 
         } catch (error) {
             console.error('Ошибка создания графика цены:', error);
+            const chartContainer = document.getElementById(`listing-price-chart-${listing.id}`);
+            if (chartContainer) {
+                chartContainer.innerHTML = '<div class="text-center text-red-500 py-8">Ошибка загрузки графика</div>';
+            }
         }
     }
     
@@ -1571,22 +1607,36 @@ class UIManager {
         if (listing.price) {
             let endPriceDate;
             
-            if (listing.status === 'archived') {
-                // Если архивное, используем updated_at или created_at
-                endPriceDate = listing.updated_at ? new Date(listing.updated_at) : new Date(listing.created_at);
-            } else {
-                // Если активное, используем текущую дату
+            if (listing.status === 'active') {
+                // Для активных объявлений - текущая дата
                 endPriceDate = new Date();
+            } else {
+                // Для архивных объявлений - дата последнего обновления
+                endPriceDate = new Date(listing.updated || listing.created || Date.now());
             }
             
-            history.push({
-                date: endPriceDate.getTime(),
-                price: parseInt(listing.price)
-            });
+            // Добавляем конечную точку только если она отличается от уже существующих
+            const lastHistoryDate = history.length > 0 ? history[history.length - 1].date : 0;
+            if (Math.abs(endPriceDate.getTime() - lastHistoryDate) > 24 * 60 * 60 * 1000) {
+                history.push({
+                    date: endPriceDate.getTime(),
+                    price: parseInt(listing.price)
+                });
+            }
         }
 
         // Сортируем по дате
-        return history.sort((a, b) => a.date - b.date);
+        history.sort((a, b) => a.date - b.date);
+        
+        // Убираем дубликаты цен подряд, но оставляем ключевые точки
+        const filtered = [];
+        for (let i = 0; i < history.length; i++) {
+            if (i === 0 || i === history.length - 1 || history[i].price !== history[i-1].price) {
+                filtered.push(history[i]);
+            }
+        }
+
+        return filtered;
     }
     
     async toggleLocationPanel(listingId) {
@@ -1741,6 +1791,9 @@ class UIManager {
             priceInput.value = '';
             dateInput.value = new Date().toISOString().split('T')[0]; // Текущая дата
             
+            // Убираем индекс редактирования (для добавления новой записи)
+            delete modal.dataset.editingIndex;
+            
             // Показываем модальное окно
             modal.classList.remove('hidden');
             
@@ -1764,17 +1817,73 @@ class UIManager {
                 return;
             }
 
+            // Определяем последнюю цену из истории
+            let latestPrice = listing.price; // Текущая цена по умолчанию
+            
+            if (listing.price_history && Array.isArray(listing.price_history) && listing.price_history.length > 0) {
+                // Сортируем историю по дате (от новых к старым)
+                const sortedHistory = [...listing.price_history].sort((a, b) => new Date(b.date) - new Date(a.date));
+                const latestHistoryItem = sortedHistory[0];
+                const historyPrice = latestHistoryItem.new_price || latestHistoryItem.price;
+                
+                if (historyPrice) {
+                    latestPrice = parseInt(historyPrice);
+                }
+            }
+
+            // Обновляем текущую цену объявления если она изменилась
+            const oldPrice = listing.price;
+            if (latestPrice !== oldPrice) {
+                listing.price = latestPrice;
+                listing.updated = new Date().toISOString();
+                
+                // Сохраняем обновленное объявление в базе данных
+                await window.db.updateListing(listing);
+                
+                if (debugEnabled) {
+                    console.log(`💰 Цена объявления обновлена: ${oldPrice} → ${latestPrice}`);
+                }
+            }
+
             // Обновляем таблицу истории цен
             await this.refreshPriceHistoryTable(listingId, listing);
             
             // Обновляем график цен
             this.renderPriceChart(listing);
             
+            // Обновляем объект недвижимости, если объявление связано с объектом
+            if (listing.object_id && window.realEstateObjectManager) {
+                await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, listing);
+                if (debugEnabled) {
+                    console.log('🏠 Объект недвижимости обновлен после изменения истории цен');
+                }
+            }
+
+            // Обновляем таблицу дублей (если есть в текущем контексте)
+            if (this.eventBus) {
+                this.eventBus.emit('refreshDuplicatesTable');
+                if (debugEnabled) {
+                    console.log('📊 Событие обновления таблицы дублей отправлено');
+                }
+            }
+            
+            // Показываем уведомление
+            this.showNotification({
+                type: 'success',
+                message: 'История цен сохранена' + (latestPrice !== oldPrice ? `, цена обновлена до ${latestPrice.toLocaleString('ru-RU')} ₽` : ''),
+                duration: 4000
+            });
+            
             if (debugEnabled) {
                 console.log('✅ История цен обновлена для объявления:', listingId);
             }
         } catch (error) {
             console.error('❌ Ошибка сохранения истории цен:', error);
+            this.showNotification({
+                type: 'error',
+                message: 'Ошибка сохранения истории цен',
+                duration: 3000
+            });
         }
     }
     
@@ -3519,21 +3628,111 @@ class UIManager {
     /**
      * Редактирование записи цены
      */
-    editPriceEntry(listingId, index) {
-        // Открываем модальное окно редактирования с заполненными данными
-        const modal = document.getElementById(`editPriceModal-${listingId}`);
-        if (modal) {
-            modal.classList.remove('hidden');
+    async editPriceEntry(listingId, index) {
+        try {
+            // Получаем свежие данные объявления
+            const listing = await window.db.getListing(listingId);
+            if (!listing) {
+                console.error('❌ Объявление не найдено:', listingId);
+                return;
+            }
+
+            // Находим запись по индексу в истории цен
+            if (!listing.price_history || !Array.isArray(listing.price_history) || index >= listing.price_history.length) {
+                console.error('❌ Запись истории цен не найдена по индексу:', index);
+                console.error('История цен:', listing.price_history);
+                console.error('Индекс:', index);
+                return;
+            }
+
+            const historyItem = listing.price_history[index];
+            const price = historyItem.new_price || historyItem.price;
+            
+            console.log(`🔍 Редактирование записи ${index}:`, {
+                price: price,
+                date: historyItem.date,
+                historyItem: historyItem
+            });
+
+            // Заполняем поля модального окна
+            const modal = document.getElementById(`editPriceModal-${listingId}`);
+            const priceInput = document.getElementById(`priceInput-${listingId}`);
+            const dateInput = document.getElementById(`dateInput-${listingId}`);
+
+            if (modal && priceInput && dateInput) {
+                // Заполняем цену (форматируем для отображения)
+                priceInput.value = parseInt(price).toLocaleString('ru-RU');
+                
+                // Заполняем дату (преобразуем в format datetime-local)
+                const date = new Date(historyItem.date);
+                const formattedDate = date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+                dateInput.value = formattedDate;
+
+                // Сохраняем текущий индекс редактируемой записи
+                modal.dataset.editingIndex = index;
+                
+                // Открываем модальное окно
+                modal.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка редактирования записи цены:', error);
         }
     }
     
     /**
      * Удаление записи цены
      */
-    deletePriceEntry(listingId, index) {
+    async deletePriceEntry(listingId, index) {
         if (confirm('Удалить запись цены?')) {
-            // Логика удаления записи
-            console.log(`🗑️ Удаление записи цены ${index} для объявления ${listingId}`);
+            try {
+                // Получаем свежие данные объявления
+                const listing = await window.db.getListing(listingId);
+                if (!listing) {
+                    console.error('❌ Объявление не найдено:', listingId);
+                    return;
+                }
+
+                // Проверяем что история цен существует и индекс корректный
+                if (!listing.price_history || !Array.isArray(listing.price_history) || index >= listing.price_history.length) {
+                    console.error('❌ Запись истории цен не найдена по индексу:', index);
+                    return;
+                }
+
+                // Удаляем запись из истории цен
+                listing.price_history.splice(index, 1);
+                
+                // Обновляем объявление в базе данных
+                await window.db.updateListing(listing);
+                
+                // Обновляем таблицу истории цен
+                await this.refreshPriceHistoryTable(listingId, listing);
+                
+                // Перерисовываем график
+                this.renderPriceChart(listing);
+                
+                // Обновляем объект недвижимости, если объявление связано с объектом
+                if (listing.object_id && window.realEstateObjectManager) {
+                    await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, listing);
+                    console.log('🏠 Объект недвижимости обновлен после удаления записи цены');
+                }
+                
+                console.log(`🗑️ Запись цены ${index} удалена для объявления ${listingId}`);
+                
+                // Показываем уведомление
+                this.showNotification({
+                    type: 'success',
+                    message: 'Запись цены удалена',
+                    duration: 3000
+                });
+                
+            } catch (error) {
+                console.error('❌ Ошибка удаления записи цены:', error);
+                this.showNotification({
+                    type: 'error',
+                    message: 'Ошибка удаления записи цены',
+                    duration: 3000
+                });
+            }
         }
     }
     
@@ -3827,8 +4026,25 @@ class UIManager {
                 console.log('🗑️ Удаление объявления:', listingId);
             }
             
+            // Получаем данные объявления перед удалением для пересборки объекта
+            const listing = await window.db.getListing(listingId);
+            const objectId = listing?.object_id;
+            
             // Удаляем объявление из базы данных
             await window.db.deleteListing(listingId);
+            
+            // Если объявление входило в объект недвижимости, пересобираем объект
+            if (objectId && window.realEstateObjectManager) {
+                try {
+                    // Используем существующий метод, передавая пустой новый объект (объявление удалено)
+                    await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, null);
+                    if (debugEnabled) {
+                        console.log(`🏠 Пересобран объект ${objectId} после удаления объявления ${listingId}`);
+                    }
+                } catch (error) {
+                    console.error('❌ Ошибка пересборки объекта после удаления объявления:', error);
+                }
+            }
             
             // Закрываем модальное окно
             this.closeModal('listingModal');
@@ -4418,15 +4634,26 @@ class UIManager {
             }
 
             try {
-                // Сохраняем изменение цены
-                await this.savePriceChange(listingId, parseInt(price), date);
+                // Проверяем, редактируем ли мы существующую запись
+                const editingIndex = modal.dataset.editingIndex;
+                
+                if (editingIndex !== undefined && editingIndex !== null && editingIndex !== '') {
+                    // Редактируем существующую запись
+                    await this.savePriceChange(listingId, parseInt(price), date, parseInt(editingIndex));
+                } else {
+                    // Добавляем новую запись
+                    await this.savePriceChange(listingId, parseInt(price), date);
+                }
+                
+                // Очищаем индекс редактирования
+                delete modal.dataset.editingIndex;
                 
                 // Закрываем модальное окно
                 closeModal();
                 
                 this.showNotification({
                     type: 'success',
-                    message: 'Изменение цены сохранено',
+                    message: editingIndex !== undefined ? 'Цена отредактирована' : 'Изменение цены сохранено',
                     duration: 3000
                 });
             } catch (error) {
@@ -4443,7 +4670,7 @@ class UIManager {
     /**
      * Сохранение изменения цены
      */
-    async savePriceChange(listingId, price, date) {
+    async savePriceChange(listingId, price, date, editingIndex = null) {
         try {
             // Получаем объявление из базы данных
             const listing = await window.db.getListing(listingId);
@@ -4451,13 +4678,30 @@ class UIManager {
                 throw new Error('Объявление не найдено');
             }
             
-            // Добавляем новую запись в историю цен
+            // Инициализируем историю цен если её нет
             const priceHistory = listing.price_history || [];
-            priceHistory.push({
-                date: date,
-                price: price,
-                new_price: price
-            });
+            
+            if (editingIndex !== null && editingIndex >= 0 && editingIndex < priceHistory.length) {
+                // Редактируем существующую запись
+                const oldItem = priceHistory[editingIndex];
+                priceHistory[editingIndex] = {
+                    date: date,
+                    price: price,
+                    new_price: price
+                };
+                console.log(`✏️ Отредактирована запись истории цен с индексом ${editingIndex}:`, {
+                    old: oldItem,
+                    new: priceHistory[editingIndex]
+                });
+            } else {
+                // Добавляем новую запись в историю цен
+                priceHistory.push({
+                    date: date,
+                    price: price,
+                    new_price: price
+                });
+                console.log('➕ Добавлена новая запись в историю цен');
+            }
             
             // Обновляем объявление
             const updatedListing = {
@@ -4472,6 +4716,12 @@ class UIManager {
             // Обновляем таблицу и график
             await this.refreshPriceHistoryTable(listingId, updatedListing);
             this.renderPriceChart(updatedListing);
+            
+            // Обновляем объект недвижимости, если объявление связано с объектом
+            if (updatedListing.object_id && window.realEstateObjectManager) {
+                await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, updatedListing);
+                console.log('🏠 Объект недвижимости обновлен после изменения истории цен');
+            }
             
         } catch (error) {
             console.error('❌ Ошибка сохранения изменения цены:', error);
