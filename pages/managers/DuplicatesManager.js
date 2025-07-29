@@ -911,16 +911,7 @@ class DuplicatesManager {
                 return [];
             }
             
-            // Используем realEstateObjectManager для получения объектов с фильтрами
-            if (window.realEstateObjectManager) {
-                const objects = await window.realEstateObjectManager.getObjectsWithFilters();
-                return objects.map(object => ({
-                    ...object,
-                    type: 'object'
-                }));
-            }
-            
-            // Fallback: базовая логика
+            // Всегда используем логику с фильтрацией по полигону области
             const allObjects = await window.db.getAll('objects');
             const addresses = await window.db.getAll('addresses');
             const addressesMap = new Map(addresses.map(addr => [addr.id, addr]));
@@ -930,8 +921,8 @@ class DuplicatesManager {
                 if (object.status === 'deleted') continue;
                 
                 const address = addressesMap.get(object.address_id);
-                if (address && address.latitude && address.longitude) {
-                    const point = [address.latitude, address.longitude];
+                if (address && address.coordinates && address.coordinates.lat && address.coordinates.lng) {
+                    const point = [address.coordinates.lat, address.coordinates.lng];
                     if (this.isPointInPolygon(point, currentArea.polygon)) {
                         filteredObjects.push({
                             ...object,
@@ -942,7 +933,7 @@ class DuplicatesManager {
                 }
             }
             
-            console.log(`🏠 Найдено ${filteredObjects.length} объектов недвижимости в области`);
+            console.log(`🏠 Найдено ${filteredObjects.length} объектов недвижимости в области (отфильтровано по полигону)`);
             return filteredObjects;
             
         } catch (error) {

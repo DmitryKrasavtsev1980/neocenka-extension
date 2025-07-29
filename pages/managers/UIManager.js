@@ -243,7 +243,7 @@ class UIManager {
      */
     bindModalCloseButtons() {
         // Кнопки закрытия модального окна объявления
-        const closeButtons = document.querySelectorAll('#closeModalBtn, .modal-close');
+        const closeButtons = document.querySelectorAll('#closeModalBtn, #closeModalFooterBtn, .modal-close');
         closeButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 // Найдем родительское модальное окно
@@ -895,6 +895,7 @@ class UIManager {
                     }
                 };
             }
+            
             
             // Инициализируем Fotorama и график цены после отображения модального окна
             setTimeout(async () => {
@@ -2985,11 +2986,30 @@ class UIManager {
             this.addressMethodsChartInstance = null;
         }
         
+        // Уничтожаем SlimSelect экземпляры
+        this.destroySlimSelects();
+        
         // Очищаем все уведомления
         this.clearAllNotifications();
-        
-        // Закрываем все модальные окна
-        this.closeAllModals();
+    }
+    
+    /**
+     * Уничтожение всех SlimSelect экземпляров UIManager
+     */
+    destroySlimSelects() {
+        // Уничтожаем SlimSelect для статуса объявлений и адресов
+        Object.keys(this).forEach(key => {
+            if (key.startsWith('statusSlimSelect_') || key.startsWith('addressSlimSelect_')) {
+                if (this[key] && typeof this[key].destroy === 'function') {
+                    try {
+                        this[key].destroy();
+                    } catch (error) {
+                        console.warn(`Ошибка при уничтожении ${key}:`, error.message);
+                    }
+                    delete this[key];
+                }
+            }
+        });
         
         // Очищаем обработчики событий
         if (this.eventBus) {

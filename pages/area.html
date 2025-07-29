@@ -1417,6 +1417,19 @@
                                             </div>
                                         </div>
 
+                                        <div>
+                                            <label for="editHouseProblem" class="block text-sm font-medium text-gray-700">Проблемы дома</label>
+                                            <div class="flex gap-2">
+                                                <select name="house_problem_id" id="editHouseProblem">
+                                                    <option value="">Выберите проблему...</option>
+                                                </select>
+                                                <button type="button" id="houseProblemActionBtn" 
+                                                        class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 h-9">
+                                                    + Добавить
+                                                </button>
+                                            </div>
+                                        </div>
+
                                         <div class="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label for="editGasSupply" class="block text-sm font-medium text-gray-700">Газоснабжение</label>
@@ -1432,6 +1445,43 @@
                                                     <option value="">Не указано</option>
                                                     <option value="true">Да</option>
                                                     <option value="false">Нет</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div class="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label for="editPlayground" class="block text-sm font-medium text-gray-700">Детская площадка</label>
+                                                <select name="playground" id="editPlayground">
+                                                    <option value="0">Не указано</option>
+                                                    <option value="1">Да</option>
+                                                    <option value="2">Нет</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label for="editSportsGround" class="block text-sm font-medium text-gray-700">Спортивная площадка</label>
+                                                <select name="sports_ground" id="editSportsGround">
+                                                    <option value="0">Не указано</option>
+                                                    <option value="1">Да</option>
+                                                    <option value="2">Нет</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label for="editClosedTerritory" class="block text-sm font-medium text-gray-700">Закрытая территория</label>
+                                                <select name="closed_territory" id="editClosedTerritory">
+                                                    <option value="0">Не указано</option>
+                                                    <option value="1">Да</option>
+                                                    <option value="2">Нет</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label for="editUndergroundParking" class="block text-sm font-medium text-gray-700">Подземная парковка</label>
+                                                <select name="underground_parking" id="editUndergroundParking">
+                                                    <option value="0">Не указано</option>
+                                                    <option value="1">Да</option>
+                                                    <option value="2">Нет</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -1459,23 +1509,6 @@
                                                 <label for="editLivingSpaces" class="block text-sm font-medium text-gray-700">Жилых помещений</label>
                                                 <input type="number" name="living_spaces_count" id="editLivingSpaces" min="1"
                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
-                                            </div>
-                                        </div>
-
-                                        <div class="flex items-center space-x-6">
-                                            <div class="flex items-center">
-                                                <input id="editHasPlayground" name="has_playground" type="checkbox"
-                                                       class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
-                                                <label for="editHasPlayground" class="ml-2 block text-sm text-gray-900">
-                                                    Детская площадка
-                                                </label>
-                                            </div>
-                                            <div class="flex items-center">
-                                                <input id="editHasSportsArea" name="has_sports_area" type="checkbox"
-                                                       class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
-                                                <label for="editHasSportsArea" class="ml-2 block text-sm text-gray-900">
-                                                    Спортивная площадка
-                                                </label>
                                             </div>
                                         </div>
 
@@ -1754,6 +1787,59 @@
         </div>
     </div>
 
+    <!-- Модальное окно добавления проблемы дома -->
+    <div id="houseProblemModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="house-problem-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
+            <!-- Overlay -->
+            <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+            
+            <!-- Выравнивание центра -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <!-- Содержимое модального окна -->
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md relative z-10">
+                <form id="houseProblemForm">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="w-full">
+                                <h3 id="house-problem-modal-title" class="text-lg leading-6 font-medium text-gray-900 mb-4">
+                                    Добавить проблему дома
+                                </h3>
+                                
+                                <input type="hidden" name="id" id="houseProblemId">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="houseProblemName" class="block text-sm font-medium text-gray-700">Название проблемы</label>
+                                        <input type="text" name="name" id="houseProblemName" required
+                                               class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                               placeholder="Например: Аварийный">
+                                    </div>
+                                    <div>
+                                        <label for="houseProblemColor" class="block text-sm font-medium text-gray-700">Цвет маркера</label>
+                                        <div class="flex gap-2 items-center mt-1">
+                                            <input type="color" name="color" id="houseProblemColor" required
+                                                   class="w-12 h-8 rounded border border-gray-300 cursor-pointer"
+                                                   value="#DC2626">
+                                            <span class="text-sm text-gray-500">Выберите цвет для маркеров на карте</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" id="saveHouseProblem" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Сохранить
+                        </button>
+                        <button type="button" id="cancelHouseProblem" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Модальное окно просмотра объявления -->
     <div id="listingModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
         <div class="mx-auto flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
@@ -1788,9 +1874,17 @@
                     </div>
                 </div>
                 <div class="bg-gray-50 px-4 py-3 sm:px-6 border-t border-gray-200">
-                    <!-- Панель управления объявлением -->
-                    <div id="modalFooterManagement" class="p-3 bg-white rounded-lg border border-gray-200">
-                        <!-- Содержимое панели управления будет загружено динамически -->
+                    <div class="flex items-center justify-between space-x-4">
+                        <!-- Панель управления объявлением -->
+                        <div id="modalFooterManagement" class="flex-1 p-3 bg-white rounded-lg border border-gray-200">
+                            <!-- Содержимое панели управления будет загружено динамически -->
+                        </div>
+                        
+                        <!-- Кнопка закрытия модального окна -->
+                        <button type="button" id="closeModalFooterBtn"
+                                class="w-auto inline-flex justify-center border border-gray-300 shadow-sm px-4 py-2 bg-white text-gray-700 text-base font-medium text-sm rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            ✕ Закрыть
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1831,7 +1925,8 @@
                     </div>
                 </div>
                 <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button type="button" id="closeObjectModalBtn2" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                    <button type="button" id="closeObjectModalBtn2"
+                            class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
                         Закрыть
                     </button>
                 </div>

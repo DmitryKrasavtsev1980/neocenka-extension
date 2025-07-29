@@ -17,6 +17,7 @@ class AddressManager {
         this.houseClasses = [];
         this.wallMaterials = [];
         this.ceilingMaterials = [];
+        this.houseProblems = [];
         
         // Состояние
         this.isLoading = false;
@@ -28,9 +29,14 @@ class AddressManager {
             houseClassSelect: null,
             wallMaterialSelect: null,
             ceilingMaterialSelect: null,
+            houseProblemSelect: null,
             typeSelect: null,
             gasSupplySelect: null,
-            individualHeatingSelect: null
+            individualHeatingSelect: null,
+            playgroundSelect: null,
+            sportsGroundSelect: null,
+            closedTerritorySelect: null,
+            undergroundParkingSelect: null
         };
         
         // SlimSelect для фильтра по источнику
@@ -182,6 +188,10 @@ class AddressManager {
         
         document.getElementById('ceilingMaterialActionBtn')?.addEventListener('click', () => {
             this.openCeilingMaterialModal();
+        });
+        
+        document.getElementById('houseProblemActionBtn')?.addEventListener('click', () => {
+            this.openHouseProblemModal();
         });
     }
     
@@ -567,6 +577,9 @@ class AddressManager {
         // Материал перекрытий
         document.getElementById('editCeilingMaterial').value = address.ceiling_material_id || '';
         
+        // Проблемы дома
+        document.getElementById('editHouseProblem').value = address.house_problem_id || '';
+        
         // Газоснабжение
         const gasSupplyValue = address.gas_supply === null || address.gas_supply === undefined ? '' : address.gas_supply.toString();
         document.getElementById('editGasSupply').value = gasSupplyValue;
@@ -584,9 +597,22 @@ class AddressManager {
         document.getElementById('editEntrancesCount').value = address.entrances_count || '';
         document.getElementById('editLivingSpaces').value = address.living_spaces_count || '';
         
-        // Чекбоксы
-        document.getElementById('editHasPlayground').checked = address.has_playground || false;
-        document.getElementById('editHasSportsArea').checked = address.has_sports_area || false;
+        // Селекты для площадок и новых полей через SlimSelect
+        if (this.modalSlimSelects.playgroundSelect) {
+            this.modalSlimSelects.playgroundSelect.setSelected(address.playground !== undefined ? address.playground.toString() : '0');
+        }
+        
+        if (this.modalSlimSelects.sportsGroundSelect) {
+            this.modalSlimSelects.sportsGroundSelect.setSelected(address.sports_ground !== undefined ? address.sports_ground.toString() : '0');
+        }
+        
+        if (this.modalSlimSelects.closedTerritorySelect) {
+            this.modalSlimSelects.closedTerritorySelect.setSelected(address.closed_territory !== undefined ? address.closed_territory.toString() : '0');
+        }
+        
+        if (this.modalSlimSelects.undergroundParkingSelect) {
+            this.modalSlimSelects.undergroundParkingSelect.setSelected(address.underground_parking !== undefined ? address.underground_parking.toString() : '0');
+        }
         
         // Обновляем ссылки на внешние сервисы
         this.updateExternalServiceLinks(address);
@@ -624,9 +650,36 @@ class AddressManager {
      * Инициализация карты в модальном окне редактирования
      */
     initEditAddressMap(address) {
-        // Уничтожаем существующую карту
+        // Уничтожаем существующую карту и очищаем контейнер
         if (this.editAddressMap) {
-            this.editAddressMap.remove();
+            try {
+                this.editAddressMap.remove();
+            } catch (error) {
+                console.warn('Ошибка при удалении карты:', error.message);
+            }
+            this.editAddressMap = null;
+        }
+        
+        // Полностью очищаем и пересоздаем контейнер карты
+        const mapContainer = document.getElementById('editAddressMap');
+        if (mapContainer) {
+            // Удаляем все Leaflet-специфичные данные
+            delete mapContainer._leaflet_id;
+            mapContainer.innerHTML = '';
+            
+            // Убираем все Leaflet-специфичные классы и атрибуты
+            mapContainer.className = mapContainer.className.replace(/leaflet-\S+/g, '').trim();
+            mapContainer.removeAttribute('data-leaflet-id');
+            
+            // Удаляем все inline стили, которые могут быть добавлены Leaflet
+            const stylesToKeep = ['height', 'width'];
+            const computedStyle = window.getComputedStyle(mapContainer);
+            const originalHeight = computedStyle.height;
+            const originalWidth = computedStyle.width;
+            
+            mapContainer.removeAttribute('style');
+            mapContainer.style.height = originalHeight || '400px';
+            mapContainer.style.width = originalWidth || '100%';
         }
         
         // Определяем центр карты и нужно ли создавать маркер
@@ -644,10 +697,30 @@ class AddressManager {
             shouldCreateMarker = true; // Создаем маркер в центре полигона для нового адреса
         }
         
-        this.editAddressMap = L.map('editAddressMap', {
-            center: center,
-            zoom: 16
-        });
+        // Создаем карту с дополнительной проверкой контейнера
+        try {
+            this.editAddressMap = L.map('editAddressMap', {
+                center: center,
+                zoom: 16
+            });
+        } catch (error) {
+            console.error('Ошибка создания карты:', error);
+            // Если произошла ошибка, попробуем полностью пересоздать контейнер
+            if (mapContainer) {
+                const parent = mapContainer.parentNode;
+                const newContainer = document.createElement('div');
+                newContainer.id = 'editAddressMap';
+                newContainer.className = mapContainer.className.replace(/leaflet-\S+/g, '').trim();
+                newContainer.style.cssText = mapContainer.style.cssText;
+                parent.replaceChild(newContainer, mapContainer);
+                
+                // Повторная попытка создания карты
+                this.editAddressMap = L.map('editAddressMap', {
+                    center: center,
+                    zoom: 16
+                });
+            }
+        }
         
         // Добавляем тайлы
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -849,16 +922,21 @@ class AddressManager {
      */
     async initModalSlimSelects() {
         try {
-            // Уничтожаем существующие экземпляры
+            // Уничтожаем существующие экземпляры на всякий случай
             this.destroyModalSlimSelects();
             
             // Добавляем стили для SlimSelect
             this.addSlimSelectCSS();
             
-            // Загружаем справочные данные
-            await this.loadReferenceData();
+            // Загружаем справочные данные если они не загружены
+            if (!this.houseSeries || !this.houseClasses) {
+                await this.loadReferenceData();
+            }
             
-            // Инициализируем базовые селекты (тип, газоснабжение, индивидуальное отопление)
+            // Инициализируем справочные селекты
+            this.updateReferenceSelects();
+            
+            // Инициализируем базовые селекты (тип, газоснабжение, индивидуальное отопление) 
             this.initBasicModalSelects();
             
             await Helpers.debugLog('✅ SlimSelect экземпляры инициализированы для модального окна');
@@ -873,6 +951,12 @@ class AddressManager {
     showAddressModal(address) {
         const modal = document.getElementById('editAddressModal');
         if (modal) {
+            // Проверяем, не открыто ли уже модальное окно
+            if (!modal.classList.contains('hidden')) {
+                console.log('🔄 Модальное окно редактирования адреса уже открыто, пропускаем');
+                return;
+            }
+            
             modal.classList.remove('hidden');
             
             // Устанавливаем текущий редактируемый адрес
@@ -884,20 +968,24 @@ class AddressManager {
                 title.textContent = address.id ? 'Редактировать адрес' : 'Добавить адрес';
             }
             
-            // Инициализируем SlimSelect после отображения модального окна
+            // Инициализируем все компоненты модального окна в одном таймауте
             setTimeout(async () => {
-                await this.initModalSlimSelects();
-                // Очищаем форму для нового адреса или заполняем данными существующего
-                if (!address.id) {
-                    this.clearAddressForm();
-                } else {
-                    this.populateAddressForm(address);
+                try {
+                    // Сначала инициализируем SlimSelect
+                    await this.initModalSlimSelects();
+                    
+                    // Затем инициализируем карту
+                    this.initEditAddressMap(address);
+                    
+                    // Заполняем форму данными
+                    if (!address.id) {
+                        this.clearAddressForm();
+                    } else {
+                        this.populateAddressForm(address);
+                    }
+                } catch (error) {
+                    console.error('Ошибка инициализации модального окна адреса:', error);
                 }
-            }, 50);
-            
-            // Инициализируем карту после того, как модальное окно станет видимым
-            setTimeout(() => {
-                this.initEditAddressMap(address);
             }, 100);
             
             // Уведомляем об открытии
@@ -952,6 +1040,10 @@ class AddressManager {
             this.modalSlimSelects.ceilingMaterialSelect.setSelected(address.ceiling_material_id);
         }
         
+        if (this.modalSlimSelects.houseProblemSelect && address.house_problem_id) {
+            this.modalSlimSelects.houseProblemSelect.setSelected(address.house_problem_id);
+        }
+        
         // Заполняем числовые поля
         const floorsInput = document.getElementById('editFloorsCount');
         if (floorsInput) {
@@ -973,16 +1065,62 @@ class AddressManager {
             livingSpacesInput.value = address.living_spaces_count || '';
         }
         
-        // Заполняем чекбоксы
-        const playgroundCheckbox = document.getElementById('editHasPlayground');
-        if (playgroundCheckbox) {
-            playgroundCheckbox.checked = address.has_playground || false;
+        // Устанавливаем детская площадка через SlimSelect
+        if (this.modalSlimSelects.playgroundSelect) {
+            const playgroundValue = address.playground !== undefined ? address.playground.toString() : '0';
+            this.modalSlimSelects.playgroundSelect.setSelected(playgroundValue);
         }
         
-        const sportsAreaCheckbox = document.getElementById('editHasSportsArea');
-        if (sportsAreaCheckbox) {
-            sportsAreaCheckbox.checked = address.has_sports_area || false;
+        // Устанавливаем спортивная площадка через SlimSelect
+        if (this.modalSlimSelects.sportsGroundSelect) {
+            const sportsGroundValue = address.sports_ground !== undefined ? address.sports_ground.toString() : '0';
+            this.modalSlimSelects.sportsGroundSelect.setSelected(sportsGroundValue);
         }
+        
+        // Устанавливаем закрытая территория через SlimSelect
+        if (this.modalSlimSelects.closedTerritorySelect) {
+            const closedTerritoryValue = address.closed_territory !== undefined ? address.closed_territory.toString() : '0';
+            this.modalSlimSelects.closedTerritorySelect.setSelected(closedTerritoryValue);
+        }
+        
+        // Устанавливаем подземная парковка через SlimSelect
+        if (this.modalSlimSelects.undergroundParkingSelect) {
+            const undergroundParkingValue = address.underground_parking !== undefined ? address.underground_parking.toString() : '0';
+            this.modalSlimSelects.undergroundParkingSelect.setSelected(undergroundParkingValue);
+        }
+        
+        // Обновляем кнопки справочников в соответствии с выбранными значениями
+        setTimeout(() => {
+            // Обновляем кнопку серии домов
+            if (this.modalSlimSelects.houseSeriesSelect) {
+                const selectedSeries = this.modalSlimSelects.houseSeriesSelect.getSelected();
+                this.updateReferenceActionButton('houseSeriesActionBtn', selectedSeries);
+            }
+            
+            // Обновляем кнопку классов домов
+            if (this.modalSlimSelects.houseClassSelect) {
+                const selectedClass = this.modalSlimSelects.houseClassSelect.getSelected();
+                this.updateReferenceActionButton('houseClassActionBtn', selectedClass);
+            }
+            
+            // Обновляем кнопку материалов стен
+            if (this.modalSlimSelects.wallMaterialSelect) {
+                const selectedWall = this.modalSlimSelects.wallMaterialSelect.getSelected();
+                this.updateReferenceActionButton('wallMaterialActionBtn', selectedWall);
+            }
+            
+            // Обновляем кнопку материалов перекрытий
+            if (this.modalSlimSelects.ceilingMaterialSelect) {
+                const selectedCeiling = this.modalSlimSelects.ceilingMaterialSelect.getSelected();
+                this.updateReferenceActionButton('ceilingMaterialActionBtn', selectedCeiling);
+            }
+            
+            // Обновляем кнопку проблем дома
+            if (this.modalSlimSelects.houseProblemSelect) {
+                const selectedProblem = this.modalSlimSelects.houseProblemSelect.getSelected();
+                this.updateReferenceActionButton('houseProblemActionBtn', selectedProblem);
+            }
+        }, 50);
     }
     
     /**
@@ -1024,6 +1162,10 @@ class AddressManager {
             this.modalSlimSelects.ceilingMaterialSelect.setSelected('');
         }
         
+        if (this.modalSlimSelects.houseProblemSelect) {
+            this.modalSlimSelects.houseProblemSelect.setSelected('');
+        }
+        
         // Очищаем числовые поля
         const floorsInput = document.getElementById('editFloorsCount');
         if (floorsInput) {
@@ -1045,16 +1187,32 @@ class AddressManager {
             livingSpacesInput.value = '';
         }
         
-        // Сбрасываем чекбоксы
-        const playgroundCheckbox = document.getElementById('editHasPlayground');
-        if (playgroundCheckbox) {
-            playgroundCheckbox.checked = false;
+        // Сбрасываем селекты к значению "Не указано" через SlimSelect
+        if (this.modalSlimSelects.playgroundSelect) {
+            this.modalSlimSelects.playgroundSelect.setSelected('0');
         }
         
-        const sportsAreaCheckbox = document.getElementById('editHasSportsArea');
-        if (sportsAreaCheckbox) {
-            sportsAreaCheckbox.checked = false;
+        if (this.modalSlimSelects.sportsGroundSelect) {
+            this.modalSlimSelects.sportsGroundSelect.setSelected('0');
         }
+        
+        if (this.modalSlimSelects.closedTerritorySelect) {
+            this.modalSlimSelects.closedTerritorySelect.setSelected('0');
+        }
+        
+        if (this.modalSlimSelects.undergroundParkingSelect) {
+            this.modalSlimSelects.undergroundParkingSelect.setSelected('0');
+        }
+        
+        // Обновляем кнопки справочников после очистки
+        setTimeout(() => {
+            // Все справочники очищены, поэтому кнопки должны показывать "Добавить"
+            this.updateReferenceActionButton('houseSeriesActionBtn', []);
+            this.updateReferenceActionButton('houseClassActionBtn', []);
+            this.updateReferenceActionButton('wallMaterialActionBtn', []);
+            this.updateReferenceActionButton('ceilingMaterialActionBtn', []);
+            this.updateReferenceActionButton('houseProblemActionBtn', []);
+        }, 50);
     }
     
     /**
@@ -1066,9 +1224,13 @@ class AddressManager {
             modal.classList.add('hidden');
         }
         
-        // Уничтожаем карту
+        // Уничтожаем карту с защитой от ошибок
         if (this.editAddressMap) {
-            this.editAddressMap.remove();
+            try {
+                this.editAddressMap.remove();
+            } catch (error) {
+                console.warn('Ошибка при закрытии карты:', error.message);
+            }
             this.editAddressMap = null;
         }
         
@@ -1108,14 +1270,17 @@ class AddressManager {
                 house_class_id: formData.get('house_class_id') || null,
                 wall_material_id: formData.get('wall_material_id') || null,
                 ceiling_material_id: formData.get('ceiling_material_id') || null,
+                house_problem_id: formData.get('house_problem_id') || null,
                 gas_supply: formData.get('gas_supply') ? formData.get('gas_supply') === 'true' : null,
                 individual_heating: formData.get('individual_heating') ? formData.get('individual_heating') === 'true' : null,
                 floors_count: formData.get('floors_count') ? parseInt(formData.get('floors_count')) : null,
                 build_year: formData.get('build_year') ? parseInt(formData.get('build_year')) : null,
                 entrances_count: formData.get('entrances_count') ? parseInt(formData.get('entrances_count')) : null,
                 living_spaces_count: formData.get('living_spaces_count') ? parseInt(formData.get('living_spaces_count')) : null,
-                has_playground: formData.get('has_playground') === 'on',
-                has_sports_area: formData.get('has_sports_area') === 'on',
+                playground: formData.get('playground') ? parseInt(formData.get('playground')) : 0,
+                sports_ground: formData.get('sports_ground') ? parseInt(formData.get('sports_ground')) : 0,
+                closed_territory: formData.get('closed_territory') ? parseInt(formData.get('closed_territory')) : 0,
+                underground_parking: formData.get('underground_parking') ? parseInt(formData.get('underground_parking')) : 0,
                 coordinates: this.currentEditingAddress?.coordinates || null,
                 map_area_id: this.dataState.getState('currentAreaId'),
                 source: this.currentEditingAddress?.source || 'manual',
@@ -1575,18 +1740,20 @@ class AddressManager {
      * Получение справочных данных для экспорта
      */
     async getReferenceDataForExport() {
-        const [houseSeries, houseClasses, wallMaterials, ceilingMaterials] = await Promise.all([
+        const [houseSeries, houseClasses, wallMaterials, ceilingMaterials, houseProblems] = await Promise.all([
             window.db.getAll('house_series'),
             window.db.getAll('house_classes'),
             window.db.getAll('wall_materials'),
-            window.db.getAll('ceiling_materials')
+            window.db.getAll('ceiling_materials'),
+            window.db.getAll('house_problems')
         ]);
         
         return {
             house_series: houseSeries,
             house_classes: houseClasses,
             wall_materials: wallMaterials,
-            ceiling_materials: ceilingMaterials
+            ceiling_materials: ceilingMaterials,
+            house_problems: houseProblems
         };
     }
     
@@ -1792,7 +1959,7 @@ class AddressManager {
             return;
         }
         
-        const referenceTypes = ['house_series', 'house_classes', 'wall_materials', 'ceiling_materials'];
+        const referenceTypes = ['house_series', 'house_classes', 'wall_materials', 'ceiling_materials', 'house_problems'];
         
         for (const refType of referenceTypes) {
             if (referenceData[refType] && Array.isArray(referenceData[refType])) {
@@ -1862,7 +2029,7 @@ class AddressManager {
                     continue;
                 }
                 
-                // Создаем новый адрес
+                // Создаем новый адрес с обработкой совместимости
                 const newAddress = {
                     ...address,
                     id: Helpers.generateId(),
@@ -1871,6 +2038,36 @@ class AddressManager {
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 };
+                
+                // Обрабатываем совместимость со старыми форматами boolean полей
+                if (address.has_playground !== undefined) {
+                    // Старый формат: has_playground (boolean) -> playground (integer)
+                    newAddress.playground = address.has_playground === true ? 1 : (address.has_playground === false ? 2 : 0);
+                    delete newAddress.has_playground;
+                } else if (newAddress.playground === undefined) {
+                    newAddress.playground = 0; // По умолчанию "Не указано"
+                }
+                
+                if (address.has_sports_area !== undefined) {
+                    // Старый формат: has_sports_area (boolean) -> sports_ground (integer)
+                    newAddress.sports_ground = address.has_sports_area === true ? 1 : (address.has_sports_area === false ? 2 : 0);
+                    delete newAddress.has_sports_area;
+                } else if (newAddress.sports_ground === undefined) {
+                    newAddress.sports_ground = 0; // По умолчанию "Не указано"
+                }
+                
+                // Устанавливаем значения по умолчанию для новых полей
+                if (newAddress.closed_territory === undefined) {
+                    newAddress.closed_territory = 0; // По умолчанию "Не указано"
+                }
+                
+                if (newAddress.underground_parking === undefined) {
+                    newAddress.underground_parking = 0; // По умолчанию "Не указано"
+                }
+                
+                if (newAddress.house_problem_id === undefined) {
+                    newAddress.house_problem_id = null; // По умолчанию не указано
+                }
                 
                 // Валидируем
                 const validation = Validators.validateAddress(newAddress);
@@ -1996,20 +2193,22 @@ class AddressManager {
      */
     async loadReferenceData() {
         try {
-            const [houseSeries, houseClasses, wallMaterials, ceilingMaterials] = await Promise.all([
+            const [houseSeries, houseClasses, wallMaterials, ceilingMaterials, houseProblems] = await Promise.all([
                 window.db.getAll('house_series'),
                 window.db.getAll('house_classes'),
                 window.db.getAll('wall_materials'),
-                window.db.getAll('ceiling_materials')
+                window.db.getAll('ceiling_materials'),
+                window.db.getAll('house_problems')
             ]);
             
             this.houseSeries = houseSeries;
             this.houseClasses = houseClasses;
             this.wallMaterials = wallMaterials;
             this.ceilingMaterials = ceilingMaterials;
+            this.houseProblems = houseProblems;
             
-            // Обновляем селекты
-            this.updateReferenceSelects();
+            // Не обновляем селекты автоматически, чтобы избежать мигания
+            // this.updateReferenceSelects();
             
         } catch (error) {
             console.error('Error loading reference data:', error);
@@ -2020,8 +2219,27 @@ class AddressManager {
      * Обновление селектов справочных данных
      */
     updateReferenceSelects() {
-        // Уничтожаем существующие SlimSelect экземпляры
-        this.destroyModalSlimSelects();
+        // Уничтожаем только справочные SlimSelect экземпляры, не базовые
+        if (this.modalSlimSelects.houseSeriesSelect) {
+            this.modalSlimSelects.houseSeriesSelect.destroy();
+            this.modalSlimSelects.houseSeriesSelect = null;
+        }
+        if (this.modalSlimSelects.houseClassSelect) {
+            this.modalSlimSelects.houseClassSelect.destroy();
+            this.modalSlimSelects.houseClassSelect = null;
+        }
+        if (this.modalSlimSelects.wallMaterialSelect) {
+            this.modalSlimSelects.wallMaterialSelect.destroy();
+            this.modalSlimSelects.wallMaterialSelect = null;
+        }
+        if (this.modalSlimSelects.ceilingMaterialSelect) {
+            this.modalSlimSelects.ceilingMaterialSelect.destroy();
+            this.modalSlimSelects.ceilingMaterialSelect = null;
+        }
+        if (this.modalSlimSelects.houseProblemSelect) {
+            this.modalSlimSelects.houseProblemSelect.destroy();
+            this.modalSlimSelects.houseProblemSelect = null;
+        }
         
         // Серии домов
         const houseSeriesSelect = document.getElementById('editHouseSeries');
@@ -2125,6 +2343,31 @@ class AddressManager {
             this.applySlimSelectStyles('#editCeilingMaterial');
         }
         
+        // Проблемы домов
+        const houseProblemSelect = document.getElementById('editHouseProblem');
+        if (houseProblemSelect) {
+            houseProblemSelect.innerHTML = '<option value="">Выберите проблему...</option>';
+            this.houseProblems.forEach(problem => {
+                houseProblemSelect.innerHTML += `<option value="${problem.id}">${problem.name}</option>`;
+            });
+            
+            this.modalSlimSelects.houseProblemSelect = new SlimSelect({
+                select: '#editHouseProblem',
+                settings: {
+                    searchText: 'Поиск...',
+                    searchPlaceholder: 'Поиск проблемы дома',
+                    searchingText: 'Поиск...',
+                    placeholderText: 'Выберите проблему...'
+                },
+                events: {
+                    afterChange: (newVal) => {
+                        this.updateReferenceActionButton('houseProblemActionBtn', newVal);
+                    }
+                }
+            });
+            this.applySlimSelectStyles('#editHouseProblem');
+        }
+        
         // Инициализируем SlimSelect для основных селектов
         this.initBasicModalSelects();
     }
@@ -2168,6 +2411,54 @@ class AddressManager {
             });
             this.applySlimSelectStyles('#editIndividualHeating');
         }
+        
+        // Детская площадка
+        const playgroundSelect = document.getElementById('editPlayground');
+        if (playgroundSelect && !this.modalSlimSelects.playgroundSelect) {
+            this.modalSlimSelects.playgroundSelect = new SlimSelect({
+                select: '#editPlayground',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editPlayground');
+        }
+        
+        // Спортивная площадка
+        const sportsGroundSelect = document.getElementById('editSportsGround');
+        if (sportsGroundSelect && !this.modalSlimSelects.sportsGroundSelect) {
+            this.modalSlimSelects.sportsGroundSelect = new SlimSelect({
+                select: '#editSportsGround',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editSportsGround');
+        }
+        
+        // Закрытая территория
+        const closedTerritorySelect = document.getElementById('editClosedTerritory');
+        if (closedTerritorySelect && !this.modalSlimSelects.closedTerritorySelect) {
+            this.modalSlimSelects.closedTerritorySelect = new SlimSelect({
+                select: '#editClosedTerritory',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editClosedTerritory');
+        }
+        
+        // Подземная парковка
+        const undergroundParkingSelect = document.getElementById('editUndergroundParking');
+        if (undergroundParkingSelect && !this.modalSlimSelects.undergroundParkingSelect) {
+            this.modalSlimSelects.undergroundParkingSelect = new SlimSelect({
+                select: '#editUndergroundParking',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editUndergroundParking');
+        }
     }
     
     /**
@@ -2204,6 +2495,14 @@ class AddressManager {
         });
         document.getElementById('cancelCeilingMaterial')?.addEventListener('click', () => {
             this.closeModal('ceilingMaterialModal');
+        });
+        
+        // Проблемы дома
+        document.getElementById('saveHouseProblem')?.addEventListener('click', () => {
+            this.saveHouseProblem();
+        });
+        document.getElementById('cancelHouseProblem')?.addEventListener('click', () => {
+            this.closeModal('houseProblemModal');
         });
     }
     
@@ -2449,12 +2748,22 @@ class AddressManager {
      * Уничтожение SlimSelect экземпляров модального окна
      */
     destroyModalSlimSelects() {
+        // Сначала пытаемся корректно уничтожить все SlimSelect экземпляры
         Object.keys(this.modalSlimSelects).forEach(key => {
             if (this.modalSlimSelects[key]) {
-                this.modalSlimSelects[key].destroy();
+                try {
+                    if (typeof this.modalSlimSelects[key].destroy === 'function') {
+                        this.modalSlimSelects[key].destroy();
+                    }
+                } catch (error) {
+                    console.warn(`Ошибка при уничтожении SlimSelect ${key}:`, error.message);
+                }
                 this.modalSlimSelects[key] = null;
             }
         });
+        
+        // Не выполняем глобальную очистку DOM, чтобы не удалять SlimSelect из других модальных окон
+        // Полагаемся только на правильное уничтожение через destroy() методы выше
     }
     
     /**
@@ -2780,6 +3089,55 @@ class AddressManager {
         }
     }
     
+    openHouseProblemModal() {
+        // Проверяем, нужно ли редактировать или добавлять
+        const select = document.getElementById('editHouseProblem');
+        if (!select) return;
+        
+        try {
+            const selectedValue = select.value;
+            const modal = document.getElementById('houseProblemModal');
+            const title = document.getElementById('house-problem-modal-title');
+            const form = document.getElementById('houseProblemForm');
+            const nameInput = document.getElementById('houseProblemName');
+            const colorInput = document.getElementById('houseProblemColor');
+            
+            if (!modal) return;
+            
+            // Очищаем форму
+            if (form) form.reset();
+            if (colorInput) colorInput.value = '#DC2626'; // Красный по умолчанию
+            
+            if (selectedValue) {
+                // Редактирование существующей проблемы
+                const problem = this.houseProblems.find(p => p.id === selectedValue);
+                if (problem) {
+                    if (nameInput) nameInput.value = problem.name;
+                    if (colorInput) colorInput.value = problem.color;
+                }
+                
+                // Устанавливаем заголовок
+                if (title) {
+                    title.textContent = 'Редактировать проблему дома';
+                }
+                
+                modal.classList.remove('hidden');
+            } else {
+                // Добавление новой проблемы
+                
+                // Устанавливаем заголовок
+                if (title) {
+                    title.textContent = 'Добавить проблему дома';
+                }
+                
+                modal.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error('Error loading house problem for edit:', error);
+            this.progressManager.showError('Ошибка загрузки проблемы дома');
+        }
+    }
+    
     /**
      * Сохранение серии дома
      */
@@ -2987,6 +3345,70 @@ class AddressManager {
         } catch (error) {
             console.error('Error saving ceiling material:', error);
             this.progressManager.showError('Ошибка сохранения материала перекрытий: ' + error.message);
+        }
+    }
+
+    /**
+     * Сохранение проблемы дома
+     */
+    async saveHouseProblem() {
+        try {
+            const form = document.getElementById('houseProblemForm');
+            const formData = new FormData(form);
+            
+            const name = formData.get('name')?.trim();
+            const color = formData.get('color')?.trim();
+            
+            if (!name) {
+                this.progressManager.showError('Название проблемы обязательно');
+                return;
+            }
+            
+            if (!color) {
+                this.progressManager.showError('Цвет обязателен');
+                return;
+            }
+            
+            // Проверяем, редактируем существующую или создаем новую
+            const select = document.getElementById('editHouseProblem');
+            const problemId = select?.value;
+            
+            const problem = {
+                name: name,
+                color: color,
+                updated_at: new Date().toISOString()
+            };
+            
+            if (problemId) {
+                // Редактирование существующей проблемы
+                problem.id = problemId;
+                
+                // Получаем существующую проблему для сохранения created_at
+                const existingProblem = await window.db.get('house_problems', problemId);
+                if (existingProblem) {
+                    problem.created_at = existingProblem.created_at;
+                }
+            } else {
+                // Создание новой проблемы
+                problem.id = Helpers.generateId();
+                problem.created_at = new Date().toISOString();
+                problem.updated_at = problem.created_at;
+            }
+
+            if (problemId) {
+                await window.db.update('house_problems', problem);
+            } else {
+                await window.db.add('house_problems', problem);
+            }
+            
+            this.closeModal('houseProblemModal');
+            await this.loadReferenceData();
+            
+            this.progressManager.showSuccess(problemId ? 'Проблема дома обновлена' : 'Проблема дома добавлена');
+
+        } catch (error) {
+            console.error('Error saving house problem:', error);
+            this.progressManager.showError('Ошибка сохранения проблемы дома: ' + error.message);
         }
     }
 

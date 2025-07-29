@@ -6,7 +6,7 @@
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 18; // Версия 18: добавлено поле individual_heating в addresses
+    this.version = 20; // Версия 20: добавлены поля closed_territory, underground_parking, переделаны playground и sports_ground
     this.db = null;
   }
 
@@ -35,6 +35,28 @@ class NeocenkaDB {
           }
         } catch (error) {
           console.warn('Warning: Could not migrate data to version 14:', error);
+        }
+        
+        // Запускаем миграцию данных к версии 19 (добавление поля house_problem_id в addresses)
+        try {
+          const migrationV19Flag = await this.getSetting('migration_v19_completed');
+          if (!migrationV19Flag) {
+            await this.migrateAddressesToV19();
+            await this.setSetting('migration_v19_completed', true);
+          }
+        } catch (error) {
+          console.warn('Warning: Could not migrate addresses to version 19:', error);
+        }
+        
+        // Запускаем миграцию данных к версии 20 (добавление новых полей и изменение чекбоксов)
+        try {
+          const migrationV20Flag = await this.getSetting('migration_v20_completed');
+          if (!migrationV20Flag) {
+            await this.migrateAddressesToV20();
+            await this.setSetting('migration_v20_completed', true);
+          }
+        } catch (error) {
+          console.warn('Warning: Could not migrate addresses to version 20:', error);
         }
         
         // Инициализируем справочники по умолчанию с задержкой
@@ -208,6 +230,13 @@ class NeocenkaDB {
       ceilingMaterialsStore.createIndex('created_at', 'created_at', { unique: false });
     }
 
+    // House problems store (справочник проблем домов)
+    if (!this.db.objectStoreNames.contains('house_problems')) {
+      const houseProblemsStore = this.db.createObjectStore('house_problems', { keyPath: 'id' });
+      houseProblemsStore.createIndex('name', 'name', { unique: true });
+      houseProblemsStore.createIndex('created_at', 'created_at', { unique: false });
+    }
+
     // Inpars categories store (справочник категорий Inpars)
     if (!this.db.objectStoreNames.contains('inpars_categories')) {
       const inparsCategoriesStore = this.db.createObjectStore('inpars_categories', { keyPath: 'id' });
@@ -319,6 +348,110 @@ class NeocenkaDB {
       
     } catch (error) {
       console.error('Failed to migrate listings to version 14:', error);
+    }
+  }
+
+  /**
+   * Миграция адресов к версии 19 (добавление поля house_problem_id)
+   */
+  async migrateAddressesToV19() {
+    try {
+      const existingAddresses = await this.getAll('addresses');
+      if (existingAddresses.length === 0) return;
+
+      console.log(`Starting migration of ${existingAddresses.length} addresses to version 19`);
+      let migratedCount = 0;
+      let skippedCount = 0;
+
+      for (const address of existingAddresses) {
+        try {
+          // Проверяем, нужна ли миграция (если поле уже есть, пропускаем)
+          if (address.house_problem_id !== undefined) {
+            skippedCount++;
+            continue;
+          }
+
+          // Создаем обновленный адрес с новым полем
+          const migratedAddress = { 
+            ...address,
+            house_problem_id: null // По умолчанию нет проблемы
+          };
+
+          // Обновляем запись в БД
+          await this.update('addresses', migratedAddress);
+          migratedCount++;
+
+        } catch (error) {
+          console.warn(`Failed to migrate address ${address.id}:`, error);
+        }
+      }
+
+      console.log(`Successfully migrated ${migratedCount} addresses to version 19 (skipped ${skippedCount} already migrated)`);
+      
+    } catch (error) {
+      console.error('Failed to migrate addresses to version 19:', error);
+    }
+  }
+
+  /**
+   * Миграция адресов к версии 20
+   * Добавляет новые поля: closed_territory, underground_parking
+   * Конвертирует playground и sports_ground из boolean в select (0-не указано, 1-да, 2-нет)
+   */
+  async migrateAddressesToV20() {
+    try {
+      const existingAddresses = await this.getAll('addresses');
+      if (existingAddresses.length === 0) return;
+
+      console.log(`Starting migration of ${existingAddresses.length} addresses to version 20`);
+      let migratedCount = 0;
+      let skippedCount = 0;
+
+      for (const address of existingAddresses) {
+        try {
+          // Проверяем, нужна ли миграция (если новые поля уже есть, пропускаем)
+          if (address.closed_territory !== undefined && address.underground_parking !== undefined) {
+            skippedCount++;
+            continue;
+          }
+
+          // Конвертируем playground и sports_ground из boolean в select
+          let playground = 0; // По умолчанию "Не указано"
+          if (address.playground === true) {
+            playground = 1; // "Да"
+          } else if (address.playground === false) {
+            playground = 2; // "Нет"
+          }
+
+          let sportsGround = 0; // По умолчанию "Не указано"
+          if (address.sports_ground === true) {
+            sportsGround = 1; // "Да"
+          } else if (address.sports_ground === false) {
+            sportsGround = 2; // "Нет"
+          }
+
+          // Создаем обновленный адрес с новыми полями
+          const migratedAddress = { 
+            ...address,
+            closed_territory: 0, // По умолчанию "Не указано"
+            underground_parking: 0, // По умолчанию "Не указано"
+            playground: playground,
+            sports_ground: sportsGround
+          };
+
+          // Обновляем запись в БД
+          await this.update('addresses', migratedAddress);
+          migratedCount++;
+
+        } catch (error) {
+          console.warn(`Failed to migrate address ${address.id}:`, error);
+        }
+      }
+
+      console.log(`Successfully migrated ${migratedCount} addresses to version 20 (skipped ${skippedCount} already migrated)`);
+      
+    } catch (error) {
+      console.error('Failed to migrate addresses to version 20:', error);
     }
   }
 
@@ -1137,7 +1270,7 @@ class NeocenkaDB {
   async initDefaultData() {
     try {
       // Проверяем, что база данных инициализирована и stores созданы
-      if (!this.db || !this.db.objectStoreNames.contains('wall_materials') || !this.db.objectStoreNames.contains('house_classes')) {
+      if (!this.db || !this.db.objectStoreNames.contains('wall_materials') || !this.db.objectStoreNames.contains('house_classes') || !this.db.objectStoreNames.contains('house_problems')) {
         console.log('Database stores not ready yet, skipping default data initialization');
         return;
       }
@@ -1232,6 +1365,40 @@ class NeocenkaDB {
         }
         
         console.log('Инициализированы материалы перекрытий по умолчанию');
+      }
+
+      // Проверяем и инициализируем проблемы домов
+      const existingHouseProblems = await this.getAll('house_problems');
+      
+      if (existingHouseProblems.length === 0) {
+        const defaultHouseProblems = [
+          {
+            id: 'id_0000001',
+            name: 'Аварийный',
+            color: '#DC2626' // Красный
+          },
+          {
+            id: 'id_0000002',
+            name: 'На стяжках',
+            color: '#EA580C' // Оранжевый
+          },
+          {
+            id: 'id_0000003',
+            name: 'Под реновацию',
+            color: '#CA8A04' // Желтый
+          },
+          {
+            id: 'id_0000004',
+            name: 'Плохое состояние подъездов',
+            color: '#A3A3A3' // Бежевый (серый)
+          }
+        ];
+
+        for (const problem of defaultHouseProblems) {
+          await this.add('house_problems', problem);
+        }
+        
+        console.log('Инициализированы проблемы домов по умолчанию');
       }
       
     } catch (error) {
