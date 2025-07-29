@@ -26,6 +26,10 @@ class SegmentsManager {
         this.houseClasses = [];
         this.wallMaterials = [];
         this.ceilingMaterials = [];
+        this.houseProblems = [];
+        
+        // Активный фильтр отображения маркеров
+        this.activeSegmentMapFilter = 'year';
         
         // Конфигурация
         this.config = {
@@ -67,6 +71,9 @@ class SegmentsManager {
         
         // Привязка к модальным окнам
         this.bindModalEvents();
+        
+        // Привязка к фильтрам карты
+        this.bindMapFilterEvents();
         
         // Привязка к панели управления (только кнопки таблицы)
         this.bindPanelEvents();
@@ -238,6 +245,11 @@ class SegmentsManager {
             this.closeSegmentModal();
         });
         
+        // Кнопка закрытия в футере модального окна
+        document.getElementById('closeSegmentModalFooterBtn')?.addEventListener('click', () => {
+            this.closeSegmentModal();
+        });
+        
         // Кнопка сохранения сегмента
         document.getElementById('saveSegmentBtn')?.addEventListener('click', () => {
             this.saveSegment();
@@ -248,6 +260,96 @@ class SegmentsManager {
             e.preventDefault();
             this.saveSegment();
         });
+    }
+    
+    /**
+     * Привязка к фильтрам карты
+     */
+    bindMapFilterEvents() {
+        const filterButtons = [
+            'segmentFilterByYear',
+            'segmentFilterBySeries', 
+            'segmentFilterByFloors',
+            'segmentFilterByObjects',
+            'segmentFilterByListings',
+            'segmentFilterByHouseClass',
+            'segmentFilterByHouseProblems'
+        ];
+        
+        filterButtons.forEach(buttonId => {
+            const button = document.getElementById(buttonId);
+            if (button) {
+                button.addEventListener('click', (e) => {
+                    const filter = e.target.getAttribute('data-filter');
+                    this.setSegmentMapFilter(filter);
+                });
+            }
+        });
+    }
+    
+    /**
+     * Установка фильтра карты сегмента
+     */
+    setSegmentMapFilter(filterType) {
+        this.activeSegmentMapFilter = filterType;
+        
+        // Обновляем стили кнопок
+        this.updateSegmentFilterButtons(filterType);
+        
+        // Перерисовываем маркеры
+        this.redrawSegmentMapMarkers();
+    }
+    
+    /**
+     * Обновление стилей кнопок фильтров
+     */
+    updateSegmentFilterButtons(activeFilter) {
+        const filterButtons = document.querySelectorAll('[data-filter]');
+        filterButtons.forEach(button => {
+            const filter = button.getAttribute('data-filter');
+            if (filter === activeFilter) {
+                button.classList.remove('bg-white', 'border-gray-300', 'text-gray-700');
+                button.classList.add('bg-indigo-50', 'border-indigo-500', 'text-indigo-700');
+            } else {
+                button.classList.remove('bg-indigo-50', 'border-indigo-500', 'text-indigo-700');
+                button.classList.add('bg-white', 'border-gray-300', 'text-gray-700');
+            }
+        });
+    }
+    
+    /**
+     * Перерисовка маркеров на карте сегмента
+     */
+    async redrawSegmentMapMarkers() {
+        if (!this.segmentMap || !this.segmentAddressesLayer) return;
+        
+        try {
+            // Удаляем существующие маркеры
+            this.segmentMap.removeLayer(this.segmentAddressesLayer);
+            
+            // Получаем адреса
+            const addresses = this.dataState.getState('addresses') || [];
+            const addressesWithCoords = addresses.filter(addr => 
+                addr.coordinates && 
+                addr.coordinates.lat && 
+                addr.coordinates.lng
+            );
+            
+            // Создаем новую группу маркеров
+            this.segmentAddressesLayer = L.layerGroup();
+            
+            // Добавляем маркеры с новым стилем
+            for (const address of addressesWithCoords) {
+                const marker = await this.createTriangularAddressMarker(address);
+                this.segmentAddressesLayer.addLayer(marker);
+            }
+            
+            // Добавляем слой на карту
+            this.segmentAddressesLayer.addTo(this.segmentMap);
+            
+        } catch (error) {
+            console.error('❌ Ошибка перерисовки маркеров:', error);
+        }
     }
     
     /**
@@ -348,12 +450,14 @@ class SegmentsManager {
             this.houseClasses = await window.db.getAll('house_classes') || [];
             this.wallMaterials = await window.db.getAll('wall_materials') || [];
             this.ceilingMaterials = await window.db.getAll('ceiling_materials') || [];
+            this.houseProblems = await window.db.getAll('house_problems') || [];
             
             console.log('📊 Загружено справочных данных:');
             console.log('- Серии домов:', this.houseSeries.length, this.houseSeries);
             console.log('- Классы домов:', this.houseClasses.length, this.houseClasses);
             console.log('- Материалы стен:', this.wallMaterials.length, this.wallMaterials);
             console.log('- Материалы перекрытий:', this.ceilingMaterials.length, this.ceilingMaterials);
+            console.log('- Проблемы домов:', this.houseProblems.length, this.houseProblems);
             
             console.log('✅ Справочные данные для сегментов загружены');
             
@@ -365,6 +469,7 @@ class SegmentsManager {
             this.houseClasses = [];
             this.wallMaterials = [];
             this.ceilingMaterials = [];
+            this.houseProblems = [];
         }
     }
     
@@ -1345,6 +1450,9 @@ class SegmentsManager {
                     this.segmentMap.invalidateSize();
                     console.log('✅ Размеры карты обновлены');
                     
+                    // Инициализируем активный фильтр по умолчанию
+                    this.setSegmentMapFilter('year');
+                    
                     // Загружаем адреса области
                     this.loadAddressesOnMap();
                 }
@@ -1393,10 +1501,10 @@ class SegmentsManager {
             this.segmentAddressesLayer = L.layerGroup();
             
             // Добавляем маркеры для каждого адреса
-            addressesWithCoords.forEach(address => {
-                const marker = this.createAddressMarker(address);
+            for (const address of addressesWithCoords) {
+                const marker = await this.createTriangularAddressMarker(address);
                 this.segmentAddressesLayer.addLayer(marker);
-            });
+            }
             
             // Добавляем слой на карту
             this.segmentAddressesLayer.addTo(this.segmentMap);
@@ -1474,7 +1582,194 @@ class SegmentsManager {
     }
     
     /**
-     * Создание маркера адреса (как в MapManager)
+     * Создание треугольного маркера адреса (как в MapManager)
+     */
+    async createTriangularAddressMarker(address) {
+        // Определяем высоту маркера по этажности
+        const floorCount = address.floors_count || 0;
+        let markerHeight;
+        if (floorCount >= 1 && floorCount <= 5) {
+            markerHeight = 10;
+        } else if (floorCount > 5 && floorCount <= 10) {
+            markerHeight = 15;
+        } else if (floorCount > 10 && floorCount <= 20) {
+            markerHeight = 20;
+        } else if (floorCount > 20) {
+            markerHeight = 25;
+        } else {
+            markerHeight = 10; // По умолчанию
+        }
+        
+        // Определяем цвет маркера
+        let markerColor = '#3b82f6'; // Цвет по умолчанию
+        if (address.wall_material_id) {
+            try {
+                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+                if (wallMaterial && wallMaterial.color) {
+                    markerColor = wallMaterial.color;
+                }
+            } catch (error) {
+                console.warn('SegmentsManager: Не удалось получить материал стен для адреса:', address.id);
+            }
+        }
+        
+        // Определяем текст на маркере в зависимости от активного фильтра
+        let labelText = '';
+        switch (this.activeSegmentMapFilter) {
+            case 'year':
+                labelText = address.build_year || '';
+                break;
+            case 'series':
+                if (address.house_series_id) {
+                    try {
+                        const houseSeries = await window.db.get('house_series', address.house_series_id);
+                        labelText = houseSeries ? houseSeries.name : '';
+                    } catch (error) {
+                        console.warn('SegmentsManager: Не удалось получить серию дома:', address.house_series_id);
+                    }
+                }
+                break;
+            case 'floors':
+                labelText = address.floors_count || '';
+                break;
+            case 'objects':
+                try {
+                    const objects = await window.db.getObjectsByAddress(address.id);
+                    labelText = objects.length > 0 ? objects.length.toString() : '';
+                } catch (error) {
+                    console.warn('SegmentsManager: Не удалось получить объекты для адреса:', address.id);
+                }
+                break;
+            case 'listings':
+                try {
+                    const listings = await window.db.getListingsByAddress(address.id);
+                    labelText = listings.length > 0 ? listings.length.toString() : '';
+                } catch (error) {
+                    console.warn('SegmentsManager: Не удалось получить объявления для адреса:', address.id);
+                }
+                break;
+            case 'house_class':
+                if (address.house_class_id) {
+                    try {
+                        const houseClass = await window.db.get('house_classes', address.house_class_id);
+                        labelText = houseClass ? houseClass.name : '';
+                    } catch (error) {
+                        console.warn('SegmentsManager: Не удалось получить класс дома:', address.house_class_id);
+                    }
+                }
+                break;
+            case 'house_problems':
+                if (address.house_problem_id) {
+                    try {
+                        const houseProblem = await window.db.get('house_problems', address.house_problem_id);
+                        labelText = houseProblem ? houseProblem.name : '';
+                    } catch (error) {
+                        console.warn('SegmentsManager: Не удалось получить проблему дома:', address.house_problem_id);
+                    }
+                }
+                break;
+            default:
+                labelText = address.build_year || '';
+        }
+        
+        // Создаем HTML для маркера с треугольником
+        let markerHtml = `
+            <div class="leaflet-marker-icon-wrapper" style="position: relative;">
+                <div style="
+                    width: 0; 
+                    height: 0; 
+                    border-left: 7.5px solid transparent; 
+                    border-right: 7.5px solid transparent; 
+                    border-top: ${markerHeight}px solid ${markerColor};
+                    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+                "></div>`;
+        
+        // Добавляем корону для класса дома
+        if (this.activeSegmentMapFilter === 'house_class' && address.house_class_id) {
+            try {
+                const houseClass = await window.db.get('house_classes', address.house_class_id);
+                if (houseClass && houseClass.color) {
+                    markerHtml += `
+                        <div style="
+                            position: absolute;
+                            top: -12px;
+                            left: 0px;
+                            width: 15px;
+                            height: 12px;
+                            background: ${houseClass.color};
+                            clip-path: polygon(0% 100%, 20% 0%, 40% 70%, 60% 0%, 80% 70%, 100% 0%, 100% 100%);
+                            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+                        "></div>`;
+                }
+            } catch (error) {
+                console.warn('SegmentsManager: Не удалось получить класс дома для короны:', address.house_class_id);
+            }
+        }
+        
+        // Добавляем прямоугольник для проблем дома
+        if (this.activeSegmentMapFilter === 'house_problems' && address.house_problem_id) {
+            try {
+                const houseProblem = await window.db.get('house_problems', address.house_problem_id);
+                if (houseProblem && houseProblem.color) {
+                    markerHtml += `
+                        <div style="
+                            position: absolute;
+                            top: -12px;
+                            left: 0px;
+                            width: 15px;
+                            height: 12px;
+                            background: ${houseProblem.color};
+                            border-radius: 1px;
+                            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+                        "></div>`;
+                }
+            } catch (error) {
+                console.warn('SegmentsManager: Не удалось получить проблему дома для прямоугольника:', address.house_problem_id);
+            }
+        }
+        
+        // Добавляем текст метки
+        if (labelText) {
+            markerHtml += `
+                <span class="leaflet-marker-iconlabel" style="
+                    position: absolute; 
+                    left: 15px; 
+                    top: 0px; 
+                    font-size: 11px; 
+                    font-weight: 600; 
+                    color: #374151; 
+                    background: rgba(255,255,255,0.9); 
+                    padding: 1px 4px; 
+                    border-radius: 3px; 
+                    white-space: nowrap;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                ">${labelText}</span>`;
+        }
+        
+        markerHtml += '</div>';
+        
+        const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
+            addressId: address.id,
+            icon: L.divIcon({
+                className: 'address-marker',
+                html: markerHtml,
+                iconSize: [15, markerHeight],
+                iconAnchor: [7.5, markerHeight]
+            })
+        });
+        
+        marker.bindPopup(this.createAddressPopup(address));
+        
+        // Добавляем обработчик клика для выбора адреса
+        marker.on('click', () => {
+            this.toggleAddressSelection(address.id);
+        });
+        
+        return marker;
+    }
+    
+    /**
+     * Создание маркера адреса (старый метод, оставляем для совместимости)
      */
     createAddressMarker(address) {
         const color = this.getAddressColor(address);

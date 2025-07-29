@@ -1944,33 +1944,40 @@
             <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
             
             <!-- Содержимое модального окна -->
-            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full relative z-10 max-h-[90vh]">
-                <form id="segmentForm">
-                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                        <div class="sm:flex sm:items-start">
-                            <div class="w-full">
-                                <!-- Заголовок -->
-                                <div class="flex items-center justify-between mb-6">
-                                    <h3 class="text-lg leading-6 font-medium text-gray-900" id="segment-modal-title">
-                                        Создать сегмент
-                                    </h3>
-                                    <button type="button" id="closeSegmentModalBtn" class="text-gray-400 hover:text-gray-600">
-                                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                </div>
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full relative z-10 h-[90vh] flex flex-col">
+                <form id="segmentForm" class="flex flex-col h-full">
+                    <!-- Хедер -->
+                    <div class="bg-white px-4 pt-5 pb-4 sm:px-6 border-b border-gray-200 flex-shrink-0">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900" id="segment-modal-title">
+                                Создать сегмент
+                            </h3>
+                            <button type="button" id="closeSegmentModalBtn" class="text-gray-400 hover:text-gray-600">
+                                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
 
-                                <!-- Содержимое -->
-                                <div class="max-h-[70vh] overflow-y-auto">
-                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                        <!-- Левая колонка - параметры -->
-                                        <div class="space-y-4">
-                                            <input type="hidden" name="id" id="segmentId">
-                                            <input type="hidden" name="map_area_id" id="segmentMapAreaId">
-                                            
+                    <!-- Содержимое с прокруткой -->
+                    <div class="flex-1 overflow-y-auto px-4 py-4 sm:px-6 min-h-0">
+                                    <!-- Скрытые поля -->
+                                    <input type="hidden" name="id" id="segmentId">
+                                    <input type="hidden" name="map_area_id" id="segmentMapAreaId">
+                                    
+                                    <!-- Блок фильтров сегмента -->
+                                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h4 class="text-md font-medium text-gray-900">Фильтры сегмента</h4>
+                                            <button type="button" id="applySegmentFiltersBtn" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Применить фильтры
+                                            </button>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                             <!-- Название сегмента -->
-                                            <div>
+                                            <div class="md:col-span-2 lg:col-span-3">
                                                 <label for="segmentName" class="block text-sm font-medium text-gray-700">Название сегмента</label>
                                                 <input type="text" name="name" id="segmentName" required
                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
@@ -2032,7 +2039,7 @@
                                             </div>
 
                                             <!-- Этажность -->
-                                            <div class="grid grid-cols-2 gap-4">
+                                            <div class="grid grid-cols-2 gap-2">
                                                 <div>
                                                     <label for="segmentFloorsFrom" class="block text-sm font-medium text-gray-700">Этажей от</label>
                                                     <input type="number" name="floors_from" id="segmentFloorsFrom" min="1" max="100"
@@ -2048,52 +2055,79 @@
                                             </div>
 
                                             <!-- Годы постройки -->
-                                            <div class="grid grid-cols-2 gap-4">
+                                            <div class="grid grid-cols-2 gap-2">
                                                 <div>
-                                                    <label for="segmentBuildYearFrom" class="block text-sm font-medium text-gray-700">Год постройки от</label>
+                                                    <label for="segmentBuildYearFrom" class="block text-sm font-medium text-gray-700">Год от</label>
                                                     <input type="number" name="build_year_from" id="segmentBuildYearFrom" min="1800" max="2100"
                                                            class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="1800">
                                                 </div>
                                                 <div>
-                                                    <label for="segmentBuildYearTo" class="block text-sm font-medium text-gray-700">Год постройки до</label>
+                                                    <label for="segmentBuildYearTo" class="block text-sm font-medium text-gray-700">Год до</label>
                                                     <input type="number" name="build_year_to" id="segmentBuildYearTo" min="1800" max="2100"
                                                            class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="2024">
                                                 </div>
                                             </div>
                                         </div>
-                                        
-                                        <!-- Правая колонка - карта и выбор адресов -->
-                                        <div class="space-y-4">
-                                            <!-- Карта -->
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-2">Карта с адресами</label>
-                                                <div id="segmentMap" style="height: 400px; width: 100%;" class="border border-gray-300 rounded-md"></div>
-                                            </div>
-                                            
-                                            <!-- Выбор адресов -->
-                                            <div>
-                                                <label for="segmentAddresses" class="block text-sm font-medium text-gray-700">Выбор адресов<span class="text-red-500 ml-1">*</span></label>
-                                                <select name="addresses" id="segmentAddresses" multiple class="slim-select" required>
-                                                    <!-- Опции будут загружены динамически -->
-                                                </select>
-                                                <p class="mt-1 text-sm text-gray-500">
-                                                    Выберите адреса, которые должны входить в сегмент
-                                                </p>
-                                            </div>
+                                    </div>
+                                    
+                                    <!-- Фильтры отображения карты -->
+                                    <div class="mb-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Отображение маркеров</label>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <button type="button" id="segmentFilterByYear" data-filter="year" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Год
+                                            </button>
+                                            <button type="button" id="segmentFilterBySeries" data-filter="series" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Серия
+                                            </button>
+                                            <button type="button" id="segmentFilterByFloors" data-filter="floors" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Этажность
+                                            </button>
+                                            <button type="button" id="segmentFilterByObjects" data-filter="objects" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Объектов
+                                            </button>
+                                            <button type="button" id="segmentFilterByListings" data-filter="listings" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Объявлений
+                                            </button>
+                                            <button type="button" id="segmentFilterByHouseClass" data-filter="house_class" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Класс дома
+                                            </button>
+                                            <button type="button" id="segmentFilterByHouseProblems" data-filter="house_problems" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Проблемы дома
+                                            </button>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-                        </div>
+
+                                    <!-- Карта на всю ширину -->
+                                    <div class="mb-6">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Карта с адресами</label>
+                                        <div id="segmentMap" style="height: 500px; width: 100%;" class="border border-gray-300 rounded-md"></div>
+                                    </div>
+                                    
+                                    <!-- Выбор адресов -->
+                                    <div>
+                                        <label for="segmentAddresses" class="block text-sm font-medium text-gray-700">Выбор адресов<span class="text-red-500 ml-1">*</span></label>
+                                        <select name="addresses" id="segmentAddresses" multiple class="slim-select" required>
+                                            <!-- Опции будут загружены динамически -->
+                                        </select>
+                                        <p class="mt-1 text-sm text-gray-500">
+                                            Выберите адреса, которые должны входить в сегмент
+                                        </p>
+                                    </div>
                     </div>
-                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                    
+                    <!-- Футер -->
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 border-t border-gray-200 flex-shrink-0 flex flex-row-reverse space-x-reverse space-x-3">
+                        <button type="submit" class="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:text-sm">
                             Сохранить сегмент
                         </button>
-                        <button type="button" id="cancelSegmentBtn" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        <button type="button" id="cancelSegmentBtn" class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
                             Отмена
+                        </button>
+                        <button type="button" id="closeSegmentModalFooterBtn" class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
+                            Закрыть
                         </button>
                     </div>
                 </form>
