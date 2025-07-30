@@ -273,7 +273,9 @@ class SegmentsManager {
             'segmentFilterByObjects',
             'segmentFilterByListings',
             'segmentFilterByHouseClass',
-            'segmentFilterByHouseProblems'
+            'segmentFilterByHouseProblems',
+            'segmentFilterByCommercialSpaces',
+            'segmentFilterByComment'
         ];
         
         filterButtons.forEach(buttonId => {
@@ -1667,6 +1669,15 @@ class SegmentsManager {
                         console.warn('SegmentsManager: Не удалось получить проблему дома:', address.house_problem_id);
                     }
                 }
+                break;
+            case 'commercial_spaces':
+                if (address.commercial_spaces !== undefined) {
+                    const commercialSpacesOptions = ['Не указано', 'Да', 'Нет'];
+                    labelText = commercialSpacesOptions[address.commercial_spaces] || 'Не указано';
+                }
+                break;
+            case 'comment':
+                labelText = address.comment ? 'Есть комментарий' : 'Нет комментария';
                 break;
             default:
                 labelText = address.build_year || '';

@@ -1336,14 +1336,21 @@
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
             
             <!-- Содержимое модального окна -->
-            <div class="inline-block align-middle bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full relative z-10">
+            <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full relative z-10 max-h-[90vh]">
                 <form id="editAddressForm">
                     <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                         <div class="sm:flex sm:items-start">
-                            <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
-                                <h3 id="address-modal-title" class="text-lg leading-6 font-medium text-gray-900">
-                                    Редактировать адрес
-                                </h3>
+                            <div class="w-full">
+                                <!-- Заголовок -->
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 id="address-modal-title" class="text-lg leading-6 font-medium text-gray-900">
+                                        Редактировать адрес
+                                    </h3>
+                                </div>
+                                
+                                <!-- Содержимое с прокруткой -->
+                                <div class="max-h-[70vh] overflow-y-auto">
+                                    <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
                                 
                                 <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     <!-- Левая колонка - поля формы -->
@@ -1488,9 +1495,26 @@
 
                                         <div class="grid grid-cols-2 gap-4">
                                             <div>
+                                                <label for="editCommercialSpaces" class="block text-sm font-medium text-gray-700">Коммерческие помещения</label>
+                                                <select name="commercial_spaces" id="editCommercialSpaces">
+                                                    <option value="0">Не указано</option>
+                                                    <option value="1">Да</option>
+                                                    <option value="2">Нет</option>
+                                                </select>
+                                            </div>
+                                            <div>
                                                 <label for="editFloorsCount" class="block text-sm font-medium text-gray-700">Этажей</label>
                                                 <input type="number" name="floors_count" id="editFloorsCount" min="1"
                                                        class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6">
+                                            </div>
+                                        </div>
+
+                                        <div class="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label for="editCeilingHeight" class="block text-sm font-medium text-gray-700">Высота потолков</label>
+                                                <input type="text" name="ceiling_height" id="editCeilingHeight"
+                                                       class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                       placeholder="например: 2.7 м">
                                             </div>
                                             <div>
                                                 <label for="editBuildYear" class="block text-sm font-medium text-gray-700">Год постройки</label>
@@ -1546,6 +1570,17 @@
                                                 </a>
                                             </div>
                                         </div>
+
+                                        <!-- Поле комментария -->
+                                        <div class="mt-6">
+                                            <label for="editComment" class="block text-sm font-medium text-gray-700 mb-2">Комментарий</label>
+                                            <textarea name="comment" id="editComment" rows="8"
+                                                      class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 resize-none"
+                                                      placeholder="Введите комментарий к адресу..."
+                                                      style="height: 300px; min-height: 300px;"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
                                     </div>
                                 </div>
                             </div>
@@ -2038,6 +2073,46 @@
                                                 </select>
                                             </div>
 
+                                            <!-- Индивидуальное отопление -->
+                                            <div>
+                                                <label for="segmentIndividualHeating" class="block text-sm font-medium text-gray-700">Индивидуальное отопление</label>
+                                                <select name="individual_heating" id="segmentIndividualHeating" multiple class="slim-select">
+                                                    <option value="">Не указано</option>
+                                                    <option value="true">Да</option>
+                                                    <option value="false">Нет</option>
+                                                </select>
+                                            </div>
+
+                                            <!-- Закрытая территория -->
+                                            <div>
+                                                <label for="segmentClosedTerritory" class="block text-sm font-medium text-gray-700">Закрытая территория</label>
+                                                <select name="closed_territory" id="segmentClosedTerritory" multiple class="slim-select">
+                                                    <option value="">Не указано</option>
+                                                    <option value="true">Да</option>
+                                                    <option value="false">Нет</option>
+                                                </select>
+                                            </div>
+
+                                            <!-- Подземная парковка -->
+                                            <div>
+                                                <label for="segmentUndergroundParking" class="block text-sm font-medium text-gray-700">Подземная парковка</label>
+                                                <select name="underground_parking" id="segmentUndergroundParking" multiple class="slim-select">
+                                                    <option value="">Не указано</option>
+                                                    <option value="true">Да</option>
+                                                    <option value="false">Нет</option>
+                                                </select>
+                                            </div>
+
+                                            <!-- Коммерческие помещения -->
+                                            <div>
+                                                <label for="segmentCommercialSpaces" class="block text-sm font-medium text-gray-700">Коммерческие помещения</label>
+                                                <select name="commercial_spaces" id="segmentCommercialSpaces" multiple class="slim-select">
+                                                    <option value="0">Не указано</option>
+                                                    <option value="1">Да</option>
+                                                    <option value="2">Нет</option>
+                                                </select>
+                                            </div>
+
                                             <!-- Этажность -->
                                             <div class="grid grid-cols-2 gap-2">
                                                 <div>
@@ -2069,6 +2144,40 @@
                                                            placeholder="2024">
                                                 </div>
                                             </div>
+
+                                            <!-- Высота потолков -->
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label for="segmentCeilingHeightFrom" class="block text-sm font-medium text-gray-700">Высота потолков от</label>
+                                                    <input type="number" name="ceiling_height_from" id="segmentCeilingHeightFrom" min="1" max="10" step="0.1"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           placeholder="2.0">
+                                                </div>
+                                                <div>
+                                                    <label for="segmentCeilingHeightTo" class="block text-sm font-medium text-gray-700">Высота потолков до</label>
+                                                    <input type="number" name="ceiling_height_to" id="segmentCeilingHeightTo" min="1" max="10" step="0.1"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           placeholder="4.0">
+                                                </div>
+                                            </div>
+
+                                            <!-- Выбор адресов -->
+                                            <div class="md:col-span-2 lg:col-span-3">
+                                                <label for="segmentAddresses" class="block text-sm font-medium text-gray-700">Выбор адресов<span class="text-red-500 ml-1">*</span></label>
+                                                <select name="addresses" id="segmentAddresses" multiple class="slim-select" required>
+                                                    <!-- Опции будут загружены динамически -->
+                                                </select>
+                                                <p class="mt-1 text-sm text-gray-500">
+                                                    Выберите адреса, которые должны входить в сегмент
+                                                </p>
+                                            </div>
+
+                                            <!-- Кнопка сохранения сегмента -->
+                                            <div class="md:col-span-2 lg:col-span-3 flex justify-end mt-4">
+                                                <button type="submit" class="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:text-sm">
+                                                    Сохранить сегмент
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                     
@@ -2097,6 +2206,12 @@
                                             <button type="button" id="segmentFilterByHouseProblems" data-filter="house_problems" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                                                 Проблемы дома
                                             </button>
+                                            <button type="button" id="segmentFilterByCommercialSpaces" data-filter="commercial_spaces" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Коммерческие помещения
+                                            </button>
+                                            <button type="button" id="segmentFilterByComment" data-filter="comment" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                                Комментарий
+                                            </button>
                                         </div>
                                     </div>
 
@@ -2105,29 +2220,15 @@
                                         <label class="block text-sm font-medium text-gray-700 mb-2">Карта с адресами</label>
                                         <div id="segmentMap" style="height: 500px; width: 100%;" class="border border-gray-300 rounded-md"></div>
                                     </div>
-                                    
-                                    <!-- Выбор адресов -->
-                                    <div>
-                                        <label for="segmentAddresses" class="block text-sm font-medium text-gray-700">Выбор адресов<span class="text-red-500 ml-1">*</span></label>
-                                        <select name="addresses" id="segmentAddresses" multiple class="slim-select" required>
-                                            <!-- Опции будут загружены динамически -->
-                                        </select>
-                                        <p class="mt-1 text-sm text-gray-500">
-                                            Выберите адреса, которые должны входить в сегмент
-                                        </p>
-                                    </div>
                     </div>
                     
                     <!-- Футер -->
                     <div class="bg-gray-50 px-4 py-3 sm:px-6 border-t border-gray-200 flex-shrink-0 flex flex-row-reverse space-x-reverse space-x-3">
-                        <button type="submit" class="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:text-sm">
-                            Сохранить сегмент
+                        <button type="button" id="closeSegmentModalFooterBtn" class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
+                            Закрыть
                         </button>
                         <button type="button" id="cancelSegmentBtn" class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
                             Отмена
-                        </button>
-                        <button type="button" id="closeSegmentModalFooterBtn" class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
-                            Закрыть
                         </button>
                     </div>
                 </form>

@@ -400,16 +400,8 @@ class AreaPage {
      * Привязка обработчиков кнопок карты
      */
     bindMapButtons() {
-        // Кнопка обновления карты
-        const refreshMapBtn = document.getElementById('refreshMapBtn');
-        if (refreshMapBtn) {
-            refreshMapBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (this.mapManager) {
-                    this.mapManager.refreshMapData();
-                }
-            });
-        }
+        // Кнопка обновления карты обрабатывается в MapManager.js
+        // Убрана дублирующая привязка для предотвращения двойных уведомлений
         
         console.log('✅ Обработчики кнопок карты привязаны');
     }

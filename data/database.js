@@ -6,7 +6,7 @@
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 20; // Версия 20: добавлены поля closed_territory, underground_parking, переделаны playground и sports_ground
+    this.version = 21; // Версия 21: добавлены поля commercial_spaces, ceiling_height и comment
     this.db = null;
   }
 
@@ -57,6 +57,17 @@ class NeocenkaDB {
           }
         } catch (error) {
           console.warn('Warning: Could not migrate addresses to version 20:', error);
+        }
+        
+        // Запускаем миграцию данных к версии 21 (добавление полей commercial_spaces, ceiling_height, comment)
+        try {
+          const migrationV21Flag = await this.getSetting('migration_v21_completed');
+          if (!migrationV21Flag) {
+            await this.migrateAddressesToV21();
+            await this.setSetting('migration_v21_completed', true);
+          }
+        } catch (error) {
+          console.warn('Warning: Could not migrate addresses to version 21:', error);
         }
         
         // Инициализируем справочники по умолчанию с задержкой
@@ -452,6 +463,51 @@ class NeocenkaDB {
       
     } catch (error) {
       console.error('Failed to migrate addresses to version 20:', error);
+    }
+  }
+
+  /**
+   * Миграция адресов к версии 21 (добавление полей commercial_spaces, ceiling_height, comment)
+   */
+  async migrateAddressesToV21() {
+    try {
+      const existingAddresses = await this.getAll('addresses');
+      
+      if (existingAddresses.length === 0) {
+        console.log('No addresses to migrate to version 21');
+        return;
+      }
+
+      console.log(`Starting migration of ${existingAddresses.length} addresses to version 21`);
+
+      let migratedCount = 0;
+      let skippedCount = 0;
+
+      for (const address of existingAddresses) {
+        // Проверяем, нужно ли мигрировать этот адрес
+        if (address.commercial_spaces !== undefined && 
+            address.ceiling_height !== undefined && 
+            address.comment !== undefined) {
+          skippedCount++;
+          continue;
+        }
+
+        const updatedAddress = {
+          ...address,
+          commercial_spaces: address.commercial_spaces !== undefined ? address.commercial_spaces : 0, // 0 = "Не указано"
+          ceiling_height: address.ceiling_height || null, // Текстовое поле
+          comment: address.comment || '' // Пустая строка по умолчанию
+        };
+
+        await this.update('addresses', updatedAddress);
+        migratedCount++;
+      }
+
+      console.log(`Successfully migrated ${migratedCount} addresses to version 21 (skipped ${skippedCount} already migrated)`);
+      
+    } catch (error) {
+      console.error('Failed to migrate addresses to version 21:', error);
+      throw error;
     }
   }
 

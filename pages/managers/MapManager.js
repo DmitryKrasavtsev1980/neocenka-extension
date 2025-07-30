@@ -59,6 +59,12 @@ class MapManager {
                 await this.onAreaLoaded(area);
             });
             
+            this.eventBus.on(CONSTANTS.EVENTS.AREA_UPDATED, async (data) => {
+                console.log('🔄 MapManager: Получено событие AREA_UPDATED, обновляем карту и полигон');
+                const area = data.area || data;
+                await this.onAreaUpdated(area, data);
+            });
+            
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESSES_LOADED, async (addresses) => {
                 await this.loadAddressesOnMap();
             });
@@ -128,6 +134,25 @@ class MapManager {
         
         // Центрируем карту на области после загрузки
         this.centerOnArea();
+    }
+    
+    /**
+     * Обработка обновления области
+     */
+    async onAreaUpdated(area, eventData) {
+        if (!this.mapState.initialized) {
+            return;
+        }
+        
+        // Если обновлен полигон, перерисовываем его и центрируем карту
+        if (eventData.polygonImported || eventData.addressesImported) {
+            console.log('🗺️ MapManager: Обновляем полигон и центрируем карту');
+            this.displayAreaPolygon();
+            this.centerOnArea();
+        }
+        
+        // Всегда обновляем данные карты при обновлении области
+        await this.loadMapData();
     }
     
     /**
@@ -1295,6 +1320,7 @@ class MapManager {
         
         if (this.eventBus) {
             this.eventBus.offAll(CONSTANTS.EVENTS.AREA_LOADED);
+            this.eventBus.offAll(CONSTANTS.EVENTS.AREA_UPDATED);
             this.eventBus.offAll(CONSTANTS.EVENTS.ADDRESSES_LOADED);
             this.eventBus.offAll(CONSTANTS.EVENTS.LISTINGS_LOADED);
             this.eventBus.offAll(CONSTANTS.EVENTS.MAP_FILTER_CHANGED);

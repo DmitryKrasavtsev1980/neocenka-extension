@@ -36,7 +36,8 @@ class AddressManager {
             playgroundSelect: null,
             sportsGroundSelect: null,
             closedTerritorySelect: null,
-            undergroundParkingSelect: null
+            undergroundParkingSelect: null,
+            commercialSpacesSelect: null
         };
         
         // SlimSelect для фильтра по источнику
@@ -614,6 +615,19 @@ class AddressManager {
             this.modalSlimSelects.undergroundParkingSelect.setSelected(address.underground_parking !== undefined ? address.underground_parking.toString() : '0');
         }
         
+        if (this.modalSlimSelects.commercialSpacesSelect) {
+            const commercialSpacesValue = address.commercial_spaces !== undefined ? address.commercial_spaces.toString() : '0';
+            // Отладочный вывод
+            await Helpers.debugLog('🔍 Loading commercial_spaces from address: ' + address.commercial_spaces + ' Setting to: ' + commercialSpacesValue);
+            this.modalSlimSelects.commercialSpacesSelect.setSelected(commercialSpacesValue);
+        }
+        
+        // Высота потолков
+        document.getElementById('editCeilingHeight').value = address.ceiling_height || '';
+        
+        // Комментарий
+        document.getElementById('editComment').value = address.comment || '';
+        
         // Обновляем ссылки на внешние сервисы
         this.updateExternalServiceLinks(address);
     }
@@ -1089,6 +1103,24 @@ class AddressManager {
             this.modalSlimSelects.undergroundParkingSelect.setSelected(undergroundParkingValue);
         }
         
+        // Устанавливаем коммерческие помещения через SlimSelect
+        if (this.modalSlimSelects.commercialSpacesSelect) {
+            const commercialSpacesValue = address.commercial_spaces !== undefined ? address.commercial_spaces.toString() : '0';
+            Helpers.debugLog('🔍 [populateAddressForm] Loading commercial_spaces: ' + address.commercial_spaces + ' Setting to: ' + commercialSpacesValue);
+            this.modalSlimSelects.commercialSpacesSelect.setSelected(commercialSpacesValue);
+        }
+        
+        // Устанавливаем новые текстовые поля
+        const ceilingHeightInput = document.getElementById('editCeilingHeight');
+        if (ceilingHeightInput) {
+            ceilingHeightInput.value = address.ceiling_height || '';
+        }
+        
+        const commentInput = document.getElementById('editComment');
+        if (commentInput) {
+            commentInput.value = address.comment || '';
+        }
+        
         // Обновляем кнопки справочников в соответствии с выбранными значениями
         setTimeout(() => {
             // Обновляем кнопку серии домов
@@ -1187,6 +1219,16 @@ class AddressManager {
             livingSpacesInput.value = '';
         }
         
+        const ceilingHeightInput = document.getElementById('editCeilingHeight');
+        if (ceilingHeightInput) {
+            ceilingHeightInput.value = '';
+        }
+        
+        const commentInput = document.getElementById('editComment');
+        if (commentInput) {
+            commentInput.value = '';
+        }
+        
         // Сбрасываем селекты к значению "Не указано" через SlimSelect
         if (this.modalSlimSelects.playgroundSelect) {
             this.modalSlimSelects.playgroundSelect.setSelected('0');
@@ -1202,6 +1244,10 @@ class AddressManager {
         
         if (this.modalSlimSelects.undergroundParkingSelect) {
             this.modalSlimSelects.undergroundParkingSelect.setSelected('0');
+        }
+        
+        if (this.modalSlimSelects.commercialSpacesSelect) {
+            this.modalSlimSelects.commercialSpacesSelect.setSelected('0');
         }
         
         // Обновляем кнопки справочников после очистки
@@ -1261,6 +1307,9 @@ class AddressManager {
             
             const formData = new FormData(form);
             
+            // Отладочный вывод для проверки поля commercial_spaces
+            await Helpers.debugLog('🔍 FormData commercial_spaces: ' + formData.get('commercial_spaces'));
+            
             // Собираем данные из формы
             const addressData = {
                 id: this.currentEditingAddress?.id || Helpers.generateId(),
@@ -1277,6 +1326,9 @@ class AddressManager {
                 build_year: formData.get('build_year') ? parseInt(formData.get('build_year')) : null,
                 entrances_count: formData.get('entrances_count') ? parseInt(formData.get('entrances_count')) : null,
                 living_spaces_count: formData.get('living_spaces_count') ? parseInt(formData.get('living_spaces_count')) : null,
+                commercial_spaces: formData.get('commercial_spaces') ? parseInt(formData.get('commercial_spaces')) : 0,
+                ceiling_height: formData.get('ceiling_height') || null,
+                comment: formData.get('comment') || '',
                 playground: formData.get('playground') ? parseInt(formData.get('playground')) : 0,
                 sports_ground: formData.get('sports_ground') ? parseInt(formData.get('sports_ground')) : 0,
                 closed_territory: formData.get('closed_territory') ? parseInt(formData.get('closed_territory')) : 0,
@@ -1287,6 +1339,9 @@ class AddressManager {
                 created_at: this.currentEditingAddress?.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
+            
+            // Отладочный вывод для проверки значения commercial_spaces в финальных данных
+            await Helpers.debugLog('🔍 Final addressData commercial_spaces: ' + addressData.commercial_spaces);
             
             // Валидация
             const validation = Validators.validateAddress(addressData);
@@ -1665,6 +1720,7 @@ class AddressManager {
     
     /**
      * Экспорт адресов в файл
+     * Версия 1.3: добавлены поля commercial_spaces, ceiling_height, comment
      */
     async exportAddressesToFile() {
         const currentArea = this.dataState.getState('currentArea');
@@ -1709,7 +1765,7 @@ class AddressManager {
                     area_name: currentArea.name,
                     area_id: currentArea.id,
                     total_addresses: areaAddresses.length,
-                    export_version: '1.2',
+                    export_version: '1.3',
                     includes_polygon: currentArea.polygon && currentArea.polygon.length > 0,
                     includes_references: true
                 },
@@ -1759,6 +1815,7 @@ class AddressManager {
     
     /**
      * Импорт адресов из файла
+     * Поддерживает версии 1.2 и 1.3 (с полями commercial_spaces, ceiling_height, comment)
      */
     async importAddressesFromFile(event) {
         const file = event.target.files[0];
@@ -1844,8 +1901,11 @@ class AddressManager {
             // Импортируем адреса
             const { importedCount, skippedCount } = await this.importAddresses(areaAddresses, actualArea);
             
-            // Обновляем данные
+            // Обновляем данные адресов
             await this.refreshAddressData();
+            
+            // Обновляем объявления для области (что приведет к отправке AREA_UPDATED)
+            await this.loadListings();
             
             let importMessage = `Импортировано: ${importedCount} адресов${skippedCount > 0 ? `, пропущено: ${skippedCount}` : ''}`;
             if (polygonImported) {
@@ -2067,6 +2127,19 @@ class AddressManager {
                 
                 if (newAddress.house_problem_id === undefined) {
                     newAddress.house_problem_id = null; // По умолчанию не указано
+                }
+                
+                // Новые поля версии 21
+                if (newAddress.commercial_spaces === undefined) {
+                    newAddress.commercial_spaces = 0; // По умолчанию "Не указано"
+                }
+                
+                if (newAddress.ceiling_height === undefined) {
+                    newAddress.ceiling_height = null; // По умолчанию не указано
+                }
+                
+                if (newAddress.comment === undefined) {
+                    newAddress.comment = ''; // По умолчанию пустая строка
                 }
                 
                 // Валидируем
@@ -2398,6 +2471,18 @@ class AddressManager {
                 }
             });
             this.applySlimSelectStyles('#editGasSupply');
+        }
+        
+        // Коммерческие помещения
+        const commercialSpacesSelect = document.getElementById('editCommercialSpaces');
+        if (commercialSpacesSelect && !this.modalSlimSelects.commercialSpacesSelect) {
+            this.modalSlimSelects.commercialSpacesSelect = new SlimSelect({
+                select: '#editCommercialSpaces',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editCommercialSpaces');
         }
         
         // Индивидуальное отопление
