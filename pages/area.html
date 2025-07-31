@@ -1090,7 +1090,6 @@
                         <table id="segmentsTable" class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style="width: 30px;"></th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Количество домов</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Подсегменты</th>
@@ -1133,16 +1132,51 @@
             
             <div id="duplicatesPanelContent" class="px-4 pb-5 hidden">
                 <div class="mb-6 flex items-center justify-between">
-                    <div>
+                    <!-- Панель фильтров сегментов -->
+                    <div class="p-4 bg-blue-50 border border-blue-200 rounded-md">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-sm font-medium text-gray-900">Фильтр сегментов</h4>
+                            <button type="button" id="clearSegmentFiltersBtn" class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-0.5 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                                Очистить
+                            </button>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Фильтр по статусу -->
+                            <div>
+                                <label for="duplicatesStatusFilter" class="block text-xs font-medium text-gray-700 mb-1">Статус</label>
+                                <select id="duplicatesStatusFilter">
+                                    <option value="all">Все</option>
+                                    <option value="active">Активные</option>
+                                    <option value="archived">Архивные</option>
+                                    <option value="needs_processing">Требуют обработки</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Фильтр по сегменту -->
+                            <div>
+                                <label for="duplicatesSegmentFilter" class="block text-xs font-medium text-gray-700 mb-1">Сегмент</label>
+                                <select id="duplicatesSegmentFilter">
+                                    <option value="">Все сегменты</option>
+                                    <!-- Опции будут загружены динамически -->
+                                </select>
+                            </div>
+                            
+                            <!-- Фильтр по подсегменту -->
+                            <div>
+                                <label for="duplicatesSubsegmentFilter" class="block text-xs font-medium text-gray-700 mb-1">Подсегмент</label>
+                                <select id="duplicatesSubsegmentFilter" disabled>
+                                    <option value="">Все подсегменты</option>
+                                    <!-- Опции будут загружены динамически -->
+                                </select>
+                            </div>
+                        </div>
                     </div>
+                    
                     <div class="flex items-center space-x-3">
-                        <!-- Фильтр статусов -->
-                        <select id="duplicatesStatusFilter" class="block w-40 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                            <option value="all">Все</option>
-                            <option value="active">Активные</option>
-                            <option value="archived">Архивные</option>
-                            <option value="needs_processing">Требуют обработки</option>
-                        </select>
                         
                         <!-- Кнопки операций -->
                         <button type="button" id="mergeDuplicatesBtn" disabled class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed" title="Создать объект недвижимости из выбранных элементов">
@@ -2230,15 +2264,147 @@
                                         <label class="block text-sm font-medium text-gray-700 mb-2">Карта с адресами</label>
                                         <div id="segmentMap" style="height: 500px; width: 100%;" class="border border-gray-300 rounded-md"></div>
                                     </div>
+
+                                    <!-- График распределения площадей -->
+                                    <div class="mb-6">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Распределение площадей по типам недвижимости</label>
+                                        <div id="areaDistributionChart" class="border border-gray-300 rounded-md bg-white" style="height: 350px; width: 100%;"></div>
+                                    </div>
+
+                                    <!-- Фильтр подсегментов -->
+                                    <div class="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h4 class="text-md font-medium text-gray-900">Фильтр подсегментов</h4>
+                                            <div class="flex space-x-2">
+                                                <button type="button" id="saveSubsegmentBtn" class="inline-flex justify-center rounded-md border border-transparent shadow-sm px-3 py-1 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                                    Сохранить подсегмент
+                                                </button>
+                                                <button type="button" id="deleteSubsegmentBtn" class="inline-flex justify-center rounded-md border border-transparent shadow-sm px-3 py-1 bg-red-600 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                                                    Удалить подсегмент
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <!-- Скрытые поля для подсегмента -->
+                                            <input type="hidden" id="subsegmentId">
+                                            <input type="hidden" id="subsegmentSegmentId">
+
+                                            <!-- Выбор существующего подсегмента -->
+                                            <div class="lg:col-span-2">
+                                                <label for="subsegmentSelect" class="block text-sm font-medium text-gray-700">Выбор подсегмента</label>
+                                                <select id="subsegmentSelect" class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6">
+                                                    <option value="">Создать новый подсегмент</option>
+                                                    <!-- Подсегменты будут загружены динамически -->
+                                                </select>
+                                            </div>
+
+                                            <!-- Название подсегмента -->
+                                            <div class="lg:col-span-2">
+                                                <label for="subsegmentName" class="block text-sm font-medium text-gray-700">Название подсегмента</label>
+                                                <input type="text" id="subsegmentName" 
+                                                       class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6"
+                                                       placeholder="Название будет сгенерировано автоматически" readonly>
+                                            </div>
+
+                                            <!-- Тип недвижимости -->
+                                            <div>
+                                                <label for="subsegmentPropertyType" class="block text-sm font-medium text-gray-700">Тип недвижимости</label>
+                                                <select id="subsegmentPropertyType" multiple class="slim-select">
+                                                    <option value="studio">Студия</option>
+                                                    <option value="1k">1-комнатная</option>
+                                                    <option value="2k">2-комнатная</option>
+                                                    <option value="3k">3-комнатная</option>
+                                                    <option value="4k">4+ комнатная</option>
+                                                </select>
+                                            </div>
+
+                                            <!-- Общая площадь -->
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label for="subsegmentAreaFrom" class="block text-sm font-medium text-gray-700">Площадь от (м²)</label>
+                                                    <input type="number" id="subsegmentAreaFrom" min="1" max="500"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6"
+                                                           placeholder="1">
+                                                </div>
+                                                <div>
+                                                    <label for="subsegmentAreaTo" class="block text-sm font-medium text-gray-700">Площадь до (м²)</label>
+                                                    <input type="number" id="subsegmentAreaTo" min="1" max="500"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6"
+                                                           placeholder="500">
+                                                </div>
+                                            </div>
+
+                                            <!-- Этаж -->
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label for="subsegmentFloorFrom" class="block text-sm font-medium text-gray-700">Этаж от</label>
+                                                    <input type="number" id="subsegmentFloorFrom" min="1" max="100"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6"
+                                                           placeholder="1">
+                                                </div>
+                                                <div>
+                                                    <label for="subsegmentFloorTo" class="block text-sm font-medium text-gray-700">Этаж до</label>
+                                                    <input type="number" id="subsegmentFloorTo" min="1" max="100"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6"
+                                                           placeholder="100">
+                                                </div>
+                                            </div>
+
+                                            <!-- Цена -->
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label for="subsegmentPriceFrom" class="block text-sm font-medium text-gray-700">Цена от</label>
+                                                    <input type="number" id="subsegmentPriceFrom" min="1" max="10000000000"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6"
+                                                           placeholder="1">
+                                                </div>
+                                                <div>
+                                                    <label for="subsegmentPriceTo" class="block text-sm font-medium text-gray-700">Цена до</label>
+                                                    <input type="number" id="subsegmentPriceTo" min="1" max="10000000000"
+                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-blue-600 sm:text-sm/6"
+                                                           placeholder="10000000000">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Таблица подсегментов -->
+                                    <div class="mb-6">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Подсегменты</label>
+                                        <div class="overflow-x-auto">
+                                            <table id="subsegmentsTable" class="min-w-full divide-y divide-gray-200 border border-gray-300 rounded-md">
+                                                <thead class="bg-gray-50">
+                                                    <tr>
+                                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Название
+                                                        </th>
+                                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Тип недвижимости
+                                                        </th>
+                                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Площадь (м²)
+                                                        </th>
+                                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Этажи
+                                                        </th>
+                                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Цена
+                                                        </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    <!-- Строки будут добавлены динамически -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                     </div>
                     
                     <!-- Футер -->
                     <div class="bg-gray-50 px-4 py-3 sm:px-6 border-t border-gray-200 flex-shrink-0 flex flex-row-reverse space-x-reverse space-x-3">
                         <button type="button" id="closeSegmentModalFooterBtn" class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
                             Закрыть
-                        </button>
-                        <button type="button" id="cancelSegmentBtn" class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm">
-                            Отмена
                         </button>
                     </div>
                 </form>

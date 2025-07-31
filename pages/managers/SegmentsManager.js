@@ -31,6 +31,22 @@ class SegmentsManager {
         // Активный фильтр отображения маркеров
         this.activeSegmentMapFilter = 'year';
         
+        // Флаг для предотвращения двойной перерисовки карты
+        this.isUpdatingMap = false;
+        
+        // Флаг для отключения обработчиков событий во время заполнения формы
+        this.isFillingForm = false;
+        
+        // График распределения площадей
+        this.areaDistributionChart = null;
+        
+        // Состояние подсегментов
+        this.subsegmentsState = {
+            subsegments: [],
+            selectedSubsegment: null,
+            editingSubsegment: null
+        };
+        
         // Конфигурация
         this.config = {
             pageLength: 10,
@@ -240,19 +256,18 @@ class SegmentsManager {
             this.closeSegmentModal();
         });
         
-        // Кнопка отмены в модальном окне
-        document.getElementById('cancelSegmentBtn')?.addEventListener('click', () => {
-            this.closeSegmentModal();
-        });
+        // Кнопка отмены убрана - остается только кнопка "Закрыть"
         
         // Кнопка закрытия в футере модального окна
         document.getElementById('closeSegmentModalFooterBtn')?.addEventListener('click', () => {
             this.closeSegmentModal();
         });
         
-        // Кнопка сохранения сегмента
-        document.getElementById('saveSegmentBtn')?.addEventListener('click', () => {
-            this.saveSegment();
+        // Кнопка сохранения сегмента - используем только submit формы
+        document.getElementById('saveSegmentBtn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Программно отправляем форму
+            document.getElementById('segmentForm')?.requestSubmit();
         });
         
         // Кнопка отмены изменений
@@ -279,8 +294,15 @@ class SegmentsManager {
         
         // Обработчик для всех элементов формы
         const updateHandler = async () => {
+            // Пропускаем обновления во время заполнения формы
+            if (this.isFillingForm) {
+                console.log('🔍 Пропускаем обновление - форма заполняется');
+                return;
+            }
+            
             await this.updateSegmentNameFromFilters();
             this.updateSegmentMapWithFilters();
+            this.updateAreaDistributionChart();
             // checkForChanges вызывается внутри updateSegmentNameFromFilters
         };
         
@@ -494,6 +516,12 @@ class SegmentsManager {
      */
     updateSegmentMapWithFilters() {
         if (!this.segmentMap || !this.segmentAddressesLayer) return;
+        
+        // Предотвращаем двойную перерисовку
+        if (this.isUpdatingMap) {
+            console.log('🔍 Пропускаем обновление карты - уже обновляется');
+            return;
+        }
         
         try {
             const filters = this.getSegmentFormData().filters;
@@ -756,6 +784,17 @@ class SegmentsManager {
                 return;
             }
             
+            // Обработка раскрытия подсегментов
+            const expandSubsegmentsBtn = e.target.closest('.expand-segment-subsegments');
+            if (expandSubsegmentsBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const segmentId = expandSubsegmentsBtn.getAttribute('data-segment-id');
+                this.toggleSegmentSubsegments(segmentId, expandSubsegmentsBtn);
+                return;
+            }
+            
             // Обработка кнопок с классами (для DataTables)
             const editBtn = e.target.closest('.edit-segment-btn');
             if (editBtn) {
@@ -902,33 +941,22 @@ class SegmentsManager {
                     "last": "Последняя"
                 }
             },
-            order: [[1, 'asc']], // Сортировка по названию
+            order: [[0, 'asc']], // Сортировка по названию
             columnDefs: [
                 { 
                     targets: 0, 
-                    orderable: false,
-                    className: 'details-control',
-                    width: '30px',
-                    render: (data, type, row) => this.renderExpandColumn(data, type, row)
-                },
-                { 
-                    targets: 1, 
                     render: (data, type, row) => this.renderNameColumn(data, type, row)
                 },
                 { 
-                    targets: 2, 
+                    targets: 1, 
                     render: (data, type, row) => this.renderAddressesColumn(data, type, row)
                 },
                 { 
-                    targets: 3, 
+                    targets: 2, 
                     render: (data, type, row) => this.renderSubsegmentsColumn(data, type, row)
                 },
                 { 
-                    targets: 4, 
-                    render: (data, type, row) => this.renderFiltersColumn(data, type, row)
-                },
-                { 
-                    targets: 5, 
+                    targets: 3, 
                     orderable: false,
                     render: (data, type, row) => this.renderActionsColumn(data, type, row)
                 }
@@ -938,19 +966,7 @@ class SegmentsManager {
             }
         });
         
-        // Обработка разворачивания строк
-        this.segmentsTable.on('click', 'td.details-control', (e) => {
-            const tr = e.target.closest('tr');
-            const row = this.segmentsTable.row(tr);
-            
-            if (row.child.isShown()) {
-                row.child.hide();
-                tr.classList.remove('shown');
-            } else {
-                row.child(this.createSegmentChildContent(row.data())).show();
-                tr.classList.add('shown');
-            }
-        });
+        // Обработка разворачивания строк убрана - больше нет раскрываемых панелей
         
         await Helpers.debugLog('✅ Таблица сегментов инициализирована');
     }
@@ -997,9 +1013,12 @@ class SegmentsManager {
         try {
             const filteredAddresses = this.filterAddressesBySegment(addresses, segment);
             
+            // Получаем подсегменты из базы данных
+            const subsegments = await window.db.getSubsegmentsBySegment(segment.id);
+            
             const stats = {
                 addressesCount: filteredAddresses.length,
-                subsegmentsCount: segment.subsegments?.length || 0,
+                subsegmentsCount: subsegments?.length || 0,
                 averagePrice: 0,
                 priceRange: { min: 0, max: 0 },
                 typeDistribution: {},
@@ -1156,11 +1175,8 @@ class SegmentsManager {
         this.segmentsState.editingSegment = null;
         this.segmentsState.modalOpen = true;
         
-        // Очищаем форму
+        // Заполняем ID области (форма уже очищена при закрытии предыдущего модального окна)
         try {
-            this.clearSegmentForm();
-            
-            // Заполняем ID области
             const currentArea = this.dataState.getState('currentArea');
             if (currentArea) {
                 const mapAreaIdField = document.getElementById('segmentMapAreaId');
@@ -1169,7 +1185,7 @@ class SegmentsManager {
                 }
             }
         } catch (error) {
-            console.error('❌ SegmentsManager: Ошибка очистки формы:', error);
+            console.error('❌ SegmentsManager: Ошибка установки ID области:', error);
         }
         
         // Показываем модальное окно
@@ -1247,12 +1263,19 @@ class SegmentsManager {
         // Показываем модальное окно
         const modal = document.getElementById('segmentModal');
         if (modal) {
+            console.log('✅ SegmentsManager: Модальное окно найдено, показываем');
+            
+            // Убираем класс hidden и показываем модальное окно
+            modal.classList.remove('hidden');
             modal.style.display = 'flex';
             
-            // Устанавливаем заголовок
-            const title = document.getElementById('segmentModalTitle');
+            // Устанавливаем заголовок (пробуем оба варианта ID)
+            const title = document.getElementById('segmentModalTitle') || document.getElementById('segment-modal-title');
             if (title) {
                 title.textContent = 'Редактировать сегмент';
+                console.log('✅ SegmentsManager: Заголовок модального окна установлен');
+            } else {
+                console.warn('⚠️ SegmentsManager: Заголовок модального окна не найден');
             }
             
             // Инициализируем содержимое модального окна после показа
@@ -1269,7 +1292,7 @@ class SegmentsManager {
                     this.initializeSlimSelects();
                     
                     // Заполняем форму данными сегмента
-                    this.populateSegmentForm(segment);
+                    this.fillSegmentForm(segment);
                     
                     // Сохраняем текущие данные как сохраненное состояние
                     this.segmentsState.savedSegmentData = { ...this.getSegmentFormData() };
@@ -1280,8 +1303,13 @@ class SegmentsManager {
                     // И инициализируем карту
                     this.initializeSegmentMap();
                     
+                    // Загружаем подсегменты для редактируемого сегмента
+                    setTimeout(() => {
+                        this.loadSubsegments();
+                    }, 500);
+                    
                 } catch (error) {
-                    console.error('❌ SegmentsManager: Ошибка инициализации модального окна редактирования:', error);
+                    console.error('❌ SegмentsManager: Ошибка инициализации модального окна редактирования:', error);
                 }
             }, 100);
         }
@@ -1444,6 +1472,10 @@ class SegmentsManager {
             modal.classList.add('hidden');
         }
         
+        // Сбрасываем выделение подсегмента
+        this.subsegmentsState.selectedSubsegment = null;
+        this.highlightSubsegmentOnChart(null);
+        
         // Очищаем форму
         this.clearSegmentForm();
     }
@@ -1452,6 +1484,9 @@ class SegmentsManager {
      * Сохранение сегмента
      */
     async saveSegment() {
+        console.log('🔍 saveSegment() вызван в', new Date().toISOString());
+        console.log('🔍 editingSegment текущий:', this.segmentsState.editingSegment);
+        
         try {
             const formData = this.getSegmentFormData();
             
@@ -1469,8 +1504,11 @@ class SegmentsManager {
             }
             
             let segment;
+            const isEditingMode = this.segmentsState.editingSegment !== null;
+            console.log('🔍 Режим сохранения (до изменений):', isEditingMode ? 'Редактирование' : 'Создание');
+            console.log('🔍 ID редактируемого сегмента:', this.segmentsState.editingSegment?.id || 'нет');
             
-            if (this.segmentsState.editingSegment) {
+            if (isEditingMode) {
                 // Обновляем существующий сегмент
                 segment = {
                     ...this.segmentsState.editingSegment,
@@ -1511,7 +1549,15 @@ class SegmentsManager {
             
             // Сохраняем текущее состояние формы как сохраненное
             this.segmentsState.savedSegmentData = { ...formData };
-            this.segmentsState.editingSegment = segment;
+            
+            // Устанавливаем editingSegment только если мы редактировали существующий сегмент
+            if (isEditingMode) {
+                this.segmentsState.editingSegment = segment;
+            } else {
+                // Для новых сегментов переходим в режим редактирования после создания
+                this.segmentsState.editingSegment = segment;
+                console.log('🔍 Переход в режим редактирования для нового сегмента:', segment.id);
+            }
             
             // Обновляем состояние кнопок
             this.updateSaveButtonState();
@@ -1519,8 +1565,12 @@ class SegmentsManager {
             // НЕ закрываем модальное окно после сохранения
             // this.closeSegmentModal();
             
+            const isEditing = this.segmentsState.editingSegment !== null;
+            console.log('🔍 Режим сохранения:', isEditing ? 'Редактирование' : 'Создание');
+            console.log('🔍 ID сегмента:', segment.id);
+            
             this.progressManager.showSuccess(
-                this.segmentsState.editingSegment ? 'Сегмент обновлен' : 'Сегмент создан'
+                isEditing ? 'Сегмент обновлен' : 'Сегмент создан'
             );
             
         } catch (error) {
@@ -1636,131 +1686,9 @@ class SegmentsManager {
     }
     
     /**
-     * Заполнение формы сегмента
+     * Заполнение формы сегмента (устаревший метод, заменен на fillSegmentForm)
+     * Удален так как работал с чекбоксами, а теперь используется SlimSelect
      */
-    populateSegmentForm(segment) {
-        const form = document.getElementById('segmentForm');
-        if (!form) return;
-        
-        // Основные поля
-        form.querySelector('[name="name"]').value = segment.name || '';
-        form.querySelector('[name="description"]').value = segment.description || '';
-        form.querySelector('[name="parent_id"]').value = segment.parent_id || '';
-        
-        if (segment.filters) {
-            // Типы недвижимости
-            if (segment.filters.type) {
-                segment.filters.type.forEach(type => {
-                    const checkbox = form.querySelector(`[name="type"][value="${type}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Этажность
-            if (segment.filters.floors_from) {
-                form.querySelector('[name="floors_from"]').value = segment.filters.floors_from;
-            }
-            if (segment.filters.floors_to) {
-                form.querySelector('[name="floors_to"]').value = segment.filters.floors_to;
-            }
-            
-            // Год постройки
-            if (segment.filters.build_year_from) {
-                form.querySelector('[name="build_year_from"]').value = segment.filters.build_year_from;
-            }
-            if (segment.filters.build_year_to) {
-                form.querySelector('[name="build_year_to"]').value = segment.filters.build_year_to;
-            }
-            
-            // Серии домов
-            if (segment.filters.house_series_id) {
-                segment.filters.house_series_id.forEach(seriesId => {
-                    const checkbox = form.querySelector(`[name="house_series_id"][value="${seriesId}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Классы домов
-            if (segment.filters.house_class_id) {
-                segment.filters.house_class_id.forEach(classId => {
-                    const checkbox = form.querySelector(`[name="house_class_id"][value="${classId}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Материалы стен
-            if (segment.filters.wall_material_id) {
-                segment.filters.wall_material_id.forEach(materialId => {
-                    const checkbox = form.querySelector(`[name="wall_material_id"][value="${materialId}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Материалы перекрытий
-            if (segment.filters.ceiling_material_id) {
-                segment.filters.ceiling_material_id.forEach(materialId => {
-                    const checkbox = form.querySelector(`[name="ceiling_material_id"][value="${materialId}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Газоснабжение
-            if (segment.filters.gas_supply) {
-                segment.filters.gas_supply.forEach(gasValue => {
-                    const checkbox = form.querySelector(`[name="gas_supply"][value="${gasValue}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Индивидуальное отопление
-            if (segment.filters.individual_heating) {
-                segment.filters.individual_heating.forEach(heatingValue => {
-                    const checkbox = form.querySelector(`[name="individual_heating"][value="${heatingValue}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Закрытая территория
-            if (segment.filters.closed_territory) {
-                segment.filters.closed_territory.forEach(territoryValue => {
-                    const checkbox = form.querySelector(`[name="closed_territory"][value="${territoryValue}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Подземная парковка
-            if (segment.filters.underground_parking) {
-                segment.filters.underground_parking.forEach(parkingValue => {
-                    const checkbox = form.querySelector(`[name="underground_parking"][value="${parkingValue}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Коммерческие помещения
-            if (segment.filters.commercial_spaces) {
-                segment.filters.commercial_spaces.forEach(spacesValue => {
-                    const checkbox = form.querySelector(`[name="commercial_spaces"][value="${spacesValue}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-            
-            // Высота потолков
-            if (segment.filters.ceiling_height_from) {
-                form.querySelector('[name="ceiling_height_from"]').value = segment.filters.ceiling_height_from;
-            }
-            if (segment.filters.ceiling_height_to) {
-                form.querySelector('[name="ceiling_height_to"]').value = segment.filters.ceiling_height_to;
-            }
-            
-            // Адреса
-            if (segment.filters.addresses) {
-                segment.filters.addresses.forEach(addressId => {
-                    const checkbox = form.querySelector(`[name="addresses"][value="${addressId}"]`);
-                    if (checkbox) checkbox.checked = true;
-                });
-            }
-        }
-    }
     
     /**
      * Очистка формы сегмента
@@ -1768,6 +1696,8 @@ class SegmentsManager {
     clearSegmentForm() {
         const form = document.getElementById('segmentForm');
         if (!form) return;
+        
+        console.log('🔄 Очищаем форму сегмента');
         
         form.reset();
         
@@ -1777,11 +1707,21 @@ class SegmentsManager {
             checkbox.checked = false;
         });
         
+        // Очищаем все SlimSelect элементы
+        const selects = form.querySelectorAll('select');
+        selects.forEach(select => {
+            if (select.slimSelect) {
+                select.slimSelect.setSelected([]);
+            }
+        });
+        
         // Очищаем сохраненные данные
         this.segmentsState.savedSegmentData = null;
         
         // Обновляем состояние кнопок
         this.updateSaveButtonState(true); // Новая форма имеет изменения
+        
+        console.log('✅ Форма сегмента очищена');
     }
     
     /**
@@ -1791,12 +1731,22 @@ class SegmentsManager {
         const form = document.getElementById('segmentForm');
         if (!form || !segmentData) return;
         
+        // Устанавливаем флаг заполнения формы
+        this.isFillingForm = true;
+        console.log('🔍 Начинаем заполнение формы сегмента');
+        
+        // Форма уже очищена при закрытии предыдущего модального окна
+        
         // Заполняем основные поля
         const nameInput = document.getElementById('segmentName');
         if (nameInput) nameInput.value = segmentData.name || '';
         
         const descriptionInput = document.getElementById('segmentDescription');
         if (descriptionInput) descriptionInput.value = segmentData.description || '';
+        
+        // Заполняем скрытое поле map_area_id
+        const mapAreaIdInput = document.getElementById('segmentMapAreaId');
+        if (mapAreaIdInput) mapAreaIdInput.value = segmentData.map_area_id || '';
         
         // Заполняем фильтры
         if (segmentData.filters) {
@@ -1811,24 +1761,18 @@ class SegmentsManager {
             }
             
             // Этажность
-            if (filters.floors_from) {
-                const floorsFromInput = document.getElementById('segmentFloorsFrom');
-                if (floorsFromInput) floorsFromInput.value = filters.floors_from;
-            }
-            if (filters.floors_to) {
-                const floorsToInput = document.getElementById('segmentFloorsTo');
-                if (floorsToInput) floorsToInput.value = filters.floors_to;
-            }
+            const floorsFromInput = document.getElementById('segmentFloorsFrom');
+            if (floorsFromInput) floorsFromInput.value = filters.floors_from || '';
+            
+            const floorsToInput = document.getElementById('segmentFloorsTo');
+            if (floorsToInput) floorsToInput.value = filters.floors_to || '';
             
             // Годы постройки
-            if (filters.build_year_from) {
-                const yearFromInput = document.getElementById('segmentBuildYearFrom');
-                if (yearFromInput) yearFromInput.value = filters.build_year_from;
-            }
-            if (filters.build_year_to) {
-                const yearToInput = document.getElementById('segmentBuildYearTo');
-                if (yearToInput) yearToInput.value = filters.build_year_to;
-            }
+            const yearFromInput = document.getElementById('segmentBuildYearFrom');
+            if (yearFromInput) yearFromInput.value = filters.build_year_from || '';
+            
+            const yearToInput = document.getElementById('segmentBuildYearTo');
+            if (yearToInput) yearToInput.value = filters.build_year_to || '';
             
             // Заполняем множественные селекты
             const multiSelects = [
@@ -1845,24 +1789,51 @@ class SegmentsManager {
             ];
             
             multiSelects.forEach(({ fieldName, elementId }) => {
-                if (filters[fieldName]) {
-                    const element = document.getElementById(elementId);
-                    if (element && element.slimSelect) {
-                        element.slimSelect.setSelected(filters[fieldName]);
-                    }
+                const element = document.getElementById(elementId);
+                if (element && element.slimSelect) {
+                    // Устанавливаем значения или пустой массив, если их нет
+                    const values = filters[fieldName] || [];
+                    element.slimSelect.setSelected(values);
                 }
             });
             
             // Высота потолков
-            if (filters.ceiling_height_from) {
-                const ceilingFromInput = document.getElementById('segmentCeilingHeightFrom');
-                if (ceilingFromInput) ceilingFromInput.value = filters.ceiling_height_from;
-            }
-            if (filters.ceiling_height_to) {
-                const ceilingToInput = document.getElementById('segmentCeilingHeightTo');
-                if (ceilingToInput) ceilingToInput.value = filters.ceiling_height_to;
-            }
+            const ceilingFromInput = document.getElementById('segmentCeilingHeightFrom');
+            if (ceilingFromInput) ceilingFromInput.value = filters.ceiling_height_from || '';
+            
+            const ceilingToInput = document.getElementById('segmentCeilingHeightTo');
+            if (ceilingToInput) ceilingToInput.value = filters.ceiling_height_to || '';
         }
+        
+        // Сбрасываем флаг заполнения формы через небольшую задержку
+        setTimeout(() => {
+            this.isFillingForm = false;
+            console.log('🔍 Заполнение формы завершено');
+            
+            // Теперь можно обновить карту и график с актуальными фильтрами
+            this.updateSegmentMapWithFilters();
+            this.updateAreaDistributionChart();
+        }, 200);
+    }
+    
+    /**
+     * Очистка всех полей формы (без сброса справочных данных)
+     */
+    clearFormFields() {
+        const form = document.getElementById('segmentForm');
+        if (!form) return;
+        
+        // Очищаем текстовые поля и скрытые поля
+        const textInputs = form.querySelectorAll('input[type="text"], input[type="number"], input[type="hidden"], textarea');
+        textInputs.forEach(input => input.value = '');
+        
+        // Очищаем все SlimSelect элементы
+        const selects = form.querySelectorAll('select');
+        selects.forEach(select => {
+            if (select.slimSelect) {
+                select.slimSelect.setSelected([]);
+            }
+        });
     }
     
     /**
@@ -2023,6 +1994,16 @@ class SegmentsManager {
                     
                     // Загружаем адреса области
                     this.loadAddressesOnMap();
+                    
+                    // Инициализируем график распределения площадей
+                    setTimeout(() => {
+                        this.initializeAreaDistributionChart();
+                    }, 300);
+                    
+                    // Инициализируем фильтр подсегментов
+                    setTimeout(() => {
+                        this.initializeSubsegmentFilter();
+                    }, 400);
                 }
             }, 200);
             
@@ -2046,6 +2027,9 @@ class SegmentsManager {
                 console.log('🔍 Все состояния dataState:', this.dataState.getAllStates());
                 return;
             }
+            
+            // Устанавливаем флаг обновления карты
+            this.isUpdatingMap = true;
             
             // Добавляем полигон области на карту
             this.displayAreaPolygon(currentArea);
@@ -2116,6 +2100,12 @@ class SegmentsManager {
             
         } catch (error) {
             console.error('❌ SegmentsManager: Ошибка загрузки адресов на карту:', error);
+        } finally {
+            // Сбрасываем флаг обновления карты через небольшую задержку
+            setTimeout(() => {
+                this.isUpdatingMap = false;
+                console.log('🔍 Флаг isUpdatingMap сброшен');
+            }, 100);
         }
     }
     
@@ -2443,37 +2433,148 @@ class SegmentsManager {
         const filterButtonText = isInFilter ? '- Удалить из фильтра' : '+ Добавить в фильтр';
         const filterButtonClass = isInFilter ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700';
         
+        // Дополнительные параметры
+        const closedTerritoryText = address.closed_territory ? 'Да' : (address.closed_territory === false ? 'Нет' : 'Не указано');
+        const undergroundParkingText = address.underground_parking ? 'Да' : (address.underground_parking === false ? 'Нет' : 'Не указано');
+        const commercialSpacesText = address.commercial_spaces ? 'Да' : (address.commercial_spaces === false ? 'Нет' : 'Не указано');
+        const ceilingHeightText = address.ceiling_height ? `${address.ceiling_height} м` : 'Не указано';
+        const entrancesText = address.entrances_count || 'Не указано';
+        
         return `
-            <div class="segment-address-popup" style="width: 280px; max-width: 280px;">
-                <div class="header mb-2">
-                    <div class="font-bold text-gray-900 text-sm">📍 Адрес</div>
-                    <div class="address-title font-medium text-gray-800 text-xs mb-1">${address.address || 'Не указан'}</div>
+            <div class="segment-address-popup" style="width: 320px; max-width: 320px; max-height: 400px; display: flex; flex-direction: column;">
+                <!-- Хедер -->
+                <div class="popup-header bg-gray-50 p-3 border-b border-gray-200 rounded-t-lg flex-shrink-0">
+                    <div class="flex items-center text-gray-900 text-sm font-semibold mb-1">
+                        <span class="text-blue-600 mr-2">📍</span>
+                        Информация об адресе
+                    </div>
+                    <div class="address-title font-medium text-gray-800 text-sm leading-tight">
+                        ${address.address || 'Адрес не указан'}
+                    </div>
                 </div>
                 
-                <div class="space-y-0.5 text-xs text-gray-600 mb-2">
-                    <div><strong>Серия дома:</strong> ${houseSeriesText}</div>
-                    <div><strong>Класс дома:</strong> ${houseClassText}</div>
-                    <div><strong>Материал стен:</strong> ${wallMaterialText}</div>
-                    <div><strong>Материал перекрытий:</strong> ${ceilingMaterialText}</div>
-                    <div><strong>Газоснабжение:</strong> ${gasSupplyText}</div>
-                    <div><strong>Индивидуальное отопление:</strong> ${individualHeatingText}</div>
-                    <div><strong>Этажей:</strong> ${address.floors_count || 'Не указано'}</div>
-                    <div><strong>Год постройки:</strong> ${address.build_year || 'Не указан'}</div>
+                <!-- Скроллируемый блок с параметрами -->
+                <div class="popup-content p-3 overflow-y-auto flex-grow" style="max-height: 240px;">
+                    <!-- Основные характеристики -->
+                    <div class="mb-3">
+                        <div class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Основные характеристики</div>
+                        <div class="space-y-1.5 text-xs text-gray-600">
+                            <div class="flex justify-between">
+                                <span class="font-medium">Тип недвижимости:</span>
+                                <span>${typeText}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Этажей:</span>
+                                <span>${address.floors_count || 'Не указано'}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Подъездов:</span>
+                                <span>${entrancesText}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Год постройки:</span>
+                                <span>${address.build_year || 'Не указан'}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Высота потолков:</span>
+                                <span>${ceilingHeightText}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Конструктивные особенности -->
+                    <div class="mb-3">
+                        <div class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Конструкция</div>
+                        <div class="space-y-1.5 text-xs text-gray-600">
+                            <div class="flex justify-between">
+                                <span class="font-medium">Серия дома:</span>
+                                <span class="text-right">${houseSeriesText}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Класс дома:</span>
+                                <span class="text-right">${houseClassText}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Материал стен:</span>
+                                <span class="text-right">${wallMaterialText}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Материал перекрытий:</span>
+                                <span class="text-right">${ceilingMaterialText}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Инфраструктура -->
+                    <div class="mb-3">
+                        <div class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Инфраструктура</div>
+                        <div class="space-y-1.5 text-xs text-gray-600">
+                            <div class="flex justify-between">
+                                <span class="font-medium">Газоснабжение:</span>
+                                <span class="flex items-center">
+                                    ${gasSupplyText}
+                                    ${address.gas_supply ? '<span class="ml-1 text-green-600">✓</span>' : address.gas_supply === false ? '<span class="ml-1 text-red-600">✗</span>' : ''}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Индивидуальное отопление:</span>
+                                <span class="flex items-center">
+                                    ${individualHeatingText}
+                                    ${address.individual_heating ? '<span class="ml-1 text-green-600">✓</span>' : address.individual_heating === false ? '<span class="ml-1 text-red-600">✗</span>' : ''}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Закрытая территория:</span>
+                                <span class="flex items-center">
+                                    ${closedTerritoryText}
+                                    ${address.closed_territory ? '<span class="ml-1 text-green-600">✓</span>' : address.closed_territory === false ? '<span class="ml-1 text-red-600">✗</span>' : ''}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Подземная парковка:</span>
+                                <span class="flex items-center">
+                                    ${undergroundParkingText}
+                                    ${address.underground_parking ? '<span class="ml-1 text-green-600">✓</span>' : address.underground_parking === false ? '<span class="ml-1 text-red-600">✗</span>' : ''}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="font-medium">Коммерческие помещения:</span>
+                                <span class="flex items-center">
+                                    ${commercialSpacesText}
+                                    ${address.commercial_spaces ? '<span class="ml-1 text-green-600">✓</span>' : address.commercial_spaces === false ? '<span class="ml-1 text-red-600">✗</span>' : ''}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Дополнительная информация -->
+                    <div class="mb-3">
+                        <div class="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">Дополнительно</div>
+                        <div class="space-y-1.5 text-xs text-gray-600">
+                            <div class="flex justify-between">
+                                <span class="font-medium">Источник данных:</span>
+                                <span>${sourceText}</span>
+                            </div>
+                            ${address.comment ? `
+                            <div class="pt-1">
+                                <span class="font-medium">Комментарий:</span>
+                                <div class="mt-1 p-2 bg-gray-50 rounded text-xs italic">
+                                    ${address.comment}
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
                 </div>
                 
-                <div class="actions flex gap-1">
-                    <button data-action="edit-address" data-address-id="${address.id}" 
-                            class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
-                        ✏️ Редактировать
-                    </button>
-                    <button data-action="delete-address" data-address-id="${address.id}" 
-                            class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
-                        🗑️ Удалить
-                    </button>
-                    <button data-action="toggle-filter" data-address-id="${address.id}" 
-                            class="px-2 py-1 text-xs ${filterButtonClass} text-white rounded transition-colors">
-                        ${filterButtonText}
-                    </button>
+                <!-- Футер с кнопками -->
+                <div class="popup-footer p-3 border-t border-gray-200 bg-gray-50 rounded-b-lg flex-shrink-0">
+                    <div class="flex justify-center">
+                        <button data-action="toggle-filter" data-address-id="${address.id}" 
+                                class="px-4 py-2 text-sm ${filterButtonClass} text-white rounded-md transition-colors font-medium shadow-sm hover:shadow-md">
+                            ${filterButtonText}
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -2483,27 +2584,9 @@ class SegmentsManager {
      * Привязка событий для кнопок в popup сегмента
      */
     bindSegmentPopupEvents(address) {
-        // Кнопка редактирования адреса
-        const editBtn = document.querySelector(`[data-action="edit-address"][data-address-id="${address.id}"]`);
-        if (editBtn) {
-            editBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.editAddress(address);
-            });
-        }
+        console.log('🔗 Привязываем события для popup адреса:', address.id);
         
-        // Кнопка удаления адреса
-        const deleteBtn = document.querySelector(`[data-action="delete-address"][data-address-id="${address.id}"]`);
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.deleteAddress(address);
-            });
-        }
-        
-        // Кнопка добавления/удаления из фильтра
+        // Только кнопка добавления/удаления из фильтра (кнопки редактирования и удаления убраны)
         const toggleBtn = document.querySelector(`[data-action="toggle-filter"][data-address-id="${address.id}"]`);
         if (toggleBtn) {
             toggleBtn.addEventListener('click', (e) => {
@@ -2511,34 +2594,13 @@ class SegmentsManager {
                 e.stopPropagation();
                 this.toggleAddressInFilter(address.id);
             });
-        }
-    }
-    
-    /**
-     * Редактирование адреса (перенаправляем в AddressManager)
-     */
-    editAddress(address) {
-        // Вызываем метод из AddressManager, если он доступен
-        if (window.areaPage && window.areaPage.addressManager) {
-            window.areaPage.addressManager.editAddress(address.id);
+            console.log('✅ Кнопка фильтра привязана для адреса:', address.id);
         } else {
-            console.warn('AddressManager не доступен');
+            console.warn('⚠️ Кнопка фильтра не найдена для адреса:', address.id);
         }
     }
     
-    /**
-     * Удаление адреса (перенаправляем в AddressManager)
-     */
-    deleteAddress(address) {
-        // Показываем подтверждение
-        if (confirm(`Удалить адрес "${address.address}"?`)) {
-            if (window.areaPage && window.areaPage.addressManager) {
-                window.areaPage.addressManager.deleteAddress(address.id);
-            } else {
-                console.warn('AddressManager не доступен');
-            }
-        }
-    }
+    // Методы editAddress и deleteAddress убраны, так как соответствующие кнопки удалены из popup
     
     /**
      * Переключение адреса в фильтре сегмента
@@ -2839,16 +2901,8 @@ class SegmentsManager {
      * Рендеринг колонки разворачивания
      */
     renderExpandColumn(data, type, row) {
-        const hasSubsegments = row.subsegments && row.subsegments.length > 0;
-        const isExpanded = this.segmentsState.expandedRows.has(row.id);
-        
-        if (hasSubsegments) {
-            return `<span class="cursor-pointer" data-action="toggle-segment" data-segment-id="${row.id}">
-                ${isExpanded ? '▼' : '▶'}
-            </span>`;
-        }
-        
-        return '<span class="text-gray-400">—</span>';
+        // Убираем функционал раскрытия, просто возвращаем пустую ячейку
+        return '';
     }
     
     /**
@@ -2873,11 +2927,137 @@ class SegmentsManager {
     }
     
     /**
+     * Переключение отображения подсегментов сегмента
+     */
+    async toggleSegmentSubsegments(segmentId, buttonElement) {
+        try {
+            // Получаем строку таблицы
+            const tr = $(buttonElement).closest('tr');
+            const row = this.segmentsTable.row(tr);
+            
+            if (row.child.isShown()) {
+                // Скрываем дочернюю строку
+                row.child.hide();
+                tr.removeClass('shown');
+                $(buttonElement).find('svg').css('transform', 'rotate(0deg)');
+            } else {
+                // Показываем дочернюю строку с подсегментами
+                await this.showSegmentSubsegments(row, segmentId);
+                tr.addClass('shown');
+                $(buttonElement).find('svg').css('transform', 'rotate(180deg)');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка переключения подсегментов:', error);
+        }
+    }
+
+    /**
+     * Показать подсегменты сегмента в дочерней строке
+     */
+    async showSegmentSubsegments(row, segmentId) {
+        try {
+            // Получаем подсегменты из базы данных
+            const subsegments = await window.db.getSubsegmentsBySegment(segmentId);
+            
+            if (subsegments.length === 0) {
+                const childHtml = `
+                    <div class="p-4 text-center text-gray-500 italic">
+                        Подсегменты не созданы
+                    </div>
+                `;
+                row.child(childHtml).show();
+                return;
+            }
+
+            // Создаем HTML таблицу с подсегментами
+            const childHtml = this.createSubsegmentsChildTable(subsegments);
+            row.child(childHtml).show();
+            
+        } catch (error) {
+            console.error('❌ Ошибка загрузки подсегментов:', error);
+            row.child('<div class="p-4 text-center text-red-500">Ошибка загрузки подсегментов</div>').show();
+        }
+    }
+
+    /**
+     * Создать HTML таблицу подсегментов для дочерней строки
+     */
+    createSubsegmentsChildTable(subsegments) {
+        const rows = subsegments.map(subsegment => {
+            const filters = subsegment.filters || {};
+            const propertyTypes = this.formatPropertyTypes(filters.property_type) || 'Не указано';
+            
+            let areaText = 'Не указано';
+            if (filters.area_from || filters.area_to) {
+                const from = filters.area_from || 1;
+                const to = filters.area_to || '∞';
+                areaText = `${from} - ${to}`;
+            }
+            
+            let floorsText = 'Не указано';
+            if (filters.floor_from || filters.floor_to) {
+                const from = filters.floor_from || 1;
+                const to = filters.floor_to || '∞';
+                floorsText = `${from} - ${to}`;
+            }
+            
+            let priceText = 'Не указано';
+            if (filters.price_from || filters.price_to) {
+                const from = filters.price_from ? this.formatPrice(filters.price_from) : '1';
+                const to = filters.price_to ? this.formatPrice(filters.price_to) : '∞';
+                priceText = `${from} - ${to}`;
+            }
+
+            return `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2 text-sm font-medium text-gray-900">${subsegment.name}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${propertyTypes}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${areaText}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${floorsText}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${priceText}</td>
+                </tr>
+            `;
+        }).join('');
+
+        return `
+            <div class="p-4 bg-gray-50 border-t border-gray-200">
+                <h4 class="text-sm font-medium text-gray-900 mb-3">Подсегменты:</h4>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 bg-white rounded-md shadow-sm border border-gray-300">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Тип недвижимости</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Площадь (м²)</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Этажи</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            ${rows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
      * Рендеринг колонки подсегментов
      */
     renderSubsegmentsColumn(data, type, row) {
         const count = row.stats?.subsegmentsCount || 0;
-        return `<span class="text-gray-700">${count}</span>`;
+        
+        if (count > 0) {
+            return `<span class="text-gray-700 cursor-pointer hover:text-blue-600 expand-segment-subsegments" data-segment-id="${row.id}" title="Нажмите для просмотра подсегментов">
+                <svg class="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+                ${count}
+            </span>`;
+        } else {
+            return `<span class="text-gray-700">${count}</span>`;
+        }
     }
     
     /**
@@ -2894,14 +3074,18 @@ class SegmentsManager {
      * Рендеринг колонки действий
      */
     renderActionsColumn(data, type, row) {
-        const actions = [];
-        
-        actions.push(`<button class="text-blue-600 hover:text-blue-800 text-xs" data-action="view-segment" data-segment-id="${row.id}">Просмотр</button>`);
-        actions.push(`<button class="text-green-600 hover:text-green-800 text-xs" data-action="edit-segment" data-segment-id="${row.id}">Изменить</button>`);
-        actions.push(`<button class="text-purple-600 hover:text-purple-800 text-xs" data-action="create-subsegment" data-segment-id="${row.id}">Подсегмент</button>`);
-        actions.push(`<button class="text-red-600 hover:text-red-800 text-xs" data-action="delete-segment" data-segment-id="${row.id}">Удалить</button>`);
-        
-        return actions.join(' | ');
+        return `
+            <div class="flex space-x-2">
+                <button class="edit-segment-btn inline-flex items-center px-3 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors" 
+                        data-action="edit-segment" data-segment-id="${row.id}">
+                    ✏️ Редактировать
+                </button>
+                <button class="delete-segment-btn inline-flex items-center px-3 py-1 text-xs font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 transition-colors" 
+                        data-action="delete-segment" data-segment-id="${row.id}">
+                    🗑️ Удалить
+                </button>
+            </div>
+        `;
     }
     
     /**
@@ -3040,7 +3224,6 @@ class SegmentsManager {
         document.getElementById('importSegmentsFile')?.removeEventListener('change', this.importSegments);
         
         document.getElementById('closeSegmentModal')?.removeEventListener('click', this.closeSegmentModal);
-        document.getElementById('cancelSegmentBtn')?.removeEventListener('click', this.closeSegmentModal);
         document.getElementById('saveSegmentBtn')?.removeEventListener('click', this.saveSegment);
         
         document.getElementById('segmentsPanelHeader')?.removeEventListener('click', this.toggleSegmentsPanel);
@@ -3051,6 +3234,1087 @@ class SegmentsManager {
         this.segmentsState.selectedSegment = null;
         this.segmentsState.editingSegment = null;
         this.segmentsState.modalOpen = false;
+        
+        // Очистка графика
+        if (this.areaDistributionChart) {
+            this.areaDistributionChart.destroy();
+            this.areaDistributionChart = null;
+        }
+        
+        // Очистка состояния подсегментов
+        this.subsegmentsState.subsegments = [];
+        this.subsegmentsState.selectedSubsegment = null;
+        this.subsegmentsState.editingSubsegment = null;
+    }
+    
+    /**
+     * Инициализация графика распределения площадей
+     */
+    initializeAreaDistributionChart() {
+        try {
+            const chartContainer = document.getElementById('areaDistributionChart');
+            if (!chartContainer) {
+                console.warn('⚠️ Контейнер графика не найден');
+                return;
+            }
+            
+            
+            // Очищаем существующий график
+            if (this.areaDistributionChart) {
+                this.areaDistributionChart.destroy();
+                this.areaDistributionChart = null;
+            }
+            
+            // Получаем данные для графика
+            const chartData = this.prepareChartData();
+            
+            const options = {
+                title: {
+                    text: 'Распределение площадей',
+                    align: 'center',
+                    style: {
+                        fontSize: '16px',
+                        fontWeight: 600,
+                        color: '#374151'
+                    }
+                },
+                series: chartData,
+                chart: {
+                    height: 350,
+                    type: 'scatter',
+                    zoom: {
+                        enabled: true,
+                        type: 'xy'
+                    },
+                    toolbar: {
+                        show: true,
+                        tools: {
+                            download: true,
+                            selection: true,
+                            zoom: true,
+                            zoomin: true,
+                            zoomout: true,
+                            pan: true,
+                            reset: true
+                        }
+                    }
+                },
+                xaxis: {
+                    tickAmount: 4,
+                    title: {
+                        text: 'Тип недвижимости',
+                        style: {
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#6B7280'
+                        }
+                    }
+                },
+                yaxis: {
+                    title: {
+                        text: 'Площадь (м²)',
+                        style: {
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#6B7280'
+                        }
+                    },
+                    tickAmount: 15,
+                    offsetY: 5,
+                    labels: {
+                        style: {
+                            fontSize: '11px',
+                            colors: '#6B7280'
+                        }
+                    }
+                },
+                colors: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'],
+                markers: {
+                    size: 6,
+                    hover: {
+                        size: 8
+                    }
+                },
+                tooltip: {
+                    theme: 'light',
+                    x: {
+                        formatter: function(val, opts) {
+                            const categories = ['Студия', '1к', '2к', '3к', '4к+'];
+                            return categories[val] || 'Неизвестно';
+                        }
+                    },
+                    y: {
+                        formatter: function(val) {
+                            return val + ' м²';
+                        }
+                    }
+                },
+                legend: {
+                    position: 'top',
+                    horizontalAlign: 'center',
+                    floating: false,
+                    offsetY: -10,
+                    fontSize: '12px'
+                },
+                grid: {
+                    borderColor: '#f3f4f6',
+                    strokeDashArray: 3
+                }
+            };
+            
+            this.areaDistributionChart = new ApexCharts(chartContainer, options);
+            this.areaDistributionChart.render();
+            
+            console.log('✅ График распределения площадей инициализирован');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации графика:', error);
+        }
+    }
+    
+    /**
+     * Подготовка данных для графика из объявлений
+     */
+    prepareChartData() {
+        try {
+            // Получаем текущий редактируемый сегмент
+            const currentSegment = this.segmentsState.editingSegment;
+            if (!currentSegment) {
+                console.warn('⚠️ Нет текущего сегмента для графика');
+                return [];
+            }
+            
+            // Получаем адреса из состояния
+            const addresses = this.dataState.getState('addresses') || [];
+            
+            // Фильтруем адреса по сегменту
+            const segmentAddresses = this.filterAddressesBySegment(addresses, currentSegment);
+            
+            // Получаем все объявления из состояния
+            const allListings = this.dataState.getState('listings') || [];
+            
+            // Фильтруем объявления только для адресов сегмента
+            const segmentListings = allListings.filter(listing => {
+                return listing.address_id && segmentAddresses.some(addr => addr.id === listing.address_id);
+            });
+            
+            // Дополнительно фильтруем по фильтрам сегмента (если есть)
+            const filteredListings = segmentListings.filter(listing => {
+                return this.listingMatchesSegmentFilters(listing, currentSegment.filters || {});
+            });
+            
+            // Группируем данные по типам недвижимости
+            const seriesData = {
+                'Студия': [],
+                '1к': [],
+                '2к': [],
+                '3к': [],
+                '4к+': []
+            };
+            
+            filteredListings.forEach((listing) => {
+                if (!listing.area_total || !listing.property_type) {
+                    return;
+                }
+                
+                let category = 'Студия';
+                const roomsCount = this.extractRoomsCount(listing.property_type);
+                
+                if (roomsCount === 0) {
+                    category = 'Студия';
+                } else if (roomsCount === 1) {
+                    category = '1к';
+                } else if (roomsCount === 2) {
+                    category = '2к';
+                } else if (roomsCount === 3) {
+                    category = '3к';
+                } else if (roomsCount >= 4) {
+                    category = '4к+';
+                }
+                
+                // Добавляем точку данных [x, y] где x - позиция категории, y - площадь
+                const categoryIndex = ['Студия', '1к', '2к', '3к', '4к+'].indexOf(category);
+                const dataPoint = [categoryIndex, listing.area_total];
+                seriesData[category].push(dataPoint);  
+            });
+            
+            // Преобразуем в формат ApexCharts с проверкой на пустые данные
+            const categories = ['Студия', '1к', '2к', '3к', '4к+'];
+            const series = categories.map((category, index) => ({
+                name: category,
+                data: seriesData[category].length > 0 ? seriesData[category] : [[index, 0]]
+            }));
+            
+            return series;
+            
+        } catch (error) {
+            console.error('❌ Ошибка подготовки данных графика:', error);
+            // Возвращаем пример данных в случае ошибки
+            return [
+                { name: "Студия", data: [[0, 23], [0, 22], [0, 24]] },
+                { name: "1к", data: [[1, 29], [1, 31], [1, 32]] },
+                { name: "2к", data: [[2, 43], [2, 44], [2, 45]] },
+                { name: "3к", data: [[3, 64], [3, 63], [3, 60]] },
+                { name: "4к+", data: [[4, 84], [4, 88], [4, 90]] }
+            ];
+        }
+    }
+    
+    /**
+     * Извлечение количества комнат из property_type
+     */
+    extractRoomsCount(propertyType) {
+        if (!propertyType) return 0;
+        
+        const type = propertyType.toLowerCase();
+        
+        if (type.includes('студия') || type.includes('studio')) {
+            return 0;
+        }
+        
+        // Ищем цифры в строке
+        const match = type.match(/(\d+)/);
+        if (match) {
+            const rooms = parseInt(match[1]);
+            return rooms;
+        }
+        
+        // Если не нашли цифры, пытаемся определить по ключевым словам
+        if (type.includes('однокомнатная') || type.includes('1к') || type.includes('1-к')) return 1;
+        if (type.includes('двухкомнатная') || type.includes('2к') || type.includes('2-к')) return 2;
+        if (type.includes('трехкомнатная') || type.includes('3к') || type.includes('3-к')) return 3;
+        if (type.includes('четырехкомнатная') || type.includes('4к') || type.includes('4-к')) return 4;
+        
+        return 0; // По умолчанию студия
+    }
+    
+    /**
+     * Проверка соответствия объявления фильтрам сегмента
+     */
+    listingMatchesSegmentFilters(listing, filters) {
+        try {
+            if (!listing || !filters) return true;
+            
+            // Проверяем тип недвижимости
+            if (filters.type && filters.type.length > 0) {
+                const listingType = listing.property_type?.toLowerCase() || '';
+                const matchesType = filters.type.some(filterType => {
+                    switch (filterType) {
+                        case 'house':
+                            return listingType.includes('дом') || listingType.includes('house');
+                        case 'apartment':
+                            return listingType.includes('квартира') || listingType.includes('apartment') || 
+                                   listingType.includes('студия') || listingType.includes('к');
+                        case 'commercial':
+                            return listingType.includes('коммерч') || listingType.includes('commercial');
+                        default:
+                            return listingType.includes(filterType);
+                    }
+                });
+                if (!matchesType) return false;
+            }
+            
+            // Проверяем этаж
+            if (filters.floors_from || filters.floors_to) {
+                const floor = listing.floor;
+                if (floor) {
+                    if (filters.floors_from && floor < filters.floors_from) return false;
+                    if (filters.floors_to && floor > filters.floors_to) return false;
+                }
+            }
+            
+            // Проверяем год постройки
+            if (filters.build_year_from || filters.build_year_to) {
+                const year = listing.build_year;
+                if (year) {
+                    if (filters.build_year_from && year < filters.build_year_from) return false;
+                    if (filters.build_year_to && year > filters.build_year_to) return false;
+                }
+            }
+            
+            // Проверяем цену (если нужно для будущих фильтров)
+            if (filters.price_from || filters.price_to) {
+                const price = listing.price;
+                if (price) {
+                    if (filters.price_from && price < filters.price_from) return false;
+                    if (filters.price_to && price > filters.price_to) return false;
+                }
+            }
+            
+            return true;
+            
+        } catch (error) {
+            console.warn('Ошибка проверки фильтров объявления:', error);
+            return true;
+        }
+    }
+    
+    /**
+     * Обновление данных графика при изменении фильтров
+     */
+    updateAreaDistributionChart() {
+        if (!this.areaDistributionChart) return;
+        
+        try {
+            console.log('🔄 Обновление данных графика');
+            const chartData = this.prepareChartData();
+            this.areaDistributionChart.updateSeries(chartData);
+            console.log('✅ График обновлен');
+        } catch (error) {
+            console.error('❌ Ошибка обновления графика:', error);
+        }
+    }
+    
+    /**
+     * Инициализация фильтра подсегментов
+     */
+    initializeSubsegmentFilter() {
+        try {
+            console.log('🔄 Инициализация фильтра подсегментов');
+            
+            // Привязываем обработчики событий
+            this.bindSubsegmentEvents();
+            
+            // Инициализируем SlimSelect для типа недвижимости
+            this.initializeSubsegmentSlimSelects();
+            
+            console.log('✅ Фильтр подсегментов инициализирован');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации фильтра подсегментов:', error);
+        }
+    }
+    
+    /**
+     * Инициализация SlimSelect для подсегментов
+     */
+    initializeSubsegmentSlimSelects() {
+        try {
+            const propertyTypeSelect = document.getElementById('subsegmentPropertyType');
+            if (propertyTypeSelect && !propertyTypeSelect.slimSelect) {
+                propertyTypeSelect.slimSelect = new SlimSelect({
+                    select: propertyTypeSelect,
+                    settings: {
+                        allowDeselect: true,
+                        closeOnSelect: false
+                    }
+                });
+                console.log('✅ SlimSelect для типа недвижимости подсегмента инициализирован');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка инициализации SlimSelect подсегментов:', error);
+        }
+    }
+    
+    /**
+     * Привязка событий для подсегментов
+     */
+    bindSubsegmentEvents() {
+        // Выбор подсегмента из списка
+        document.getElementById('subsegmentSelect')?.addEventListener('change', (e) => {
+            this.onSubsegmentSelect(e.target.value);
+        });
+        
+        // Сохранение подсегмента
+        document.getElementById('saveSubsegmentBtn')?.addEventListener('click', () => {
+            this.saveSubsegment();
+        });
+        
+        // Удаление подсегмента
+        document.getElementById('deleteSubsegmentBtn')?.addEventListener('click', () => {
+            this.deleteSubsegment();
+        });
+        
+        // Снятие выделения при клике вне строк таблицы
+        document.getElementById('subsegmentsTable')?.addEventListener('click', (e) => {
+            // Если клик не по строке таблицы, снимаем выделение
+            if (!e.target.closest('tbody tr[data-subsegment-id]')) {
+                this.clearSubsegmentSelection();
+            }
+        });
+        
+        // Обновление названия при изменении полей
+        const updateNameHandler = () => {
+            this.updateSubsegmentName();
+        };
+        
+        document.getElementById('subsegmentPropertyType')?.addEventListener('change', updateNameHandler);
+        document.getElementById('subsegmentAreaFrom')?.addEventListener('input', updateNameHandler);
+        document.getElementById('subsegmentAreaTo')?.addEventListener('input', updateNameHandler);
+        document.getElementById('subsegmentFloorFrom')?.addEventListener('input', updateNameHandler);
+        document.getElementById('subsegmentFloorTo')?.addEventListener('input', updateNameHandler);
+        document.getElementById('subsegmentPriceFrom')?.addEventListener('input', updateNameHandler);
+        document.getElementById('subsegmentPriceTo')?.addEventListener('input', updateNameHandler);
+    }
+    
+    /**
+     * Обработка выбора подсегмента
+     */
+    async onSubsegmentSelect(subsegmentId) {
+        try {
+            if (!subsegmentId) {
+                // Создание нового подсегмента
+                this.clearSubsegmentForm();
+                this.subsegmentsState.editingSubsegment = null;
+                document.getElementById('deleteSubsegmentBtn').disabled = true;
+                return;
+            }
+            
+            // Редактирование существующего подсегмента
+            const subsegment = this.subsegmentsState.subsegments.find(s => s.id === subsegmentId);
+            if (subsegment) {
+                this.fillSubsegmentForm(subsegment);
+                this.subsegmentsState.editingSubsegment = subsegment;
+                document.getElementById('deleteSubsegmentBtn').disabled = false;
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка выбора подсегмента:', error);
+        }
+    }
+    
+    /**
+     * Загрузка подсегментов для текущего сегмента
+     */
+    async loadSubsegments() {
+        try {
+            const currentSegment = this.segmentsState.editingSegment;
+            if (!currentSegment) {
+                this.subsegmentsState.subsegments = [];
+                this.updateSubsegmentSelect();
+                return;
+            }
+            
+            // Загружаем подсегменты из базы данных
+            const subsegments = await window.db.getAll('subsegments');
+            this.subsegmentsState.subsegments = subsegments.filter(s => s.segment_id === currentSegment.id);
+            
+            console.log(`🔍 Загружено подсегментов: ${this.subsegmentsState.subsegments.length}`);
+            
+            // Обновляем селект и таблицу
+            this.updateSubsegmentSelect();
+            this.updateSubsegmentsTable();
+            
+        } catch (error) {
+            console.error('❌ Ошибка загрузки подсегментов:', error);
+        }
+    }
+    
+    /**
+     * Обновление селекта подсегментов
+     */
+    updateSubsegmentSelect() {
+        const select = document.getElementById('subsegmentSelect');
+        if (!select) return;
+        
+        // Сохраняем текущий выбор
+        const currentValue = select.value;
+        
+        // Очищаем опции
+        select.innerHTML = '<option value="">Создать новый подсегмент</option>';
+        
+        // Добавляем подсегменты
+        this.subsegmentsState.subsegments.forEach(subsegment => {
+            const option = document.createElement('option');
+            option.value = subsegment.id;
+            option.textContent = subsegment.name;
+            select.appendChild(option);
+        });
+        
+        // Восстанавливаем выбор
+        if (currentValue) {
+            select.value = currentValue;
+        }
+    }
+    
+    /**
+     * Сохранение подсегмента
+     */
+    async saveSubsegment() {
+        try {
+            const currentSegment = this.segmentsState.editingSegment;
+            if (!currentSegment) {
+                this.progressManager.showError('Сначала сохраните сегмент');
+                return;
+            }
+            
+            // Получаем данные формы
+            const formData = this.getSubsegmentFormData();
+            
+            // Валидация
+            if (!formData.name.trim()) {
+                this.progressManager.showError('Название подсегмента не может быть пустым');
+                return;
+            }
+            
+            let subsegment;
+            const isEditing = this.subsegmentsState.editingSubsegment !== null;
+            
+            if (isEditing) {
+                // Обновляем существующий подсегмент
+                subsegment = {
+                    ...this.subsegmentsState.editingSubsegment,
+                    ...formData,
+                    updated_at: new Date()
+                };
+                
+                await window.db.update('subsegments', subsegment);
+                console.log('✅ Подсегмент обновлен:', subsegment.id);
+                
+            } else {
+                // Создаем новый подсегмент
+                subsegment = {
+                    id: 'subseg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                    segment_id: currentSegment.id,
+                    ...formData,
+                    created_at: new Date(),
+                    updated_at: new Date()
+                };
+                
+                await window.db.add('subsegments', subsegment);
+                console.log('✅ Подсегмент создан:', subsegment.id);
+            }
+            
+            // Обновляем состояние
+            this.subsegmentsState.editingSubsegment = subsegment;
+            await this.loadSubsegments();
+            
+            // Устанавливаем созданный/обновленный подсегмент как выбранный
+            document.getElementById('subsegmentSelect').value = subsegment.id;
+            document.getElementById('deleteSubsegmentBtn').disabled = false;
+            
+            this.progressManager.showSuccess(
+                isEditing ? 'Подсегмент обновлен' : 'Подсегмент создан'
+            );
+            
+        } catch (error) {
+            console.error('❌ Ошибка сохранения подсегмента:', error);
+            this.progressManager.showError('Ошибка сохранения подсегмента');
+        }
+    }
+    
+    /**
+     * Удаление подсегмента
+     */
+    async deleteSubsegment() {
+        try {
+            const subsegment = this.subsegmentsState.editingSubsegment;
+            if (!subsegment) return;
+            
+            if (confirm(`Удалить подсегмент "${subsegment.name}"?`)) {
+                await window.db.delete('subsegments', subsegment.id);
+                
+                // Обновляем состояние
+                this.clearSubsegmentForm();
+                this.subsegmentsState.editingSubsegment = null;
+                await this.loadSubsegments();
+                
+                // Сбрасываем селект
+                document.getElementById('subsegmentSelect').value = '';
+                document.getElementById('deleteSubsegmentBtn').disabled = true;
+                
+                this.progressManager.showSuccess('Подсегмент удален');
+                console.log('✅ Подсегмент удален:', subsegment.id);
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка удаления подсегмента:', error);
+            this.progressManager.showError('Ошибка удаления подсегмента');
+        }
+    }
+    
+    /**
+     * Получение данных формы подсегмента
+     */
+    getSubsegmentFormData() {
+        const propertyTypeSelect = document.getElementById('subsegmentPropertyType');
+        const propertyTypes = propertyTypeSelect?.slimSelect?.getSelected() || [];
+        
+        return {
+            name: document.getElementById('subsegmentName')?.value?.trim() || '',
+            filters: {
+                property_type: propertyTypes,
+                area_from: parseInt(document.getElementById('subsegmentAreaFrom')?.value) || null,
+                area_to: parseInt(document.getElementById('subsegmentAreaTo')?.value) || null,
+                floor_from: parseInt(document.getElementById('subsegmentFloorFrom')?.value) || null,
+                floor_to: parseInt(document.getElementById('subsegmentFloorTo')?.value) || null,
+                price_from: parseInt(document.getElementById('subsegmentPriceFrom')?.value) || null,
+                price_to: parseInt(document.getElementById('subsegmentPriceTo')?.value) || null
+            }
+        };
+    }
+    
+    /**
+     * Заполнение формы подсегмента
+     */
+    fillSubsegmentForm(subsegment) {
+        try {
+            // Основные поля
+            document.getElementById('subsegmentId').value = subsegment.id || '';
+            document.getElementById('subsegmentSegmentId').value = subsegment.segment_id || '';
+            document.getElementById('subsegmentName').value = subsegment.name || '';
+            
+            // Фильтры
+            const filters = subsegment.filters || {};
+            
+            // Тип недвижимости
+            const propertyTypeSelect = document.getElementById('subsegmentPropertyType');
+            if (propertyTypeSelect?.slimSelect) {
+                propertyTypeSelect.slimSelect.setSelected(filters.property_type || []);
+            }
+            
+            // Площадь
+            document.getElementById('subsegmentAreaFrom').value = filters.area_from || '';
+            document.getElementById('subsegmentAreaTo').value = filters.area_to || '';
+            
+            // Этажи
+            document.getElementById('subsegmentFloorFrom').value = filters.floor_from || '';
+            document.getElementById('subsegmentFloorTo').value = filters.floor_to || '';
+            
+            // Цена
+            document.getElementById('subsegmentPriceFrom').value = filters.price_from || '';
+            document.getElementById('subsegmentPriceTo').value = filters.price_to || '';
+            
+        } catch (error) {
+            console.error('❌ Ошибка заполнения формы подсегмента:', error);
+        }
+    }
+    
+    /**
+     * Очистка формы подсегмента
+     */
+    clearSubsegmentForm() {
+        document.getElementById('subsegmentId').value = '';
+        document.getElementById('subsegmentSegmentId').value = '';
+        document.getElementById('subsegmentName').value = '';
+        
+        // Очищаем SlimSelect
+        const propertyTypeSelect = document.getElementById('subsegmentPropertyType');
+        if (propertyTypeSelect?.slimSelect) {
+            propertyTypeSelect.slimSelect.setSelected([]);
+        }
+        
+        // Очищаем поля
+        document.getElementById('subsegmentAreaFrom').value = '';
+        document.getElementById('subsegmentAreaTo').value = '';
+        document.getElementById('subsegmentFloorFrom').value = '';
+        document.getElementById('subsegmentFloorTo').value = '';
+        document.getElementById('subsegmentPriceFrom').value = '';
+        document.getElementById('subsegmentPriceTo').value = '';
+    }
+    
+    /**
+     * Обновление названия подсегмента
+     */
+    updateSubsegmentName() {
+        try {
+            const formData = this.getSubsegmentFormData();
+            const name = this.generateSubsegmentName(formData.filters);
+            document.getElementById('subsegmentName').value = name;
+        } catch (error) {
+            console.warn('Ошибка обновления названия подсегмента:', error);
+        }
+    }
+    
+    /**
+     * Генерация названия подсегмента
+     */
+    generateSubsegmentName(filters) {
+        const parts = [];
+        
+        // Типы недвижимости
+        if (filters.property_type && filters.property_type.length > 0) {
+            const typeNames = filters.property_type.map(type => {
+                switch (type) {
+                    case 'studio': return 'Ст';
+                    case '1k': return '1к';
+                    case '2k': return '2к';
+                    case '3k': return '3к';
+                    case '4k': return '4к+';
+                    default: return type;
+                }
+            });
+            parts.push(`ТН[${typeNames.join(',')}]`);
+        }
+        
+        // Площадь
+        if (filters.area_from || filters.area_to) {
+            const from = filters.area_from || 1;
+            const to = filters.area_to || '∞';
+            parts.push(`П[${from}-${to}]`);
+        }
+        
+        // Этажи
+        if (filters.floor_from || filters.floor_to) {
+            const from = filters.floor_from || 1;
+            const to = filters.floor_to || 100;
+            parts.push(`Этажи [${from} - ${to}]`);
+        }
+        
+        // Цена
+        if (filters.price_from || filters.price_to) {
+            const from = filters.price_from ? this.formatPrice(filters.price_from) : '1';
+            const to = filters.price_to ? this.formatPrice(filters.price_to) : '∞';
+            parts.push(`Цена [${from} - ${to}]`);
+        }
+        
+        return parts.length > 0 ? parts.join(', ') : 'Новый подсегмент';
+    }
+    
+    /**
+     * Форматирование цены
+     */
+    formatPrice(price) {
+        if (price >= 1000000) {
+            return (price / 1000000).toFixed(1).replace('.0', '') + ' млн';
+        } else if (price >= 1000) {
+            return (price / 1000).toFixed(0) + ' тыс';
+        } else {
+            return price.toString();
+        }
+    }
+    
+    /**
+     * Обновление таблицы подсегментов
+     */
+    updateSubsegmentsTable() {
+        const tbody = document.querySelector('#subsegmentsTable tbody');
+        if (!tbody) return;
+        
+        // Очищаем таблицу
+        tbody.innerHTML = '';
+        
+        // Добавляем строки
+        this.subsegmentsState.subsegments.forEach(subsegment => {
+            const row = this.createSubsegmentTableRow(subsegment);
+            tbody.appendChild(row);
+        });
+        
+        if (this.subsegmentsState.subsegments.length === 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td colspan="5" class="px-6 py-4 text-center text-gray-500 italic">
+                    Подсегменты не созданы
+                </td>
+            `;
+            tbody.appendChild(row);
+        }
+    }
+    
+    /**
+     * Форматирование типов недвижимости для отображения
+     */
+    formatPropertyTypes(propertyTypes) {
+        if (!propertyTypes || !Array.isArray(propertyTypes) || propertyTypes.length === 0) {
+            return 'Не указано';
+        }
+
+        const typeMap = {
+            'studio': 'Студия',
+            '1k': '1-комнатная',
+            '2k': '2-комнатная', 
+            '3k': '3-комнатная',
+            '4k': '4+ комнатная'
+        };
+
+        return propertyTypes.map(type => typeMap[type] || type).join(', ');
+    }
+
+    /**
+     * Создание строки таблицы подсегмента
+     */
+    createSubsegmentTableRow(subsegment) {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-gray-50 cursor-pointer';
+        row.dataset.subsegmentId = subsegment.id;
+        
+        // Форматируем данные
+        const filters = subsegment.filters || {};
+        const propertyTypes = this.formatPropertyTypes(filters.property_type) || 'Не указано';
+        
+        let areaText = 'Не указано';
+        if (filters.area_from || filters.area_to) {
+            const from = filters.area_from || 1;
+            const to = filters.area_to || '∞';
+            areaText = `${from} - ${to}`;
+        }
+        
+        let floorsText = 'Не указано';
+        if (filters.floor_from || filters.floor_to) {
+            const from = filters.floor_from || 1;
+            const to = filters.floor_to || '∞';
+            floorsText = `${from} - ${to}`;
+        }
+        
+        let priceText = 'Не указано';
+        if (filters.price_from || filters.price_to) {
+            const from = filters.price_from ? this.formatPrice(filters.price_from) : '1';
+            const to = filters.price_to ? this.formatPrice(filters.price_to) : '∞';
+            priceText = `${from} - ${to}`;
+        }
+        
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                ${subsegment.name}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${propertyTypes}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${areaText}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${floorsText}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                ${priceText}
+            </td>
+        `;
+        
+        // Обработчик клика для выделения строки
+        row.addEventListener('click', () => {
+            this.selectSubsegmentInTable(subsegment.id);
+        });
+        
+        return row;
+    }
+    
+    /**
+     * Выделение подсегмента в таблице
+     */
+    selectSubsegmentInTable(subsegmentId) {
+        // Убираем выделение с других строк
+        document.querySelectorAll('#subsegmentsTable tbody tr').forEach(row => {
+            row.classList.remove('bg-purple-50', 'border-purple-200');
+        });
+        
+        // Выделяем выбранную строку
+        const selectedRow = document.querySelector(`#subsegmentsTable tbody tr[data-subsegment-id="${subsegmentId}"]`);
+        if (selectedRow) {
+            selectedRow.classList.add('bg-purple-50', 'border-purple-200');
+        }
+        
+        // Обновляем график с выделением
+        this.highlightSubsegmentOnChart(subsegmentId);
+        
+        // Сохраняем выбранный подсегмент
+        this.subsegmentsState.selectedSubsegment = subsegmentId;
+    }
+
+    /**
+     * Снятие выделения подсегмента
+     */
+    clearSubsegmentSelection() {
+        // Убираем выделение со всех строк
+        document.querySelectorAll('#subsegmentsTable tbody tr').forEach(row => {
+            row.classList.remove('bg-purple-50', 'border-purple-200');
+        });
+        
+        // Сбрасываем выделение на графике
+        this.highlightSubsegmentOnChart(null);
+        
+        // Очищаем состояние
+        this.subsegmentsState.selectedSubsegment = null;
+    }
+    
+    /**
+     * Получить цвет категории
+     */
+    getCategoryColor(category, opacity = 1) {
+        const colors = {
+            'Студия': `rgba(239, 68, 68, ${opacity})`, // red-500
+            '1к': `rgba(245, 158, 11, ${opacity})`, // amber-500
+            '2к': `rgba(234, 179, 8, ${opacity})`, // yellow-500
+            '3к': `rgba(34, 197, 94, ${opacity})`, // green-500
+            '4к+': `rgba(59, 130, 246, ${opacity})` // blue-500
+        };
+        return colors[category] || `rgba(107, 114, 128, ${opacity})`;
+    }
+
+    /**
+     * Проверка соответствия объявления фильтрам подсегмента
+     */
+    listingMatchesSubsegmentFilters(listing, filters) {
+        try {
+            if (!filters) return true;
+
+            // Проверка типа недвижимости
+            if (filters.property_type && filters.property_type.length > 0) {
+                if (!filters.property_type.includes(listing.property_type)) {
+                    return false;
+                }
+            }
+
+            // Проверка диапазона площади
+            if (filters.area_from && listing.area_total < filters.area_from) {
+                return false;
+            }
+            if (filters.area_to && listing.area_total > filters.area_to) {
+                return false;
+            }
+
+            // Проверка диапазона этажа
+            if (filters.floor_from && listing.floor < filters.floor_from) {
+                return false;
+            }
+            if (filters.floor_to && listing.floor > filters.floor_to) {
+                return false;
+            }
+
+            // Проверка диапазона цены
+            if (filters.price_from && listing.price < filters.price_from) {
+                return false;
+            }
+            if (filters.price_to && listing.price > filters.price_to) {
+                return false;
+            }
+
+            return true;
+        } catch (error) {
+            console.error('❌ Ошибка проверки фильтров подсегмента:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Создание серий с выделением подсегмента
+     */
+    createHighlightedSeries(baseChartData, listings, selectedSubsegment) {
+        try {
+            // Создаем новые серии с разделением на обычные и выделенные точки
+            const highlightedSeries = [];
+            
+            // Для каждой категории создаем две серии: обычную и выделенную
+            const categories = ['Студия', '1к', '2к', '3к', '4к+'];
+            
+            categories.forEach((category, categoryIndex) => {
+                // Находим базовую серию для этой категории
+                const baseSeries = baseChartData.find(series => series.name === category);
+                if (!baseSeries || !baseSeries.data.length) return;
+                
+                const normalPoints = [];
+                const highlightedPoints = [];
+                
+                // Проходим по всем точкам данных и определяем, какие выделить
+                baseSeries.data.forEach(point => {
+                    if (point[0] === categoryIndex && point[1] > 0) {
+                        // Находим объявление с такой же площадью в этой категории
+                        const matchingListing = listings.find(listing => {
+                            if (!listing.area_total || !listing.property_type) return false;
+                            
+                            const roomsCount = this.extractRoomsCount(listing.property_type);
+                            let listingCategory = 'Студия';
+                            
+                            if (roomsCount === 0) listingCategory = 'Студия';
+                            else if (roomsCount === 1) listingCategory = '1к';
+                            else if (roomsCount === 2) listingCategory = '2к';
+                            else if (roomsCount === 3) listingCategory = '3к';
+                            else if (roomsCount >= 4) listingCategory = '4к+';
+                            
+                            return listingCategory === category && listing.area_total === point[1];
+                        });
+                        
+                        if (matchingListing && this.listingMatchesSubsegmentFilters(matchingListing, selectedSubsegment.filters)) {
+                            highlightedPoints.push(point);
+                        } else {
+                            normalPoints.push(point);
+                        }
+                    }
+                });
+                
+                // Добавляем обычную серию (затемненную)
+                if (normalPoints.length > 0) {
+                    highlightedSeries.push({
+                        name: category,
+                        data: normalPoints,
+                        color: this.getCategoryColor(category, 0.3) // Полупрозрачный
+                    });
+                }
+                
+                // Добавляем выделенную серию (фиолетовым цветом)
+                if (highlightedPoints.length > 0) {
+                    highlightedSeries.push({
+                        name: `${category} (выделено)`,
+                        data: highlightedPoints,
+                        color: '#8B5CF6' // Фиолетовый цвет
+                    });
+                }
+                
+                // Если нет данных, добавляем пустую серию
+                if (normalPoints.length === 0 && highlightedPoints.length === 0) {
+                    highlightedSeries.push({
+                        name: category,
+                        data: [[categoryIndex, 0]]
+                    });
+                }
+            });
+            
+            return highlightedSeries;
+            
+        } catch (error) {
+            console.error('❌ Ошибка создания выделенных серий:', error);
+            return baseChartData;
+        }
+    }
+
+    /**
+     * Выделение подсегмента на графике
+     */
+    highlightSubsegmentOnChart(subsegmentId) {
+        try {
+            if (!this.areaDistributionChart) {
+                console.warn('⚠️ График не инициализирован');
+                return;
+            }
+
+            // Получаем базовые данные графика
+            const baseChartData = this.prepareChartData();
+            
+            if (!subsegmentId) {
+                // Если подсегмент не выбран, показываем обычные данные
+                this.areaDistributionChart.updateSeries(baseChartData);
+                return;
+            }
+
+            // Найдем выбранный подсегмент
+            const selectedSubsegment = this.subsegmentsState.subsegments.find(s => s.id === subsegmentId);
+            if (!selectedSubsegment) {
+                console.warn('⚠️ Подсегмент не найден:', subsegmentId);
+                return;
+            }
+
+            // Получаем текущий сегмент, адреса и объявления
+            const currentSegment = this.segmentsState.editingSegment;
+            if (!currentSegment) {
+                console.warn('⚠️ Нет текущего сегмента для выделения');
+                return;
+            }
+            
+            const addresses = this.dataState.getState('addresses') || [];
+            const allListings = this.dataState.getState('listings') || [];
+            
+            // Фильтруем адреса по сегменту
+            const segmentAddresses = this.filterAddressesBySegment(addresses, currentSegment);
+            
+            // Получаем объявления только для адресов сегмента
+            const segmentListings = allListings.filter(listing => {
+                return listing.address_id && segmentAddresses.some(addr => addr.id === listing.address_id);
+            });
+            
+            // Дополнительно фильтруем по фильтрам сегмента
+            const filteredListings = segmentListings.filter(listing => {
+                return this.listingMatchesSegmentFilters(listing, currentSegment.filters || {});
+            });
+
+            // Создаем новые серии с выделением
+            const highlightedSeries = this.createHighlightedSeries(baseChartData, filteredListings, selectedSubsegment);
+            
+            // Обновляем график
+            this.areaDistributionChart.updateSeries(highlightedSeries);
+            
+        } catch (error) {
+            console.error('❌ Ошибка выделения подсегмента на графике:', error);
+        }
     }
 }
 

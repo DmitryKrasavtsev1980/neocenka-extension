@@ -156,6 +156,20 @@ class DuplicatesManager {
             this.clearAllProcessingFilters();
         });
         
+        // Кнопка очистки фильтров сегментов
+        document.getElementById('clearSegmentFiltersBtn')?.addEventListener('click', () => {
+            this.clearSegmentFilters();
+        });
+        
+        // Фильтры сегментов
+        document.getElementById('duplicatesSegmentFilter')?.addEventListener('change', (e) => {
+            this.onSegmentFilterChange(e.target.value);
+        });
+        
+        document.getElementById('duplicatesSubsegmentFilter')?.addEventListener('change', (e) => {
+            this.applyProcessingFilters();
+        });
+        
         // Кнопка подтверждения адреса
         document.getElementById('correctAddressBtn')?.addEventListener('click', () => {
             this.markAddressAsCorrect();
@@ -2039,6 +2053,9 @@ class DuplicatesManager {
             await this.initProcessingAddressFilter();
             await this.initProcessingPropertyTypeFilter();
             
+            // Инициализируем фильтры сегментов
+            await this.initSegmentFilters();
+            
             console.log('✅ Фильтры обработки инициализированы');
             
         } catch (error) {
@@ -2343,6 +2360,512 @@ class DuplicatesManager {
     }
     
     /**
+     * Предварительная загрузка данных сегментов и подсегментов для кэширования
+     */
+    async preloadSegmentData() {
+        try {
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea) {
+                return;
+            }
+            
+            // Инициализируем кэши
+            this.segmentsCache = {};
+            this.subsegmentsCache = {};
+            
+            // Загружаем все сегменты области
+            const segments = await window.db.getSegmentsByMapArea(currentArea.id);
+            for (const segment of segments) {
+                this.segmentsCache[segment.id] = segment;
+                
+                // Загружаем все подсегменты для каждого сегмента
+                const subsegments = await window.db.getSubsegmentsBySegment(segment.id);
+                for (const subsegment of subsegments) {
+                    this.subsegmentsCache[subsegment.id] = subsegment;
+                }
+            }
+            
+            console.log(`✅ Данные загружены: ${segments.length} сегментов, ${Object.keys(this.subsegmentsCache).length} подсегментов`);
+            
+            // Показываем структуру фильтров для отладки
+            if (segments.length > 0) {
+                console.log('📋 Пример сегмента:', segments[0]);
+                console.log('📋 Фильтры сегмента:', segments[0].filters);
+            }
+            if (Object.keys(this.subsegmentsCache).length > 0) {
+                const firstSubsegment = Object.values(this.subsegmentsCache)[0];
+                console.log('📋 Пример подсегмента:', firstSubsegment);
+                console.log('📋 Фильтры подсегмента:', firstSubsegment.filters);
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка предварительной загрузки данных сегментов:', error);
+        }
+    }
+    
+    /**
+     * Инициализация фильтров сегментов
+     */
+    async initSegmentFilters() {
+        try {
+            // Предварительно загружаем данные для кэша
+            await this.preloadSegmentData();
+            
+            // Инициализируем фильтр статусов с SlimSelect
+            await this.initStatusFilter();
+            
+            // Инициализируем фильтр сегментов
+            await this.initSegmentFilter();
+            
+            // Инициализируем фильтр подсегментов
+            await this.initSubsegmentFilter();
+            
+            console.log('✅ Фильтры сегментов инициализированы');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации фильтров сегментов:', error);
+        }
+    }
+    
+    /**
+     * Инициализация фильтра статусов с SlimSelect
+     */
+    async initStatusFilter() {
+        try {
+            const selectElement = document.getElementById('duplicatesStatusFilter');
+            if (!selectElement) {
+                console.warn('⚠️ Элемент duplicatesStatusFilter не найден');
+                return;
+            }
+            
+            // Инициализируем SlimSelect
+            this.statusSlimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    allowDeselect: false
+                },
+                events: {
+                    afterChange: () => {
+                        this.applyProcessingFilters();
+                    }
+                }
+            });
+            
+            console.log('✅ Фильтр статусов с SlimSelect инициализирован');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации фильтра статусов:', error);
+        }
+    }
+    
+    /**
+     * Инициализация фильтра сегментов
+     */
+    async initSegmentFilter() {
+        try {
+            const selectElement = document.getElementById('duplicatesSegmentFilter');
+            if (!selectElement) {
+                console.warn('⚠️ Элемент duplicatesSegmentFilter не найден');
+                return;
+            }
+            
+            // Получаем сегменты только текущей области
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea) {
+                console.warn('⚠️ Нет текущей области для загрузки сегментов');
+                return;
+            }
+            
+            const segments = await window.db.getSegmentsByMapArea(currentArea.id);
+            
+            // Очищаем и заполняем опции
+            selectElement.innerHTML = '<option value="">Все сегменты</option>';
+            segments.forEach(segment => {
+                const option = document.createElement('option');
+                option.value = segment.id;
+                option.textContent = segment.name;
+                selectElement.appendChild(option);
+            });
+            
+            // Инициализируем SlimSelect
+            this.segmentSlimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    allowDeselect: true
+                },
+                events: {
+                    afterChange: (newVal) => {
+                        this.onSegmentFilterChange(newVal.value);
+                    }
+                }
+            });
+            
+            console.log('✅ Фильтр сегментов инициализирован');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации фильтра сегментов:', error);
+        }
+    }
+    
+    /**
+     * Инициализация фильтра подсегментов
+     */
+    async initSubsegmentFilter() {
+        try {
+            const selectElement = document.getElementById('duplicatesSubsegmentFilter');
+            if (!selectElement) {
+                console.warn('⚠️ Элемент duplicatesSubsegmentFilter не найден');
+                return;
+            }
+            
+            // Инициализируем SlimSelect
+            this.subsegmentSlimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    allowDeselect: true
+                },
+                events: {
+                    afterChange: (newVal) => {
+                        this.applyProcessingFilters();
+                    }
+                }
+            });
+            
+            console.log('✅ Фильтр подсегментов инициализирован');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации фильтра подсегментов:', error);
+        }
+    }
+    
+    /**
+     * Обработчик изменения фильтра сегментов
+     */
+    async onSegmentFilterChange(segmentId) {
+        try {
+            const subsegmentSelect = document.getElementById('duplicatesSubsegmentFilter');
+            
+            if (!segmentId) {
+                // Если сегмент не выбран, отключаем подсегменты
+                subsegmentSelect.disabled = true;
+                if (this.subsegmentSlimSelect) {
+                    this.subsegmentSlimSelect.setSelected([]);
+                }
+            } else {
+                // Загружаем подсегменты для выбранного сегмента
+                const subsegments = await window.db.getSubsegmentsBySegment(segmentId);
+                
+                // Очищаем и заполняем опции подсегментов
+                subsegmentSelect.innerHTML = '<option value="">Все подсегменты</option>';
+                subsegments.forEach(subsegment => {
+                    const option = document.createElement('option');
+                    option.value = subsegment.id;
+                    option.textContent = subsegment.name;
+                    subsegmentSelect.appendChild(option);
+                });
+                
+                // Пересоздаем SlimSelect для подсегментов
+                if (this.subsegmentSlimSelect) {
+                    this.subsegmentSlimSelect.destroy();
+                }
+                this.subsegmentSlimSelect = new SlimSelect({
+                    select: subsegmentSelect,
+                    settings: {
+                        allowDeselect: true
+                    },
+                    events: {
+                        afterChange: () => {
+                            this.applyProcessingFilters();
+                        }
+                    }
+                });
+                
+                // Включаем подсегменты
+                subsegmentSelect.disabled = false;
+            }
+            
+            // Применяем фильтры
+            this.applyProcessingFilters();
+            
+        } catch (error) {
+            console.error('❌ Ошибка при изменении фильтра сегментов:', error);
+        }
+    }
+    
+    /**
+     * Очистка фильтров сегментов
+     */
+    clearSegmentFilters() {
+        try {
+            // Очищаем фильтр статусов
+            if (this.statusSlimSelect) {
+                this.statusSlimSelect.setSelected(['all']);
+            }
+            
+            // Очищаем фильтр сегментов
+            if (this.segmentSlimSelect) {
+                this.segmentSlimSelect.setSelected([]);
+            }
+            
+            // Очищаем и отключаем фильтр подсегментов
+            if (this.subsegmentSlimSelect) {
+                this.subsegmentSlimSelect.setSelected([]);
+            }
+            
+            const subsegmentSelect = document.getElementById('duplicatesSubsegmentFilter');
+            if (subsegmentSelect) {
+                subsegmentSelect.disabled = true;
+            }
+            
+            // Применяем фильтры
+            this.applyProcessingFilters();
+            
+            if (this.progressManager) {
+                this.progressManager.showSuccess('Фильтры сегментов очищены');
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка при очистке фильтров сегментов:', error);
+        }
+    }
+    
+    /**
+     * Проверка строки таблицы против фильтров сегментов
+     */
+    checkRowAgainstSegmentFilters(rowData, segmentFilter, subsegmentFilter) {
+        try {
+            const debug = false; // Отладка отключена
+            if (debug) {
+                console.log(`🔍 Проверка строки ${rowData.id} против фильтров:`, {segmentFilter, subsegmentFilter});
+            }
+            
+            // Получаем текущую область
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea || !currentArea.polygon || currentArea.polygon.length === 0) {
+                if (debug) console.log('⚠️ Нет области - пропускаем проверку полигона');
+                // Если нет области, не применяем географическую фильтрацию
+            } else {
+                // Проверяем, что объявление/объект находится в полигоне области
+                if (!this.isPointInAreaPolygon(rowData, currentArea)) {
+                    if (debug) console.log('❌ Не в полигоне области');
+                    return false; // Не в области - скрываем
+                }
+            }
+            
+            // Если выбран конкретный сегмент, проверяем принадлежность к нему
+            if (segmentFilter) {
+                const segment = this.segmentsCache && this.segmentsCache[segmentFilter];
+                if (!segment) {
+                    console.log('⚠️ Сегмент не найден в кэше:', segmentFilter);
+                    return false; // Сегмент не найден - скрываем
+                }
+                
+                if (debug) console.log(`📋 Проверка сегмента ${segmentFilter}:`, segment.filters);
+                
+                if (segment && segment.filters) {
+                    const result = this.checkRowAgainstFilters(rowData, segment.filters, debug);
+                    if (!result) {
+                        if (debug) console.log(`❌ Строка ${rowData.id} не прошла фильтры сегмента`);
+                        return false;
+                    }
+                }
+            }
+            
+            // Если выбран конкретный подсегмент, проверяем принадлежность к нему
+            if (subsegmentFilter) {
+                const subsegment = this.subsegmentsCache && this.subsegmentsCache[subsegmentFilter];
+                if (!subsegment) {
+                    console.log('⚠️ Подсегмент не найден в кэше:', subsegmentFilter);
+                    return false; // Подсегмент не найден - скрываем
+                }
+                
+                if (debug) console.log(`📋 Проверка подсегмента ${subsegmentFilter}:`, subsegment.filters);
+                
+                if (subsegment && subsegment.filters) {
+                    const result = this.checkRowAgainstFilters(rowData, subsegment.filters, debug);
+                    if (!result) {
+                        if (debug) console.log(`❌ Строка ${rowData.id} не прошла фильтры подсегмента`);
+                        return false;
+                    }
+                }
+            }
+            
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Ошибка проверки фильтров сегментов:', error);
+            return true; // В случае ошибки показываем строку
+        }
+    }
+    
+    /**
+     * Проверка нахождения точки в полигоне области
+     */
+    isPointInAreaPolygon(rowData, area) {
+        try {
+            // Получаем координаты из объявления/объекта
+            let lat, lon;
+            
+            // console.log('📍 Извлечение координат из строки:', rowData);
+            
+            if (rowData.coordinates) {
+                lat = rowData.coordinates.lat || rowData.coordinates.latitude;
+                lon = rowData.coordinates.lon || rowData.coordinates.lng || rowData.coordinates.longitude;
+            } else if (rowData.lat || rowData.latitude) {
+                lat = rowData.lat || rowData.latitude;
+                lon = rowData.lon || rowData.lng || rowData.longitude;
+            }
+            
+            if (!lat || !lon) {
+                console.log('⚠️ Нет координат - пропускаем проверку полигона');
+                return true; // Нет координат - пропускаем проверку
+            }
+            
+            // console.log('📍 Найденные координаты:', [parseFloat(lat), parseFloat(lon)]);
+            
+            // Проверяем нахождение в полигоне
+            return this.isPointInPolygon([parseFloat(lat), parseFloat(lon)], area.polygon);
+            
+        } catch (error) {
+            console.error('❌ Ошибка проверки полигона:', error);
+            return true;
+        }
+    }
+    
+    
+    /**
+     * Проверка строки против фильтров (общий метод для сегментов и подсегментов)
+     */
+    checkRowAgainstFilters(rowData, filters, debug = false) {
+        try {
+            if (debug) {
+                console.log(`📋 Проверка фильтров для строки ${rowData.id}:`, {
+                    filters,
+                    rowData: {
+                        property_type: rowData.property_type,
+                        area_total: rowData.area_total,
+                        area: rowData.area,
+                        floor: rowData.floor,
+                        price: rowData.price
+                    }
+                });
+            }
+            
+            // Проверка типа недвижимости
+            if (filters.property_type && filters.property_type.length > 0) {
+                if (!filters.property_type.includes(rowData.property_type)) {
+                    if (debug) console.log(`❌ Тип недвижимости не подходит: требуется ${filters.property_type}, у строки ${rowData.property_type}`);
+                    return false;
+                }
+                if (debug) console.log(`✅ Тип недвижимости подходит: требуется ${filters.property_type}, у строки ${rowData.property_type}`);
+            }
+            
+            // Проверка диапазона площади
+            const rowArea = rowData.area_total || rowData.area;
+            if (filters.area_from && rowArea < filters.area_from) {
+                return false;
+            }
+            if (filters.area_to && rowArea > filters.area_to) {
+                return false;
+            }
+            
+            // Проверка диапазона этажа
+            if (filters.floor_from && rowData.floor < filters.floor_from) {
+                return false;
+            }
+            if (filters.floor_to && rowData.floor > filters.floor_to) {
+                return false;
+            }
+            
+            // Проверка диапазона цены
+            if (filters.price_from && rowData.price < filters.price_from) {
+                return false;
+            }
+            if (filters.price_to && rowData.price > filters.price_to) {
+                return false;
+            }
+            
+            // Проверка типа дома (для сегментов)
+            if (filters.type && filters.type.length > 0) {
+                // Нужно получить тип дома по address_id
+                // Пока пропускаем эту проверку
+            }
+            
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Ошибка проверки фильтров:', error);
+            return true;
+        }
+    }
+    
+    /**
+     * Проверка нахождения точки в полигоне (алгоритм ray casting)
+     */
+    isPointInPolygon(point, polygon) {
+        try {
+            const [x, y] = point;
+            let inside = false;
+            
+            // console.log('🗺️ Проверка точки в полигоне:', {point: [x, y], polygonLength: polygon.length});
+            
+            // Проверяем структуру полигона и приводим к нужному формату
+            let normalizedPolygon = [];
+            for (let i = 0; i < polygon.length; i++) {
+                const vertex = polygon[i];
+                let lat, lng;
+                
+                // Полигон может быть в разных форматах:
+                // 1. [{lat: ..., lng: ...}] - объекты с lat/lng
+                // 2. [[lat, lng]] - массивы координат
+                // 3. [{latitude: ..., longitude: ...}] - объекты с latitude/longitude
+                if (vertex && typeof vertex === 'object') {
+                    if (vertex.lat !== undefined && vertex.lng !== undefined) {
+                        lat = vertex.lat;
+                        lng = vertex.lng;
+                    } else if (vertex.latitude !== undefined && vertex.longitude !== undefined) {
+                        lat = vertex.latitude;
+                        lng = vertex.longitude;
+                    } else if (Array.isArray(vertex) && vertex.length >= 2) {
+                        lat = vertex[0];
+                        lng = vertex[1];
+                    }
+                } else if (Array.isArray(vertex) && vertex.length >= 2) {
+                    lat = vertex[0];
+                    lng = vertex[1];
+                }
+                
+                if (lat !== undefined && lng !== undefined) {
+                    normalizedPolygon.push([parseFloat(lat), parseFloat(lng)]);
+                }
+            }
+            
+            // console.log('🗺️ Нормализованный полигон:', normalizedPolygon.slice(0, 2));
+            
+            if (normalizedPolygon.length < 3) {
+                console.log('⚠️ Полигон содержит менее 3 точек');
+                return true; // Если полигон некорректный, не фильтруем
+            }
+            
+            for (let i = 0, j = normalizedPolygon.length - 1; i < normalizedPolygon.length; j = i++) {
+                const [xi, yi] = normalizedPolygon[i];
+                const [xj, yj] = normalizedPolygon[j];
+                
+                if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            
+            // console.log('🗺️ Результат проверки точки в полигоне:', inside);
+            return inside;
+            
+        } catch (error) {
+            console.error('❌ Ошибка проверки точки в полигоне:', error);
+            return true; // В случае ошибки не фильтруем
+        }
+    }
+    
+    /**
      * Применение фильтров обработки к таблице (из старой версии)
      */
     async applyProcessingFilters() {
@@ -2368,16 +2891,50 @@ class DuplicatesManager {
             
             const floorFilter = document.getElementById('processingFloorFilter')?.value || '';
             
-            // Получаем значение основного фильтра статусов
-            const statusFilter = document.getElementById('duplicatesStatusFilter')?.value || 'all';
+            // Получаем значение фильтра статусов из SlimSelect
+            let statusFilter = 'all';
+            if (this.statusSlimSelect) {
+                const selected = this.statusSlimSelect.getSelected();
+                statusFilter = selected?.[0] || 'all';
+            } else {
+                statusFilter = document.getElementById('duplicatesStatusFilter')?.value || 'all';
+            }
+            
+            // Получаем значение фильтра сегментов
+            let segmentFilter = '';
+            if (this.segmentSlimSelect) {
+                const selected = this.segmentSlimSelect.getSelected();
+                // SlimSelect возвращает массив строк или объектов с value
+                if (selected && selected.length > 0) {
+                    segmentFilter = selected[0].value || selected[0];
+                }
+            }
+            
+            // Получаем значение фильтра подсегментов
+            let subsegmentFilter = '';
+            if (this.subsegmentSlimSelect) {
+                const selected = this.subsegmentSlimSelect.getSelected();
+                // SlimSelect возвращает массив строк или объектов с value
+                if (selected && selected.length > 0) {
+                    subsegmentFilter = selected[0].value || selected[0];
+                }
+            }
             
             console.log('🔧 Применение фильтров:', {
                 addressFilter,
                 propertyTypeFilter,
                 floorFilter,
                 processingStatusFilter,
-                statusFilter
+                statusFilter,
+                segmentFilter,
+                subsegmentFilter
             });
+            
+            // Отладка: показываем общее количество строк в таблице
+            if (this.duplicatesTable) {
+                const totalRows = this.duplicatesTable.data().length;
+                console.log(`📊 Всего строк в таблице: ${totalRows}`);
+            }
             
             // Очищаем предыдущие кастомные фильтры для этой таблицы
             $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(fn => 
@@ -2453,11 +3010,25 @@ class DuplicatesManager {
                     }
                 }
                 
+                // Фильтрация по сегментам и подсегментам
+                if (segmentFilter || subsegmentFilter) {
+                    const passesSegmentFilter = this.checkRowAgainstSegmentFilters(rowData, segmentFilter, subsegmentFilter);
+                    if (!passesSegmentFilter) {
+                        return false;
+                    }
+                }
+                
                 return true;
             });
             
             // Перерисовываем таблицу
             this.duplicatesTable.draw();
+            
+            // Отладка результатов фильтрации
+            setTimeout(() => {
+                const visibleRows = this.duplicatesTable.rows({search: 'applied'}).count();
+                console.log(`📊 Видимых строк после фильтрации: ${visibleRows}`);
+            }, 100);
             
             // Обновляем отображение активных фильтров
             this.updateActiveFiltersDisplay();
