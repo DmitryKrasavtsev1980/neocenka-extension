@@ -20,6 +20,7 @@ class UIManager {
                 map: { visible: true, expanded: true },
                 addresses: { visible: true, expanded: false },
                 segments: { visible: true, expanded: false },
+                reports: { visible: true, expanded: false },
                 duplicates: { visible: true, expanded: false }
             },
             modals: {
@@ -79,6 +80,13 @@ class UIManager {
                 header: 'segmentsPanelHeader',
                 chevron: 'segmentsPanelChevron',
                 checkbox: 'segmentsPanel'
+            },
+            reports: {
+                container: 'reportsPanelContainer',
+                content: 'reportsPanelContent',
+                header: 'reportsPanelHeader',
+                chevron: 'reportsPanelChevron',
+                checkbox: 'reportsPanel'
             },
             duplicates: {
                 container: 'duplicatesPanelContainer',

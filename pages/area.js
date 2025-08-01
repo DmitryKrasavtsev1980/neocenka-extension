@@ -26,6 +26,7 @@ class AreaPage {
         this.addressManager = null;
         this.duplicatesManager = null;
         this.segmentsManager = null;
+        this.reportsManager = null;
         
         // Утилиты
         this.geoUtils = new GeoUtils();
@@ -146,6 +147,7 @@ class AreaPage {
             this.addressManager = new AddressManager(this.dataState, this.eventBus, this.progressManager);
             this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager, this.uiManager);
             this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
+            this.reportsManager = new ReportsManager(this);
             
             // Инициализация RealEstateObjectManager для совместимости со старой архитектурой
             if (typeof RealEstateObjectManager !== 'undefined') {
@@ -217,6 +219,12 @@ class AreaPage {
             
             // Показываем основной контент
             this.showMainContent();
+            
+            // Инициализация ReportsManager
+            if (this.reportsManager) {
+                await this.reportsManager.initialize();
+                console.log('✅ ReportsManager инициализирован');
+            }
             
             // UI элементы будут инициализированы через подписку на событие AREA_LOADED
             console.log('✅ Событие AREA_LOADED отправлено, менеджеры обработают загрузку');
