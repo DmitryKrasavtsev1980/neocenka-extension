@@ -47,6 +47,9 @@ class SegmentsManager {
             editingSubsegment: null
         };
         
+        // Флаг инициализации событий подсегментов
+        this.subsegmentEventsInitialized = false;
+        
         // Конфигурация
         this.config = {
             pageLength: 10,
@@ -1080,10 +1083,26 @@ class SegmentsManager {
      * Фильтрация адресов по сегменту
      */
     filterAddressesBySegment(addresses, segment) {
-        if (!segment.filters) return addresses;
+        // Адреса уже отфильтрованы по области в основном приложении
+        // Здесь фильтруем только по характеристикам сегмента
+        console.log(`🔍 Фильтрация адресов для сегмента "${segment.name}":`, {
+            totalAddresses: addresses.length,
+            segmentFilters: segment.filters
+        });
         
-        return addresses.filter(address => {
+        if (!segment.filters) {
+            console.log('⚠️ У сегмента нет фильтров, возвращаем все адреса');
+            return addresses;
+        }
+        
+        const filteredAddresses = addresses.filter(address => {
             const filters = segment.filters;
+            
+            // Фильтр по конкретным адресам (приоритетный)
+            if (filters.addresses && Array.isArray(filters.addresses) && filters.addresses.length > 0) {
+                // Если указан список конкретных адресов, возвращаем только их
+                return filters.addresses.includes(address.id);
+            }
             
             // Фильтр по типу недвижимости
             if (filters.type && filters.type.length > 0) {
@@ -1146,6 +1165,9 @@ class SegmentsManager {
             
             return true;
         });
+        
+        console.log(`📍 После фильтрации: ${filteredAddresses.length} из ${addresses.length} адресов`);
+        return filteredAddresses;
     }
     
     /**
@@ -1561,6 +1583,9 @@ class SegmentsManager {
             
             // Обновляем состояние кнопок
             this.updateSaveButtonState();
+            
+            // Обновляем график распределения площадей (данные сегмента могли измениться)
+            this.updateAreaDistributionChart();
             
             // НЕ закрываем модальное окно после сохранения
             // this.closeSegmentModal();
@@ -3384,24 +3409,32 @@ class SegmentsManager {
                 return [];
             }
             
+            console.log('🔍 Текущий сегмент для графика:', {
+                id: currentSegment.id,
+                name: currentSegment.name,
+                filters: currentSegment.filters,
+                hasFilters: !!currentSegment.filters,
+                filtersKeys: currentSegment.filters ? Object.keys(currentSegment.filters) : 'нет'
+            });
+            
             // Получаем адреса из состояния
             const addresses = this.dataState.getState('addresses') || [];
+            console.log(`🔍 Всего адресов в области: ${addresses.length}`);
             
             // Фильтруем адреса по сегменту
             const segmentAddresses = this.filterAddressesBySegment(addresses, currentSegment);
+            console.log(`📍 Адресов в сегменте "${currentSegment.name}": ${segmentAddresses.length}`);
             
             // Получаем все объявления из состояния
             const allListings = this.dataState.getState('listings') || [];
+            console.log(`📋 Всего объявлений в области: ${allListings.length}`);
             
             // Фильтруем объявления только для адресов сегмента
-            const segmentListings = allListings.filter(listing => {
+            // Сегмент определяется адресами, поэтому все объявления этих адресов включаются
+            const filteredListings = allListings.filter(listing => {
                 return listing.address_id && segmentAddresses.some(addr => addr.id === listing.address_id);
             });
-            
-            // Дополнительно фильтруем по фильтрам сегмента (если есть)
-            const filteredListings = segmentListings.filter(listing => {
-                return this.listingMatchesSegmentFilters(listing, currentSegment.filters || {});
-            });
+            console.log(`🎯 Объявлений в сегменте: ${filteredListings.length}`);
             
             // Группируем данные по типам недвижимости
             const seriesData = {
@@ -3495,7 +3528,7 @@ class SegmentsManager {
         try {
             if (!listing || !filters) return true;
             
-            // Проверяем тип недвижимости
+            // Проверяем тип недвижимости (тип дома: дом/квартира/коммерческая)
             if (filters.type && filters.type.length > 0) {
                 const listingType = listing.property_type?.toLowerCase() || '';
                 const matchesType = filters.type.some(filterType => {
@@ -3514,6 +3547,13 @@ class SegmentsManager {
                 if (!matchesType) return false;
             }
             
+            // Проверяем количество комнат (property_type: 1k, 2k, 3k и т.д.)
+            if (filters.property_type && filters.property_type.length > 0) {
+                if (!filters.property_type.includes(listing.property_type)) {
+                    return false;
+                }
+            }
+            
             // Проверяем этаж
             if (filters.floors_from || filters.floors_to) {
                 const floor = listing.floor;
@@ -3529,6 +3569,24 @@ class SegmentsManager {
                 if (year) {
                     if (filters.build_year_from && year < filters.build_year_from) return false;
                     if (filters.build_year_to && year > filters.build_year_to) return false;
+                }
+            }
+            
+            // Проверяем общую площадь
+            if (filters.area_from || filters.area_to) {
+                const area = listing.area_total || listing.area;
+                if (area) {
+                    if (filters.area_from && area < filters.area_from) return false;
+                    if (filters.area_to && area > filters.area_to) return false;
+                }
+            }
+            
+            // Проверяем диапазон этажа
+            if (filters.floor_from || filters.floor_to) {
+                const floor = listing.floor;
+                if (floor) {
+                    if (filters.floor_from && floor < filters.floor_from) return false;  
+                    if (filters.floor_to && floor > filters.floor_to) return false;
                 }
             }
             
@@ -3610,6 +3668,11 @@ class SegmentsManager {
      * Привязка событий для подсегментов
      */
     bindSubsegmentEvents() {
+        // Проверяем, что события еще не привязаны
+        if (this.subsegmentEventsInitialized) {
+            return;
+        }
+        
         // Выбор подсегмента из списка
         document.getElementById('subsegmentSelect')?.addEventListener('change', (e) => {
             this.onSubsegmentSelect(e.target.value);
@@ -3645,6 +3708,10 @@ class SegmentsManager {
         document.getElementById('subsegmentFloorTo')?.addEventListener('input', updateNameHandler);
         document.getElementById('subsegmentPriceFrom')?.addEventListener('input', updateNameHandler);
         document.getElementById('subsegmentPriceTo')?.addEventListener('input', updateNameHandler);
+        
+        // Отмечаем, что события инициализированы
+        this.subsegmentEventsInitialized = true;
+        console.log('✅ События подсегментов инициализированы');
     }
     
     /**
@@ -3657,6 +3724,8 @@ class SegmentsManager {
                 this.clearSubsegmentForm();
                 this.subsegmentsState.editingSubsegment = null;
                 document.getElementById('deleteSubsegmentBtn').disabled = true;
+                // Обновляем график без выделения подсегмента
+                this.updateChartForSubsegment(null);
                 return;
             }
             
@@ -3666,6 +3735,8 @@ class SegmentsManager {
                 this.fillSubsegmentForm(subsegment);
                 this.subsegmentsState.editingSubsegment = subsegment;
                 document.getElementById('deleteSubsegmentBtn').disabled = false;
+                // Обновляем график с выделением выбранного подсегмента
+                this.updateChartForSubsegment(subsegmentId);
             }
             
         } catch (error) {
@@ -3779,12 +3850,24 @@ class SegmentsManager {
             this.subsegmentsState.editingSubsegment = subsegment;
             await this.loadSubsegments();
             
+            // Обновляем таблицу сегментов (количество подсегментов могло измениться)
+            await this.updateSegmentsData();
+            
             // Устанавливаем созданный/обновленный подсегмент как выбранный
             document.getElementById('subsegmentSelect').value = subsegment.id;
             document.getElementById('deleteSubsegmentBtn').disabled = false;
             
             this.progressManager.showSuccess(
                 isEditing ? 'Подсегмент обновлен' : 'Подсегмент создан'
+            );
+            
+            // Уведомляем об изменении подсегмента
+            this.eventBus.emit(
+                isEditing ? CONSTANTS.EVENTS.SUBSEGMENT_UPDATED : CONSTANTS.EVENTS.SUBSEGMENT_CREATED,
+                {
+                    subsegment,
+                    timestamp: new Date()
+                }
             );
             
         } catch (error) {
@@ -3809,12 +3892,21 @@ class SegmentsManager {
                 this.subsegmentsState.editingSubsegment = null;
                 await this.loadSubsegments();
                 
+                // Обновляем таблицу сегментов (количество подсегментов могло измениться) 
+                await this.updateSegmentsData();
+                
                 // Сбрасываем селект
                 document.getElementById('subsegmentSelect').value = '';
                 document.getElementById('deleteSubsegmentBtn').disabled = true;
                 
                 this.progressManager.showSuccess('Подсегмент удален');
                 console.log('✅ Подсегмент удален:', subsegment.id);
+                
+                // Уведомляем об удалении подсегмента
+                this.eventBus.emit(CONSTANTS.EVENTS.SUBSEGMENT_DELETED, {
+                    subsegment,
+                    timestamp: new Date()
+                });
             }
             
         } catch (error) {

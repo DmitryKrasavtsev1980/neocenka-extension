@@ -112,6 +112,38 @@ class DuplicatesManager {
                     this.restoreTableState(tableState);
                 }
             });
+            
+            // Обработчики событий сегментов
+            this.eventBus.on(CONSTANTS.EVENTS.SEGMENT_CREATED, async () => {
+                console.log('📨 DuplicatesManager: Получено событие SEGMENT_CREATED - обновляем кэш сегментов');
+                await this.preloadSegmentData();
+            });
+            
+            this.eventBus.on(CONSTANTS.EVENTS.SEGMENT_UPDATED, async () => {
+                console.log('📨 DuplicatesManager: Получено событие SEGMENT_UPDATED - обновляем кэш сегментов');
+                await this.preloadSegmentData();
+            });
+            
+            this.eventBus.on(CONSTANTS.EVENTS.SEGMENT_DELETED, async () => {
+                console.log('📨 DuplicatesManager: Получено событие SEGMENT_DELETED - обновляем кэш сегментов');
+                await this.preloadSegmentData();
+            });
+            
+            // Обработчики событий подсегментов
+            this.eventBus.on(CONSTANTS.EVENTS.SUBSEGMENT_CREATED, async () => {
+                console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_CREATED - обновляем кэш подсегментов');
+                await this.preloadSegmentData();
+            });
+            
+            this.eventBus.on(CONSTANTS.EVENTS.SUBSEGMENT_UPDATED, async () => {
+                console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_UPDATED - обновляем кэш подсегментов');
+                await this.preloadSegmentData();
+            });
+            
+            this.eventBus.on(CONSTANTS.EVENTS.SUBSEGMENT_DELETED, async () => {
+                console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_DELETED - обновляем кэш подсегментов');
+                await this.preloadSegmentData();
+            });
         }
         
         // Привязка к кнопкам
@@ -2657,6 +2689,7 @@ class DuplicatesManager {
                 const segment = this.segmentsCache && this.segmentsCache[segmentFilter];
                 if (!segment) {
                     console.log('⚠️ Сегмент не найден в кэше:', segmentFilter);
+                    console.log('🔍 Доступные сегменты в кэше:', Object.keys(this.segmentsCache || {}));
                     return false; // Сегмент не найден - скрываем
                 }
                 
@@ -2783,6 +2816,15 @@ class DuplicatesManager {
             }
             if (filters.price_to && rowData.price > filters.price_to) {
                 return false;
+            }
+            
+            // Проверка списка конкретных адресов (для сегментов)
+            if (filters.addresses && Array.isArray(filters.addresses) && filters.addresses.length > 0) {
+                if (!rowData.address_id || !filters.addresses.includes(rowData.address_id)) {
+                    if (debug) console.log(`❌ Адрес не входит в сегмент: требуется один из ${filters.addresses.length} адресов, у строки ${rowData.address_id}`);
+                    return false;
+                }
+                if (debug) console.log(`✅ Адрес входит в сегмент: ${rowData.address_id}`);
             }
             
             // Проверка типа дома (для сегментов)

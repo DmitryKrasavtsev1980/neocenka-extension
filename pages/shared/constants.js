@@ -49,6 +49,11 @@ const EVENTS = {
     SEGMENT_UPDATED: 'segment:updated',
     SEGMENT_DELETED: 'segment:deleted',
     
+    // Подсегменты
+    SUBSEGMENT_CREATED: 'subsegment:created',
+    SUBSEGMENT_UPDATED: 'subsegment:updated',
+    SUBSEGMENT_DELETED: 'subsegment:deleted',
+    
     // Карта
     MAP_INITIALIZED: 'map:initialized',
     MAP_UPDATED: 'map:updated',
