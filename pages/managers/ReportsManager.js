@@ -30,6 +30,7 @@ class ReportsManager {
         // Графики
         this.liquidityChart = null;
         this.priceChangesChart = null;
+        this.marketCorridorChart = null;
         
         // Данные
         this.segments = [];
@@ -155,6 +156,7 @@ class ReportsManager {
         // Обработчики чекбоксов отчётов
         const liquidityCheck = document.getElementById('liquidityReportCheck');
         const priceChangesCheck = document.getElementById('priceChangesReportCheck');
+        const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
         
         if (liquidityCheck) {
             liquidityCheck.addEventListener('change', () => {
@@ -164,6 +166,12 @@ class ReportsManager {
         
         if (priceChangesCheck) {
             priceChangesCheck.addEventListener('change', () => {
+                this.updateReportsVisibility();
+            });
+        }
+
+        if (marketCorridorCheck) {
+            marketCorridorCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
             });
         }
@@ -274,12 +282,14 @@ class ReportsManager {
 
         const liquidityCheck = document.getElementById('liquidityReportCheck');
         const priceChangesCheck = document.getElementById('priceChangesReportCheck');
+        const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
         
         const showLiquidity = liquidityCheck?.checked || false;
         const showPriceChanges = priceChangesCheck?.checked || false;
+        const showMarketCorridor = marketCorridorCheck?.checked || false;
 
         // Показать контейнер отчётов если выбран хотя бы один отчёт
-        if (showLiquidity || showPriceChanges) {
+        if (showLiquidity || showPriceChanges || showMarketCorridor) {
             this.reportsContent.classList.remove('hidden');
             
             // Генерация отчётов
@@ -288,6 +298,7 @@ class ReportsManager {
             // Показать/скрыть конкретные отчёты
             const liquidityReport = document.querySelector('#liquidityChart').closest('.bg-white');
             const priceChangesReport = document.querySelector('#priceChangesChart').closest('.bg-white');
+            const marketCorridorReport = document.querySelector('#marketCorridorChart').closest('.bg-white');
             
             if (liquidityReport) {
                 liquidityReport.style.display = showLiquidity ? 'block' : 'none';
@@ -296,6 +307,10 @@ class ReportsManager {
             if (priceChangesReport) {
                 priceChangesReport.style.display = showPriceChanges ? 'block' : 'none';
             }
+
+            if (marketCorridorReport) {
+                marketCorridorReport.style.display = showMarketCorridor ? 'block' : 'none';
+            }
         } else {
             this.reportsContent.classList.add('hidden');
         }
@@ -303,7 +318,8 @@ class ReportsManager {
         if (this.debugEnabled) {
             console.log('🔍 ReportsManager: Видимость отчётов обновлена', {
                 showLiquidity,
-                showPriceChanges
+                showPriceChanges,
+                showMarketCorridor
             });
         }
     }
@@ -315,9 +331,11 @@ class ReportsManager {
         // Показать все отчёты по умолчанию
         const liquidityCheck = document.getElementById('liquidityReportCheck');
         const priceChangesCheck = document.getElementById('priceChangesReportCheck');
+        const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
         
         if (liquidityCheck) liquidityCheck.checked = true;
         if (priceChangesCheck) priceChangesCheck.checked = true;
+        if (marketCorridorCheck) marketCorridorCheck.checked = true;
         
         this.updateReportsVisibility();
     }
@@ -516,6 +534,9 @@ class ReportsManager {
             
             // Создание графика изменения цен
             this.createPriceChangesChart(reportData);
+
+            // Создание графика коридора рынка недвижимости
+            this.createMarketCorridorChart(reportData);
 
             if (this.debugEnabled) {
                 console.log('✅ ReportsManager: Отчёты сгенерированы');
@@ -727,6 +748,162 @@ class ReportsManager {
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка создания графика изменения цен:', error);
         }
+    }
+
+    /**
+     * Создание графика коридора рынка недвижимости
+     */
+    createMarketCorridorChart(data) {
+        try {
+            // Получаем тестовые данные для графика коридора (из примера в PANEL_REPORTS.md)
+            const pointsData = this.getMarketCorridorData();
+            
+            const options = {
+                chart: {
+                    height: 600,
+                    locales: [{
+                        "name": "ru",
+                        "options": {
+                            "months": ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
+                            "shortMonths": ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
+                            "days": ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"],
+                            "shortDays": ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+                            "toolbar": {
+                                "exportToSVG": "Сохранить SVG",
+                                "exportToPNG": "Сохранить PNG",
+                                "exportToCSV": "Сохранить CSV",
+                                "menu": "Меню",
+                                "selection": "Выбор",
+                                "selectionZoom": "Выбор с увеличением",
+                                "zoomIn": "Увеличить",
+                                "zoomOut": "Уменьшить",
+                                "pan": "Перемещение",
+                                "reset": "Сбросить увеличение"
+                            }
+                        }
+                    }],
+                    defaultLocale: "ru",
+                    type: 'line',
+                    shadow: {
+                        enabled: false,
+                        color: 'rgba(187,187,187,0.47)',
+                        top: 3,
+                        left: 2,
+                        blur: 3,
+                        opacity: 1
+                    }
+                },
+                stroke: {
+                    curve: 'stepline',
+                    width: [2, 2, 2] // ширины линий для каждой серии
+                },
+                series: pointsData.series,
+                colors: pointsData.colors,
+                xaxis: {
+                    type: 'datetime'
+                },
+                title: {
+                    text: 'Коридор рынка недвижимости',
+                    align: 'left',
+                    style: {
+                        fontSize: "14px",
+                        color: 'rgba(102,102,102,0.56)'
+                    }
+                },
+                markers: {
+                    size: 4,
+                    opacity: 0.9,
+                    colors: ["#56c2d6"],
+                    strokeColor: "#fff",
+                    strokeWidth: 2,
+                    style: 'inverted',
+                    hover: {
+                        size: 15
+                    }
+                },
+                tooltip: {
+                    shared: false,
+                    intersect: true
+                },
+                yaxis: {
+                    min: pointsData.minPrice,
+                    max: pointsData.maxPrice,
+                    title: {
+                        text: 'Цена'
+                    }
+                },
+                grid: {
+                    show: true,
+                    position: 'back',
+                    xaxis: {
+                        lines: {
+                            show: true
+                        }
+                    },
+                    yaxis: {
+                        lines: {
+                            show: true
+                        }
+                    },
+                    borderColor: '#eeeeee'
+                },
+                legend: {
+                    show: true
+                },
+                responsive: [{
+                    breakpoint: 600,
+                    options: {
+                        chart: {
+                            toolbar: {
+                                show: true
+                            }
+                        },
+                        legend: {
+                            show: true
+                        }
+                    }
+                }]
+            };
+
+            document.getElementById('marketCorridorChart').innerHTML = '';
+            this.marketCorridorChart = new ApexCharts(document.querySelector("#marketCorridorChart"), options);
+            this.marketCorridorChart.render();
+
+            if (this.debugEnabled) {
+                console.log('✅ ReportsManager: График коридора рынка создан');
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка создания графика коридора рынка:', error);
+        }
+    }
+
+    /**
+     * Получение данных для графика коридора рынка
+     */
+    getMarketCorridorData() {
+        // Тестовые данные для демонстрации
+        // В реальной реализации здесь будет получение данных из базы данных
+        return {
+            series: [
+                {
+                    name: 'Объекты недвижимости',
+                    data: [
+                        [new Date('2024-01-15').getTime(), 12000000],
+                        [new Date('2024-02-10').getTime(), 13500000],
+                        [new Date('2024-03-05').getTime(), 11800000],
+                        [new Date('2024-04-20').getTime(), 15200000],
+                        [new Date('2024-05-12').getTime(), 14100000],
+                        [new Date('2024-06-08').getTime(), 16800000],
+                        [new Date('2024-07-25').getTime(), 13900000],
+                        [new Date('2024-08-14').getTime(), 17500000]
+                    ]
+                }
+            ],
+            colors: ['#56c2d6'],
+            minPrice: 10000000,
+            maxPrice: 20000000
+        };
     }
 
     /**

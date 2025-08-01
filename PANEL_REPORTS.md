@@ -256,6 +256,164 @@ document.getElementById('middle-price-apex-charts').innerHTML = '';
                     chartMiddlePrice.render();
 
                     пример данных в фале example/report_new_close_average.json
+3. График Коридор рынка недвижимости.
 
+на графике отображаются точки последних цен в объектах недвижимости по вертикали, по горизонтали дата последнего обновления объекта недвижимости. пример (example/16.png)
+
+пример кода графика:
+var optionsPoint = {
+                        chart: {
+                            height: 600,
+                            locales: [{
+                                "name": "ru",
+                                "options": {
+                                    "months": [
+                                        "Январь",
+                                        "Февраль",
+                                        "Март",
+                                        "Апрель",
+                                        "Май",
+                                        "Июнь",
+                                        "Июль",
+                                        "Август",
+                                        "Сентябрь",
+                                        "Октябрь",
+                                        "Ноябрь",
+                                        "Декабрь"
+                                    ],
+                                    "shortMonths": [
+                                        "Янв",
+                                        "Фев",
+                                        "Мар",
+                                        "Апр",
+                                        "Май",
+                                        "Июн",
+                                        "Июл",
+                                        "Авг",
+                                        "Сен",
+                                        "Окт",
+                                        "Ноя",
+                                        "Дек"
+                                    ],
+                                    "days": [
+                                        "Воскресенье",
+                                        "Понедельник",
+                                        "Вторник",
+                                        "Среда",
+                                        "Четверг",
+                                        "Пятница",
+                                        "Суббота"
+                                    ],
+                                    "shortDays": ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+                                    "toolbar": {
+                                        "exportToSVG": "Сохранить SVG",
+                                        "exportToPNG": "Сохранить PNG",
+                                        "exportToCSV": "Сохранить CSV",
+                                        "menu": "Меню",
+                                        "selection": "Выбор",
+                                        "selectionZoom": "Выбор с увеличением",
+                                        "zoomIn": "Увеличить",
+                                        "zoomOut": "Уменьшить",
+                                        "pan": "Перемещение",
+                                        "reset": "Сбросить увеличение"
+                                    }
+                                }
+                            }],
+                            defaultLocale: "ru",
+                            type: 'line',
+                            shadow: {
+                                enabled: false,
+                                color: 'rgba(187,187,187,0.47)',
+                                top: 3,
+                                left: 2,
+                                blur: 3,
+                                opacity: 1
+                            }
+                        },
+                        stroke: {
+                            curve: 'stepline',
+                            width: widths
+                        },
+
+                        series: seriesPoint,
+                        colors: colors,
+                        xaxis: {
+                            type: 'datetime',
+                        },
+                        title: {
+                            text: 'Выбранный сегмент',
+                            align: 'left',
+                            style: {
+                                fontSize: "14px",
+                                color: 'rgba(102,102,102,0.56)'
+                            }
+                        },
+                        markers: {
+                            size: 4,
+                            opacity: 0.9,
+                            colors: ["#56c2d6"],
+                            strokeColor: "#fff",
+                            strokeWidth: 2,
+                            style: 'inverted',
+                            // full, hollow, inverted
+                            hover: {
+                                size: 15
+                            },
+                            customHTML: function () {
+                                return '<span class="custom-marker"><i class="fas fa-chart-pie"></i></span>'
+                            },
+                            onClick: function (e) {
+                                console.log(e);
+
+                            }
+                        },
+                        tooltip: {
+                            shared: false,
+                            intersect: true
+                        },
+                        yaxis: {
+                            min: Number.parseInt(minPrice),
+                            max: Number.parseInt(maxPrice),
+                            title: {
+                                text: 'Цена'
+                            }
+                        },
+                        grid: {
+                            show: true,
+                            position: 'back',
+                            xaxis: {
+                                lines: {
+                                    show: true,
+                                }
+                            },
+                            yaxis: {
+                                lines: {
+                                    show: true,
+                                }
+                            },
+                            borderColor: '#eeeeee',
+                        },
+                        legend: {
+                            show: showLegend
+                        },
+                        responsive: [{
+                            breakpoint: 600,
+                            options: {
+                                chart: {
+                                    toolbar: {
+                                        show: true
+                                    }
+                                },
+                                legend: {
+                                    show: true
+                                }
+                            }
+                        }]
+                    };
+                    document.getElementById('point-apex-charts').innerHTML = '';
+                    var chartPoint = new ApexCharts(document.querySelector("#point-apex-charts"), optionsPoint);
+                    chartPoint.render();
+
+пример данных (example/report_points.json)
 
 
