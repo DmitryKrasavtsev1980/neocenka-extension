@@ -3,7 +3,7 @@
  * Управляет обработкой дублей объявлений и их объединением в объекты недвижимости
  */
 
-console.log('📁 Загружаем DuplicatesManager.js');
+// // console.log('📁 Загружаем DuplicatesManager.js');
 
 class DuplicatesManager {
     constructor(dataState, eventBus, progressManager, uiManager) {
@@ -41,6 +41,7 @@ class DuplicatesManager {
         
         // Флаги состояния
         this.isLoadingTable = false;
+        this.lastProcessingFilter = '';
         
         // Cache для адресов (необходимо для helper методов)
         this.addresses = [];
@@ -59,7 +60,7 @@ class DuplicatesManager {
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESSES_LOADED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие ADDRESSES_LOADED');
+                // console.log('📨 DuplicatesManager: Получено событие ADDRESSES_LOADED');
                 
                 // Загружаем адреса для helper методов
                 await this.loadAddresses();
@@ -77,30 +78,30 @@ class DuplicatesManager {
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.LISTINGS_LOADED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие LISTINGS_LOADED - обновляем данные');
+                // console.log('📨 DuplicatesManager: Получено событие LISTINGS_LOADED - обновляем данные');
                 // Только обновляем данные если таблица уже инициализирована
                 if (this.duplicatesTable) {
                     await this.loadDuplicatesTable();
                     await this.updateDuplicatesStats();
                 } else {
-                    console.log('⚠️ DuplicatesManager: Таблица еще не инициализирована, пропускаем обновление');
+                    // console.log('⚠️ DuplicatesManager: Таблица еще не инициализирована, пропускаем обновление');
                 }
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.AREA_CHANGED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие AREA_CHANGED');
+                // console.log('📨 DuplicatesManager: Получено событие AREA_CHANGED');
                 await this.loadDuplicatesTable();
                 await this.updateDuplicatesStats();
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.LISTING_UPDATED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие LISTING_UPDATED');
+                // console.log('📨 DuplicatesManager: Получено событие LISTING_UPDATED');
                 await this.loadDuplicatesTable();
                 await this.updateDuplicatesStats();
             });
             
             this.eventBus.on('refreshDuplicatesTable', async () => {
-                console.log('📨 DuplicatesManager: Получено событие refreshDuplicatesTable');
+                // console.log('📨 DuplicatesManager: Получено событие refreshDuplicatesTable');
                 if (this.duplicatesTable) {
                     // Сохраняем полное состояние таблицы перед обновлением
                     const tableState = this.saveTableState();
@@ -115,33 +116,33 @@ class DuplicatesManager {
             
             // Обработчики событий сегментов
             this.eventBus.on(CONSTANTS.EVENTS.SEGMENT_CREATED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие SEGMENT_CREATED - обновляем кэш сегментов');
+                // console.log('📨 DuplicatesManager: Получено событие SEGMENT_CREATED - обновляем кэш сегментов');
                 await this.preloadSegmentData();
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.SEGMENT_UPDATED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие SEGMENT_UPDATED - обновляем кэш сегментов');
+                // console.log('📨 DuplicatesManager: Получено событие SEGMENT_UPDATED - обновляем кэш сегментов');
                 await this.preloadSegmentData();
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.SEGMENT_DELETED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие SEGMENT_DELETED - обновляем кэш сегментов');
+                // console.log('📨 DuplicatesManager: Получено событие SEGMENT_DELETED - обновляем кэш сегментов');
                 await this.preloadSegmentData();
             });
             
             // Обработчики событий подсегментов
             this.eventBus.on(CONSTANTS.EVENTS.SUBSEGMENT_CREATED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_CREATED - обновляем кэш подсегментов');
+                // console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_CREATED - обновляем кэш подсегментов');
                 await this.preloadSegmentData();
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.SUBSEGMENT_UPDATED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_UPDATED - обновляем кэш подсегментов');
+                // console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_UPDATED - обновляем кэш подсегментов');
                 await this.preloadSegmentData();
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.SUBSEGMENT_DELETED, async () => {
-                console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_DELETED - обновляем кэш подсегментов');
+                // console.log('📨 DuplicatesManager: Получено событие SUBSEGMENT_DELETED - обновляем кэш подсегментов');
                 await this.preloadSegmentData();
             });
         }
@@ -214,7 +215,7 @@ class DuplicatesManager {
     bindTableEvents() {
         // Делегированные обработчики для динамически создаваемых элементов (используем jQuery как в старой версии)
         $(document).on('change', '.duplicate-checkbox', (e) => {
-            console.log('🔄 jQuery event handler for duplicate checkbox');
+            // console.log('🔄 jQuery event handler for duplicate checkbox');
             this.handleDuplicateSelection(e.target);
         });
         
@@ -284,20 +285,20 @@ class DuplicatesManager {
             const tr = $(e.currentTarget).closest('tr');
             const row = this.duplicatesTable.row(tr);
             
-            console.log('🔍 Expanding object listings for:', objectId);
+            // console.log('🔍 Expanding object listings for:', objectId);
             
             if (row.child.isShown()) {
                 // Скрываем child row
                 row.child.hide();
                 tr.removeClass('shown');
                 $(e.currentTarget).find('svg').css('transform', 'rotate(0deg)');
-                console.log('📖 Child row hidden');
+                // console.log('📖 Child row hidden');
             } else {
                 // Показываем child row
                 this.showObjectListings(row, objectId);
                 tr.addClass('shown');
                 $(e.currentTarget).find('svg').css('transform', 'rotate(180deg)');
-                console.log('📗 Child row shown');
+                // console.log('📗 Child row shown');
             }
         });
     }
@@ -307,16 +308,16 @@ class DuplicatesManager {
      */
     async onAreaLoaded(area) {
         try {
-            console.log('📨 DuplicatesManager: Получено событие AREA_LOADED');
-            console.log('🗺️ DuplicatesManager: Область загружена:', area.name);
+            // console.log('📨 DuplicatesManager: Получено событие AREA_LOADED');
+            // console.log('🗺️ DuplicatesManager: Область загружена:', area.name);
             
             // Просто инициализируем фильтры - таблица будет инициализирована при получении ADDRESSES_LOADED
             await this.initProcessingFilters();
             
-            console.log('✅ DuplicatesManager: Базовая инициализация завершена, ждем адреса...');
+            // console.log('✅ DuplicatesManager: Базовая инициализация завершена, ждем адреса...');
             
         } catch (error) {
-            console.error('❌ DuplicatesManager: Ошибка при загрузке области:', error);
+            // console.error('❌ DuplicatesManager: Ошибка при загрузке области:', error);
         }
     }
     
@@ -339,61 +340,83 @@ class DuplicatesManager {
     async loadDuplicatesTable() {
         // Защита от множественных вызовов
         if (this.isLoadingTable) {
-            console.log('⚠️ Таблица дублей уже загружается, пропускаем...');
             return;
         }
         
         this.isLoadingTable = true;
         
         try {
-            console.log('📋 Загрузка таблицы дублей');
+            // console.log('📋 Загрузка таблицы дублей');
             
             // Сохраняем полное состояние таблицы перед обновлением
             const tableState = this.saveTableState();
             
             // Загружаем объявления, которые попадают в область (полигон)
             const allListings = await this.getListingsInArea();
-            console.log('📋 Загружено объявлений:', allListings.length);
+            // console.log('📋 Загружено объявлений:', allListings.length);
             if (allListings.length > 0) {
-                console.log('🔍 Пример объявления:', allListings[0]);
+                // console.log('🔍 Пример объявления:', allListings[0]);
             }
             
-            // Исключаем объявления со статусом "processed"
-            const listings = allListings.filter(listing => listing.processing_status !== 'processed');
-            console.log('📋 Объявлений после фильтрации (исключены "processed"):', listings.length);
+            // Проверяем нужно ли исключать обработанные объявления
+            let processingFilter = '';
+            if (this.processingStatusSlimSelect) {
+                const selected = this.processingStatusSlimSelect.getSelected();
+                processingFilter = selected?.[0]?.value || selected?.[0] || '';
+            }
+            let listings;
+            
+            if (processingFilter === 'needs_update') {
+                // При фильтре актуализации показываем ВСЕ объявления
+                listings = allListings;
+                // console.log('📋 Фильтр актуализации: показываем все объявления:', listings.length);
+            } else {
+                // Для остальных фильтров исключаем объявления со статусом "processed"
+                listings = allListings.filter(listing => listing.processing_status !== 'processed');
+                // console.log('📋 Объявлений после фильтрации (исключены "processed"):', listings.length);
+            }
             
             // Загружаем объекты недвижимости
             const objects = await this.getRealEstateObjects();
-            console.log('📋 Загружено объектов:', objects.length);
+            // console.log('📋 Загружено объектов:', objects.length);
             if (objects.length > 0) {
-                console.log('🔍 Пример объекта:', objects[0]);
+                // console.log('🔍 Пример объекта:', objects[0]);
             }
             
             // Объединяем данные для таблицы
-            const tableData = [
-                ...listings.map(item => ({...item, type: 'listing'})),
-                ...objects.map(item => ({...item, type: 'object'}))
-            ];
+            let tableData;
             
-            console.log(`📋 Загружено ${tableData.length} элементов для таблицы дублей (${listings.length} объявлений + ${objects.length} объектов)`);
-            console.log('🔍 Первые 3 элемента tableData:', tableData.slice(0, 3));
+            if (processingFilter === 'needs_update') {
+                // При фильтре актуализации показываем только объявления, требующие актуализации
+                const actualizationListings = this.getActualizationListings(allListings);
+                tableData = actualizationListings.map(item => ({...item, type: 'listing'}));
+            } else {
+                // Для остальных фильтров используем обычную логику
+                tableData = [
+                    ...listings.map(item => ({...item, type: 'listing'})),
+                    ...objects.map(item => ({...item, type: 'object'}))
+                ];
+            }
+            
+            // console.log(`📋 Загружено ${tableData.length} элементов для таблицы дублей (${listings.length} объявлений + ${objects.length} объектов)`);
+            // console.log('🔍 Первые 3 элемента tableData:', tableData.slice(0, 3));
             
             // Детальная диагностика первого элемента
             if (tableData.length > 0) {
                 const firstItem = tableData[0];
-                console.log('🔍 ДИАГНОСТИКА первого элемента:');
-                console.log('- id:', firstItem.id);
-                console.log('- type:', firstItem.type);
-                console.log('- status:', firstItem.status);
-                console.log('- created_at:', firstItem.created_at);
-                console.log('- updated_at:', firstItem.updated_at);
-                console.log('- price:', firstItem.price);
-                console.log('- address:', firstItem.address);
-                console.log('- address_id:', firstItem.address_id);
-                console.log('- property_type:', firstItem.property_type);
-                console.log('- area_total:', firstItem.area_total);
-                console.log('- floor:', firstItem.floor);
-                console.log('- floors_total:', firstItem.floors_total);
+                // console.log('🔍 ДИАГНОСТИКА первого элемента:');
+                // console.log('- id:', firstItem.id);
+                // console.log('- type:', firstItem.type);
+                // console.log('- status:', firstItem.status);
+                // console.log('- created_at:', firstItem.created_at);
+                // console.log('- updated_at:', firstItem.updated_at);
+                // console.log('- price:', firstItem.price);
+                // console.log('- address:', firstItem.address);
+                // console.log('- address_id:', firstItem.address_id);
+                // console.log('- property_type:', firstItem.property_type);
+                // console.log('- area_total:', firstItem.area_total);
+                // console.log('- floor:', firstItem.floor);
+                // console.log('- floors_total:', firstItem.floors_total);
             }
             
             // Сохраняем данные в переменные класса для использования в других функциях
@@ -405,18 +428,18 @@ class DuplicatesManager {
             
             // Инициализируем таблицу если нужно
             if (!this.duplicatesTable) {
-                console.log('🔧 Инициализируем таблицу дублей...');
+                // console.log('🔧 Инициализируем таблицу дублей...');
                 this.initializeDuplicatesTable();
             }
             
             // Обновляем данные в DataTable
             if (this.duplicatesTable) {
-                console.log('📊 Обновляем данные в DataTable...');
+                // console.log('📊 Обновляем данные в DataTable...');
                 this.duplicatesTable.clear();
                 this.duplicatesTable.rows.add(tableData);
                 this.duplicatesTable.draw();
                 
-                console.log('✅ Данные добавлены в таблицу, записей:', this.duplicatesTable.rows().count());
+                // console.log('✅ Данные добавлены в таблицу, записей:', this.duplicatesTable.rows().count());
                 
                 // Применяем текущие фильтры (включая статус и фильтры обработки)
                 this.applyProcessingFilters();
@@ -424,20 +447,43 @@ class DuplicatesManager {
                 // Восстанавливаем полное состояние таблицы после небольшой задержки
                 this.restoreTableState(tableState);
             } else {
-                console.error('❌ duplicatesTable не инициализирована!');
+                // console.error('❌ duplicatesTable не инициализирована!');
             }
             
             // Обновляем UI выбора
             this.updateDuplicatesSelection();
             
         } catch (error) {
-            console.error('❌ Ошибка загрузки таблицы дублей:', error);
+            // console.error('❌ Ошибка загрузки таблицы дублей:', error);
             if (this.progressManager) {
                 this.progressManager.showError('Ошибка загрузки данных: ' + error.message);
             }
         } finally {
             this.isLoadingTable = false;
         }
+    }
+
+    /**
+     * Получить объявления требующие актуализации
+     * @param {Array} allListings - Все объявления 
+     * @returns {Array} Объявления для актуализации
+     */
+    getActualizationListings(allListings) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        const actualizationListings = allListings.filter(listing => {
+            // Критерии актуализации:
+            // 1. Статус active
+            // 2. Дата обновления старше вчера
+            const isActive = listing.status === 'active';
+            const lastUpdate = listing.updated || listing.created;
+            const updateDate = lastUpdate ? new Date(lastUpdate) : null;
+            
+            return isActive && updateDate && updateDate < yesterday;
+        });
+        
+        return actualizationListings;
     }
     
     /**
@@ -446,13 +492,13 @@ class DuplicatesManager {
     initializeDuplicatesTable() {
         const tableElement = document.getElementById('duplicatesTable');
         if (!tableElement) {
-            console.error('❌ Таблица дублей не найдена');
+            // console.error('❌ Таблица дублей не найдена');
             return;
         }
         
-        console.log('🔄 Начинаем инициализацию таблицы дублей...');
-        console.log('🔍 tableElement:', tableElement);
-        console.log('🔍 jQuery доступен:', typeof $ !== 'undefined');
+        // console.log('🔄 Начинаем инициализацию таблицы дублей...');
+        // console.log('🔍 tableElement:', tableElement);
+        // console.log('🔍 jQuery доступен:', typeof $ !== 'undefined');
         
         try {
             // Используем jQuery DataTables как в старой версии
@@ -755,19 +801,19 @@ class DuplicatesManager {
                     }
                 ],
             initComplete: () => {
-                console.log('🎉 DataTable инициализирована');
+                // console.log('🎉 DataTable инициализирована');
                 this.restoreDuplicatesPanelState();
             },
             drawCallback: () => {
-                console.log('🔄 DataTable перерисована, строк отображено:', this.duplicatesTable ? this.duplicatesTable.rows({page: 'current'}).count() : 0);
+                // DataTable перерисована
             }
         });
         
-        console.log('✅ Таблица дублей инициализирована');
-        console.log('🔍 duplicatesTable объект:', this.duplicatesTable);
+        // console.log('✅ Таблица дублей инициализирована');
+        // console.log('🔍 duplicatesTable объект:', this.duplicatesTable);
         
         } catch (error) {
-            console.error('❌ Ошибка инициализации таблицы дублей:', error);
+            // console.error('❌ Ошибка инициализации таблицы дублей:', error);
             throw error;
         }
     }
@@ -780,14 +826,14 @@ class DuplicatesManager {
     async getListingsInArea() {
         const currentArea = this.dataState.getState('currentArea');
         if (!currentArea || !currentArea.polygon || currentArea.polygon.length === 0) {
-            console.log('Полигон области отсутствует или пуст');
+            // console.log('Полигон области отсутствует или пуст');
             return [];
         }
 
         try {
             const allListings = await window.db.getAll('listings');
-            console.log(`Всего объявлений в БД: ${allListings.length}`);
-            console.log(`Полигон области (${currentArea.polygon.length} точек):`, currentArea.polygon);
+            // console.log(`Всего объявлений в БД: ${allListings.length}`);
+            // console.log(`Полигон области (${currentArea.polygon.length} точек):`, currentArea.polygon);
             
             // Фильтрация объявлений с координатами
             const listingsWithCoords = allListings.filter(listing => {
@@ -800,7 +846,7 @@ class DuplicatesManager {
                 return hasCoordinatesObject || hasDirectCoords;
             });
             
-            console.log(`Объявлений с координатами: ${listingsWithCoords.length}`);
+            // console.log(`Объявлений с координатами: ${listingsWithCoords.length}`);
             
             // Диагностика: границы полигона и объявлений
             if (currentArea.polygon && currentArea.polygon.length > 0 && listingsWithCoords.length > 0) {
@@ -810,14 +856,14 @@ class DuplicatesManager {
                     minLng: Math.min(...listingsWithCoords.map(l => parseFloat(l.coordinates?.lng || l.lng))),
                     maxLng: Math.max(...listingsWithCoords.map(l => parseFloat(l.coordinates?.lng || l.lng)))
                 };
-                console.log('Границы объявлений:', listingBounds);
+                // console.log('Границы объявлений:', listingBounds);
             }
 
             // Используем пространственный индекс для быстрого поиска если доступен
             if (window.spatialIndexManager) {
                 await this.ensureListingsIndex(allListings);
                 const listingsInArea = window.spatialIndexManager.findInArea('listings', currentArea.polygon);
-                console.log(`Объявлений в области (через пространственный индекс): ${listingsInArea.length}`);
+                // console.log(`Объявлений в области (через пространственный индекс): ${listingsInArea.length}`);
                 return listingsInArea.map(listing => ({...listing, type: 'listing'}));
             }
 
@@ -842,15 +888,15 @@ class DuplicatesManager {
                 }
             }
 
-            console.log(`Объявлений в области: ${listingsInArea.length}`);
+            // console.log(`Объявлений в области: ${listingsInArea.length}`);
 
             // Если результатов нет, выводим диагностическую информацию
             if (listingsInArea.length === 0 && listingsWithCoords.length > 0) {
-                console.log('ДИАГНОСТИКА: Ни одно объявление не попало в полигон');
+                // console.log('ДИАГНОСТИКА: Ни одно объявление не попало в полигон');
                 
                 // Проверяем первые 3 объявления вручную для отладки
                 const testListings = listingsWithCoords.slice(0, 3);
-                console.log('Тестируем первые 3 объявления:');
+                // console.log('Тестируем первые 3 объявления:');
                 testListings.forEach(listing => {
                     let normalizedCoords = null;
                     if (listing.coordinates) {
@@ -861,19 +907,19 @@ class DuplicatesManager {
                     }
                     
                     const isInside = normalizedCoords ? this.isPointInPolygon([normalizedCoords.lat, normalizedCoords.lng], currentArea.polygon) : false;
-                    console.log(`Объявление ${listing.id}:`, {
-                        originalCoords: listing.coordinates,
-                        normalizedCoords: normalizedCoords,
-                        isInside: isInside,
-                        title: listing.title || 'Без названия',
-                        source: listing.source
-                    });
+                    // console.log(`Объявление ${listing.id}:`, {
+                    //     originalCoords: listing.coordinates,
+                    //     normalizedCoords: normalizedCoords,
+                    //     isInside: isInside,
+                    //     title: listing.title || 'Без названия',
+                    //     source: listing.source
+                    // });
                 });
             }
 
             return listingsInArea;
         } catch (error) {
-            console.error('Error getting listings in area:', error);
+            // console.error('Error getting listings in area:', error);
             return [];
         }
     }
@@ -915,7 +961,7 @@ class DuplicatesManager {
                 );
             }
         } catch (error) {
-            console.error('Error ensuring listings index:', error);
+            // console.error('Error ensuring listings index:', error);
         }
     }
     
@@ -941,7 +987,7 @@ class DuplicatesManager {
             
             return inside;
         } catch (error) {
-            console.error('❌ Ошибка в isPointInPolygon:', error, { point, polygon });
+            // console.error('❌ Ошибка в isPointInPolygon:', error, { point, polygon });
             return false;
         }
     }
@@ -953,7 +999,7 @@ class DuplicatesManager {
         try {
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea || !currentArea.polygon) {
-                console.log('⚠️ Нет области или полигона');
+                // console.log('⚠️ Нет области или полигона');
                 return [];
             }
             
@@ -979,11 +1025,11 @@ class DuplicatesManager {
                 }
             }
             
-            console.log(`🏠 Найдено ${filteredObjects.length} объектов недвижимости в области (отфильтровано по полигону)`);
+            // console.log(`🏠 Найдено ${filteredObjects.length} объектов недвижимости в области (отфильтровано по полигону)`);
             return filteredObjects;
             
         } catch (error) {
-            console.error('❌ Ошибка получения объектов недвижимости:', error);
+            // console.error('❌ Ошибка получения объектов недвижимости:', error);
             return [];
         }
     }
@@ -1052,7 +1098,7 @@ class DuplicatesManager {
             );
             
         } catch (error) {
-            console.error('Error processing duplicates:', error);
+            // console.error('Error processing duplicates:', error);
             this.progressManager.showError('Ошибка обработки дублей: ' + error.message);
             
         } finally {
@@ -1131,7 +1177,7 @@ class DuplicatesManager {
             );
             
         } catch (error) {
-            console.error('Error processing duplicates (advanced):', error);
+            // console.error('Error processing duplicates (advanced):', error);
             this.progressManager.showError('Ошибка продвинутой обработки дублей: ' + error.message);
             
         } finally {
@@ -1166,7 +1212,7 @@ class DuplicatesManager {
             await Helpers.debugLog('✅ Результаты обработки дублей сохранены');
             
         } catch (error) {
-            console.error('Error saving duplicate results:', error);
+            // console.error('Error saving duplicate results:', error);
             throw error;
         }
     }
@@ -1175,12 +1221,12 @@ class DuplicatesManager {
      * Обработка выбора дубля
      */
     handleDuplicateSelection(checkbox) {
-        console.log('🔄 handleDuplicateSelection called for checkbox:', checkbox);
+        // console.log('🔄 handleDuplicateSelection called for checkbox:', checkbox);
         const itemId = checkbox.dataset.id;
         const itemType = checkbox.dataset.type;
         const key = `${itemType}_${itemId}`;
 
-        console.log('🔄 Checkbox data:', { itemId, itemType, key, checked: checkbox.checked });
+        // console.log('🔄 Checkbox data:', { itemId, itemType, key, checked: checkbox.checked });
 
         if (checkbox.checked) {
             this.duplicatesState.selectedDuplicates.add(key);
@@ -1188,7 +1234,7 @@ class DuplicatesManager {
             this.duplicatesState.selectedDuplicates.delete(key);
         }
 
-        console.log('📊 Selected duplicates after change:', Array.from(this.duplicatesState.selectedDuplicates));
+        // console.log('📊 Selected duplicates after change:', Array.from(this.duplicatesState.selectedDuplicates));
 
         this.updateDuplicatesSelection();
         this.updateSelectAllCheckbox();
@@ -1239,7 +1285,7 @@ class DuplicatesManager {
      * Обновление UI выбора дублей (точная копия из старой версии)
      */
     updateDuplicatesSelection() {
-        console.log('🔄 updateDuplicatesSelection called, selectedCount:', this.duplicatesState.selectedDuplicates.size);
+        // console.log('🔄 updateDuplicatesSelection called, selectedCount:', this.duplicatesState.selectedDuplicates.size);
         const selectedCount = this.duplicatesState.selectedDuplicates.size;
         const selectedInfo = document.getElementById('selectedItemsInfo');
         const selectedCountEl = document.getElementById('selectedItemsCount');
@@ -1323,12 +1369,12 @@ class DuplicatesManager {
 
         try {
             const selectedItems = Array.from(this.duplicatesState.selectedDuplicates);
-            console.log('🔗 Создание объекта недвижимости:', selectedItems);
+            // console.log('🔗 Создание объекта недвижимости:', selectedItems);
             
             // Проверяем доступность RealEstateObjectManager
             if (!window.realEstateObjectManager) {
                 this.progressManager.showError('RealEstateObjectManager не инициализирован');
-                console.error('❌ RealEstateObjectManager не найден в window');
+                // console.error('❌ RealEstateObjectManager не найден в window');
                 return;
             }
             
@@ -1339,7 +1385,7 @@ class DuplicatesManager {
                 return { type, id };
             });
             
-            console.log('🔗 Элементы для объединения:', itemsToMerge);
+            // console.log('🔗 Элементы для объединения:', itemsToMerge);
             
             // Проверяем, что у всех элементов одинаковый адрес
             const validation = await window.realEstateObjectManager.validateMergeByAddress(itemsToMerge);
@@ -1379,7 +1425,7 @@ class DuplicatesManager {
             }
             
         } catch (error) {
-            console.error('❌ Ошибка объединения дублей:', error);
+            // console.error('❌ Ошибка объединения дублей:', error);
             this.progressManager.showError('Ошибка объединения: ' + error.message);
         }
     }
@@ -1395,12 +1441,12 @@ class DuplicatesManager {
 
         try {
             const selectedItems = Array.from(this.duplicatesState.selectedDuplicates);
-            console.log('✂️ Разбивка дублей:', selectedItems);
+            // console.log('✂️ Разбивка дублей:', selectedItems);
             
             // Проверяем доступность RealEstateObjectManager
             if (!window.realEstateObjectManager) {
                 this.progressManager.showError('RealEstateObjectManager не инициализирован');
-                console.error('❌ RealEstateObjectManager не найден в window');
+                // console.error('❌ RealEstateObjectManager не найден в window');
                 return;
             }
             
@@ -1427,7 +1473,7 @@ class DuplicatesManager {
                 return;
             }
             
-            console.log('✂️ Объекты для разбивки:', objectsToSplit);
+            // console.log('✂️ Объекты для разбивки:', objectsToSplit);
             
             // Выполняем разбивку
             const result = await window.realEstateObjectManager.splitObjectsToListings(objectsToSplit);
@@ -1444,7 +1490,7 @@ class DuplicatesManager {
             }
             
         } catch (error) {
-            console.error('❌ Ошибка разбивки дублей:', error);
+            // console.error('❌ Ошибка разбивки дублей:', error);
             this.progressManager.showError('Ошибка разбивки: ' + error.message);
         }
     }
@@ -1481,142 +1527,6 @@ class DuplicatesManager {
     }
     
     /**
-     * Применение фильтров обработки (как в старой версии)
-     */
-    async applyProcessingFilters() {
-        try {
-            if (!this.duplicatesTable) {
-                console.log('⚠️ applyProcessingFilters: duplicatesTable не инициализирована');
-                return;
-            }
-            
-            // Получаем значения фильтров из SlimSelect и обычных элементов
-            let addressFilter = '';
-            if (this.processingAddressSlimSelect) {
-                const selected = this.processingAddressSlimSelect.getSelected();
-                addressFilter = selected?.[0]?.value || selected?.[0] || '';
-            }
-            
-            let propertyTypeFilter = '';
-            if (this.processingPropertyTypeSlimSelect) {
-                const selected = this.processingPropertyTypeSlimSelect.getSelected();
-                propertyTypeFilter = selected?.[0]?.value || selected?.[0] || '';
-            }
-            
-            let processingStatusFilter = '';
-            if (this.processingStatusSlimSelect) {
-                const selected = this.processingStatusSlimSelect.getSelected();
-                processingStatusFilter = selected?.[0]?.value || selected?.[0] || '';
-            }
-            
-            const floorFilter = document.getElementById('processingFloorFilter')?.value || '';
-            
-            // Получаем значение основного фильтра статусов
-            const statusFilter = document.getElementById('duplicatesStatusFilter')?.value || 'all';
-            
-            console.log('🔧 Применение фильтров:', {
-                addressFilter,
-                propertyTypeFilter,
-                floorFilter,
-                processingStatusFilter,
-                statusFilter
-            });
-            
-            // Очищаем предыдущие кастомные фильтры для этой таблицы
-            $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(fn => 
-                !fn.toString().includes('duplicatesTable')
-            );
-            
-            // Применяем объединенный фильтр к DataTables
-            $.fn.dataTable.ext.search.push((settings, data, dataIndex) => {
-                // Проверяем, что это наша таблица
-                if (settings.nTable.id !== 'duplicatesTable') {
-                    return true;
-                }
-                
-                const rowData = this.duplicatesTable.row(dataIndex).data();
-                
-                // Основной фильтр по статусу (активный/архивный)
-                if (statusFilter !== 'all' && rowData.status !== statusFilter) {
-                    return false;
-                }
-                
-                // Фильтры обработки применяются только если они заполнены
-                
-                // Фильтр по адресу (из справочника)
-                if (addressFilter && rowData.address_id !== addressFilter) {
-                    return false;
-                }
-                
-                // Фильтр по типу недвижимости
-                if (propertyTypeFilter && rowData.property_type !== propertyTypeFilter) {
-                    return false;
-                }
-                
-                // Фильтр по этажу
-                if (floorFilter && rowData.floor != parseInt(floorFilter)) {
-                    return false;
-                }
-                
-                // Фильтр по статусу обработки (только для объявлений)
-                if (processingStatusFilter) {
-                    // Объекты недвижимости не имеют статуса обработки, поэтому скрываем их при фильтрации
-                    if (rowData.type === 'object') {
-                        return false;
-                    }
-                    
-                    // Для объявлений применяем фильтр по статусу обработки
-                    if (processingStatusFilter === 'address_needed') {
-                        // Показываем объявления:
-                        // 1. С processing_status === 'address_needed' 
-                        // 2. ИЛИ с низкой точностью определения адреса (address_match_confidence: 'low' или 'very_low')
-                        // НО НЕ показываем адреса со статусом 'manual' (уже подтвержденные)
-                        const hasAddressNeededStatus = rowData.processing_status === 'address_needed';
-                        const hasLowAddressConfidence = rowData.address_match_confidence === 'low' || rowData.address_match_confidence === 'very_low';
-                        const isManualConfidence = rowData.address_match_confidence === 'manual';
-                        
-                        // Скрываем если нет нужного статуса ИЛИ если адрес уже подтвержден вручную
-                        if ((!hasAddressNeededStatus && !hasLowAddressConfidence) || isManualConfidence) {
-                            return false;
-                        }
-                    } else {
-                        // Для остальных фильтров - простое сравнение
-                        if (rowData.processing_status !== processingStatusFilter) {
-                            return false;
-                        }
-                    }
-                }
-                
-                return true;
-            });
-            
-            // Перерисовываем таблицу
-            this.duplicatesTable.draw();
-            
-            console.log('🔍 После применения фильтров - видимых строк:', this.duplicatesTable.rows({search: 'applied'}).count());
-            
-            // Обновляем отображение активных фильтров
-            this.updateActiveFiltersDisplay();
-            
-            // Показываем кнопку "Верный адрес" только при фильтре "address_needed"
-            const correctAddressBtn = document.getElementById('correctAddressBtn');
-            if (correctAddressBtn) {
-                if (processingStatusFilter === 'address_needed') {
-                    correctAddressBtn.classList.remove('hidden');
-                } else {
-                    correctAddressBtn.classList.add('hidden');
-                }
-            }
-            
-        } catch (error) {
-            console.error('❌ Ошибка при применении фильтров:', error);
-            if (this.progressManager) {
-                this.progressManager.showError('Ошибка при применении фильтров: ' + error.message);
-            }
-        }
-    }
-    
-    /**
      * Получение названия адреса по ID (точная копия из старой версии)
      */
     getAddressNameById(addressId) {
@@ -1631,7 +1541,7 @@ class DuplicatesManager {
      */
     async showListingDetails(listingId) {
         try {
-            console.log('📋 Показываем детали объявления:', listingId);
+            // console.log('📋 Показываем детали объявления:', listingId);
             
             // Сначала ищем в загруженных объявлениях
             const listings = this.dataState.getState('listings') || [];
@@ -1639,12 +1549,12 @@ class DuplicatesManager {
             
             // Если не найдено, ищем в базе данных
             if (!listing) {
-                console.log('Объявление не найдено в состоянии, ищем в базе данных:', listingId);
+                // console.log('Объявление не найдено в состоянии, ищем в базе данных:', listingId);
                 listing = await window.db.get('listings', listingId);
             }
             
             if (!listing) {
-                console.error('Объявление не найдено:', listingId);
+                // console.error('Объявление не найдено:', listingId);
                 if (this.progressManager) {
                     this.progressManager.showError('Объявление не найдено');
                 }
@@ -1657,10 +1567,10 @@ class DuplicatesManager {
                 listing: listing
             });
             
-            console.log('👁️ DuplicatesManager: Запрошен просмотр деталей объявления:', listing.id);
+            // console.log('👁️ DuplicatesManager: Запрошен просмотр деталей объявления:', listing.id);
             
         } catch (error) {
-            console.error('❌ Ошибка показа деталей объявления:', error);
+            // console.error('❌ Ошибка показа деталей объявления:', error);
             if (this.progressManager) {
                 this.progressManager.showError('Ошибка загрузки деталей объявления: ' + error.message);
             }
@@ -1672,7 +1582,7 @@ class DuplicatesManager {
      */
     async openProcessingFilter(id, type) {
         try {
-            console.log(`🔍 Заполнение фильтра обработки для ${type} с ID: ${id}`);
+            // console.log(`🔍 Заполнение фильтра обработки для ${type} с ID: ${id}`);
             
             let dataForFilter = null;
             
@@ -1710,7 +1620,7 @@ class DuplicatesManager {
             }
             
         } catch (error) {
-            console.error('❌ Ошибка при заполнении фильтра обработки:', error);
+            // console.error('❌ Ошибка при заполнении фильтра обработки:', error);
             if (this.progressManager) {
                 this.progressManager.showError('Ошибка при заполнении фильтра обработки: ' + error.message);
             }
@@ -1722,7 +1632,7 @@ class DuplicatesManager {
      */
     async fillProcessingFilters(data) {
         try {
-            console.log('📝 Заполняем фильтры данными:', data);
+            // console.log('📝 Заполняем фильтры данными:', data);
             
             // Заполняем адрес из справочника адресов
             if (data.address_id && this.processingAddressSlimSelect) {
@@ -1751,7 +1661,7 @@ class DuplicatesManager {
             await this.applyProcessingFilters();
             
         } catch (error) {
-            console.error('❌ Ошибка заполнения фильтров:', error);
+            // console.error('❌ Ошибка заполнения фильтров:', error);
         }
     }
     
@@ -1770,7 +1680,7 @@ class DuplicatesManager {
      */
     removeActiveFilter(filterType) {
         try {
-            console.log('🗑️ Удаляем активный фильтр:', filterType);
+            // console.log('🗑️ Удаляем активный фильтр:', filterType);
             
             switch (filterType) {
                 case 'address':
@@ -1786,10 +1696,10 @@ class DuplicatesManager {
                     this.clearSingleFilter('processingStatusFilter');
                     break;
                 default:
-                    console.warn('⚠️ Неизвестный тип фильтра для удаления:', filterType);
+                    // console.warn('⚠️ Неизвестный тип фильтра для удаления:', filterType);
             }
         } catch (error) {
-            console.error('❌ Ошибка при удалении активного фильтра:', error);
+            // console.error('❌ Ошибка при удалении активного фильтра:', error);
         }
     }
     
@@ -1798,7 +1708,7 @@ class DuplicatesManager {
      */
     clearSingleFilter(filterId) {
         try {
-            console.log('🧹 Очищаем фильтр:', filterId);
+            // console.log('🧹 Очищаем фильтр:', filterId);
             
             // Определяем тип фильтра и очищаем соответствующим образом
             switch (filterId) {
@@ -1828,7 +1738,7 @@ class DuplicatesManager {
                     this.hideClearButton('clearProcessingStatusFilterBtn');
                     break;
                 default:
-                    console.warn('⚠️ Неизвестный фильтр для очистки:', filterId);
+                    // console.warn('⚠️ Неизвестный фильтр для очистки:', filterId);
             }
             
             // Применяем фильтры после очистки
@@ -1838,7 +1748,7 @@ class DuplicatesManager {
             this.updateActiveFiltersDisplay();
             
         } catch (error) {
-            console.error('❌ Ошибка при очистке фильтра:', error);
+            // console.error('❌ Ошибка при очистке фильтра:', error);
         }
     }
     
@@ -1879,7 +1789,7 @@ class DuplicatesManager {
             this.dataState.setState('duplicatesStats', stats);
             
         } catch (error) {
-            console.error('Error updating duplicates stats:', error);
+            // console.error('Error updating duplicates stats:', error);
         }
     }
     
@@ -2078,7 +1988,7 @@ class DuplicatesManager {
      */
     async initProcessingFilters() {
         try {
-            console.log('🔍 Инициализация фильтров обработки');
+            // console.log('🔍 Инициализация фильтров обработки');
             
             // Инициализируем все фильтры
             await this.initProcessingStatusFilter();
@@ -2088,10 +1998,10 @@ class DuplicatesManager {
             // Инициализируем фильтры сегментов
             await this.initSegmentFilters();
             
-            console.log('✅ Фильтры обработки инициализированы');
+            // console.log('✅ Фильтры обработки инициализированы');
             
         } catch (error) {
-            console.error('❌ Ошибка инициализации фильтров обработки:', error);
+            // console.error('❌ Ошибка инициализации фильтров обработки:', error);
         }
     }
     
@@ -2102,7 +2012,7 @@ class DuplicatesManager {
         try {
             const selectElement = document.getElementById('processingStatusFilter');
             if (!selectElement) {
-                console.warn('⚠️ Элемент processingStatusFilter не найден');
+                // console.warn('⚠️ Элемент processingStatusFilter не найден');
                 return;
             }
             
@@ -2121,10 +2031,10 @@ class DuplicatesManager {
                 }
             });
             
-            console.log('📋 Фильтр статуса обработки инициализирован');
+            // console.log('📋 Фильтр статуса обработки инициализирован');
             
         } catch (error) {
-            console.error('❌ Ошибка при инициализации фильтра статуса обработки:', error);
+            // console.error('❌ Ошибка при инициализации фильтра статуса обработки:', error);
             throw error;
         }
     }
@@ -2136,7 +2046,7 @@ class DuplicatesManager {
         try {
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea || !currentArea.polygon) {
-                console.log('⚠️ Нет области или полигона для получения адресов');
+                // console.log('⚠️ Нет области или полигона для получения адресов');
                 return [];
             }
             
@@ -2159,11 +2069,11 @@ class DuplicatesManager {
                 return this.isPointInPolygon([address.coordinates.lat, address.coordinates.lng], currentArea.polygon);
             });
             
-            console.log(`📍 Найдено ${areaAddresses.length} адресов в области`);
+            // console.log(`📍 Найдено ${areaAddresses.length} адресов в области`);
             return areaAddresses;
             
         } catch (error) {
-            console.error('❌ Ошибка получения адресов в области:', error);
+            // console.error('❌ Ошибка получения адресов в области:', error);
             return [];
         }
     }
@@ -2175,7 +2085,7 @@ class DuplicatesManager {
         try {
             const selectElement = document.getElementById('processingAddressFilter');
             if (!selectElement) {
-                console.warn('Элемент processingAddressFilter не найден');
+                // console.warn('Элемент processingAddressFilter не найден');
                 return;
             }
 
@@ -2212,10 +2122,10 @@ class DuplicatesManager {
                 }
             });
 
-            console.log(`📍 Загружено ${addresses.length} адресов для фильтра`);
+            // console.log(`📍 Загружено ${addresses.length} адресов для фильтра`);
             
         } catch (error) {
-            console.error('Ошибка при инициализации фильтра адресов:', error);
+            // console.error('Ошибка при инициализации фильтра адресов:', error);
             throw error;
         }
     }
@@ -2227,7 +2137,7 @@ class DuplicatesManager {
         try {
             const selectElement = document.getElementById('processingPropertyTypeFilter');
             if (!selectElement) {
-                console.warn('Элемент processingPropertyTypeFilter не найден');
+                // console.warn('Элемент processingPropertyTypeFilter не найден');
                 return;
             }
 
@@ -2246,10 +2156,10 @@ class DuplicatesManager {
                 }
             });
 
-            console.log('🏠 Фильтр типа недвижимости инициализирован');
+            // console.log('🏠 Фильтр типа недвижимости инициализирован');
             
         } catch (error) {
-            console.error('Ошибка при инициализации фильтра типа недвижимости:', error);
+            // console.error('Ошибка при инициализации фильтра типа недвижимости:', error);
             throw error;
         }
     }
@@ -2259,16 +2169,27 @@ class DuplicatesManager {
      */
     onProcessingStatusFilterChange(newVal) {
         try {
-            console.log('🔄 Processing status filter changed:', newVal);
-            
             if (newVal && newVal.length > 0) {
                 this.showClearButton('clearProcessingStatusFilterBtn');
             } else {
                 this.hideClearButton('clearProcessingStatusFilterBtn');
             }
-            this.applyProcessingFilters();
+            
+            // Если выбран или отменён фильтр актуализации - перезагружаем таблицу
+            const selectedValue = newVal?.[0]?.value || newVal?.[0] || '';
+            const wasActualizationFilter = this.lastProcessingFilter === 'needs_update';
+            const isActualizationFilter = selectedValue === 'needs_update';
+            
+            // Сохраняем текущий фильтр для следующей проверки
+            this.lastProcessingFilter = selectedValue;
+            
+            if (isActualizationFilter || wasActualizationFilter) {
+                this.loadDuplicatesTable();
+            } else {
+                this.applyProcessingFilters();
+            }
         } catch (error) {
-            console.error('❌ Ошибка при изменении фильтра статуса обработки:', error);
+            // console.error('❌ Ошибка при изменении фильтра статуса обработки:', error);
         }
     }
     
@@ -2284,7 +2205,7 @@ class DuplicatesManager {
             }
             this.applyProcessingFilters();
         } catch (error) {
-            console.error('❌ Ошибка при изменении фильтра адресов:', error);
+            // console.error('❌ Ошибка при изменении фильтра адресов:', error);
         }
     }
 
@@ -2300,7 +2221,7 @@ class DuplicatesManager {
             }
             this.applyProcessingFilters();
         } catch (error) {
-            console.error('❌ Ошибка при изменении фильтра типа недвижимости:', error);
+            // console.error('❌ Ошибка при изменении фильтра типа недвижимости:', error);
         }
     }
     
@@ -2329,10 +2250,10 @@ class DuplicatesManager {
                 });
             }
             
-            console.log('🔗 Обработчики событий фильтров привязаны');
+            // console.log('🔗 Обработчики событий фильтров привязаны');
             
         } catch (error) {
-            console.error('❌ Ошибка при привязке событий фильтров:', error);
+            // console.error('❌ Ошибка при привязке событий фильтров:', error);
         }
     }
     
@@ -2387,7 +2308,7 @@ class DuplicatesManager {
             }
             
         } catch (error) {
-            console.error('❌ Ошибка при очистке всех фильтров:', error);
+            // console.error('❌ Ошибка при очистке всех фильтров:', error);
         }
     }
     
@@ -2417,21 +2338,21 @@ class DuplicatesManager {
                 }
             }
             
-            console.log(`✅ Данные загружены: ${segments.length} сегментов, ${Object.keys(this.subsegmentsCache).length} подсегментов`);
+            // console.log(`✅ Данные загружены: ${segments.length} сегментов, ${Object.keys(this.subsegmentsCache).length} подсегментов`);
             
             // Показываем структуру фильтров для отладки
             if (segments.length > 0) {
-                console.log('📋 Пример сегмента:', segments[0]);
-                console.log('📋 Фильтры сегмента:', segments[0].filters);
+                // console.log('📋 Пример сегмента:', segments[0]);
+                // console.log('📋 Фильтры сегмента:', segments[0].filters);
             }
             if (Object.keys(this.subsegmentsCache).length > 0) {
                 const firstSubsegment = Object.values(this.subsegmentsCache)[0];
-                console.log('📋 Пример подсегмента:', firstSubsegment);
-                console.log('📋 Фильтры подсегмента:', firstSubsegment.filters);
+                // console.log('📋 Пример подсегмента:', firstSubsegment);
+                // console.log('📋 Фильтры подсегмента:', firstSubsegment.filters);
             }
             
         } catch (error) {
-            console.error('❌ Ошибка предварительной загрузки данных сегментов:', error);
+            // console.error('❌ Ошибка предварительной загрузки данных сегментов:', error);
         }
     }
     
@@ -2452,10 +2373,10 @@ class DuplicatesManager {
             // Инициализируем фильтр подсегментов
             await this.initSubsegmentFilter();
             
-            console.log('✅ Фильтры сегментов инициализированы');
+            // console.log('✅ Фильтры сегментов инициализированы');
             
         } catch (error) {
-            console.error('❌ Ошибка инициализации фильтров сегментов:', error);
+            // console.error('❌ Ошибка инициализации фильтров сегментов:', error);
         }
     }
     
@@ -2466,7 +2387,7 @@ class DuplicatesManager {
         try {
             const selectElement = document.getElementById('duplicatesStatusFilter');
             if (!selectElement) {
-                console.warn('⚠️ Элемент duplicatesStatusFilter не найден');
+                // console.warn('⚠️ Элемент duplicatesStatusFilter не найден');
                 return;
             }
             
@@ -2483,10 +2404,10 @@ class DuplicatesManager {
                 }
             });
             
-            console.log('✅ Фильтр статусов с SlimSelect инициализирован');
+            // console.log('✅ Фильтр статусов с SlimSelect инициализирован');
             
         } catch (error) {
-            console.error('❌ Ошибка инициализации фильтра статусов:', error);
+            // console.error('❌ Ошибка инициализации фильтра статусов:', error);
         }
     }
     
@@ -2497,14 +2418,14 @@ class DuplicatesManager {
         try {
             const selectElement = document.getElementById('duplicatesSegmentFilter');
             if (!selectElement) {
-                console.warn('⚠️ Элемент duplicatesSegmentFilter не найден');
+                // console.warn('⚠️ Элемент duplicatesSegmentFilter не найден');
                 return;
             }
             
             // Получаем сегменты только текущей области
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea) {
-                console.warn('⚠️ Нет текущей области для загрузки сегментов');
+                // console.warn('⚠️ Нет текущей области для загрузки сегментов');
                 return;
             }
             
@@ -2532,10 +2453,10 @@ class DuplicatesManager {
                 }
             });
             
-            console.log('✅ Фильтр сегментов инициализирован');
+            // console.log('✅ Фильтр сегментов инициализирован');
             
         } catch (error) {
-            console.error('❌ Ошибка инициализации фильтра сегментов:', error);
+            // console.error('❌ Ошибка инициализации фильтра сегментов:', error);
         }
     }
     
@@ -2546,7 +2467,7 @@ class DuplicatesManager {
         try {
             const selectElement = document.getElementById('duplicatesSubsegmentFilter');
             if (!selectElement) {
-                console.warn('⚠️ Элемент duplicatesSubsegmentFilter не найден');
+                // console.warn('⚠️ Элемент duplicatesSubsegmentFilter не найден');
                 return;
             }
             
@@ -2563,10 +2484,10 @@ class DuplicatesManager {
                 }
             });
             
-            console.log('✅ Фильтр подсегментов инициализирован');
+            // console.log('✅ Фильтр подсегментов инициализирован');
             
         } catch (error) {
-            console.error('❌ Ошибка инициализации фильтра подсегментов:', error);
+            // console.error('❌ Ошибка инициализации фильтра подсегментов:', error);
         }
     }
     
@@ -2620,7 +2541,7 @@ class DuplicatesManager {
             this.applyProcessingFilters();
             
         } catch (error) {
-            console.error('❌ Ошибка при изменении фильтра сегментов:', error);
+            // console.error('❌ Ошибка при изменении фильтра сегментов:', error);
         }
     }
     
@@ -2657,7 +2578,7 @@ class DuplicatesManager {
             }
             
         } catch (error) {
-            console.error('❌ Ошибка при очистке фильтров сегментов:', error);
+            // console.error('❌ Ошибка при очистке фильтров сегментов:', error);
         }
     }
     
@@ -2666,20 +2587,26 @@ class DuplicatesManager {
      */
     checkRowAgainstSegmentFilters(rowData, segmentFilter, subsegmentFilter) {
         try {
-            const debug = false; // Отладка отключена
+            const debug = subsegmentFilter === 'subseg_1754037244503_rrkj146cy' && rowData.type === 'listing' && (rowData.property_type === '2k' || rowData.property_type === '3k') && rowData.area_total >= 52 && rowData.area_total <= 63; // Отладка только для подходящих объявлений
             if (debug) {
-                console.log(`🔍 Проверка строки ${rowData.id} против фильтров:`, {segmentFilter, subsegmentFilter});
+                console.log(`✅ НАЙДЕНО ПОДХОДЯЩЕЕ ОБЪЯВЛЕНИЕ: ${rowData.id}`, {
+                    type: rowData.property_type, 
+                    area: rowData.area_total,
+                    status: rowData.status,
+                    updated: rowData.updated,
+                    created: rowData.created
+                });
             }
             
             // Получаем текущую область
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea || !currentArea.polygon || currentArea.polygon.length === 0) {
-                if (debug) console.log('⚠️ Нет области - пропускаем проверку полигона');
+                // if (debug) console.log('⚠️ Нет области - пропускаем проверку полигона');
                 // Если нет области, не применяем географическую фильтрацию
             } else {
                 // Проверяем, что объявление/объект находится в полигоне области
                 if (!this.isPointInAreaPolygon(rowData, currentArea)) {
-                    if (debug) console.log('❌ Не в полигоне области');
+                    // if (debug) console.log('❌ Не в полигоне области');
                     return false; // Не в области - скрываем
                 }
             }
@@ -2688,17 +2615,17 @@ class DuplicatesManager {
             if (segmentFilter) {
                 const segment = this.segmentsCache && this.segmentsCache[segmentFilter];
                 if (!segment) {
-                    console.log('⚠️ Сегмент не найден в кэше:', segmentFilter);
-                    console.log('🔍 Доступные сегменты в кэше:', Object.keys(this.segmentsCache || {}));
+                    // console.log('⚠️ Сегмент не найден в кэше:', segmentFilter);
+                    // console.log('🔍 Доступные сегменты в кэше:', Object.keys(this.segmentsCache || {}));
                     return false; // Сегмент не найден - скрываем
                 }
                 
-                if (debug) console.log(`📋 Проверка сегмента ${segmentFilter}:`, segment.filters);
+                // if (debug) console.log(`📋 Проверка сегмента ${segmentFilter}:`, segment.filters);
                 
                 if (segment && segment.filters) {
                     const result = this.checkRowAgainstFilters(rowData, segment.filters, debug);
                     if (!result) {
-                        if (debug) console.log(`❌ Строка ${rowData.id} не прошла фильтры сегмента`);
+                        // if (debug) console.log(`❌ Строка ${rowData.id} не прошла фильтры сегмента`);
                         return false;
                     }
                 }
@@ -2708,16 +2635,13 @@ class DuplicatesManager {
             if (subsegmentFilter) {
                 const subsegment = this.subsegmentsCache && this.subsegmentsCache[subsegmentFilter];
                 if (!subsegment) {
-                    console.log('⚠️ Подсегмент не найден в кэше:', subsegmentFilter);
+                    // console.log('⚠️ Подсегмент не найден в кэше:', subsegmentFilter);
                     return false; // Подсегмент не найден - скрываем
                 }
                 
-                if (debug) console.log(`📋 Проверка подсегмента ${subsegmentFilter}:`, subsegment.filters);
-                
                 if (subsegment && subsegment.filters) {
-                    const result = this.checkRowAgainstFilters(rowData, subsegment.filters, debug);
+                    const result = this.checkRowAgainstFilters(rowData, subsegment.filters, false);
                     if (!result) {
-                        if (debug) console.log(`❌ Строка ${rowData.id} не прошла фильтры подсегмента`);
                         return false;
                     }
                 }
@@ -2726,7 +2650,7 @@ class DuplicatesManager {
             return true;
             
         } catch (error) {
-            console.error('❌ Ошибка проверки фильтров сегментов:', error);
+            // console.error('❌ Ошибка проверки фильтров сегментов:', error);
             return true; // В случае ошибки показываем строку
         }
     }
@@ -2739,7 +2663,7 @@ class DuplicatesManager {
             // Получаем координаты из объявления/объекта
             let lat, lon;
             
-            // console.log('📍 Извлечение координат из строки:', rowData);
+            // // console.log('📍 Извлечение координат из строки:', rowData);
             
             if (rowData.coordinates) {
                 lat = rowData.coordinates.lat || rowData.coordinates.latitude;
@@ -2750,17 +2674,16 @@ class DuplicatesManager {
             }
             
             if (!lat || !lon) {
-                console.log('⚠️ Нет координат - пропускаем проверку полигона');
                 return true; // Нет координат - пропускаем проверку
             }
             
-            // console.log('📍 Найденные координаты:', [parseFloat(lat), parseFloat(lon)]);
+            // // console.log('📍 Найденные координаты:', [parseFloat(lat), parseFloat(lon)]);
             
             // Проверяем нахождение в полигоне
             return this.isPointInPolygon([parseFloat(lat), parseFloat(lon)], area.polygon);
             
         } catch (error) {
-            console.error('❌ Ошибка проверки полигона:', error);
+            // console.error('❌ Ошибка проверки полигона:', error);
             return true;
         }
     }
@@ -2772,59 +2695,74 @@ class DuplicatesManager {
     checkRowAgainstFilters(rowData, filters, debug = false) {
         try {
             if (debug) {
-                console.log(`📋 Проверка фильтров для строки ${rowData.id}:`, {
-                    filters,
-                    rowData: {
-                        property_type: rowData.property_type,
-                        area_total: rowData.area_total,
-                        area: rowData.area,
-                        floor: rowData.floor,
-                        price: rowData.price
-                    }
-                });
+                // console.log(`📋 Проверка фильтров для строки ${rowData.id}:`, {
+                //     filters,
+                //     rowData: {
+                //         property_type: rowData.property_type,
+                //         area_total: rowData.area_total,
+                //         area: rowData.area,
+                //         floor: rowData.floor,
+                //         price: rowData.price
+                //     }
+                // });
             }
             
             // Проверка типа недвижимости
             if (filters.property_type && filters.property_type.length > 0) {
                 if (!filters.property_type.includes(rowData.property_type)) {
-                    if (debug) console.log(`❌ Тип недвижимости не подходит: требуется ${filters.property_type}, у строки ${rowData.property_type}`);
+                    // if (debug) console.log(`❌ Тип недвижимости не подходит: требуется ${filters.property_type}, у строки ${rowData.property_type}`);
                     return false;
                 }
-                if (debug) console.log(`✅ Тип недвижимости подходит: требуется ${filters.property_type}, у строки ${rowData.property_type}`);
+                // if (debug) console.log(`✅ Тип недвижимости подходит: требуется ${filters.property_type}, у строки ${rowData.property_type}`);
             }
             
             // Проверка диапазона площади
             const rowArea = rowData.area_total || rowData.area;
             if (filters.area_from && rowArea < filters.area_from) {
+                // if (debug) console.log(`❌ Площадь меньше минимума: требуется от ${filters.area_from}, у строки ${rowArea}`);
                 return false;
             }
             if (filters.area_to && rowArea > filters.area_to) {
+                // if (debug) console.log(`❌ Площадь больше максимума: требуется до ${filters.area_to}, у строки ${rowArea}`);
                 return false;
             }
+            // if ((filters.area_from || filters.area_to) && debug) {
+                // console.log(`✅ Площадь подходит: диапазон ${filters.area_from || 'не ограничено'}-${filters.area_to || 'не ограничено'}, у строки ${rowArea}`);
+            //}
             
             // Проверка диапазона этажа
             if (filters.floor_from && rowData.floor < filters.floor_from) {
+                // if (debug) console.log(`❌ Этаж меньше минимума: требуется от ${filters.floor_from}, у строки ${rowData.floor}`);
                 return false;
             }
             if (filters.floor_to && rowData.floor > filters.floor_to) {
+                // if (debug) console.log(`❌ Этаж больше максимума: требуется до ${filters.floor_to}, у строки ${rowData.floor}`);
                 return false;
             }
+            // if ((filters.floor_from || filters.floor_to) && debug) {
+                // console.log(`✅ Этаж подходит: диапазон ${filters.floor_from || 'не ограничено'}-${filters.floor_to || 'не ограничено'}, у строки ${rowData.floor}`);
+            //}
             
             // Проверка диапазона цены
             if (filters.price_from && rowData.price < filters.price_from) {
+                // if (debug) console.log(`❌ Цена меньше минимума: требуется от ${filters.price_from}, у строки ${rowData.price}`);
                 return false;
             }
             if (filters.price_to && rowData.price > filters.price_to) {
+                // if (debug) console.log(`❌ Цена больше максимума: требуется до ${filters.price_to}, у строки ${rowData.price}`);
                 return false;
             }
+            // if ((filters.price_from || filters.price_to) && debug) {
+                // console.log(`✅ Цена подходит: диапазон ${filters.price_from || 'не ограничено'}-${filters.price_to || 'не ограничено'}, у строки ${rowData.price}`);
+            //}
             
             // Проверка списка конкретных адресов (для сегментов)
             if (filters.addresses && Array.isArray(filters.addresses) && filters.addresses.length > 0) {
                 if (!rowData.address_id || !filters.addresses.includes(rowData.address_id)) {
-                    if (debug) console.log(`❌ Адрес не входит в сегмент: требуется один из ${filters.addresses.length} адресов, у строки ${rowData.address_id}`);
+                    // if (debug) console.log(`❌ Адрес не входит в сегмент: требуется один из ${filters.addresses.length} адресов, у строки ${rowData.address_id}`);
                     return false;
                 }
-                if (debug) console.log(`✅ Адрес входит в сегмент: ${rowData.address_id}`);
+                // if (debug) console.log(`✅ Адрес входит в сегмент: ${rowData.address_id}`);
             }
             
             // Проверка типа дома (для сегментов)
@@ -2836,7 +2774,7 @@ class DuplicatesManager {
             return true;
             
         } catch (error) {
-            console.error('❌ Ошибка проверки фильтров:', error);
+            // console.error('❌ Ошибка проверки фильтров:', error);
             return true;
         }
     }
@@ -2849,7 +2787,7 @@ class DuplicatesManager {
             const [x, y] = point;
             let inside = false;
             
-            // console.log('🗺️ Проверка точки в полигоне:', {point: [x, y], polygonLength: polygon.length});
+            // // console.log('🗺️ Проверка точки в полигоне:', {point: [x, y], polygonLength: polygon.length});
             
             // Проверяем структуру полигона и приводим к нужному формату
             let normalizedPolygon = [];
@@ -2882,10 +2820,10 @@ class DuplicatesManager {
                 }
             }
             
-            // console.log('🗺️ Нормализованный полигон:', normalizedPolygon.slice(0, 2));
+            // // console.log('🗺️ Нормализованный полигон:', normalizedPolygon.slice(0, 2));
             
             if (normalizedPolygon.length < 3) {
-                console.log('⚠️ Полигон содержит менее 3 точек');
+                // console.log('⚠️ Полигон содержит менее 3 точек');
                 return true; // Если полигон некорректный, не фильтруем
             }
             
@@ -2898,11 +2836,11 @@ class DuplicatesManager {
                 }
             }
             
-            // console.log('🗺️ Результат проверки точки в полигоне:', inside);
+            // // console.log('🗺️ Результат проверки точки в полигоне:', inside);
             return inside;
             
         } catch (error) {
-            console.error('❌ Ошибка проверки точки в полигоне:', error);
+            // console.error('❌ Ошибка проверки точки в полигоне:', error);
             return true; // В случае ошибки не фильтруем
         }
     }
@@ -2962,20 +2900,12 @@ class DuplicatesManager {
                 }
             }
             
-            console.log('🔧 Применение фильтров:', {
-                addressFilter,
-                propertyTypeFilter,
-                floorFilter,
-                processingStatusFilter,
-                statusFilter,
-                segmentFilter,
-                subsegmentFilter
-            });
+            // // console.log('🔧 Применение фильтров:', { processingStatusFilter, subsegmentFilter });
             
             // Отладка: показываем общее количество строк в таблице
             if (this.duplicatesTable) {
                 const totalRows = this.duplicatesTable.data().length;
-                console.log(`📊 Всего строк в таблице: ${totalRows}`);
+                // // console.log(`📊 Всего строк в таблице: ${totalRows}`);
             }
             
             // Очищаем предыдущие кастомные фильтры для этой таблицы
@@ -3014,9 +2944,50 @@ class DuplicatesManager {
                     return false;
                 }
                 
-                // Фильтр по статусу обработки (только для объявлений)
+                // СНАЧАЛА: Глобальная фильтрация по сегментам и подсегментам 
+                if (segmentFilter || subsegmentFilter) {
+                    // console.log(`🎯 СЕГМЕНТ ФИЛЬТР: ${rowData.type}_${rowData.id}, processingFilter: ${processingStatusFilter}`);
+                    
+                    // Если выбран фильтр актуализации, применяем фильтр сегментов по-особому
+                    if (processingStatusFilter === 'needs_update') {
+                        if (rowData.type === 'listing') {
+                            // Для объявлений при фильтре актуализации: 
+                            // проверяем проходит ли их родительский объект через сегментные фильтры
+                            if (segmentFilter || subsegmentFilter) {
+                                // Найдём родительский объект этого объявления через DataState
+                                const parentObject = window.dataState?.realEstateObjects?.find(obj => 
+                                    obj.id === rowData.object_id
+                                );
+                                
+                                if (parentObject) {
+                                    const passesSegmentFilter = this.checkRowAgainstSegmentFilters(parentObject, segmentFilter, subsegmentFilter);
+                                    
+                                    
+                                    if (!passesSegmentFilter) {
+                                        return false;
+                                    }
+                                } else {
+                                    // Если нет родительского объекта, проверяем само объявление
+                                    const passesSegmentFilter = this.checkRowAgainstSegmentFilters(rowData, segmentFilter, subsegmentFilter);
+                                    
+                                    
+                                    if (!passesSegmentFilter) {
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Для других фильтров применяем ко всем строкам
+                        const passesSegmentFilter = this.checkRowAgainstSegmentFilters(rowData, segmentFilter, subsegmentFilter);
+                        if (!passesSegmentFilter) {
+                            return false;
+                        }
+                    }
+                }
+                
+                // ПОТОМ: Фильтр по статусу обработки (только для объявлений)
                 if (processingStatusFilter) {
-                    //console.log('🔍 Processing status filter:', processingStatusFilter, 'row type:', rowData.type, 'row processing_status:', rowData.processing_status, 'address_match_confidence:', rowData.address_match_confidence);
                     
                     // Объекты недвижимости не имеют статуса обработки, поэтому скрываем их при фильтрации
                     if (rowData.type === 'object') {
@@ -3033,7 +3004,7 @@ class DuplicatesManager {
                         const hasLowAddressConfidence = rowData.address_match_confidence === 'low' || rowData.address_match_confidence === 'very_low';
                         const isManualConfidence = rowData.address_match_confidence === 'manual';
                         
-                        // console.log('📍 Address needed check:', {
+                        // // console.log('📍 Address needed check:', {
                         //     hasAddressNeededStatus: hasAddressNeededStatus,
                         //     hasLowAddressConfidence: hasLowAddressConfidence,
                         //     isManualConfidence: isManualConfidence,
@@ -3044,19 +3015,37 @@ class DuplicatesManager {
                         if ((!hasAddressNeededStatus && !hasLowAddressConfidence) || isManualConfidence) {
                             return false;
                         }
+                    } else if (processingStatusFilter === 'needs_update') {
+                        // Показываем ВСЕ объявления со статусом "active" и датой последнего обновления старше -1 дня (независимо от processing_status)
+                        const isActive = rowData.status === 'active';
+                        
+                        // Проверяем дату последнего обновления
+                        const lastUpdate = rowData.updated || rowData.created;
+                        const updateDate = lastUpdate ? new Date(lastUpdate) : null;
+                        const yesterday = new Date();
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        
+                        
+                        if (!isActive) {
+                            return false;
+                        }
+                        
+                        if (!lastUpdate) {
+                            return false;
+                        }
+                        
+                        if (updateDate >= yesterday) {
+                            return false;
+                        }
+                        
+                        // НЕ проверяем processing_status - показываем все объявления, подходящие по статусу и дате
+                        // Возвращаем true чтобы показать это объявление
+                        return true;
                     } else {
                         // Для остальных фильтров - простое сравнение
                         if (rowData.processing_status !== processingStatusFilter) {
                             return false;
                         }
-                    }
-                }
-                
-                // Фильтрация по сегментам и подсегментам
-                if (segmentFilter || subsegmentFilter) {
-                    const passesSegmentFilter = this.checkRowAgainstSegmentFilters(rowData, segmentFilter, subsegmentFilter);
-                    if (!passesSegmentFilter) {
-                        return false;
                     }
                 }
                 
@@ -3066,17 +3055,12 @@ class DuplicatesManager {
             // Перерисовываем таблицу
             this.duplicatesTable.draw();
             
-            // Отладка результатов фильтрации
-            setTimeout(() => {
-                const visibleRows = this.duplicatesTable.rows({search: 'applied'}).count();
-                console.log(`📊 Видимых строк после фильтрации: ${visibleRows}`);
-            }, 100);
             
             // Обновляем отображение активных фильтров
             this.updateActiveFiltersDisplay();
             
         } catch (error) {
-            console.error('Ошибка при применении фильтров:', error);
+            // console.error('Ошибка при применении фильтров:', error);
             this.showError('Ошибка при применении фильтров: ' + error.message);
         }
     }
@@ -3108,7 +3092,7 @@ class DuplicatesManager {
                         }
                     }
                 } catch (error) {
-                    console.warn('Ошибка получения текста адреса:', error);
+                    // console.warn('Ошибка получения текста адреса:', error);
                 }
                 
                 activeFilters.push({ type: 'address', text: `Адрес: ${addressText}` });
@@ -3153,7 +3137,7 @@ class DuplicatesManager {
             }
             
         } catch (error) {
-            console.error('Ошибка при обновлении отображения активных фильтров:', error);
+            // console.error('Ошибка при обновлении отображения активных фильтров:', error);
         }
     }
     
@@ -3204,7 +3188,7 @@ class DuplicatesManager {
             }
             
         } catch (error) {
-            console.error('❌ Ошибка подтверждения адреса:', error);
+            // console.error('❌ Ошибка подтверждения адреса:', error);
             if (this.progressManager) {
                 this.progressManager.showError('Ошибка подтверждения адреса: ' + error.message);
             }
@@ -3235,7 +3219,7 @@ class DuplicatesManager {
             }
         });
         
-        console.log('💾 Сохранено состояние таблицы:', state);
+        // console.log('💾 Сохранено состояние таблицы:', state);
         return state;
     }
     
@@ -3274,7 +3258,7 @@ class DuplicatesManager {
                 });
             }
             
-            console.log('🔄 Восстановлено состояние таблицы:', state);
+            // console.log('🔄 Восстановлено состояние таблицы:', state);
         }, 300);
     }
     
@@ -3687,7 +3671,7 @@ class DuplicatesManager {
         if (notificationsContainer) {
             notificationsContainer.appendChild(notification);
         } else {
-            console.warn('⚠️ Контейнер notifications не найден');
+            // console.warn('⚠️ Контейнер notifications не найден');
         }
 
         // Автоматическое удаление через 5 секунд
@@ -3704,9 +3688,9 @@ class DuplicatesManager {
     async loadAddresses() {
         try {
             this.addresses = await window.db.getAll('addresses');
-            console.log(`📍 DuplicatesManager: Загружено ${this.addresses.length} адресов для helper методов`);
+            // console.log(`📍 DuplicatesManager: Загружено ${this.addresses.length} адресов для helper методов`);
         } catch (error) {
-            console.error('❌ Ошибка загрузки адресов в DuplicatesManager:', error);
+            // console.error('❌ Ошибка загрузки адресов в DuplicatesManager:', error);
             this.addresses = [];
         }
     }
@@ -3761,13 +3745,13 @@ class DuplicatesManager {
      */
     async showObjectListings(row, objectId) {
         try {
-            console.log('📋 Загрузка объявлений для объекта:', objectId);
+            // console.log('📋 Загрузка объявлений для объекта:', objectId);
             
             // Получаем объявления для данного объекта
             const objectListings = await this.getListingsForObject(objectId);
             
             if (objectListings.length === 0) {
-                console.log('📋 Нет объявлений для объекта:', objectId);
+                // console.log('📋 Нет объявлений для объекта:', objectId);
                 row.child('<div class="p-4 text-center text-gray-500">Нет объявлений для этого объекта</div>').show();
                 return;
             }
@@ -3778,10 +3762,10 @@ class DuplicatesManager {
             // Показываем child row
             row.child(childHtml).show();
             
-            console.log('📋 Child row создан для объекта:', objectId, 'с', objectListings.length, 'объявлениями');
+            // console.log('📋 Child row создан для объекта:', objectId, 'с', objectListings.length, 'объявлениями');
             
         } catch (error) {
-            console.error('❌ Ошибка при загрузке объявлений объекта:', error);
+            // console.error('❌ Ошибка при загрузке объявлений объекта:', error);
             row.child('<div class="p-4 text-center text-red-500">Ошибка загрузки объявлений</div>').show();
         }
     }
@@ -3795,12 +3779,12 @@ class DuplicatesManager {
             const allListings = await window.db.getAll('listings');
             const objectListings = allListings.filter(listing => listing.object_id === objectId);
             
-            console.log('📋 Найдено объявлений для объекта', objectId, ':', objectListings.length);
+            // console.log('📋 Найдено объявлений для объекта', objectId, ':', objectListings.length);
             
             return objectListings;
             
         } catch (error) {
-            console.error('❌ Ошибка при получении объявлений для объекта:', error);
+            // console.error('❌ Ошибка при получении объявлений для объекта:', error);
             return [];
         }
     }
@@ -4023,20 +4007,20 @@ class DuplicatesManager {
      */
     async showObjectDetails(objectId) {
         try {
-            console.log('🏠 Загрузка деталей объекта:', objectId);
+            // console.log('🏠 Загрузка деталей объекта:', objectId);
             
             // Получаем объект недвижимости с объявлениями
             let objectWithData;
             try {
                 objectWithData = await window.realEstateObjectManager.getObjectWithListings(objectId);
             } catch (error) {
-                console.error('Объект недвижимости не найден:', objectId, error);
+                // console.error('Объект недвижимости не найден:', objectId, error);
                 this.progressManager.showError('Объект недвижимости не найден');
                 return;
             }
 
             if (!objectWithData || !objectWithData.object) {
-                console.error('Объект недвижимости не найден:', objectId);
+                // console.error('Объект недвижимости не найден:', objectId);
                 this.progressManager.showError('Объект недвижимости не найден');
                 return;
             }
@@ -4076,11 +4060,11 @@ class DuplicatesManager {
                     this.initializeObjectPriceHistoryPanel(realEstateObject);
                     this.initializeObjectListingsTable(objectListings, realEstateObject.id);
                 
-                    console.log('🏠 Детали объекта загружены:', realEstateObject.id);
+                    // console.log('🏠 Детали объекта загружены:', realEstateObject.id);
                 }, 100);
             }
         } catch (error) {
-            console.error('❌ Ошибка при загрузке деталей объекта:', error);
+            // console.error('❌ Ошибка при загрузке деталей объекта:', error);
             this.progressManager.showError('Ошибка загрузки объекта: ' + error.message);
         }
     }
@@ -4449,7 +4433,7 @@ class DuplicatesManager {
         try {
             const mapContainer = document.getElementById(`object-map-${realEstateObject.id}`);
             if (!mapContainer) {
-                console.warn('Контейнер карты объекта не найден');
+                // console.warn('Контейнер карты объекта не найден');
                 return;
             }
 
@@ -4460,7 +4444,7 @@ class DuplicatesManager {
                 return;
             }
 
-            console.log(`🗺️ Инициализируем карту для объекта ${realEstateObject.id} с координатами:`, coords);
+            // console.log(`🗺️ Инициализируем карту для объекта ${realEstateObject.id} с координатами:`, coords);
 
             // Создаем карту
             const objectMap = L.map(`object-map-${realEstateObject.id}`, {
@@ -4504,7 +4488,7 @@ class DuplicatesManager {
             mapContainer._leafletMap = objectMap;
 
         } catch (error) {
-            console.error('Ошибка инициализации карты объекта:', error);
+            // console.error('Ошибка инициализации карты объекта:', error);
             const mapContainer = document.getElementById(`object-map-${realEstateObject.id}`);
             if (mapContainer) {
                 mapContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка загрузки карты</div>';
@@ -4548,11 +4532,11 @@ class DuplicatesManager {
         try {
             const chartContainer = document.getElementById(`object-price-chart-${realEstateObject.id}`);
             if (!chartContainer) {
-                console.warn('Контейнер графика цены объекта не найден');
+                // console.warn('Контейнер графика цены объекта не найден');
                 return;
             }
 
-            console.log(`📊 Создаем график цены для объекта ${realEstateObject.id}`);
+            // console.log(`📊 Создаем график цены для объекта ${realEstateObject.id}`);
 
             // Подготавливаем данные для графика из истории цен
             const priceHistory = this.prepareObjectPriceHistoryData(realEstateObject);
@@ -4700,7 +4684,7 @@ class DuplicatesManager {
             chart.render();
 
         } catch (error) {
-            console.error('Ошибка создания графика цены объекта:', error);
+            // console.error('Ошибка создания графика цены объекта:', error);
             const chartContainer = document.getElementById(`object-price-chart-${realEstateObject.id}`);
             if (chartContainer) {
                 chartContainer.innerHTML = '<div class="flex items-center justify-center h-64 text-red-500">Ошибка создания графика</div>';
@@ -4779,17 +4763,17 @@ class DuplicatesManager {
     loadObjectPhotosGallery(listing) {
         try {
             if (!this.currentObject) {
-                console.warn('Текущий объект не найден');
+                // console.warn('Текущий объект не найден');
                 return;
             }
 
             const photosContainer = document.getElementById(`object-photos-${this.currentObject.id}`);
             if (!photosContainer) {
-                console.warn('Контейнер фотографий объекта не найден');
+                // console.warn('Контейнер фотографий объекта не найден');
                 return;
             }
 
-            console.log(`📸 Загружаем фотографии для объекта ${this.currentObject.id} из объявления ${listing.id}`);
+            // console.log(`📸 Загружаем фотографии для объекта ${this.currentObject.id} из объявления ${listing.id}`);
 
             // Получаем фотографии из объявления
             const photos = this.getListingPhotos(listing);
@@ -4828,7 +4812,7 @@ class DuplicatesManager {
             }, 100);
 
         } catch (error) {
-            console.error('Ошибка загрузки фотографий объекта:', error);
+            // console.error('Ошибка загрузки фотографий объекта:', error);
             const photosContainer = document.getElementById(`object-photos-${this.currentObject.id}`);
             if (photosContainer) {
                 photosContainer.innerHTML = `
@@ -4846,17 +4830,17 @@ class DuplicatesManager {
     loadObjectDescription(listing) {
         try {
             if (!this.currentObject) {
-                console.warn('Текущий объект не найден');
+                // console.warn('Текущий объект не найден');
                 return;
             }
 
             const descriptionContainer = document.getElementById(`object-description-${this.currentObject.id}`);
             if (!descriptionContainer) {
-                console.warn('Контейнер описания объекта не найден');
+                // console.warn('Контейнер описания объекта не найден');
                 return;
             }
 
-            console.log(`📝 Загружаем описание для объекта ${this.currentObject.id} из объявления ${listing.id}`);
+            // console.log(`📝 Загружаем описание для объекта ${this.currentObject.id} из объявления ${listing.id}`);
 
             // Получаем описание из объявления
             const description = this.getListingDescription(listing);
@@ -4883,7 +4867,7 @@ class DuplicatesManager {
             `;
 
         } catch (error) {
-            console.error('Ошибка загрузки описания объекта:', error);
+            // console.error('Ошибка загрузки описания объекта:', error);
             const descriptionContainer = document.getElementById(`object-description-${this.currentObject.id}`);
             if (descriptionContainer) {
                 descriptionContainer.innerHTML = `
@@ -4954,7 +4938,7 @@ class DuplicatesManager {
             this.initializeObjectPriceHistoryTable(realEstateObject);
 
         } catch (error) {
-            console.error('Ошибка инициализации панели истории цен объекта:', error);
+            // console.error('Ошибка инициализации панели истории цен объекта:', error);
         }
     }
 
@@ -5033,7 +5017,7 @@ class DuplicatesManager {
             this[`objectPriceHistoryTable_${realEstateObject.id}`] = dataTable;
 
         } catch (error) {
-            console.error('Ошибка инициализации таблицы истории цен объекта:', error);
+            // console.error('Ошибка инициализации таблицы истории цен объекта:', error);
         }
     }
 
@@ -5056,11 +5040,11 @@ class DuplicatesManager {
         try {
             const tableContainer = document.getElementById(`object-listings-table-${objectId}`);
             if (!tableContainer) {
-                console.warn('Контейнер таблицы объявлений объекта не найден');
+                // console.warn('Контейнер таблицы объявлений объекта не найден');
                 return;
             }
 
-            console.log(`📋 Инициализируем таблицу объявлений для объекта ${objectId}`);
+            // console.log(`📋 Инициализируем таблицу объявлений для объекта ${objectId}`);
 
             // Сортируем объявления по дате обновления (убывание)
             const sortedListings = objectListings.sort((a, b) => {
@@ -5079,7 +5063,7 @@ class DuplicatesManager {
             this.bindObjectListingEvents(objectId);
 
         } catch (error) {
-            console.error('Ошибка инициализации таблицы объявлений объекта:', error);
+            // console.error('Ошибка инициализации таблицы объявлений объекта:', error);
         }
     }
 
@@ -5123,7 +5107,7 @@ class DuplicatesManager {
             if (listingId && this.currentObjectListings) {
                 const listing = this.currentObjectListings.find(l => l.id === listingId);
                 if (listing) {
-                    console.log(`📸 Загружаем фотографии из объявления ${listingId} для объекта ${currentObjectId}`);
+                    // console.log(`📸 Загружаем фотографии из объявления ${listingId} для объекта ${currentObjectId}`);
                     this.loadObjectPhotosGallery(listing);
                     this.loadObjectDescription(listing);
                     
@@ -5155,7 +5139,7 @@ class DuplicatesManager {
             }
 
         } catch (error) {
-            console.error('Ошибка обновления активной строки таблицы объявлений:', error);
+            // console.error('Ошибка обновления активной строки таблицы объявлений:', error);
         }
     }
 }
@@ -5165,5 +5149,74 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = DuplicatesManager;
 } else {
     window.DuplicatesManager = DuplicatesManager;
-    console.log('✅ DuplicatesManager доступен в window:', typeof window.DuplicatesManager);
+    // console.log('✅ DuplicatesManager доступен в window:', typeof window.DuplicatesManager);
 }
+
+/**
+ * Получить объявления, требующие актуализации
+ * @param {string} segmentFilter - ID сегмента (необязательно)
+ * @param {string} subsegmentFilter - ID подсегмента (необязательно)
+ * @returns {Array} Массив объявлений для актуализации
+ */
+window.getListingsForActualization = function(segmentFilter = null, subsegmentFilter = null) {
+    console.log('🔄 Поиск объявлений для актуализации...');
+    
+    // Получаем все объявления из DataState
+    const allListings = window.dataState?.listings || [];
+    console.log(`📊 Всего объявлений в области: ${allListings.length}`);
+    
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    let actualizationListings = [];
+    
+    for (const listing of allListings) {
+        // Проверяем критерии актуализации
+        const isActive = listing.status === 'active';
+        const lastUpdate = listing.updated || listing.created;
+        const updateDate = lastUpdate ? new Date(lastUpdate) : null;
+        
+        // Объявление подходит для актуализации если:
+        // 1. Статус active
+        // 2. Дата обновления старше вчера
+        if (isActive && updateDate && updateDate < yesterday) {
+            // Если заданы сегментные фильтры - проверяем их
+            if (segmentFilter || subsegmentFilter) {
+                // Найдём родительский объект недвижимости
+                const parentObject = window.dataState?.realEstateObjects?.find(obj => 
+                    obj.id === listing.object_id
+                );
+                
+                if (parentObject) {
+                    // Проверяем проходит ли объект через сегментные фильтры
+                    const duplicatesManager = window.duplicatesManager;
+                    if (duplicatesManager) {
+                        const passesSegmentFilter = duplicatesManager.checkRowAgainstSegmentFilters(parentObject, segmentFilter, subsegmentFilter);
+                        if (passesSegmentFilter) {
+                            actualizationListings.push(listing);
+                        }
+                    }
+                } else {
+                    // Если нет родительского объекта, проверяем само объявление
+                    const duplicatesManager = window.duplicatesManager;
+                    if (duplicatesManager) {
+                        const passesSegmentFilter = duplicatesManager.checkRowAgainstSegmentFilters(listing, segmentFilter, subsegmentFilter);
+                        if (passesSegmentFilter) {
+                            actualizationListings.push(listing);
+                        }
+                    }
+                }
+            } else {
+                // Если сегментные фильтры не заданы - добавляем объявление
+                actualizationListings.push(listing);
+            }
+        }
+    }
+    
+    console.log(`✅ Найдено объявлений для актуализации: ${actualizationListings.length}`);
+    console.log(`📋 Критерии: активные объявления старше ${yesterday.toLocaleDateString()}`);
+    if (segmentFilter) console.log(`🎯 Сегмент: ${segmentFilter}`);
+    if (subsegmentFilter) console.log(`🎯 Подсегмент: ${subsegmentFilter}`);
+    
+    return actualizationListings;
+};

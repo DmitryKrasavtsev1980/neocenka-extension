@@ -178,6 +178,19 @@ class ReportsManager {
 
         // События SlimSelect будут обработаны после инициализации
 
+        // Обработчики изменения фильтров дат
+        if (this.dateFromFilter) {
+            this.dateFromFilter.addEventListener('change', () => {
+                this.updateReportsVisibility();
+            });
+        }
+
+        if (this.dateToFilter) {
+            this.dateToFilter.addEventListener('change', () => {
+                this.updateReportsVisibility();
+            });
+        }
+
         // События EventBus
         this.eventBus.on(CONSTANTS.EVENTS.SEGMENTS_UPDATED, () => {
             this.loadSegmentsData();
@@ -484,6 +497,9 @@ class ReportsManager {
 
             console.log('🔍 ReportsManager: Выбран сегмент:', this.currentSegment?.name || 'Не выбран', 'подсегментов:', this.subsegments?.length || 0);
             
+            // Обновляем отчёты при изменении сегмента
+            await this.updateReportsVisibility();
+            
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка при изменении сегмента:', error);
         }
@@ -493,8 +509,11 @@ class ReportsManager {
     /**
      * Обработка изменения подсегмента
      */
-    handleSubsegmentChange(subsegmentId) {
+    async handleSubsegmentChange(subsegmentId) {
         this.currentSubsegment = subsegmentId ? this.subsegments.find(s => s.id === parseInt(subsegmentId)) : null;
+
+        // Обновляем отчёты при изменении подсегмента
+        await this.updateReportsVisibility();
 
         if (this.debugEnabled) {
             console.log('🔍 ReportsManager: Выбран подсегмент:', this.currentSubsegment?.name || 'Весь сегмент');
@@ -536,7 +555,7 @@ class ReportsManager {
             this.createPriceChangesChart(reportData);
 
             // Создание графика коридора рынка недвижимости
-            this.createMarketCorridorChart(reportData);
+            await this.createMarketCorridorChart(reportData);
 
             if (this.debugEnabled) {
                 console.log('✅ ReportsManager: Отчёты сгенерированы');
@@ -551,19 +570,266 @@ class ReportsManager {
      * Получение данных для отчётов
      */
     async getReportData() {
-        // Пока возвращаем тестовые данные из примера
-        // В будущем здесь будет реальная логика получения данных из базы
+        try {
+            // Получаем параметры фильтров
+            const currentArea = this.areaPage.dataState?.getState('currentArea');
+            if (!currentArea) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: Нет текущей области');
+                }
+                return this.getEmptyReportData();
+            }
+
+            const segmentId = this.currentSegment?.id;
+            const subsegmentId = this.currentSubsegment?.id;
+            const dateFrom = new Date(this.dateFromFilter?.value || '2023-01-01');
+            const dateTo = new Date(this.dateToFilter?.value || new Date().toISOString().split('T')[0]);
+
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Параметры фильтра:', {
+                    areaId: currentArea.id,
+                    segmentId,
+                    subsegmentId,
+                    dateFrom: dateFrom.toISOString(),
+                    dateTo: dateTo.toISOString()
+                });
+            }
+
+            // Получаем объекты недвижимости с учётом фильтров
+            const objects = await this.getFilteredRealEstateObjects(currentArea.id, segmentId, subsegmentId, dateFrom, dateTo);
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Загружено объектов:', objects.length);
+            }
+
+            // Группируем данные по месяцам и подготавливаем для отчётов
+            const reportData = this.processObjectsForReports(objects, dateFrom, dateTo);
+
+            return reportData;
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных отчётов:', error);
+            return this.getEmptyReportData();
+        }
+    }
+
+    /**
+     * Получение отфильтрованных объектов недвижимости
+     */
+    async getFilteredRealEstateObjects(areaId, segmentId, subsegmentId, dateFrom, dateTo) {
+        try {
+            let objects = [];
+
+            if (segmentId) {
+                // Получаем объекты по сегменту
+                objects = await this.database.getObjectsBySegment(segmentId);
+                
+                if (subsegmentId) {
+                    // Дополнительная фильтрация по подсегменту
+                    // Нужно получить адреса подсегмента и отфильтровать объекты
+                    const subsegment = await this.database.getSubsegment(subsegmentId);
+                    if (subsegment && subsegment.filter_criteria) {
+                        objects = this.filterObjectsBySubsegment(objects, subsegment);
+                    }
+                }
+            } else {
+                // Получаем все объекты в области
+                const addresses = await this.database.getAddressesInMapArea(areaId);
+                for (const address of addresses) {
+                    const addressObjects = await this.database.getObjectsByAddress(address.id);
+                    objects.push(...addressObjects);
+                }
+            }
+
+            // Фильтрация по датам
+            objects = objects.filter(obj => {
+                if (!obj.created && !obj.updated) return false;
+                
+                // Используем дату создания или обновления
+                const objDate = new Date(obj.updated || obj.created);
+                const isValid = objDate >= dateFrom && objDate <= dateTo;
+                
+                if (this.debugEnabled && !isValid) {
+                    console.log('🔍 ReportsManager: Объект исключен по дате:', {
+                        objDate: objDate.toISOString(),
+                        dateFrom: dateFrom.toISOString(),
+                        dateTo: dateTo.toISOString(),
+                        obj: obj.id
+                    });
+                }
+                
+                return isValid;
+            });
+
+            return objects;
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения объектов:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Фильтрация объектов по критериям подсегмента
+     */
+    filterObjectsBySubsegment(objects, subsegment) {
+        if (!subsegment.filter_criteria) return objects;
+
+        return objects.filter(obj => {
+            const criteria = subsegment.filter_criteria;
+            
+            // Фильтр по количеству комнат
+            if (criteria.rooms && criteria.rooms.length > 0) {
+                if (!criteria.rooms.includes(obj.rooms)) return false;
+            }
+
+            // Фильтр по этажам
+            if (criteria.floors && (criteria.floors.min || criteria.floors.max)) {
+                if (criteria.floors.min && obj.floors_total < criteria.floors.min) return false;
+                if (criteria.floors.max && obj.floors_total > criteria.floors.max) return false;
+            }
+
+            // Фильтр по площади
+            if (criteria.area && (criteria.area.min || criteria.area.max)) {
+                if (criteria.area.min && obj.area_total < criteria.area.min) return false;
+                if (criteria.area.max && obj.area_total > criteria.area.max) return false;
+            }
+
+            // Фильтр по цене
+            if (criteria.price && (criteria.price.min || criteria.price.max)) {
+                if (criteria.price.min && obj.current_price < criteria.price.min) return false;
+                if (criteria.price.max && obj.current_price > criteria.price.max) return false;
+            }
+
+            return true;
+        });
+    }
+
+    /**
+     * Обработка объектов для формирования данных отчётов
+     */
+    processObjectsForReports(objects, dateFrom, dateTo) {
+        // Создаём массив месяцев в периоде
+        const months = this.generateMonthsArray(dateFrom, dateTo);
         
-        const testData = {
-            "new": [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 2, 1, 1, 5, 4, 4, 4, 10, 10, 5, 4, 2, 1, 6, 2, 6, 3, 0],
-            "close": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 11, 14, 6, 6, 1, 1, 3, 7, 7, 0],
-            "active": [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 4, 4, 5, 5, 5, 6, 7, 8, 10, 11, 12, 17, 21, 25, 29, 27, 26, 17, 15, 11, 11, 16, 15, 14, 10],
-            "averageСost": [0, 15423275, 15423275, 15423275, 15423275, 15423275, 15423275, 15423275, 15423275, 15423275, 15423275, 15423275, 16111638, 16111638, 16061638, 16061638, 15274425, 14780819, 14780819, 14780819, 14364655, 14364655, 14364655, 13537213, 14789039, 14752909, 14922328, 15520298, 15235273, 15640193, 16353442, 16196491, 16573527, 17011566, 17858549, 18674647, 19897933, 21143545, 19899000, 20245938, 20439667, 20349286, 21428000],
-            "averageСostMeter": [0, 289367, 289367, 289367, 289367, 289367, 289367, 289367, 289367, 289367, 289367, 289367, 274708, 274708, 273856, 273856, 294116, 303663, 303663, 303663, 307068, 307068, 307068, 311320, 317946, 322821, 317564, 316800, 303240, 305824, 293523, 291724, 289799, 287663, 292689, 290032, 290001, 287525, 286541, 296943, 291828, 316439, 334186],
-            "datetime": ["12/02/2021", "01/02/2022", "02/02/2022", "03/02/2022", "04/02/2022", "05/02/2022", "06/02/2022", "07/02/2022", "08/02/2022", "09/02/2022", "10/02/2022", "11/02/2022", "12/02/2022", "01/02/2023", "02/02/2023", "03/02/2023", "04/02/2023", "05/02/2023", "06/02/2023", "07/02/2023", "08/02/2023", "09/02/2023", "10/02/2023", "11/02/2023", "12/02/2023", "01/02/2024", "02/02/2024", "03/02/2024", "04/02/2024", "05/02/2024", "06/02/2024", "07/02/2024", "08/02/2024", "09/02/2024", "10/02/2024", "11/02/2024", "12/02/2024", "01/02/2025", "02/02/2025", "03/02/2025", "04/02/2025", "05/02/2025", "06/02/2025"]
+        // Если нет периода, создаем минимальный период (текущий месяц)
+        if (months.length === 0) {
+            const currentDate = new Date();
+            months.push(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
+        }
+        
+        // Инициализируем структуру данных
+        const reportData = {
+            new: new Array(months.length).fill(0),
+            close: new Array(months.length).fill(0),
+            active: new Array(months.length).fill(0),
+            averageСost: new Array(months.length).fill(0),
+            averageСostMeter: new Array(months.length).fill(0),
+            datetime: months.map(date => {
+                // ApexCharts требует формат YYYY-MM-DD или timestamp
+                return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-01';
+            })
         };
 
-        return testData;
+        // Группируем объекты по месяцам создания и статусам
+        objects.forEach(obj => {
+            const createdDate = new Date(obj.created || obj.updated);
+            const monthIndex = this.getMonthIndex(createdDate, months);
+            
+            if (monthIndex >= 0) {
+                // Подсчитываем новые объекты
+                if (obj.status === 'active') {
+                    reportData.new[monthIndex]++;
+                }
+                
+                // Для закрытых/архивных объектов
+                if (obj.status === 'archived' || obj.status === 'sold') {
+                    reportData.close[monthIndex]++;
+                }
+            }
+        });
+
+        // Подсчитываем активные объекты на начало каждого месяца
+        months.forEach((month, index) => {
+            const activeAtMonth = objects.filter(obj => {
+                const objDate = new Date(obj.created || obj.updated);
+                return objDate <= month && (obj.status === 'active' || obj.status === 'selling');
+            }).length;
+            
+            reportData.active[index] = activeAtMonth;
+        });
+
+        // Подсчитываем средние цены по месяцам
+        months.forEach((month, index) => {
+            const monthObjects = objects.filter(obj => {
+                const objDate = new Date(obj.created || obj.updated);
+                return this.isSameMonth(objDate, month) && obj.current_price > 0;
+            });
+
+            if (monthObjects.length > 0) {
+                const totalPrice = monthObjects.reduce((sum, obj) => sum + obj.current_price, 0);
+                const totalPricePerMeter = monthObjects
+                    .filter(obj => obj.price_per_meter > 0)
+                    .reduce((sum, obj) => sum + obj.price_per_meter, 0);
+                const countWithPricePerMeter = monthObjects.filter(obj => obj.price_per_meter > 0).length;
+
+                reportData.averageСost[index] = Math.round(totalPrice / monthObjects.length);
+                reportData.averageСostMeter[index] = countWithPricePerMeter > 0 
+                    ? Math.round(totalPricePerMeter / countWithPricePerMeter) 
+                    : 0;
+            }
+        });
+
+        return reportData;
+    }
+
+    /**
+     * Генерация массива месяцев в заданном периоде
+     */
+    generateMonthsArray(dateFrom, dateTo) {
+        const months = [];
+        const current = new Date(dateFrom.getFullYear(), dateFrom.getMonth(), 1);
+        const end = new Date(dateTo.getFullYear(), dateTo.getMonth(), 1);
+
+        while (current <= end) {
+            months.push(new Date(current));
+            current.setMonth(current.getMonth() + 1);
+        }
+
+        return months;
+    }
+
+    /**
+     * Получение индекса месяца в массиве
+     */
+    getMonthIndex(date, months) {
+        return months.findIndex(month => this.isSameMonth(date, month));
+    }
+
+    /**
+     * Проверка совпадения месяца и года
+     */
+    isSameMonth(date1, date2) {
+        return date1.getFullYear() === date2.getFullYear() && 
+               date1.getMonth() === date2.getMonth();
+    }
+
+    /**
+     * Возвращает пустую структуру данных отчётов
+     */
+    getEmptyReportData() {
+        // Создаем данные для одного месяца, чтобы избежать ошибок ApexCharts
+        const currentDate = new Date();
+        const dateStr = currentDate.getFullYear() + '-' + String(currentDate.getMonth() + 1).padStart(2, '0') + '-01';
+        
+        return {
+            new: [0],
+            close: [0],
+            active: [0],
+            averageСost: [0],
+            averageСostMeter: [0],
+            datetime: [dateStr]
+        };
     }
 
     /**
@@ -571,6 +837,12 @@ class ReportsManager {
      */
     createLiquidityChart(data) {
         try {
+            // Проверяем наличие данных
+            if (!data || !data.datetime || data.datetime.length === 0) {
+                document.getElementById('liquidityChart').innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Нет данных для отображения</div>';
+                return;
+            }
+
             const options = {
                 series: [
                     {
@@ -667,6 +939,12 @@ class ReportsManager {
      */
     createPriceChangesChart(data) {
         try {
+            // Проверяем наличие данных
+            if (!data || !data.datetime || data.datetime.length === 0) {
+                document.getElementById('priceChangesChart').innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Нет данных для отображения</div>';
+                return;
+            }
+
             const options = {
                 series: [
                     {
@@ -753,10 +1031,16 @@ class ReportsManager {
     /**
      * Создание графика коридора рынка недвижимости
      */
-    createMarketCorridorChart(data) {
+    async createMarketCorridorChart(data) {
         try {
-            // Получаем тестовые данные для графика коридора (из примера в PANEL_REPORTS.md)
-            const pointsData = this.getMarketCorridorData();
+            // Получаем данные для графика коридора из базы данных
+            const pointsData = await this.getMarketCorridorData();
+            
+            // Проверяем наличие данных
+            if (!pointsData || !pointsData.series || pointsData.series.length === 0 || pointsData.series[0].data.length === 0) {
+                document.getElementById('marketCorridorChart').innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Нет данных для отображения</div>';
+                return;
+            }
             
             const options = {
                 chart: {
@@ -879,30 +1163,77 @@ class ReportsManager {
     }
 
     /**
-     * Получение данных для графика коридора рынка
+     * Получение данных для графика коридора рынка из базы данных
      */
-    getMarketCorridorData() {
-        // Тестовые данные для демонстрации
-        // В реальной реализации здесь будет получение данных из базы данных
+    async getMarketCorridorData() {
+        try {
+            // Получаем параметры фильтров
+            const currentArea = this.areaPage.dataState?.getState('currentArea');
+            if (!currentArea) {
+                return this.getEmptyMarketCorridorData();
+            }
+
+            const segmentId = this.currentSegment?.id;
+            const subsegmentId = this.currentSubsegment?.id;
+            const dateFrom = new Date(this.dateFromFilter?.value || '2023-01-01');
+            const dateTo = new Date(this.dateToFilter?.value || new Date().toISOString().split('T')[0]);
+
+            // Получаем объекты недвижимости с учётом фильтров
+            const objects = await this.getFilteredRealEstateObjects(currentArea.id, segmentId, subsegmentId, dateFrom, dateTo);
+            
+            if (objects.length === 0) {
+                return this.getEmptyMarketCorridorData();
+            }
+
+            // Подготавливаем данные для точечного графика
+            // Каждая точка: [дата последнего обновления, цена]
+            const pointsData = objects
+                .filter(obj => obj.current_price > 0 && (obj.updated || obj.created))
+                .map(obj => {
+                    const lastUpdate = new Date(obj.updated || obj.created);
+                    return [lastUpdate.getTime(), obj.current_price];
+                })
+                .sort((a, b) => a[0] - b[0]); // сортируем по дате
+
+            // Вычисляем минимальную и максимальную цены для оси Y
+            const prices = pointsData.map(point => point[1]);
+            const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+            const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+
+            // Добавляем небольшой отступ для лучшего отображения
+            const priceRange = maxPrice - minPrice;
+            const padding = priceRange * 0.1; // 10% отступ
+
+            return {
+                series: [
+                    {
+                        name: 'Объекты недвижимости',
+                        data: pointsData
+                    }
+                ],
+                colors: ['#56c2d6'],
+                minPrice: Math.max(0, minPrice - padding),
+                maxPrice: maxPrice + padding
+            };
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных коридора рынка:', error);
+            return this.getEmptyMarketCorridorData();
+        }
+    }
+
+    /**
+     * Возвращает пустые данные для графика коридора рынка
+     */
+    getEmptyMarketCorridorData() {
         return {
-            series: [
-                {
-                    name: 'Объекты недвижимости',
-                    data: [
-                        [new Date('2024-01-15').getTime(), 12000000],
-                        [new Date('2024-02-10').getTime(), 13500000],
-                        [new Date('2024-03-05').getTime(), 11800000],
-                        [new Date('2024-04-20').getTime(), 15200000],
-                        [new Date('2024-05-12').getTime(), 14100000],
-                        [new Date('2024-06-08').getTime(), 16800000],
-                        [new Date('2024-07-25').getTime(), 13900000],
-                        [new Date('2024-08-14').getTime(), 17500000]
-                    ]
-                }
-            ],
+            series: [{
+                name: 'Объекты недвижимости',
+                data: []
+            }],
             colors: ['#56c2d6'],
-            minPrice: 10000000,
-            maxPrice: 20000000
+            minPrice: 0,
+            maxPrice: 1000000
         };
     }
 
