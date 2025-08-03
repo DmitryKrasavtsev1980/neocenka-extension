@@ -1098,10 +1098,13 @@ class UIManager {
                     </button>
                 </div>
 
-                <!-- Центр: Кнопка открытия объявления -->
-                <div class="flex-shrink-0">
+                <!-- Центр: Кнопки управления объявлением -->
+                <div class="flex items-center space-x-2">
                     <button type="button" id="openListingBtn" class="inline-flex items-center justify-center rounded-md border border-transparent shadow-sm px-4 py-1 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
                         🔗 Открыть объявление
+                    </button>
+                    <button type="button" id="updateListingBtn-${listing.id}" class="inline-flex items-center justify-center rounded-md border border-transparent shadow-sm px-4 py-1 bg-green-600 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">
+                        🔄 Обновить
                     </button>
                 </div>
                 
@@ -3874,6 +3877,14 @@ class UIManager {
                     this.deleteListing(listingId);
                 });
             }
+
+            // Обработчик кнопки обновления
+            const updateBtn = document.getElementById(`updateListingBtn-${listingId}`);
+            if (updateBtn) {
+                updateBtn.addEventListener('click', () => {
+                    this.updateSingleListingData(listingId);
+                });
+            }
         } catch (error) {
             console.error('❌ Ошибка инициализации панели управления:', error);
         }
@@ -4994,6 +5005,332 @@ class UIManager {
                     this.renderListingMap(listing);
                 }
             }, 100);
+        }
+    }
+
+    /**
+     * Обновление данных одного объявления (только парсинг без сохранения)
+     */
+    async updateSingleListingData(listingId) {
+        try {
+            const debugEnabled = await this.isDebugEnabled();
+            
+            console.log('🔄 Начинаем обновление данных объявления:', listingId);
+            
+            // Показываем уведомление о начале процесса
+            this.showNotification({
+                type: 'info',
+                message: 'Начинаем парсинг объявления...',
+                duration: 3000
+            });
+            
+            // Получаем объявление из базы данных
+            const listing = await window.db.getListing(listingId);
+            if (!listing) {
+                console.error('❌ Объявление не найдено:', listingId);
+                this.showNotification({
+                    type: 'error',
+                    message: 'Объявление не найдено в базе данных',
+                    duration: 5000
+                });
+                return;
+            }
+            
+            if (!listing.url) {
+                console.error('❌ У объявления отсутствует URL:', listingId);
+                this.showNotification({
+                    type: 'error',
+                    message: 'У объявления отсутствует URL для парсинга',
+                    duration: 5000
+                });
+                return;
+            }
+            
+            console.log('📊 Исходные данные объявления:', {
+                id: listing.id,
+                url: listing.url,
+                price: listing.price,
+                status: listing.status,
+                updated: listing.updated,
+                created: listing.created
+            });
+            
+            // Блокируем кнопку во время обработки
+            const updateBtn = document.getElementById(`updateListingBtn-${listingId}`);
+            if (updateBtn) {
+                updateBtn.disabled = true;
+                updateBtn.textContent = '⏳ Обновление...';
+            }
+            
+            // Используем логику из ParsingManager для создания вкладки и парсинга
+            let tab = null;
+            try {
+                // Создаем вкладку для парсинга
+                console.log('🌐 Создаем вкладку для URL:', listing.url);
+                tab = await this.createTabWithRetry(listing.url, 2);
+                
+                // Ждем загрузки страницы и инжектируем content script
+                console.log('⏳ Ожидаем загрузки страницы...');
+                await this.waitForPageLoad(tab.id);
+                
+                console.log('💉 Инжектируем content script...');
+                await this.injectContentScript(tab.id, listing.url);
+                
+                // Запрашиваем обновленные данные объявления
+                console.log('📋 Запрашиваем парсинг данных...');
+                const response = await this.waitForContentScriptAndParse(tab.id, {
+                    action: 'parseCurrentListing',
+                    areaId: this.dataState.getState('currentAreaId'),
+                    existingListingId: listing.id
+                });
+                
+                console.log('📦 Результат парсинга:', response);
+                
+                if (response && response.success && response.data) {
+                    // НЕ СОХРАНЯЕМ в базу данных, только выводим в консоль
+                    console.log('✅ УСПЕШНО СПАРСЕНО - НОВЫЕ ДАННЫЕ:');
+                    console.log('==========================================');
+                    console.log('🆔 ID объявления:', listing.id);
+                    console.log('🔗 URL:', listing.url);
+                    console.log('📅 Дата парсинга:', new Date().toLocaleString('ru-RU'));
+                    console.log('');
+                    console.log('📊 СРАВНЕНИЕ ДАННЫХ:');
+                    console.log('--------------------');
+                    console.log('Цена:');
+                    console.log('  Старая:', listing.price, 'руб.');
+                    console.log('  Новая:', response.data.price, 'руб.');
+                    console.log('  Изменение:', response.data.price - listing.price, 'руб.');
+                    console.log('');
+                    console.log('Статус:');
+                    console.log('  Старый:', listing.status);
+                    console.log('  Новый:', response.data.status || 'active');
+                    console.log('');
+                    console.log('Описание:');
+                    console.log('  Старое:', listing.description?.substring(0, 100) + '...');
+                    console.log('  Новое:', response.data.description?.substring(0, 100) + '...');
+                    console.log('');
+                    console.log('🔍 ПОЛНЫЕ НОВЫЕ ДАННЫЕ:');
+                    console.log(response.data);
+                    console.log('==========================================');
+                    
+                    this.showNotification({
+                        type: 'success',
+                        message: `Парсинг завершен! Данные выведены в консоль. ${listing.price !== response.data.price ? 'Цена изменилась!' : 'Цена не изменилась.'}`,
+                        duration: 7000
+                    });
+                    
+                } else {
+                    console.log('❌ ОБЪЯВЛЕНИЕ НЕ НАЙДЕНО ИЛИ УДАЛЕНО');
+                    console.log('==========================================');
+                    console.log('🆔 ID объявления:', listing.id);
+                    console.log('🔗 URL:', listing.url);
+                    console.log('📅 Дата проверки:', new Date().toLocaleString('ru-RU'));
+                    console.log('📊 Результат: Объявление удалено с сайта или недоступно');
+                    console.log('==========================================');
+                    
+                    this.showNotification({
+                        type: 'warning',
+                        message: 'Объявление недоступно или удалено с сайта',
+                        duration: 5000
+                    });
+                }
+                
+            } catch (error) {
+                console.error('❌ ОШИБКА ПАРСИНГА:', error);
+                console.log('==========================================');
+                console.log('🆔 ID объявления:', listing.id);
+                console.log('🔗 URL:', listing.url);
+                console.log('📅 Дата ошибки:', new Date().toLocaleString('ru-RU'));
+                console.log('📊 Ошибка:', error.message);
+                console.log('📊 Stack:', error.stack);
+                console.log('==========================================');
+                
+                this.showNotification({
+                    type: 'error',
+                    message: `Ошибка парсинга: ${error.message}`,
+                    duration: 5000
+                });
+            } finally {
+                // Закрываем вкладку
+                if (tab) {
+                    try {
+                        chrome.tabs.remove(tab.id);
+                    } catch (closeError) {
+                        console.warn('⚠️ Не удалось закрыть вкладку:', closeError);
+                    }
+                }
+                
+                // Восстанавливаем кнопку
+                if (updateBtn) {
+                    updateBtn.disabled = false;
+                    updateBtn.textContent = '🔄 Обновить';
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ Критическая ошибка в updateSingleListingData:', error);
+            this.showNotification({
+                type: 'error',
+                message: `Критическая ошибка: ${error.message}`,
+                duration: 5000
+            });
+        }
+    }
+
+    /**
+     * Создание вкладки с повторными попытками (адаптация из ParsingManager)
+     */
+    async createTabWithRetry(url, maxRetries = 3) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                return await new Promise((resolve, reject) => {
+                    chrome.tabs.create({ url: url, active: false }, (newTab) => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(newTab);
+                        }
+                    });
+                });
+            } catch (error) {
+                console.log(`Попытка ${attempt}/${maxRetries} создания вкладки неудачна:`, error.message);
+                
+                if (attempt === maxRetries) {
+                    throw error;
+                }
+                
+                // Экспоненциальная задержка между попытками
+                const delay = Math.pow(2, attempt) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+
+    /**
+     * Ожидание загрузки страницы (адаптация из ParsingManager)
+     */
+    async waitForPageLoad(tabId) {
+        return new Promise((resolve) => {
+            const checkPageLoad = () => {
+                chrome.tabs.get(tabId, (tab) => {
+                    if (chrome.runtime.lastError) {
+                        resolve();
+                        return;
+                    }
+                    
+                    if (tab.status === 'complete') {
+                        setTimeout(resolve, 2000); // Дополнительная задержка после загрузки
+                    } else {
+                        setTimeout(checkPageLoad, 500);
+                    }
+                });
+            };
+            
+            checkPageLoad();
+        });
+    }
+
+    /**
+     * Инжекция content script (адаптация из ParsingManager)
+     */
+    async injectContentScript(tabId, listingUrl) {
+        try {
+            console.log('💉 Принудительная инжекция content script для URL:', listingUrl);
+            
+            // Определяем какой парсер использовать
+            const isAvito = listingUrl.includes('avito.ru');
+            const isCian = listingUrl.includes('cian.ru');
+            
+            console.log('🔍 Тип сайта:', { isAvito, isCian });
+            
+            // Инжектируем зависимости
+            await chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                files: ['data/database.js', 'utils/error-reporter.js']
+            });
+            
+            // Инжектируем правильный парсер
+            if (isAvito) {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    files: ['content-scripts/avito-parser.js']
+                });
+                console.log('✅ Avito parser инжектирован');
+            } else if (isCian) {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    files: ['content-scripts/cian-parser.js']
+                });
+                console.log('✅ Cian parser инжектирован');
+            } else {
+                throw new Error(`Неподдерживаемый сайт: ${listingUrl}`);
+            }
+            
+            console.log('✅ Content script успешно инжектирован');
+            
+            // Дополнительная задержка для инициализации (больше для Cian)
+            const initDelay = isCian ? 5000 : 3000;
+            console.log(`⏳ Ждем ${initDelay}мс для инициализации парсера...`);
+            await new Promise(resolve => setTimeout(resolve, initDelay));
+            
+        } catch (error) {
+            console.error('❌ Ошибка инжекции content script:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Ожидание content script и парсинг (адаптация из ParsingManager)
+     */
+    async waitForContentScriptAndParse(tabId, settings) {
+        const maxAttempts = 15;
+        const attemptDelay = 3000; // Увеличиваем задержку
+        
+        // Сначала проверим готовность content script
+        console.log('🔍 Проверяем готовность content script...');
+        
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                console.log(`Попытка ${attempt}/${maxAttempts} связаться с content script...`);
+                
+                // Сначала проверяем готовность простым ping
+                try {
+                    await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+                    console.log('📡 Content script отвечает на ping');
+                } catch (pingError) {
+                    console.log('❌ Content script не отвечает на ping:', pingError.message);
+                    
+                    // Если не отвечает на ping, ждем больше
+                    if (attempt < maxAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, attemptDelay));
+                        continue;
+                    }
+                }
+                
+                // Теперь пытаемся отправить основное сообщение
+                const response = await chrome.tabs.sendMessage(tabId, {
+                    action: 'parseCurrentListing',
+                    areaId: settings.areaId,
+                    areaName: settings.areaName,
+                    maxPages: settings.maxPages || 10,
+                    delay: settings.delay || 2000
+                });
+                
+                // Если получили ответ, возвращаем его
+                console.log('✅ Content script ответил:', response);
+                return response;
+                
+            } catch (error) {
+                console.log(`Попытка ${attempt} неудачна:`, error.message);
+                
+                if (attempt === maxAttempts) {
+                    // Последняя попытка - возвращаем ошибку
+                    throw new Error(`Не удалось связаться с content script после ${maxAttempts} попыток: ${error.message}`);
+                }
+                
+                // Ждем перед следующей попыткой
+                await new Promise(resolve => setTimeout(resolve, attemptDelay));
+            }
         }
     }
 }

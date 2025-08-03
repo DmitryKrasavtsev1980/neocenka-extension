@@ -18,6 +18,7 @@
     "https://avito.ru/*",
     "https://www.cian.ru/*",
     "https://cian.ru/*",
+    "https://*.cian.ru/*",
     "https://inpars.ru/*",
     "https://api.inpars.ru/*",
     "https://overpass-api.de/*",
@@ -50,7 +51,7 @@
     "run_at": "document_end"
   },
     {
-      "matches": ["https://www.cian.ru/*", "https://cian.ru/*"],
+      "matches": ["https://www.cian.ru/*", "https://cian.ru/*", "https://*.cian.ru/*"],
       "js": ["data/database.js", "utils/error-reporter.js", "content-scripts/cian-parser.js"],
       "css": ["content-scripts/parser-styles.css"],
       "run_at": "document_end"

@@ -564,8 +564,7 @@ class DuplicatesManager {
                             const statusBadges = {
                                 'active': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Активный</span>',
                                 'archived': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
-                                'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
-                                'needs_processing': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Требует обработки</span>'
+                                'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>'
                             };
                             
                             let html = statusBadges[row.status] || `<span class="text-xs text-gray-500">${row.status}</span>`;
@@ -774,6 +773,9 @@ class DuplicatesManager {
                             const isListing = row.type === 'listing';
                             
                             if (isListing) {
+                                const sourceName = row.source_metadata.original_source;
+                                const sourceUrl = row.url;
+
                                 const sellerType = row.seller_type === 'private' ? 'Собственник' : 
                                                  row.seller_type === 'agency' ? 'Агент' : 
                                                  row.seller_type === 'agent' ? 'Агент' :
@@ -783,6 +785,7 @@ class DuplicatesManager {
                                 const sellerName = row.seller_name || 'Не указано';
                                 
                                 return `<div class="text-xs max-w-xs">
+                                    <a href="${sourceUrl}" target="_blank" class="block text-blue-900 truncate">${sourceName}</a>
                                     <div class="text-gray-900 truncate" title="${sellerType}">${sellerType}</div>
                                     <div class="text-gray-500 truncate" title="${sellerName}">${sellerName}</div>
                                 </div>`;
@@ -2589,13 +2592,13 @@ class DuplicatesManager {
         try {
             const debug = subsegmentFilter === 'subseg_1754037244503_rrkj146cy' && rowData.type === 'listing' && (rowData.property_type === '2k' || rowData.property_type === '3k') && rowData.area_total >= 52 && rowData.area_total <= 63; // Отладка только для подходящих объявлений
             if (debug) {
-                console.log(`✅ НАЙДЕНО ПОДХОДЯЩЕЕ ОБЪЯВЛЕНИЕ: ${rowData.id}`, {
-                    type: rowData.property_type, 
-                    area: rowData.area_total,
-                    status: rowData.status,
-                    updated: rowData.updated,
-                    created: rowData.created
-                });
+                // console.log(`✅ НАЙДЕНО ПОДХОДЯЩЕЕ ОБЪЯВЛЕНИЕ: ${rowData.id}`, {
+                //     type: rowData.property_type, 
+                //     area: rowData.area_total,
+                //     status: rowData.status,
+                //     updated: rowData.updated,
+                //     created: rowData.created
+                // });
             }
             
             // Получаем текущую область
@@ -2923,8 +2926,19 @@ class DuplicatesManager {
                 const rowData = this.duplicatesTable.row(dataIndex).data();
                 
                 // Основной фильтр по статусу (активный/архивный)
-                if (statusFilter !== 'all' && rowData.status !== statusFilter) {
-                    return false;
+                if (statusFilter !== 'all') {
+                    let passesStatusFilter = false;
+                    
+                    if (statusFilter === 'archived') {
+                        // Для архивных объектов принимаем и 'archived' и 'archive'
+                        passesStatusFilter = (rowData.status === 'archived' || rowData.status === 'archive');
+                    } else {
+                        passesStatusFilter = (rowData.status === statusFilter);
+                    }
+                    
+                    if (!passesStatusFilter) {
+                        return false;
+                    }
                 }
                 
                 // Фильтры обработки применяются только если они заполнены
@@ -3385,8 +3399,7 @@ class DuplicatesManager {
         const statusBadges = {
             'active': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Активный</span>',
             'archived': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
-            'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
-            'needs_processing': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Требует обработки</span>'
+            'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>'
         };
         
         let html = statusBadges[row.status] || `<span class="text-xs text-gray-500">${row.status}</span>`;
@@ -3836,8 +3849,7 @@ class DuplicatesManager {
         const statusBadges = {
             'active': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Активный</span>',
             'archived': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
-            'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
-            'needs_processing': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Требует обработки</span>'
+            'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>'
         };
         
         let statusHtml = statusBadges[listing.status] || `<span class="text-xs text-gray-500">${listing.status}</span>`;

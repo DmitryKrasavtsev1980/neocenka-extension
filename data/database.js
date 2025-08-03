@@ -3,6 +3,9 @@
  * Полная версия со всеми методами
  */
 
+// Проверяем, не был ли класс уже объявлен
+if (typeof NeocenkaDB === 'undefined') {
+
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
@@ -1804,21 +1807,26 @@ class NeocenkaDB {
 }
 
 // Создаем глобальный экземпляр базы данных
-const db = new NeocenkaDB();
+let db = null;
 
-// Делаем доступным в window для совместимости
 if (typeof window !== 'undefined') {
-  window.db = db;
+  // В браузерном контексте (content scripts, popup, pages)
+  if (typeof window.db === 'undefined') {
+    db = new NeocenkaDB();
+    window.db = db;
+    
+    // Инициализируем базу данных при загрузке
+    db.init().then(() => {
+      // console.log('Database initialized successfully');
+    }).catch(error => {
+      console.error('Database initialization failed:', error);
+    });
+  }
 }
-
-// Инициализируем базу данных при загрузке
-db.init().then(() => {
-  // console.log('Database initialized successfully');
-}).catch(error => {
-  console.error('Database initialization failed:', error);
-});
 
 // Экспортируем для использования в других модулях
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = db;
 }
+
+} // Закрываем проверку typeof NeocenkaDB

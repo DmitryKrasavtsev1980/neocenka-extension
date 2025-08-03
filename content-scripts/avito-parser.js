@@ -2,6 +2,9 @@
  * Content script для парсинга страниц Avito.ru
  */
 
+// Проверяем, не был ли класс уже объявлен
+if (typeof AvitoParser === 'undefined') {
+
 class AvitoParser {
     constructor() {
         //console.log('AvitoParser constructor called');
@@ -5504,9 +5507,17 @@ if (typeof window !== 'undefined' && window.location.href.includes('avito.ru')) 
     }
 }
 
+} // Закрываем проверку typeof AvitoParser
+
 // Простой и надежный обработчик сообщений
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('📨 GLOBAL: Получено сообщение:', request);
+    
+    if (request.action === 'ping') {
+        console.log('🏓 AvitoParser: Получен ping, отвечаем pong');
+        sendResponse({ success: true, message: 'pong' });
+        return;
+    }
     
     if (request.action === 'parseCurrentListing') {
         console.log('🎯 GLOBAL: Processing parseCurrentListing');
