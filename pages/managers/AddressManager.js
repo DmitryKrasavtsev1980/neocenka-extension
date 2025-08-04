@@ -191,27 +191,27 @@ class AddressManager {
         // Кнопки добавления новых элементов в справочники
         document.getElementById('houseSeriesActionBtn')?.addEventListener('click', async () => {
             await this.getOrCreateSearchableSelect('editHouseSeries', 'houseSeries', 'Выберите серию...');
-            this.openHouseSeriesModal();
+            await this.openHouseSeriesModal();
         });
         
         document.getElementById('houseClassActionBtn')?.addEventListener('click', async () => {
             await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
-            this.openHouseClassModal();
+            await this.openHouseClassModal();
         });
         
         document.getElementById('wallMaterialActionBtn')?.addEventListener('click', async () => {
             await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
-            this.openWallMaterialModal();
+            await this.openWallMaterialModal();
         });
         
         document.getElementById('ceilingMaterialActionBtn')?.addEventListener('click', async () => {
             await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
-            this.openCeilingMaterialModal();
+            await this.openCeilingMaterialModal();
         });
         
         document.getElementById('houseProblemActionBtn')?.addEventListener('click', async () => {
             await this.getOrCreateSearchableSelect('editHouseProblem', 'houseProblems', 'Выберите проблему...');
-            this.openHouseProblemModal();
+            await this.openHouseProblemModal();
         });
     }
     
@@ -1284,26 +1284,51 @@ class AddressManager {
         const houseSeriesSelect = await this.getOrCreateSearchableSelect('editHouseSeries', 'houseSeries', 'Выберите серию...');
         if (houseSeriesSelect && address.house_series_id) {
             houseSeriesSelect.setSelected(address.house_series_id);
+            // Обновляем кнопку после установки значения
+            setTimeout(() => {
+                const selected = houseSeriesSelect.getSelected();
+                this.updateReferenceActionButton('houseSeriesActionBtn', selected);
+            }, 100);
         }
         
         const houseClassSelect = await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
         if (houseClassSelect && address.house_class_id) {
             houseClassSelect.setSelected(address.house_class_id);
+            // Обновляем кнопку после установки значения
+            setTimeout(() => {
+                const selected = houseClassSelect.getSelected();
+                this.updateReferenceActionButton('houseClassActionBtn', selected);
+            }, 100);
         }
         
         const wallMaterialSelect = await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
         if (wallMaterialSelect && address.wall_material_id) {
             wallMaterialSelect.setSelected(address.wall_material_id);
+            // Обновляем кнопку после установки значения
+            setTimeout(() => {
+                const selected = wallMaterialSelect.getSelected();
+                this.updateReferenceActionButton('wallMaterialActionBtn', selected);
+            }, 100);
         }
         
         const ceilingMaterialSelect = await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
         if (ceilingMaterialSelect && address.ceiling_material_id) {
             ceilingMaterialSelect.setSelected(address.ceiling_material_id);
+            // Обновляем кнопку после установки значения
+            setTimeout(() => {
+                const selected = ceilingMaterialSelect.getSelected();
+                this.updateReferenceActionButton('ceilingMaterialActionBtn', selected);
+            }, 100);
         }
         
         const houseProblemSelect = await this.getOrCreateSearchableSelect('editHouseProblem', 'houseProblems', 'Выберите проблему...');
         if (houseProblemSelect && address.house_problem_id) {
             houseProblemSelect.setSelected(address.house_problem_id);
+            // Обновляем кнопку после установки значения
+            setTimeout(() => {
+                const selected = houseProblemSelect.getSelected();
+                this.updateReferenceActionButton('houseProblemActionBtn', selected);
+            }, 100);
         }
         
         // Заполняем числовые поля
@@ -1369,38 +1394,6 @@ class AddressManager {
             commentInput.value = address.comment || '';
         }
         
-        // Обновляем кнопки справочников в соответствии с выбранными значениями
-        setTimeout(() => {
-            // Обновляем кнопку серии домов
-            if (this.modalSlimSelects.houseSeriesSelect) {
-                const selectedSeries = this.modalSlimSelects.houseSeriesSelect.getSelected();
-                this.updateReferenceActionButton('houseSeriesActionBtn', selectedSeries);
-            }
-            
-            // Обновляем кнопку классов домов
-            if (this.modalSlimSelects.houseClassSelect) {
-                const selectedClass = this.modalSlimSelects.houseClassSelect.getSelected();
-                this.updateReferenceActionButton('houseClassActionBtn', selectedClass);
-            }
-            
-            // Обновляем кнопку материалов стен
-            if (this.modalSlimSelects.wallMaterialSelect) {
-                const selectedWall = this.modalSlimSelects.wallMaterialSelect.getSelected();
-                this.updateReferenceActionButton('wallMaterialActionBtn', selectedWall);
-            }
-            
-            // Обновляем кнопку материалов перекрытий
-            if (this.modalSlimSelects.ceilingMaterialSelect) {
-                const selectedCeiling = this.modalSlimSelects.ceilingMaterialSelect.getSelected();
-                this.updateReferenceActionButton('ceilingMaterialActionBtn', selectedCeiling);
-            }
-            
-            // Обновляем кнопку проблем дома
-            if (this.modalSlimSelects.houseProblemSelect) {
-                const selectedProblem = this.modalSlimSelects.houseProblemSelect.getSelected();
-                this.updateReferenceActionButton('houseProblemActionBtn', selectedProblem);
-            }
-        }, 50);
     }
     
     /**
@@ -2674,6 +2667,22 @@ class AddressManager {
                             console.error(`❌ Ошибка поиска в справочнике ${referenceType}:`, error);
                             return [];
                         }
+                    },
+                    afterChange: () => {
+                        // Обновляем кнопку справочника при изменении выбранного значения
+                        const buttonMapping = {
+                            'editHouseSeries': 'houseSeriesActionBtn',
+                            'editHouseClass': 'houseClassActionBtn', 
+                            'editWallMaterial': 'wallMaterialActionBtn',
+                            'editCeilingMaterial': 'ceilingMaterialActionBtn',
+                            'editHouseProblem': 'houseProblemActionBtn'
+                        };
+                        
+                        const buttonId = buttonMapping[elementId];
+                        if (buttonId) {
+                            const selectedValue = slimSelect.getSelected();
+                            this.updateReferenceActionButton(buttonId, selectedValue);
+                        }
                     }
                 }
             });
@@ -2764,7 +2773,20 @@ class AddressManager {
         const button = document.getElementById(buttonId);
         if (!button) return;
         
-        if (selectedValue && selectedValue.length > 0 && selectedValue[0] && selectedValue[0].value) {
+        // Проверяем разные форматы selectedValue
+        let hasValue = false;
+        
+        if (selectedValue && Array.isArray(selectedValue) && selectedValue.length > 0) {
+            // Если это массив строк: ['value'] или массив объектов: [{value: 'value'}]
+            const firstItem = selectedValue[0];
+            if (typeof firstItem === 'string' && firstItem.trim() !== '') {
+                hasValue = true;
+            } else if (typeof firstItem === 'object' && firstItem.value && firstItem.value.trim() !== '') {
+                hasValue = true;
+            }
+        }
+        
+        if (hasValue) {
             // Есть выбранное значение - показываем "Редактировать"
             button.innerHTML = '<svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>Редактировать';
             button.className = button.className.replace('bg-blue-600 hover:bg-blue-700', 'bg-green-600 hover:bg-green-700');
@@ -3061,24 +3083,34 @@ class AddressManager {
     /**
      * Открытие модальных окон справочников
      */
-    openHouseSeriesModal() {
-        // Логика открытия модального окна серий домов
+    async openHouseSeriesModal() {
+        // Получаем или создаем SlimSelect для серий домов
+        const houseSeriesSelect = await this.getOrCreateSearchableSelect('editHouseSeries', 'houseSeries', 'Выберите серию...');
+        
+        if (houseSeriesSelect) {
+            const selectedValue = houseSeriesSelect.getSelected();
+            console.log('🏠 Выбранное значение серии:', selectedValue);
+            
+            if (selectedValue && selectedValue.length > 0 && selectedValue[0].trim() !== '') {
+                // Редактирование существующей серии
+                console.log('🏠 Редактирование серии с ID:', selectedValue[0]);
+                this.showEditHouseSeriesModal(selectedValue[0]);
+            } else {
+                // Добавление новой серии
+                console.log('🏠 Добавление новой серии');
+                this.showHouseSeriesModal();
+            }
+        } else {
+            // Если SlimSelect не удалось создать, добавляем новую серию
+            console.log('🏠 SlimSelect не создан, добавление новой серии');
+            this.showHouseSeriesModal();
+        }
+        
+        // Отправляем событие для совместимости
         this.eventBus.emit(CONSTANTS.EVENTS.MODAL_OPENED, {
             modalId: 'houseSeriesModal',
             timestamp: new Date()
         });
-    }
-    
-    openHouseSeriesModal() {
-        // Проверяем, нужно ли редактировать или добавлять
-        const select = document.getElementById('editHouseSeries');
-        if (select && select.value) {
-            // Редактирование существующей серии
-            this.showEditHouseSeriesModal(select.value);
-        } else {
-            // Добавление новой серии
-            this.showHouseSeriesModal();
-        }
     }
 
     showHouseSeriesModal() {
@@ -3132,14 +3164,22 @@ class AddressManager {
         }
     }
     
-    openHouseClassModal() {
-        // Проверяем, нужно ли редактировать или добавлять
-        const select = document.getElementById('editHouseClass');
-        if (select && select.value) {
-            // Редактирование существующего класса
-            this.showEditHouseClassModal(select.value);
+    async openHouseClassModal() {
+        // Получаем или создаем SlimSelect для классов домов
+        const houseClassSelect = await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
+        
+        if (houseClassSelect) {
+            const selectedValue = houseClassSelect.getSelected();
+            
+            if (selectedValue && selectedValue.length > 0 && selectedValue[0].trim() !== '') {
+                // Редактирование существующего класса
+                this.showEditHouseClassModal(selectedValue[0]);
+            } else {
+                // Добавление нового класса
+                this.showHouseClassModal();
+            }
         } else {
-            // Добавление нового класса
+            // Если SlimSelect не удалось создать, добавляем новый класс
             this.showHouseClassModal();
         }
     }
@@ -3197,14 +3237,22 @@ class AddressManager {
         }
     }
     
-    openWallMaterialModal() {
-        // Проверяем, нужно ли редактировать или добавлять
-        const select = document.getElementById('editWallMaterial');
-        if (select && select.value) {
-            // Редактирование существующего материала
-            this.showEditWallMaterialModal(select.value);
+    async openWallMaterialModal() {
+        // Получаем или создаем SlimSelect для материалов стен
+        const wallMaterialSelect = await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
+        
+        if (wallMaterialSelect) {
+            const selectedValue = wallMaterialSelect.getSelected();
+            
+            if (selectedValue && selectedValue.length > 0 && selectedValue[0].trim() !== '') {
+                // Редактирование существующего материала
+                this.showEditWallMaterialModal(selectedValue[0]);
+            } else {
+                // Добавление нового материала
+                this.showWallMaterialModal();
+            }
         } else {
-            // Добавление нового материала
+            // Если SlimSelect не удалось создать, добавляем новый материал
             this.showWallMaterialModal();
         }
     }
@@ -3262,14 +3310,22 @@ class AddressManager {
         }
     }
     
-    openCeilingMaterialModal() {
-        // Проверяем, нужно ли редактировать или добавлять
-        const select = document.getElementById('editCeilingMaterial');
-        if (select && select.value) {
-            // Редактирование существующего материала
-            this.showEditCeilingMaterialModal(select.value);
+    async openCeilingMaterialModal() {
+        // Получаем или создаем SlimSelect для материалов перекрытий
+        const ceilingMaterialSelect = await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
+        
+        if (ceilingMaterialSelect) {
+            const selectedValue = ceilingMaterialSelect.getSelected();
+            
+            if (selectedValue && selectedValue.length > 0 && selectedValue[0].trim() !== '') {
+                // Редактирование существующего материала
+                this.showEditCeilingMaterialModal(selectedValue[0]);
+            } else {
+                // Добавление нового материала
+                this.showCeilingMaterialModal();
+            }
         } else {
-            // Добавление нового материала
+            // Если SlimSelect не удалось создать, добавляем новый материал
             this.showCeilingMaterialModal();
         }
     }
@@ -3325,13 +3381,54 @@ class AddressManager {
         }
     }
     
-    openHouseProblemModal() {
-        // Проверяем, нужно ли редактировать или добавлять
-        const select = document.getElementById('editHouseProblem');
-        if (!select) return;
+    async openHouseProblemModal() {
+        // Получаем или создаем SlimSelect для проблем домов
+        const houseProblemSelect = await this.getOrCreateSearchableSelect('editHouseProblem', 'houseProblems', 'Выберите проблему...');
         
+        if (houseProblemSelect) {
+            const selectedValue = houseProblemSelect.getSelected();
+            
+            if (selectedValue && selectedValue.length > 0 && selectedValue[0].trim() !== '') {
+                // Редактирование существующей проблемы
+                this.showEditHouseProblemModal(selectedValue[0]);
+            } else {
+                // Добавление новой проблемы
+                this.showHouseProblemModal();
+            }
+        } else {
+            // Если SlimSelect не удалось создать, добавляем новую проблему
+            this.showHouseProblemModal();
+        }
+    }
+
+    showHouseProblemModal() {
+        const modal = document.getElementById('houseProblemModal');
+        const title = document.getElementById('house-problem-modal-title');
+        const form = document.getElementById('houseProblemForm');
+        const colorInput = document.getElementById('houseProblemColor');
+        
+        if (!modal) return;
+        
+        // Очищаем форму
+        if (form) form.reset();
+        if (colorInput) colorInput.value = '#DC2626'; // Красный по умолчанию
+        
+        // Устанавливаем заголовок
+        if (title) {
+            title.textContent = 'Добавить проблему дома';
+        }
+        
+        modal.classList.remove('hidden');
+    }
+
+    async showEditHouseProblemModal(problemId) {
         try {
-            const selectedValue = select.value;
+            const problem = await window.db.get('house_problems', problemId);
+            if (!problem) {
+                this.progressManager.showError('Проблема дома не найдена');
+                return;
+            }
+            
             const modal = document.getElementById('houseProblemModal');
             const title = document.getElementById('house-problem-modal-title');
             const form = document.getElementById('houseProblemForm');
@@ -3342,32 +3439,20 @@ class AddressManager {
             
             // Очищаем форму
             if (form) form.reset();
-            if (colorInput) colorInput.value = '#DC2626'; // Красный по умолчанию
             
-            if (selectedValue) {
-                // Редактирование существующей проблемы
-                const problem = this.houseProblems.find(p => p.id === selectedValue);
-                if (problem) {
-                    if (nameInput) nameInput.value = problem.name;
-                    if (colorInput) colorInput.value = problem.color;
-                }
-                
-                // Устанавливаем заголовок
-                if (title) {
-                    title.textContent = 'Редактировать проблему дома';
-                }
-                
-                modal.classList.remove('hidden');
-            } else {
-                // Добавление новой проблемы
-                
-                // Устанавливаем заголовок
-                if (title) {
-                    title.textContent = 'Добавить проблему дома';
-                }
-                
-                modal.classList.remove('hidden');
+            // Заполняем данными проблемы
+            if (nameInput) nameInput.value = problem.name || '';
+            if (colorInput) colorInput.value = problem.color || '#DC2626';
+            
+            // Устанавливаем заголовок
+            if (title) {
+                title.textContent = 'Редактировать проблему дома';
             }
+            
+            // Сохраняем ID редактируемой проблемы
+            document.getElementById('houseProblemId').value = problemId;
+            
+            modal.classList.remove('hidden');
         } catch (error) {
             console.error('Error loading house problem for edit:', error);
             this.progressManager.showError('Ошибка загрузки проблемы дома');
@@ -3420,6 +3505,9 @@ class AddressManager {
             
             // Очищаем кеш поиска для данного типа справочника
             this.clearReferenceCache('houseSeries');
+            
+            // Обновляем SlimSelect для серии дома
+            await this.updateReferenceSlimSelect('editHouseSeries', 'house_series', series.id);
             
             this.progressManager.showSuccess(seriesId ? 'Серия дома обновлена' : 'Серия дома добавлена');
 
@@ -3477,6 +3565,9 @@ class AddressManager {
             // Очищаем кеш поиска для данного типа справочника
             this.clearReferenceCache('houseClasses');
             
+            // Обновляем SlimSelect для класса дома
+            await this.updateReferenceSlimSelect('editHouseClass', 'house_classes', houseClass.id);
+            
             this.progressManager.showSuccess(classId ? 'Класс дома обновлен' : 'Класс дома добавлен');
 
         } catch (error) {
@@ -3533,6 +3624,9 @@ class AddressManager {
             // Очищаем кеш поиска для данного типа справочника
             this.clearReferenceCache('wallMaterials');
             
+            // Обновляем SlimSelect для материала стен
+            await this.updateReferenceSlimSelect('editWallMaterial', 'wall_materials', material.id);
+            
             this.progressManager.showSuccess(materialId ? 'Материал стен обновлен' : 'Материал стен добавлен');
 
         } catch (error) {
@@ -3587,6 +3681,9 @@ class AddressManager {
             
             // Очищаем кеш поиска для данного типа справочника
             this.clearReferenceCache('ceilingMaterials');
+            
+            // Обновляем SlimSelect для материала перекрытий
+            await this.updateReferenceSlimSelect('editCeilingMaterial', 'ceiling_materials', material.id);
             
             this.progressManager.showSuccess(materialId ? 'Материал перекрытий обновлен' : 'Материал перекрытий добавлен');
 
@@ -3655,11 +3752,76 @@ class AddressManager {
             // Очищаем кеш поиска для данного типа справочника
             this.clearReferenceCache('houseProblems');
             
+            // Обновляем SlimSelect для проблемы дома
+            await this.updateReferenceSlimSelect('editHouseProblem', 'house_problems', problem.id);
+            
             this.progressManager.showSuccess(problemId ? 'Проблема дома обновлена' : 'Проблема дома добавлена');
 
         } catch (error) {
             console.error('Error saving house problem:', error);
             this.progressManager.showError('Ошибка сохранения проблемы дома: ' + error.message);
+        }
+    }
+
+    /**
+     * Обновление SlimSelect справочника после сохранения записи
+     */
+    async updateReferenceSlimSelect(selectId, storeName, selectedId) {
+        try {
+            // Получаем элемент select
+            const selectElement = document.getElementById(selectId);
+            if (!selectElement) {
+                console.warn(`SlimSelect элемент с ID ${selectId} не найден`);
+                return;
+            }
+
+            // Получаем правильное имя свойства для SlimSelect instance
+            const selectProperty = this.getSelectPropertyName(selectId);
+            const slimSelectInstance = this.modalSlimSelects[selectProperty];
+            if (!slimSelectInstance) {
+                console.warn(`SlimSelect instance для ${selectId} (${selectProperty}) не найден`);
+                return;
+            }
+
+            // Загружаем обновленные данные из базы
+            const items = await window.db.getAll(storeName);
+            
+            // Формируем новые опции для SlimSelect
+            const options = [
+                { text: 'Не заполнено', value: '' }
+            ];
+            
+            items.forEach(item => {
+                options.push({
+                    text: item.name,
+                    value: item.id
+                });
+            });
+
+            // Обновляем данные в SlimSelect
+            slimSelectInstance.setData(options);
+            
+            // Устанавливаем выбранное значение на сохраненную запись
+            if (selectedId) {
+                slimSelectInstance.setSelected(selectedId);
+                
+                // Обновляем кнопку действия
+                const buttonMapping = {
+                    'editHouseSeries': 'houseSeriesActionBtn',
+                    'editHouseClass': 'houseClassActionBtn', 
+                    'editWallMaterial': 'wallMaterialActionBtn',
+                    'editCeilingMaterial': 'ceilingMaterialActionBtn',
+                    'editHouseProblem': 'houseProblemActionBtn'
+                };
+                
+                const buttonId = buttonMapping[selectId];
+                if (buttonId) {
+                    this.updateReferenceActionButton(buttonId, selectedId);
+                }
+            }
+
+        } catch (error) {
+            console.error(`Ошибка обновления SlimSelect ${selectId}:`, error);
         }
     }
 

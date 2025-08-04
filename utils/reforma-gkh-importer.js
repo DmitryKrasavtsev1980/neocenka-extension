@@ -300,8 +300,8 @@ class ReformaGKHImporter {
       return;
     }
     
-    // Сохраняем новый адрес
-    addressModel.id = Date.now() + Math.random();
+    // Сохраняем новый адрес (ID будет автоматически сгенерирован базой данных)
+    addressModel.id = null; // Позволяем базе данных самой сгенерировать ID
     await this.db.add('addresses', addressModel);
     this.stats.added++;
     

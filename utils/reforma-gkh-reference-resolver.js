@@ -194,8 +194,8 @@ class ReformaGKHReferenceResolver {
       updated_at: new Date()
     });
     
-    // Генерируем ID
-    newItem.id = Date.now() + Math.random();
+    // Генерируем ID в правильном формате (оставляем null, чтобы база данных сама сгенерировала)
+    newItem.id = null;
     
     // Сохраняем в базу
     const saved = await this.db.add(referenceType, newItem);
