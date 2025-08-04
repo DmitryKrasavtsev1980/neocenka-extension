@@ -94,64 +94,172 @@
             </form>
         </div>
 
+        <!-- Полный экспорт/импорт базы данных -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Полный экспорт/импорт базы данных</h3>
+                <p class="mt-1 text-sm text-gray-500">Экспорт и импорт всех данных: областей с полигонами, адресов, фильтров</p>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    <div class="space-y-4">
+                        <h4 class="text-sm font-medium text-gray-900">Экспорт данных</h4>
+                        <p class="text-xs text-gray-600">Выберите какие блоки данных экспортировать</p>
+                        
+                        <!-- Быстрые настройки -->
+                        <div class="flex space-x-2 text-xs">
+                            <button type="button" id="selectAllExport" class="text-blue-600 hover:text-blue-800">Выбрать всё</button>
+                            <span class="text-gray-400">•</span>
+                            <button type="button" id="selectNoneExport" class="text-blue-600 hover:text-blue-800">Снять всё</button>
+                            <span class="text-gray-400">•</span>
+                            <button type="button" id="selectAddressesOnly" class="text-blue-600 hover:text-blue-800">Только адреса</button>
+                        </div>
+
+                        <!-- Чекбоксы для выбора блоков -->
+                        <div class="space-y-2 bg-gray-50 p-3 rounded-md">
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="exportMapAreas" type="checkbox" checked
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="exportMapAreas" class="font-medium text-gray-700">📍 Области</label>
+                                    <p class="text-gray-500 text-xs">Области с полигонами и фильтрами Avito/Cian</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="exportAddresses" type="checkbox" checked
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="exportAddresses" class="font-medium text-gray-700">🏠 Адреса</label>
+                                    <p class="text-gray-500 text-xs">Все адреса с координатами и характеристиками зданий</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="exportSegments" type="checkbox" checked
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="exportSegments" class="font-medium text-gray-700">📋 Сегменты</label>
+                                    <p class="text-gray-500 text-xs">Сегменты и подсегменты областей</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="exportListings" type="checkbox"
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="exportListings" class="font-medium text-gray-700">📊 Объявления</label>
+                                    <p class="text-gray-500 text-xs">Объявления с сайтов и объекты недвижимости</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="exportReports" type="checkbox"
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="exportReports" class="font-medium text-gray-700">📈 Отчёты</label>
+                                    <p class="text-gray-500 text-xs">Созданные отчёты и аналитика</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex items-centers h-5">
+                                    <input id="exportReferences" type="checkbox" checked
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="exportReferences" class="font-medium text-gray-700">📚 Справочники</label>
+                                    <p class="text-gray-500 text-xs">Материалы стен, серии домов, классы домов и т.д.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start">
+                                <div class="flex items-center h-5">
+                                    <input id="exportSettings" type="checkbox" checked
+                                        class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                </div>
+                                <div class="ml-3 text-sm">
+                                    <label for="exportSettings" class="font-medium text-gray-700">⚙️ Настройки</label>
+                                    <p class="text-gray-500 text-xs">Настройки приложения и API ключи</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="button" id="fullExportBtn"
+                            class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                            Экспорт выбранных данных
+                        </button>
+                        <div id="fullExportStatus" class="text-sm text-gray-600 hidden">
+                            <!-- Статус экспорта -->
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <h4 class="text-sm font-medium text-gray-900">Импорт данных</h4>
+                        <p class="text-xs text-gray-600">⚠️ ВНИМАНИЕ: Полностью заменит все данные! Импортирует области, адреса, настройки из файла экспорта</p>
+                        <button type="button" id="fullImportBtn"
+                            class="w-full inline-flex justify-center items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100">
+                            <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
+                            </svg>
+                            Полный импорт базы данных
+                        </button>
+                        <input type="file" id="fullImportFileInput" accept=".json" class="hidden">
+                        <div id="fullImportStatus" class="text-sm text-gray-600 hidden">
+                            <!-- Статус импорта -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Результаты операций -->
+                <div id="fullDataOperationResults" class="mt-6 hidden">
+                    <!-- Результаты будут добавлены через JS -->
+                </div>
+            </div>
+        </div>
+
         <!-- Управление данными -->
         <div class="mt-8 bg-white shadow rounded-lg">
             <div class="px-6 py-4 border-b border-gray-200">
                 <h3 class="text-lg font-medium text-gray-900">Управление данными</h3>
-                <p class="mt-1 text-sm text-gray-500">Экспорт, импорт и обработка данных</p>
+                <p class="mt-1 text-sm text-gray-500">Обработка дублей и очистка данных</p>
             </div>
             <div class="p-6">
-                <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-900 mb-3">Обработка данных</h4>
-                        <div class="space-y-3">
-                            <button type="button" id="processDuplicatesBtn"
-                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2v0M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2">
-                                    </path>
-                                </svg>
-                                Обработать дубли
-                            </button>
+                <div class="space-y-3">
+                    <button type="button" id="processDuplicatesBtn"
+                        class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2v0M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2">
+                            </path>
+                        </svg>
+                        Обработать дубли
+                    </button>
 
-                            <button type="button" id="clearDataBtn"
-                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50">
-                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
-                                    </path>
-                                </svg>
-                                Очистить все данные
-                            </button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-900 mb-3">Экспорт/Импорт</h4>
-                        <div class="space-y-3">
-                            <button type="button" id="exportDataBtn"
-                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
-                                    </path>
-                                </svg>
-                                Экспорт данных
-                            </button>
-
-                            <button type="button" id="importDataBtn"
-                                class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10">
-                                    </path>
-                                </svg>
-                                Импорт данных
-                            </button>
-                            <input type="file" id="importFileInput" accept=".json" class="hidden">
-                        </div>
-                    </div>
+                    <button type="button" id="clearDataBtn"
+                        class="w-full inline-flex justify-center items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                            </path>
+                        </svg>
+                        Очистить все данные
+                    </button>
                 </div>
             </div>
         </div>

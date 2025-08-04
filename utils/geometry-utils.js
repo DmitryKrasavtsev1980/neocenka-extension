@@ -269,4 +269,6 @@ class GeometryUtils {
 // Экспорт для использования в других модулях
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = GeometryUtils;
+} else if (typeof window !== 'undefined') {
+  window.GeometryUtils = GeometryUtils;
 }

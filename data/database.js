@@ -597,6 +597,38 @@ class NeocenkaDB {
   }
 
   /**
+   * Метод добавления или обновления записи (upsert)
+   * Используется для импорта данных, чтобы избежать конфликтов
+   */
+  async put(storeName, data) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([storeName], 'readwrite');
+      const store = transaction.objectStore(storeName);
+
+      // Если нет ID, генерируем новый
+      if (!data.id) {
+        data.id = this.generateId();
+      }
+
+      if (!data.created_at) {
+        data.created_at = new Date();
+      }
+      data.updated_at = new Date();
+
+      const request = store.put(data);
+
+      request.onsuccess = () => {
+        resolve(data);
+      };
+
+      request.onerror = () => {
+        console.error(`❌ Ошибка добавления/обновления записи в ${storeName}:`, request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
    * Получение записи по ID
    */
   async get(storeName, id) {
@@ -1213,6 +1245,32 @@ class NeocenkaDB {
     // console.log('All data cleared');
   }
 
+  /**
+   * Очистка конкретной таблицы
+   */
+  async clear(storeName) {
+    return new Promise((resolve, reject) => {
+      try {
+        const transaction = this.db.transaction([storeName], 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.clear();
+
+        request.onsuccess = () => {
+          console.log(`🗑️ Очищена таблица: ${storeName}`);
+          resolve();
+        };
+
+        request.onerror = () => {
+          console.error(`❌ Ошибка очистки таблицы ${storeName}:`, request.error);
+          reject(request.error);
+        };
+      } catch (error) {
+        console.error(`❌ Критическая ошибка в clear(${storeName}):`, error);
+        reject(error);
+      }
+    });
+  }
+
   async exportData() {
     try {
       const data = {
@@ -1230,6 +1288,143 @@ class NeocenkaDB {
       return data;
     } catch (error) {
       console.error('Error exporting data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Полный экспорт всех данных в JSON строку
+   */
+  async fullExportData() {
+    try {
+      const data = {
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        application: 'Neocenka Extension',
+        description: 'Полный экспорт базы данных: области с полигонами, адреса, настройки',
+        map_areas: await this.getMapAreas(),
+        addresses: await this.getAddresses(),
+        segments: await this.getSegments(),
+        subsegments: await this.getSubsegments(),
+        listings: await this.getListings(),
+        objects: await this.getObjects(),
+        reports: await this.getReports(),
+        settings: await this.getAllSettings(),
+        
+        // Справочники
+        wall_materials: await this.getAll('wall_materials'),
+        ceiling_materials: await this.getAll('ceiling_materials'),
+        house_series: await this.getAll('house_series'),
+        house_classes: await this.getAll('house_classes'),
+        house_problems: await this.getAll('house_problems'),
+        
+        statistics: {
+          total_map_areas: (await this.getMapAreas()).length,
+          total_addresses: (await this.getAddresses()).length,
+          total_segments: (await this.getSegments()).length,
+          total_listings: (await this.getListings()).length,
+          total_objects: (await this.getObjects()).length,
+          total_reports: (await this.getReports()).length
+        }
+      };
+
+      console.log('📤 Экспорт данных:', data.statistics);
+      return JSON.stringify(data, null, 2);
+    } catch (error) {
+      console.error('Ошибка полного экспорта данных:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Выборочный экспорт данных в JSON строку
+   * @param {Object} options - Опции экспорта с флагами для каждого блока
+   */
+  async selectiveExportData(options = {}) {
+    try {
+      console.log('📤 Начинаем выборочный экспорт с опциями:', options);
+      
+      const data = {
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        application: 'Neocenka Extension',
+        description: 'Выборочный экспорт данных Neocenka Extension',
+        exportOptions: options,
+        statistics: {}
+      };
+
+      // Экспортируем области с полигонами, если выбрано
+      if (options.map_areas) {
+        data.map_areas = await this.getMapAreas();
+        data.statistics.total_map_areas = data.map_areas.length;
+        console.log(`📍 Экспортировано областей: ${data.statistics.total_map_areas}`);
+      }
+
+      // Экспортируем адреса, если выбрано
+      if (options.addresses) {
+        data.addresses = await this.getAddresses();
+        data.statistics.total_addresses = data.addresses.length;
+        console.log(`🏠 Экспортировано адресов: ${data.statistics.total_addresses}`);
+      }
+
+      // Экспортируем сегменты, если выбрано
+      if (options.segments) {
+        data.segments = await this.getSegments();
+        data.subsegments = await this.getSubsegments();
+        data.statistics.total_segments = data.segments.length;
+        data.statistics.total_subsegments = data.subsegments.length;
+        console.log(`📋 Экспортировано сегментов: ${data.statistics.total_segments}`);
+      }
+
+      // Экспортируем объявления и объекты, если выбрано
+      if (options.listings) {
+        data.listings = await this.getListings();
+        data.objects = await this.getObjects();
+        data.statistics.total_listings = data.listings.length;
+        data.statistics.total_objects = data.objects.length;
+        console.log(`📊 Экспортировано объявлений: ${data.statistics.total_listings}, объектов: ${data.statistics.total_objects}`);
+      }
+
+      // Экспортируем отчёты, если выбрано
+      if (options.reports) {
+        data.reports = await this.getReports();
+        data.statistics.total_reports = data.reports.length;
+        console.log(`📈 Экспортировано отчётов: ${data.statistics.total_reports}`);
+      }
+
+      // Экспортируем справочники, если выбрано
+      if (options.references) {
+        data.wall_materials = await this.getAll('wall_materials');
+        data.ceiling_materials = await this.getAll('ceiling_materials');
+        data.house_series = await this.getAll('house_series');
+        data.house_classes = await this.getAll('house_classes');
+        data.house_problems = await this.getAll('house_problems');
+        
+        data.statistics.total_wall_materials = data.wall_materials.length;
+        data.statistics.total_ceiling_materials = data.ceiling_materials.length;
+        data.statistics.total_house_series = data.house_series.length;
+        data.statistics.total_house_classes = data.house_classes.length;
+        data.statistics.total_house_problems = data.house_problems.length;
+        
+        const totalReferences = data.statistics.total_wall_materials + 
+                              data.statistics.total_ceiling_materials + 
+                              data.statistics.total_house_series + 
+                              data.statistics.total_house_classes + 
+                              data.statistics.total_house_problems;
+        console.log(`📚 Экспортировано справочников: ${totalReferences}`);
+      }
+
+      // Экспортируем настройки, если выбрано
+      if (options.settings) {
+        data.settings = await this.getAllSettings();
+        data.statistics.total_settings = Object.keys(data.settings).length;
+        console.log(`⚙️ Экспортировано настроек: ${data.statistics.total_settings}`);
+      }
+
+      console.log('📤 Выборочный экспорт завершён:', data.statistics);
+      return JSON.stringify(data, null, 2);
+    } catch (error) {
+      console.error('Ошибка выборочного экспорта данных:', error);
       throw error;
     }
   }
@@ -1289,6 +1484,224 @@ class NeocenkaDB {
       // console.log('Data imported successfully');
     } catch (error) {
       console.error('Error importing data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Полный импорт данных из JSON строки
+   */
+  async fullImportData(jsonString) {
+    try {
+      console.log('📥 Начинаем полный импорт данных...');
+      
+      // Парсим JSON
+      let data;
+      try {
+        data = JSON.parse(jsonString);
+      } catch (parseError) {
+        throw new Error('Некорректный формат JSON файла: ' + parseError.message);
+      }
+
+      // Валидация структуры данных
+      if (!data.version || !data.application) {
+        throw new Error('Файл не является экспортом Neocenka Extension');
+      }
+
+      if (data.application !== 'Neocenka Extension') {
+        throw new Error('Файл создан другим приложением: ' + data.application);
+      }
+
+      // Получаем статистику до импорта
+      const oldStats = {
+        map_areas: (await this.getMapAreas()).length,
+        addresses: (await this.getAddresses()).length,
+        segments: (await this.getSegments()).length,
+        listings: (await this.getListings()).length,
+        objects: (await this.getObjects()).length,
+        reports: (await this.getReports()).length
+      };
+
+      console.log('📊 Данные до импорта:', oldStats);
+
+      // Очищаем только те таблицы, которые будут импортированы
+      if (data.wall_materials) {
+        await this.clear('wall_materials');
+        console.log('🗑️ Очищены материалы стен');
+      }
+      if (data.ceiling_materials) {
+        await this.clear('ceiling_materials');
+        console.log('🗑️ Очищены материалы потолков');
+      }
+      if (data.house_series) {
+        await this.clear('house_series');
+        console.log('🗑️ Очищены серии домов');
+      }
+      if (data.house_classes) {
+        await this.clear('house_classes');
+        console.log('🗑️ Очищены классы домов');
+      }
+      if (data.house_problems) {
+        await this.clear('house_problems');
+        console.log('🗑️ Очищены проблемы домов');
+      }
+      if (data.map_areas) {
+        await this.clear('map_areas');
+        console.log('🗑️ Очищены области карт');
+      }
+      if (data.addresses) {
+        await this.clear('addresses');
+        console.log('🗑️ Очищены адреса');
+      }
+      if (data.segments) {
+        await this.clear('segments');
+        console.log('🗑️ Очищены сегменты');
+      }
+      if (data.subsegments) {
+        await this.clear('subsegments');
+        console.log('🗑️ Очищены подсегменты');
+      }
+      if (data.listings) {
+        await this.clear('listings');
+        console.log('🗑️ Очищены объявления');
+      }
+      if (data.objects) {
+        await this.clear('objects');
+        console.log('🗑️ Очищены объекты');
+      }
+      if (data.reports) {
+        await this.clear('reports');
+        console.log('🗑️ Очищены отчёты');
+      }
+
+      let importStats = {
+        map_areas: 0,
+        addresses: 0,
+        segments: 0,
+        subsegments: 0,
+        listings: 0,
+        objects: 0,
+        reports: 0,
+        wall_materials: 0,
+        ceiling_materials: 0,
+        house_series: 0,
+        house_classes: 0,
+        house_problems: 0,
+        settings: 0
+      };
+
+      // Импортируем справочники первыми
+      if (data.wall_materials) {
+        for (const item of data.wall_materials) {
+          await this.put('wall_materials', item);
+          importStats.wall_materials++;
+        }
+      }
+
+      if (data.ceiling_materials) {
+        for (const item of data.ceiling_materials) {
+          await this.put('ceiling_materials', item);
+          importStats.ceiling_materials++;
+        }
+      }
+
+      if (data.house_series) {
+        for (const item of data.house_series) {
+          await this.put('house_series', item);
+          importStats.house_series++;
+        }
+      }
+
+      if (data.house_classes) {
+        for (const item of data.house_classes) {
+          await this.put('house_classes', item);
+          importStats.house_classes++;
+        }
+      }
+
+      if (data.house_problems) {
+        for (const item of data.house_problems) {
+          await this.put('house_problems', item);
+          importStats.house_problems++;
+        }
+      }
+
+      // Импортируем области с полигонами
+      if (data.map_areas && Array.isArray(data.map_areas)) {
+        for (const mapArea of data.map_areas) {
+          await this.put('map_areas', mapArea);
+          importStats.map_areas++;
+        }
+        console.log(`📍 Импортировано областей: ${importStats.map_areas}`);
+      }
+
+      // Импортируем адреса
+      if (data.addresses && Array.isArray(data.addresses)) {
+        for (const address of data.addresses) {
+          await this.put('addresses', address);
+          importStats.addresses++;
+        }
+        console.log(`🏠 Импортировано адресов: ${importStats.addresses}`);
+      }
+
+      // Импортируем сегменты
+      if (data.segments && Array.isArray(data.segments)) {
+        for (const segment of data.segments) {
+          await this.put('segments', segment);
+          importStats.segments++;
+        }
+      }
+
+      if (data.subsegments && Array.isArray(data.subsegments)) {
+        for (const subsegment of data.subsegments) {
+          await this.put('subsegments', subsegment);
+          importStats.subsegments++;
+        }
+      }
+
+      // Импортируем объявления и объекты
+      if (data.listings && Array.isArray(data.listings)) {
+        for (const listing of data.listings) {
+          await this.put('listings', listing);
+          importStats.listings++;
+        }
+      }
+
+      if (data.objects && Array.isArray(data.objects)) {
+        for (const object of data.objects) {
+          await this.put('objects', object);
+          importStats.objects++;
+        }
+      }
+
+      // Импортируем отчёты
+      if (data.reports && Array.isArray(data.reports)) {
+        for (const report of data.reports) {
+          await this.put('reports', report);
+          importStats.reports++;
+        }
+      }
+
+      // Импортируем настройки
+      if (data.settings && typeof data.settings === 'object') {
+        for (const [key, value] of Object.entries(data.settings)) {
+          await this.setSetting(key, value);
+          importStats.settings++;
+        }
+      }
+
+      console.log('✅ Полный импорт завершен успешно');
+      console.log('📊 Импортированные данные:', importStats);
+
+      return {
+        success: true,
+        statistics: importStats,
+        timestamp: data.timestamp,
+        oldStats: oldStats
+      };
+
+    } catch (error) {
+      console.error('❌ Ошибка полного импорта данных:', error);
       throw error;
     }
   }

@@ -181,6 +181,9 @@ class MapManager {
             // Инициализируем инструменты рисования
             this.initDrawControls();
             
+            // Добавляем кнопку полноэкранного режима
+            await this.initFullscreenControl();
+            
             // Если у области есть полигон, создаем его слой
             const currentArea = this.dataState.getState('currentArea');
             if (currentArea && this.hasAreaPolygon(currentArea)) {
@@ -1651,6 +1654,103 @@ class MapManager {
             console.warn('MapManager: Ошибка удаления объявления с карты, выполняем полную перезагрузку:', error);
             // При ошибке выполняем полную перезагрузку
             await this.loadListingsOnMap();
+        }
+    }
+    
+    /**
+     * Инициализация контрола полноэкранного режима
+     */
+    async initFullscreenControl() {
+        try {
+            // Создаем кастомный контрол для полноэкранного режима
+            const FullscreenControl = L.Control.extend({
+                options: {
+                    position: 'topleft'
+                },
+                
+                onAdd: function(map) {
+                    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-fullscreen');
+                    this._button = L.DomUtil.create('a', 'leaflet-control-fullscreen-button', container);
+                    this._button.href = '#';
+                    this._button.title = 'Полноэкранный режим';
+                    this._button.innerHTML = '⛶'; // Стандартный символ полноэкранного режима
+                    
+                    // Обработчик клика
+                    L.DomEvent.on(this._button, 'click', function(e) {
+                        L.DomEvent.preventDefault(e);
+                        this.toggleFullscreen(map);
+                    }, this);
+                    
+                    // Слушаем изменения полноэкранного режима
+                    L.DomEvent.on(document, 'fullscreenchange', this.onFullscreenChange, this);
+                    L.DomEvent.on(document, 'webkitfullscreenchange', this.onFullscreenChange, this);
+                    L.DomEvent.on(document, 'mozfullscreenchange', this.onFullscreenChange, this);
+                    L.DomEvent.on(document, 'MSFullscreenChange', this.onFullscreenChange, this);
+                    
+                    return container;
+                },
+                
+                toggleFullscreen: function(map) {
+                    const mapContainer = map.getContainer();
+                    
+                    if (this.isFullscreen()) {
+                        this.exitFullscreen();
+                    } else {
+                        this.requestFullscreen(mapContainer);
+                    }
+                },
+                
+                isFullscreen: function() {
+                    return !!(document.fullscreenElement || 
+                             document.webkitFullscreenElement || 
+                             document.mozFullScreenElement || 
+                             document.msFullscreenElement);
+                },
+                
+                requestFullscreen: function(element) {
+                    if (element.requestFullscreen) {
+                        element.requestFullscreen();
+                    } else if (element.webkitRequestFullscreen) {
+                        element.webkitRequestFullscreen();
+                    } else if (element.mozRequestFullScreen) {
+                        element.mozRequestFullScreen();
+                    } else if (element.msRequestFullscreen) {
+                        element.msRequestFullscreen();
+                    }
+                },
+                
+                exitFullscreen: function() {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    } else if (document.mozCancelFullScreen) {
+                        document.mozCancelFullScreen();
+                    } else if (document.msExitFullscreen) {
+                        document.msExitFullscreen();
+                    }
+                },
+                
+                onFullscreenChange: function() {
+                    const isFullscreen = this.isFullscreen();
+                    this._button.innerHTML = '⛶'; // Оставляем один стандартный символ
+                    this._button.title = isFullscreen ? 'Выйти из полноэкранного режима' : 'Полноэкранный режим';
+                    
+                    // Обновляем размер карты после смены режима
+                    setTimeout(() => {
+                        this._map.invalidateSize();
+                    }, 100);
+                }
+            });
+            
+            // Добавляем контрол на карту
+            this.fullscreenControl = new FullscreenControl();
+            this.map.addControl(this.fullscreenControl);
+            
+            await Helpers.debugLog('✅ Кнопка полноэкранного режима добавлена');
+            
+        } catch (error) {
+            console.error('❌ Ошибка инициализации полноэкранного режима:', error);
         }
     }
     

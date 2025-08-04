@@ -207,6 +207,106 @@ class AddressModel {
     if (!this.coordinates.lat || !this.coordinates.lng) return false;
     return mapArea.containsPoint(this.coordinates.lat, this.coordinates.lng);
   }
+
+  /**
+   * Создание адреса из данных GeoJSON "Реформа ЖКХ"
+   */
+  static async fromReformaGKH(geoJsonFeature, referenceResolver = null) {
+    const props = geoJsonFeature.properties;
+    const geometry = geoJsonFeature.geometry;
+    
+    // Основные данные
+    const addressData = {
+      address: props.ADDRESS || '',
+      coordinates: {
+        lat: parseFloat(props.LAT) || null,
+        lng: parseFloat(props.LON) || null
+      },
+      type: 'Дом', // Всегда "Дом" согласно требованиям
+      
+      // Год постройки - приоритет YEAR_EXPL, потом YEAR_BLD
+      build_year: null,
+      
+      // Характеристики дома
+      floors_count: props.LEVELS ? parseInt(props.LEVELS) : null,
+      entrances_count: props.DOORS ? parseInt(props.DOORS) : null,
+      living_spaces_count: props.RMC_LIVE ? parseInt(props.RMC_LIVE) : null,
+      
+      // Инфраструктура - преобразование в булево
+      has_playground: AddressModel.parseBoolean(props.BLAG_PLAY),
+      has_sports_area: AddressModel.parseBoolean(props.BLAG_SPORT),
+      
+      // Коммунальные системы
+      gas_supply: AddressModel.parseGasSupply(props.GAZ_TYPE),
+      individual_heating: AddressModel.parseHeatingType(props.TEPLO_TYPE),
+      
+      // Справочники - будут заполнены через referenceResolver
+      wall_material_id: null,
+      ceiling_material_id: null,
+      house_series_id: null,
+      house_class_id: null
+    };
+    
+    // Определение года постройки
+    if (props.YEAR_EXPL) {
+      addressData.build_year = parseInt(props.YEAR_EXPL);
+    } else if (props.YEAR_BLD) {
+      addressData.build_year = parseInt(props.YEAR_BLD);
+    }
+    
+    // Обработка справочников через resolver
+    if (referenceResolver) {
+      try {
+        if (props.MAT_NES && props.MAT_NES !== "Не заполнено") {
+          addressData.wall_material_id = await referenceResolver.getOrCreate('wall_materials', props.MAT_NES);
+        }
+        
+        if (props.PEREKRYT && props.PEREKRYT !== "Не заполнено") {
+          addressData.ceiling_material_id = await referenceResolver.getOrCreate('ceiling_materials', props.PEREKRYT);
+        }
+        
+        if (props.SERIE && props.SERIE !== "Не заполнено") {
+          addressData.house_series_id = await referenceResolver.getOrCreate('house_series', props.SERIE);
+        }
+      } catch (error) {
+        console.warn('Ошибка при обработке справочников для адреса:', addressData.address, error);
+      }
+    }
+    
+    return new AddressModel(addressData);
+  }
+  
+  /**
+   * Преобразование значения в булево для полей инфраструктуры
+   */
+  static parseBoolean(value) {
+    if (!value) return false;
+    const str = String(value).toLowerCase().trim();
+    return str === 'да' || str === 'есть' || str === 'имеется' || str === 'true' || str === '1';
+  }
+  
+  /**
+   * Преобразование типа газоснабжения
+   */
+  static parseGasSupply(value) {
+    if (!value || value === "Не заполнено") return null;
+    const str = String(value).toLowerCase().trim();
+    return str.includes('центральное') || str.includes('автономное') || str.includes('сетевое');
+  }
+  
+  /**
+   * Преобразование типа отопления
+   */
+  static parseHeatingType(value) {
+    if (!value || value === "Не заполнено") return null;
+    const str = String(value).toLowerCase().trim();
+    if (str.includes('индивидуальное') || str.includes('автономное')) {
+      return true;
+    } else if (str.includes('центральное')) {
+      return false;
+    }
+    return null;
+  }
 }
 
 /**

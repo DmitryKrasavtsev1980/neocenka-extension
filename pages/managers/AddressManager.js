@@ -12,12 +12,23 @@ class AddressManager {
         // Таблица адресов
         this.addressesTable = null;
         
-        // Справочники
-        this.houseSeries = [];
-        this.houseClasses = [];
-        this.wallMaterials = [];
-        this.ceilingMaterials = [];
-        this.houseProblems = [];
+        // Справочные данные с ленивой загрузкой
+        this.referenceCache = {
+            houseSeries: null,
+            houseClasses: null,
+            wallMaterials: null,
+            ceilingMaterials: null,
+            houseProblems: null
+        };
+        
+        // Флаги загрузки для предотвращения множественных запросов
+        this.referenceLoading = {
+            houseSeries: false,
+            houseClasses: false,
+            wallMaterials: false,
+            ceilingMaterials: false,
+            houseProblems: false
+        };
         
         // Состояние
         this.isLoading = false;
@@ -49,6 +60,9 @@ class AddressManager {
             osmAPI: null,
             smartMatcher: null
         };
+        
+        // Инициализируем обработчики fullscreen событий
+        this.initFullscreenHandlers();
         
         // Привязываем события
         this.bindEvents();
@@ -175,25 +189,67 @@ class AddressManager {
         this.bindReferenceModalEvents();
         
         // Кнопки добавления новых элементов в справочники
-        document.getElementById('houseSeriesActionBtn')?.addEventListener('click', () => {
+        document.getElementById('houseSeriesActionBtn')?.addEventListener('click', async () => {
+            await this.getOrCreateSearchableSelect('editHouseSeries', 'houseSeries', 'Выберите серию...');
             this.openHouseSeriesModal();
         });
         
-        document.getElementById('houseClassActionBtn')?.addEventListener('click', () => {
+        document.getElementById('houseClassActionBtn')?.addEventListener('click', async () => {
+            await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
             this.openHouseClassModal();
         });
         
-        document.getElementById('wallMaterialActionBtn')?.addEventListener('click', () => {
+        document.getElementById('wallMaterialActionBtn')?.addEventListener('click', async () => {
+            await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
             this.openWallMaterialModal();
         });
         
-        document.getElementById('ceilingMaterialActionBtn')?.addEventListener('click', () => {
+        document.getElementById('ceilingMaterialActionBtn')?.addEventListener('click', async () => {
+            await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
             this.openCeilingMaterialModal();
         });
         
-        document.getElementById('houseProblemActionBtn')?.addEventListener('click', () => {
+        document.getElementById('houseProblemActionBtn')?.addEventListener('click', async () => {
+            await this.getOrCreateSearchableSelect('editHouseProblem', 'houseProblems', 'Выберите проблему...');
             this.openHouseProblemModal();
         });
+    }
+    
+    /**
+     * Загрузка всех справочных данных
+     */
+    async loadReferenceData() {
+        try {
+            await Helpers.debugLog('🔄 AddressManager: Начинаем загрузку справочных данных');
+            
+            // Загружаем все справочники параллельно
+            const [houseSeries, houseClasses, wallMaterials, ceilingMaterials, houseProblems] = await Promise.all([
+                this.loadReferenceType('houseSeries'),
+                this.loadReferenceType('houseClasses'), 
+                this.loadReferenceType('wallMaterials'),
+                this.loadReferenceType('ceilingMaterials'),
+                this.loadReferenceType('houseProblems')
+            ]);
+            
+            // Сохраняем в свойства класса для обратной совместимости
+            this.houseSeries = houseSeries;
+            this.houseClasses = houseClasses;
+            this.wallMaterials = wallMaterials;
+            this.ceilingMaterials = ceilingMaterials;
+            this.houseProblems = houseProblems;
+            
+            await Helpers.debugLog('✅ AddressManager: Справочные данные загружены', {
+                houseSeries: houseSeries.length,
+                houseClasses: houseClasses.length,
+                wallMaterials: wallMaterials.length,
+                ceilingMaterials: ceilingMaterials.length,
+                houseProblems: houseProblems.length
+            });
+            
+        } catch (error) {
+            console.error('❌ Ошибка загрузки справочных данных:', error);
+            throw error;
+        }
     }
     
     /**
@@ -494,12 +550,56 @@ class AddressManager {
     }
     
     /**
+     * Проверка вхождения адреса в полигон области
+     */
+    isAddressInAreaPolygon(address, area) {
+        if (!area || !area.polygon || area.polygon.length < 3) {
+            return false;
+        }
+
+        // Проверяем различные форматы координат
+        let coords = null;
+        if (address.coordinates && address.coordinates.lat && address.coordinates.lng) {
+            coords = address.coordinates;
+        } else if (address.coordinates && address.coordinates.lat && address.coordinates.lon) {
+            coords = { lat: address.coordinates.lat, lng: address.coordinates.lon };
+        } else if (address.lat && address.lng) {
+            coords = { lat: address.lat, lng: address.lng };
+        } else if (address.lat && address.lon) {
+            coords = { lat: address.lat, lng: address.lon };
+        }
+        
+        if (!coords || !coords.lat || !coords.lng) {
+            return false;
+        }
+        
+        // Используем GeometryUtils для проверки вхождения точки в полигон
+        return GeometryUtils.isPointInPolygon(coords, area.polygon);
+    }
+
+    /**
      * Получение адресов в области
      */
     async getAddressesInArea(areaId) {
         try {
+            const currentArea = this.dataState.getState('currentArea');
+            if (!currentArea || !currentArea.polygon || currentArea.polygon.length < 3) {
+                await Helpers.debugLog('❌ Область не имеет полигона для фильтрации адресов');
+                return [];
+            }
+
             const allAddresses = await window.db.getAll('addresses');
-            return allAddresses.filter(address => address.map_area_id === areaId);
+            await Helpers.debugLog(`🔍 Всего адресов в БД: ${allAddresses.length}`);
+            await Helpers.debugLog(`🗺️ Полигон области: ${currentArea.polygon.length} точек`);
+            
+            // Фильтруем адреса по вхождению координат в полигон области
+            const addressesInArea = allAddresses.filter(address => 
+                this.isAddressInAreaPolygon(address, currentArea)
+            );
+            
+            await Helpers.debugLog(`✅ Адресов найдено в области: ${addressesInArea.length}`);
+            return addressesInArea;
+            
         } catch (error) {
             console.error('Error getting addresses in area:', error);
             return [];
@@ -947,15 +1047,155 @@ class AddressManager {
                 await this.loadReferenceData();
             }
             
-            // Инициализируем справочные селекты
-            this.updateReferenceSelects();
+            // Инициализируем базовые селекты (не справочные)
+            this.initBasicSelects();
             
-            // Инициализируем базовые селекты (тип, газоснабжение, индивидуальное отопление) 
-            this.initBasicModalSelects();
+            // Справочные селекты инициализируются лениво в createSearchableSelect() при первом использовании
             
             await Helpers.debugLog('✅ SlimSelect экземпляры инициализированы для модального окна');
         } catch (error) {
             console.error('❌ Ошибка инициализации SlimSelect в модальном окне:', error);
+        }
+    }
+    
+    /**
+     * Инициализация базовых SlimSelect (не справочных)
+     */
+    initBasicSelects() {
+        // Тип недвижимости
+        const typeSelect = document.getElementById('editAddressType');
+        if (typeSelect && !this.modalSlimSelects.typeSelect) {
+            this.modalSlimSelects.typeSelect = new SlimSelect({
+                select: '#editAddressType',
+                settings: {
+                    placeholderText: 'Выберите тип...'
+                }
+            });
+            this.applySlimSelectStyles('#editAddressType');
+        }
+        
+        // Газоснабжение
+        const gasSupplySelect = document.getElementById('editGasSupply');
+        if (gasSupplySelect && !this.modalSlimSelects.gasSupplySelect) {
+            this.modalSlimSelects.gasSupplySelect = new SlimSelect({
+                select: '#editGasSupply',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editGasSupply');
+        }
+        
+        // Коммерческие помещения
+        const commercialSpacesSelect = document.getElementById('editCommercialSpaces');
+        if (commercialSpacesSelect && !this.modalSlimSelects.commercialSpacesSelect) {
+            this.modalSlimSelects.commercialSpacesSelect = new SlimSelect({
+                select: '#editCommercialSpaces',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editCommercialSpaces');
+        }
+        
+        // Индивидуальное отопление
+        const individualHeatingSelect = document.getElementById('editIndividualHeating');
+        if (individualHeatingSelect && !this.modalSlimSelects.individualHeatingSelect) {
+            this.modalSlimSelects.individualHeatingSelect = new SlimSelect({
+                select: '#editIndividualHeating',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editIndividualHeating');
+        }
+        
+        // Детская площадка
+        const playgroundSelect = document.getElementById('editPlayground');
+        if (playgroundSelect && !this.modalSlimSelects.playgroundSelect) {
+            this.modalSlimSelects.playgroundSelect = new SlimSelect({
+                select: '#editPlayground',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editPlayground');
+        }
+        
+        // Спортивная площадка
+        const sportsGroundSelect = document.getElementById('editSportsGround');
+        if (sportsGroundSelect && !this.modalSlimSelects.sportsGroundSelect) {
+            this.modalSlimSelects.sportsGroundSelect = new SlimSelect({
+                select: '#editSportsGround',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editSportsGround');
+        }
+        
+        // Закрытая территория
+        const closedTerritorySelect = document.getElementById('editClosedTerritory');
+        if (closedTerritorySelect && !this.modalSlimSelects.closedTerritorySelect) {
+            this.modalSlimSelects.closedTerritorySelect = new SlimSelect({
+                select: '#editClosedTerritory',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editClosedTerritory');
+        }
+        
+        // Подземная парковка
+        const undergroundParkingSelect = document.getElementById('editUndergroundParking');
+        if (undergroundParkingSelect && !this.modalSlimSelects.undergroundParkingSelect) {
+            this.modalSlimSelects.undergroundParkingSelect = new SlimSelect({
+                select: '#editUndergroundParking',
+                settings: {
+                    placeholderText: 'Выберите...'
+                }
+            });
+            this.applySlimSelectStyles('#editUndergroundParking');
+        }
+    }
+    
+    /**
+     * Получить или создать справочный SlimSelect с поиском
+     */
+    async getOrCreateSearchableSelect(elementId, referenceType, placeholder) {
+        // Сначала проверяем, есть ли уже созданный экземпляр
+        const selectProperty = this.getSelectPropertyName(elementId);
+        if (this.modalSlimSelects[selectProperty]) {
+            return this.modalSlimSelects[selectProperty];
+        }
+        
+        // Если нет, создаем новый
+        const select = await this.createSearchableSelect(elementId, referenceType, placeholder);
+        this.modalSlimSelects[selectProperty] = select;
+        return select;
+    }
+    
+    /**
+     * Получить имя свойства для селекта по ID элемента
+     */
+    getSelectPropertyName(elementId) {
+        const mapping = {
+            'editHouseSeries': 'houseSeriesSelect',
+            'editHouseClass': 'houseClassSelect',
+            'editWallMaterial': 'wallMaterialSelect',
+            'editCeilingMaterial': 'ceilingMaterialSelect',
+            'editHouseProblem': 'houseProblemSelect'
+        };
+        return mapping[elementId] || elementId + 'Select';
+    }
+    
+    /**
+     * Очистить кеш поиска для определенного типа справочника
+     */
+    clearReferenceCache(referenceType) {
+        if (this.referenceSearchCache && this.referenceSearchCache[referenceType]) {
+            delete this.referenceSearchCache[referenceType];
+            Helpers.debugLog(`🧹 Очищен кеш поиска для справочника: ${referenceType}`);
         }
     }
     
@@ -972,6 +1212,9 @@ class AddressManager {
             }
             
             modal.classList.remove('hidden');
+            
+            // Проверяем, находится ли карта в полноэкранном режиме
+            this.adjustModalForFullscreen(modal);
             
             // Устанавливаем текущий редактируемый адрес
             this.currentEditingAddress = address.id ? { ...address } : {};
@@ -993,9 +1236,9 @@ class AddressManager {
                     
                     // Заполняем форму данными
                     if (!address.id) {
-                        this.clearAddressForm();
+                        await this.clearAddressForm();
                     } else {
-                        this.populateAddressForm(address);
+                        await this.populateAddressForm(address);
                     }
                 } catch (error) {
                     console.error('Ошибка инициализации модального окна адреса:', error);
@@ -1015,7 +1258,7 @@ class AddressManager {
     /**
      * Заполнение формы данными адреса
      */
-    populateAddressForm(address) {
+    async populateAddressForm(address) {
         // Заполняем основные поля
         const addressInput = document.getElementById('editAddressText');
         if (addressInput) {
@@ -1037,25 +1280,30 @@ class AddressManager {
             this.modalSlimSelects.individualHeatingSelect.setSelected(address.individual_heating !== undefined && address.individual_heating !== null ? address.individual_heating.toString() : '');
         }
         
-        // Устанавливаем справочные значения
-        if (this.modalSlimSelects.houseSeriesSelect && address.house_series_id) {
-            this.modalSlimSelects.houseSeriesSelect.setSelected(address.house_series_id);
+        // Инициализируем все справочные селекты и устанавливаем значения
+        const houseSeriesSelect = await this.getOrCreateSearchableSelect('editHouseSeries', 'houseSeries', 'Выберите серию...');
+        if (houseSeriesSelect && address.house_series_id) {
+            houseSeriesSelect.setSelected(address.house_series_id);
         }
         
-        if (this.modalSlimSelects.houseClassSelect && address.house_class_id) {
-            this.modalSlimSelects.houseClassSelect.setSelected(address.house_class_id);
+        const houseClassSelect = await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
+        if (houseClassSelect && address.house_class_id) {
+            houseClassSelect.setSelected(address.house_class_id);
         }
         
-        if (this.modalSlimSelects.wallMaterialSelect && address.wall_material_id) {
-            this.modalSlimSelects.wallMaterialSelect.setSelected(address.wall_material_id);
+        const wallMaterialSelect = await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
+        if (wallMaterialSelect && address.wall_material_id) {
+            wallMaterialSelect.setSelected(address.wall_material_id);
         }
         
-        if (this.modalSlimSelects.ceilingMaterialSelect && address.ceiling_material_id) {
-            this.modalSlimSelects.ceilingMaterialSelect.setSelected(address.ceiling_material_id);
+        const ceilingMaterialSelect = await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
+        if (ceilingMaterialSelect && address.ceiling_material_id) {
+            ceilingMaterialSelect.setSelected(address.ceiling_material_id);
         }
         
-        if (this.modalSlimSelects.houseProblemSelect && address.house_problem_id) {
-            this.modalSlimSelects.houseProblemSelect.setSelected(address.house_problem_id);
+        const houseProblemSelect = await this.getOrCreateSearchableSelect('editHouseProblem', 'houseProblems', 'Выберите проблему...');
+        if (houseProblemSelect && address.house_problem_id) {
+            houseProblemSelect.setSelected(address.house_problem_id);
         }
         
         // Заполняем числовые поля
@@ -1158,7 +1406,7 @@ class AddressManager {
     /**
      * Очистка формы адреса
      */
-    clearAddressForm() {
+    async clearAddressForm() {
         // Очищаем текстовые поля
         const addressInput = document.getElementById('editAddressText');
         if (addressInput) {
@@ -1178,24 +1426,30 @@ class AddressManager {
             this.modalSlimSelects.individualHeatingSelect.setSelected('');
         }
         
-        if (this.modalSlimSelects.houseSeriesSelect) {
-            this.modalSlimSelects.houseSeriesSelect.setSelected('');
+        // Инициализируем все справочные селекты и сбрасываем значения
+        const houseSeriesSelect = await this.getOrCreateSearchableSelect('editHouseSeries', 'houseSeries', 'Выберите серию...');
+        if (houseSeriesSelect) {
+            houseSeriesSelect.setSelected('');
         }
         
-        if (this.modalSlimSelects.houseClassSelect) {
-            this.modalSlimSelects.houseClassSelect.setSelected('');
+        const houseClassSelect = await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
+        if (houseClassSelect) {
+            houseClassSelect.setSelected('');
         }
         
-        if (this.modalSlimSelects.wallMaterialSelect) {
-            this.modalSlimSelects.wallMaterialSelect.setSelected('');
+        const wallMaterialSelect = await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
+        if (wallMaterialSelect) {
+            wallMaterialSelect.setSelected('');
         }
         
-        if (this.modalSlimSelects.ceilingMaterialSelect) {
-            this.modalSlimSelects.ceilingMaterialSelect.setSelected('');
+        const ceilingMaterialSelect = await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
+        if (ceilingMaterialSelect) {
+            ceilingMaterialSelect.setSelected('');
         }
         
-        if (this.modalSlimSelects.houseProblemSelect) {
-            this.modalSlimSelects.houseProblemSelect.setSelected('');
+        const houseProblemSelect = await this.getOrCreateSearchableSelect('editHouseProblem', 'houseProblems', 'Выберите проблему...');
+        if (houseProblemSelect) {
+            houseProblemSelect.setSelected('');
         }
         
         // Очищаем числовые поля
@@ -1268,6 +1522,27 @@ class AddressManager {
         const modal = document.getElementById('editAddressModal');
         if (modal) {
             modal.classList.add('hidden');
+            
+            // Возвращаем модальное окно в исходное место если оно было перемещено
+            const originalParentId = modal.dataset.originalParent;
+            if (originalParentId) {
+                const originalParent = originalParentId === 'body' ? 
+                    document.body : document.getElementById(originalParentId);
+                
+                if (originalParent && !modal.parentElement.isEqualNode(originalParent)) {
+                    originalParent.appendChild(modal);
+                    
+                    // Убираем временные стили
+                    modal.style.position = '';
+                    modal.style.top = '';
+                    modal.style.left = '';
+                    modal.style.width = '';
+                    modal.style.height = '';
+                    modal.style.zIndex = '';
+                    
+                    delete modal.dataset.originalParent;
+                }
+            }
         }
         
         // Уничтожаем карту с защитой от ошибок
@@ -2262,289 +2537,165 @@ class AddressManager {
     }
     
     /**
-     * Загрузка справочных данных
+     * Ленивая загрузка конкретного справочника
      */
-    async loadReferenceData() {
+    async loadReferenceType(referenceType) {
+        // Если уже загружено, возвращаем из кэша
+        if (this.referenceCache[referenceType]) {
+            return this.referenceCache[referenceType];
+        }
+        
+        // Если уже загружается, ждем завершения
+        if (this.referenceLoading[referenceType]) {
+            while (this.referenceLoading[referenceType]) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            return this.referenceCache[referenceType];
+        }
+        
+        // Начинаем загрузку
+        this.referenceLoading[referenceType] = true;
+        
         try {
-            const [houseSeries, houseClasses, wallMaterials, ceilingMaterials, houseProblems] = await Promise.all([
-                window.db.getAll('house_series'),
-                window.db.getAll('house_classes'),
-                window.db.getAll('wall_materials'),
-                window.db.getAll('ceiling_materials'),
-                window.db.getAll('house_problems')
-            ]);
+            const tableName = this.getReferenceTableName(referenceType);
+            const data = await window.db.getAll(tableName);
             
-            this.houseSeries = houseSeries;
-            this.houseClasses = houseClasses;
-            this.wallMaterials = wallMaterials;
-            this.ceilingMaterials = ceilingMaterials;
-            this.houseProblems = houseProblems;
+            // Сохраняем в кэш
+            this.referenceCache[referenceType] = data;
             
-            // Не обновляем селекты автоматически, чтобы избежать мигания
-            // this.updateReferenceSelects();
+            await Helpers.debugLog(`✅ Справочник ${referenceType} загружен: ${data.length} записей`);
+            return data;
             
         } catch (error) {
-            console.error('Error loading reference data:', error);
+            console.error(`Error loading reference ${referenceType}:`, error);
+            return [];
+        } finally {
+            this.referenceLoading[referenceType] = false;
         }
     }
     
     /**
-     * Обновление селектов справочных данных
+     * Получение имени таблицы для типа справочника
      */
-    updateReferenceSelects() {
-        // Уничтожаем только справочные SlimSelect экземпляры, не базовые
-        if (this.modalSlimSelects.houseSeriesSelect) {
-            this.modalSlimSelects.houseSeriesSelect.destroy();
-            this.modalSlimSelects.houseSeriesSelect = null;
-        }
-        if (this.modalSlimSelects.houseClassSelect) {
-            this.modalSlimSelects.houseClassSelect.destroy();
-            this.modalSlimSelects.houseClassSelect = null;
-        }
-        if (this.modalSlimSelects.wallMaterialSelect) {
-            this.modalSlimSelects.wallMaterialSelect.destroy();
-            this.modalSlimSelects.wallMaterialSelect = null;
-        }
-        if (this.modalSlimSelects.ceilingMaterialSelect) {
-            this.modalSlimSelects.ceilingMaterialSelect.destroy();
-            this.modalSlimSelects.ceilingMaterialSelect = null;
-        }
-        if (this.modalSlimSelects.houseProblemSelect) {
-            this.modalSlimSelects.houseProblemSelect.destroy();
-            this.modalSlimSelects.houseProblemSelect = null;
-        }
-        
-        // Серии домов
-        const houseSeriesSelect = document.getElementById('editHouseSeries');
-        if (houseSeriesSelect) {
-            houseSeriesSelect.innerHTML = '<option value="">Выберите серию...</option>';
-            this.houseSeries.forEach(series => {
-                houseSeriesSelect.innerHTML += `<option value="${series.id}">${series.name}</option>`;
-            });
-            
-            this.modalSlimSelects.houseSeriesSelect = new SlimSelect({
-                select: '#editHouseSeries',
-                settings: {
-                    searchText: 'Поиск...',
-                    searchPlaceholder: 'Поиск серии дома',
-                    searchingText: 'Поиск...',
-                    placeholderText: 'Выберите серию...'
-                },
-                events: {
-                    afterChange: (newVal) => {
-                        this.updateReferenceActionButton('houseSeriesActionBtn', newVal);
-                    }
-                }
-            });
-            
-            // Применяем стили Tailwind к SlimSelect
-            this.applySlimSelectStyles('#editHouseSeries');
-        }
-        
-        // Классы домов
-        const houseClassSelect = document.getElementById('editHouseClass');
-        if (houseClassSelect) {
-            houseClassSelect.innerHTML = '<option value="">Выберите класс...</option>';
-            this.houseClasses.forEach(houseClass => {
-                houseClassSelect.innerHTML += `<option value="${houseClass.id}">${houseClass.name}</option>`;
-            });
-            
-            this.modalSlimSelects.houseClassSelect = new SlimSelect({
-                select: '#editHouseClass',
-                settings: {
-                    searchText: 'Поиск...',
-                    searchPlaceholder: 'Поиск класса дома',
-                    searchingText: 'Поиск...',
-                    placeholderText: 'Выберите класс...'
-                },
-                events: {
-                    afterChange: (newVal) => {
-                        this.updateReferenceActionButton('houseClassActionBtn', newVal);
-                    }
-                }
-            });
-            this.applySlimSelectStyles('#editHouseClass');
-        }
-        
-        // Материалы стен
-        const wallMaterialSelect = document.getElementById('editWallMaterial');
-        if (wallMaterialSelect) {
-            wallMaterialSelect.innerHTML = '<option value="">Выберите материал...</option>';
-            this.wallMaterials.forEach(material => {
-                wallMaterialSelect.innerHTML += `<option value="${material.id}">${material.name}</option>`;
-            });
-            
-            this.modalSlimSelects.wallMaterialSelect = new SlimSelect({
-                select: '#editWallMaterial',
-                settings: {
-                    searchText: 'Поиск...',
-                    searchPlaceholder: 'Поиск материала стен',
-                    searchingText: 'Поиск...',
-                    placeholderText: 'Выберите материал...'
-                },
-                events: {
-                    afterChange: (newVal) => {
-                        this.updateReferenceActionButton('wallMaterialActionBtn', newVal);
-                    }
-                }
-            });
-            this.applySlimSelectStyles('#editWallMaterial');
-        }
-        
-        // Материалы перекрытий
-        const ceilingMaterialSelect = document.getElementById('editCeilingMaterial');
-        if (ceilingMaterialSelect) {
-            ceilingMaterialSelect.innerHTML = '<option value="">Выберите материал...</option>';
-            this.ceilingMaterials.forEach(material => {
-                ceilingMaterialSelect.innerHTML += `<option value="${material.id}">${material.name}</option>`;
-            });
-            
-            this.modalSlimSelects.ceilingMaterialSelect = new SlimSelect({
-                select: '#editCeilingMaterial',
-                settings: {
-                    searchText: 'Поиск...',
-                    searchPlaceholder: 'Поиск материала перекрытий',
-                    searchingText: 'Поиск...',
-                    placeholderText: 'Выберите материал...'
-                },
-                events: {
-                    afterChange: (newVal) => {
-                        this.updateReferenceActionButton('ceilingMaterialActionBtn', newVal);
-                    }
-                }
-            });
-            this.applySlimSelectStyles('#editCeilingMaterial');
-        }
-        
-        // Проблемы домов
-        const houseProblemSelect = document.getElementById('editHouseProblem');
-        if (houseProblemSelect) {
-            houseProblemSelect.innerHTML = '<option value="">Выберите проблему...</option>';
-            this.houseProblems.forEach(problem => {
-                houseProblemSelect.innerHTML += `<option value="${problem.id}">${problem.name}</option>`;
-            });
-            
-            this.modalSlimSelects.houseProblemSelect = new SlimSelect({
-                select: '#editHouseProblem',
-                settings: {
-                    searchText: 'Поиск...',
-                    searchPlaceholder: 'Поиск проблемы дома',
-                    searchingText: 'Поиск...',
-                    placeholderText: 'Выберите проблему...'
-                },
-                events: {
-                    afterChange: (newVal) => {
-                        this.updateReferenceActionButton('houseProblemActionBtn', newVal);
-                    }
-                }
-            });
-            this.applySlimSelectStyles('#editHouseProblem');
-        }
-        
-        // Инициализируем SlimSelect для основных селектов
-        this.initBasicModalSelects();
+    getReferenceTableName(referenceType) {
+        const tableMap = {
+            houseSeries: 'house_series',
+            houseClasses: 'house_classes',
+            wallMaterials: 'wall_materials',
+            ceilingMaterials: 'ceiling_materials',
+            houseProblems: 'house_problems'
+        };
+        return tableMap[referenceType];
     }
     
     /**
-     * Инициализация базовых SlimSelect для модального окна
+     * Поиск в справочнике по тексту (для SlimSelect)
      */
-    initBasicModalSelects() {
-        // Тип недвижимости
-        const typeSelect = document.getElementById('editAddressType');
-        if (typeSelect && !this.modalSlimSelects.typeSelect) {
-            this.modalSlimSelects.typeSelect = new SlimSelect({
-                select: '#editAddressType',
-                settings: {
-                    placeholderText: 'Выберите тип...'
-                }
-            });
-            this.applySlimSelectStyles('#editAddressType');
+    async searchInReference(referenceType, searchText, limit = 50) {
+        const data = await this.loadReferenceType(referenceType);
+        
+        if (!searchText || searchText.length < 1) {
+            // Если нет поискового запроса, возвращаем первые N записей
+            return data.slice(0, limit);
         }
         
-        // Газоснабжение
-        const gasSupplySelect = document.getElementById('editGasSupply');
-        if (gasSupplySelect && !this.modalSlimSelects.gasSupplySelect) {
-            this.modalSlimSelects.gasSupplySelect = new SlimSelect({
-                select: '#editGasSupply',
-                settings: {
-                    placeholderText: 'Выберите...'
-                }
-            });
-            this.applySlimSelectStyles('#editGasSupply');
-        }
+        // Поиск по названию (нечувствительный к регистру)
+        const searchLower = searchText.toLowerCase();
+        const filtered = data.filter(item => 
+            item.name.toLowerCase().includes(searchLower)
+        );
         
-        // Коммерческие помещения
-        const commercialSpacesSelect = document.getElementById('editCommercialSpaces');
-        if (commercialSpacesSelect && !this.modalSlimSelects.commercialSpacesSelect) {
-            this.modalSlimSelects.commercialSpacesSelect = new SlimSelect({
-                select: '#editCommercialSpaces',
-                settings: {
-                    placeholderText: 'Выберите...'
-                }
+        return filtered.slice(0, limit);
+    }
+    
+    /**
+     * Очистка кэша справочника (после добавления/изменения)
+     */
+    clearReferenceCache(referenceType) {
+        if (referenceType) {
+            this.referenceCache[referenceType] = null;
+        } else {
+            // Очищаем весь кэш
+            Object.keys(this.referenceCache).forEach(key => {
+                this.referenceCache[key] = null;
             });
-            this.applySlimSelectStyles('#editCommercialSpaces');
-        }
-        
-        // Индивидуальное отопление
-        const individualHeatingSelect = document.getElementById('editIndividualHeating');
-        if (individualHeatingSelect && !this.modalSlimSelects.individualHeatingSelect) {
-            this.modalSlimSelects.individualHeatingSelect = new SlimSelect({
-                select: '#editIndividualHeating',
-                settings: {
-                    placeholderText: 'Выберите...'
-                }
-            });
-            this.applySlimSelectStyles('#editIndividualHeating');
-        }
-        
-        // Детская площадка
-        const playgroundSelect = document.getElementById('editPlayground');
-        if (playgroundSelect && !this.modalSlimSelects.playgroundSelect) {
-            this.modalSlimSelects.playgroundSelect = new SlimSelect({
-                select: '#editPlayground',
-                settings: {
-                    placeholderText: 'Выберите...'
-                }
-            });
-            this.applySlimSelectStyles('#editPlayground');
-        }
-        
-        // Спортивная площадка
-        const sportsGroundSelect = document.getElementById('editSportsGround');
-        if (sportsGroundSelect && !this.modalSlimSelects.sportsGroundSelect) {
-            this.modalSlimSelects.sportsGroundSelect = new SlimSelect({
-                select: '#editSportsGround',
-                settings: {
-                    placeholderText: 'Выберите...'
-                }
-            });
-            this.applySlimSelectStyles('#editSportsGround');
-        }
-        
-        // Закрытая территория
-        const closedTerritorySelect = document.getElementById('editClosedTerritory');
-        if (closedTerritorySelect && !this.modalSlimSelects.closedTerritorySelect) {
-            this.modalSlimSelects.closedTerritorySelect = new SlimSelect({
-                select: '#editClosedTerritory',
-                settings: {
-                    placeholderText: 'Выберите...'
-                }
-            });
-            this.applySlimSelectStyles('#editClosedTerritory');
-        }
-        
-        // Подземная парковка
-        const undergroundParkingSelect = document.getElementById('editUndergroundParking');
-        if (undergroundParkingSelect && !this.modalSlimSelects.undergroundParkingSelect) {
-            this.modalSlimSelects.undergroundParkingSelect = new SlimSelect({
-                select: '#editUndergroundParking',
-                settings: {
-                    placeholderText: 'Выберите...'
-                }
-            });
-            this.applySlimSelectStyles('#editUndergroundParking');
         }
     }
+    
+    /**
+     * Создание SlimSelect с поиском для справочника
+     */
+    async createSearchableSelect(elementId, referenceType, placeholder = '') {
+        const selectElement = document.getElementById(elementId);
+        if (!selectElement) return null;
+        
+        try {
+            // Загружаем первые 20 записей для отображения по умолчанию
+            const initialData = await this.searchInReference(referenceType, '', 20);
+            
+            // Очищаем селект и добавляем пустую опцию
+            selectElement.innerHTML = `<option value="">${placeholder}</option>`;
+            
+            // Добавляем первые 20 записей
+            initialData.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.id.toString();
+                option.textContent = item.name;
+                selectElement.appendChild(option);
+            });
+            
+            const slimSelect = new SlimSelect({
+                select: `#${elementId}`,
+                settings: {
+                    searchText: 'Поиск...',
+                    searchPlaceholder: `Поиск ${placeholder.toLowerCase()}`,
+                    searchingText: 'Поиск...',
+                    placeholderText: placeholder,
+                    searchHighlight: true
+                },
+                events: {
+                    search: async (search, currentData) => {
+                        try {
+                            // Получаем текст поиска
+                            const searchText = search || '';
+                            
+                            // Выполняем поиск
+                            const results = await this.searchInReference(referenceType, searchText, 50);
+                            
+                            // Преобразуем результаты в формат SlimSelect
+                            const options = results.map(item => ({
+                                text: item.name,
+                                value: item.id.toString(),
+                                display: true
+                            }));
+                            
+                            return options;
+                        } catch (error) {
+                            console.error(`❌ Ошибка поиска в справочнике ${referenceType}:`, error);
+                            return [];
+                        }
+                    }
+                }
+            });
+            
+            // Применяем стили
+            this.applySlimSelectStyles(`#${elementId}`);
+            
+            await Helpers.debugLog(`✅ Создан searchable select для ${elementId} с ${initialData.length} записями`);
+            
+            return slimSelect;
+            
+        } catch (error) {
+            console.error(`❌ Ошибка создания searchable select для ${elementId}:`, error);
+            return null;
+        }
+    }
+    
+    /**
+     * Инициализация всех справочных SlimSelect с поиском
+     */
+    
+    
     
     /**
      * Привязка событий для модальных окон справочников
@@ -3267,6 +3418,9 @@ class AddressManager {
             this.closeModal('houseSeriesModal');
             await this.loadReferenceData();
             
+            // Очищаем кеш поиска для данного типа справочника
+            this.clearReferenceCache('houseSeries');
+            
             this.progressManager.showSuccess(seriesId ? 'Серия дома обновлена' : 'Серия дома добавлена');
 
         } catch (error) {
@@ -3319,6 +3473,9 @@ class AddressManager {
             
             this.closeModal('houseClassModal');
             await this.loadReferenceData();
+            
+            // Очищаем кеш поиска для данного типа справочника
+            this.clearReferenceCache('houseClasses');
             
             this.progressManager.showSuccess(classId ? 'Класс дома обновлен' : 'Класс дома добавлен');
 
@@ -3373,6 +3530,9 @@ class AddressManager {
             this.closeModal('wallMaterialModal');
             await this.loadReferenceData();
             
+            // Очищаем кеш поиска для данного типа справочника
+            this.clearReferenceCache('wallMaterials');
+            
             this.progressManager.showSuccess(materialId ? 'Материал стен обновлен' : 'Материал стен добавлен');
 
         } catch (error) {
@@ -3424,6 +3584,9 @@ class AddressManager {
             
             this.closeModal('ceilingMaterialModal');
             await this.loadReferenceData();
+            
+            // Очищаем кеш поиска для данного типа справочника
+            this.clearReferenceCache('ceilingMaterials');
             
             this.progressManager.showSuccess(materialId ? 'Материал перекрытий обновлен' : 'Материал перекрытий добавлен');
 
@@ -3488,6 +3651,9 @@ class AddressManager {
             
             this.closeModal('houseProblemModal');
             await this.loadReferenceData();
+            
+            // Очищаем кеш поиска для данного типа справочника
+            this.clearReferenceCache('houseProblems');
             
             this.progressManager.showSuccess(problemId ? 'Проблема дома обновлена' : 'Проблема дома добавлена');
 
@@ -3614,7 +3780,11 @@ class AddressManager {
             
             // Получаем адреса области для фильтрации объектов
             const addresses = await window.db.getAll('addresses');
-            const areaAddresses = addresses.filter(address => address.map_area_id === currentArea.id);
+            
+            // Используем правильную фильтрацию по полигону вместо map_area_id
+            const areaAddresses = addresses.filter(address => 
+                this.isAddressInAreaPolygon(address, currentArea)
+            );
             const areaAddressIds = new Set(areaAddresses.map(addr => addr.id));
             const addressesMap = new Map(addresses.map(addr => [addr.id, addr]));
             
@@ -3926,6 +4096,84 @@ ${methodStatsText}
         
         // Очищаем обработчики
         document.removeEventListener('click', this.bindTableEvents);
+    }
+    
+    /**
+     * Корректировка модального окна для полноэкранного режима карты
+     */
+    adjustModalForFullscreen(modal) {
+        const fullscreenElement = document.fullscreenElement || 
+                                document.webkitFullscreenElement || 
+                                document.mozFullScreenElement || 
+                                document.msFullscreenElement;
+        
+        if (fullscreenElement) {
+            // В полноэкранном режиме перемещаем модальное окно в fullscreen контейнер
+            if (!modal.parentElement.isEqualNode(fullscreenElement)) {
+                // Сохраняем оригинальный родитель для возврата
+                modal.dataset.originalParent = modal.parentElement.id || 'body';
+                
+                // Перемещаем модальное окно в полноэкранный элемент
+                fullscreenElement.appendChild(modal);
+                
+                // Добавляем стили для корректного позиционирования в fullscreen
+                modal.style.position = 'fixed';
+                modal.style.top = '0';
+                modal.style.left = '0';
+                modal.style.width = '100%';
+                modal.style.height = '100%';
+                modal.style.zIndex = '9999';
+                
+                console.log('📺 Модальное окно перемещено в полноэкранный контейнер');
+            }
+        } else {
+            // Возвращаем модальное окно в исходное место если оно было перемещено
+            const originalParentId = modal.dataset.originalParent;
+            if (originalParentId && modal.parentElement.id !== originalParentId) {
+                const originalParent = originalParentId === 'body' ? 
+                    document.body : document.getElementById(originalParentId);
+                
+                if (originalParent) {
+                    originalParent.appendChild(modal);
+                    
+                    // Убираем временные стили
+                    modal.style.position = '';
+                    modal.style.top = '';
+                    modal.style.left = '';
+                    modal.style.width = '';
+                    modal.style.height = '';
+                    modal.style.zIndex = '';
+                    
+                    delete modal.dataset.originalParent;
+                    
+                    console.log('📺 Модальное окно возвращено в исходное место');
+                }
+            }
+        }
+    }
+    
+    /**
+     * Инициализация обработчиков событий fullscreen
+     */
+    initFullscreenHandlers() {
+        // Обработчики для различных браузеров
+        const fullscreenEvents = [
+            'fullscreenchange',
+            'webkitfullscreenchange', 
+            'mozfullscreenchange',
+            'MSFullscreenChange'
+        ];
+        
+        fullscreenEvents.forEach(event => {
+            document.addEventListener(event, () => {
+                // Проверяем, есть ли открытое модальное окно
+                const modal = document.getElementById('editAddressModal');
+                if (modal && !modal.classList.contains('hidden')) {
+                    // Корректируем положение модального окна
+                    this.adjustModalForFullscreen(modal);
+                }
+            });
+        });
     }
 }
 

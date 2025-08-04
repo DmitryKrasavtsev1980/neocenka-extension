@@ -27,6 +27,7 @@ class AreaPage {
         this.duplicatesManager = null;
         this.segmentsManager = null;
         this.reportsManager = null;
+        this.geoJsonImportManager = null;
         
         // Утилиты
         this.geoUtils = new GeoUtils();
@@ -148,6 +149,7 @@ class AreaPage {
             this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager, this.uiManager);
             this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
             this.reportsManager = new ReportsManager(this);
+            this.geoJsonImportManager = new GeoJsonImportManager(window.db, this.progressManager);
             
             // Инициализация RealEstateObjectManager для совместимости со старой архитектурой
             if (typeof RealEstateObjectManager !== 'undefined') {

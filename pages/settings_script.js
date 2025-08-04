@@ -99,18 +99,31 @@ class SettingsPage {
       this.saveSettings();
     });
 
-    // Экспорт данных
-    document.getElementById('exportDataBtn').addEventListener('click', () => {
-      this.exportData();
+    // Полный экспорт данных
+    document.getElementById('fullExportBtn').addEventListener('click', () => {
+      this.fullExportData();
     });
 
-    // Импорт данных
-    document.getElementById('importDataBtn').addEventListener('click', () => {
-      this.importData();
+    // Полный импорт данных
+    document.getElementById('fullImportBtn').addEventListener('click', () => {
+      this.fullImportData();
     });
 
-    document.getElementById('importFileInput').addEventListener('change', (e) => {
-      this.handleImportFile(e);
+    document.getElementById('fullImportFileInput').addEventListener('change', (e) => {
+      this.handleFullImportFile(e);
+    });
+
+    // Быстрые кнопки выбора экспорта
+    document.getElementById('selectAllExport').addEventListener('click', () => {
+      this.setAllExportCheckboxes(true);
+    });
+
+    document.getElementById('selectNoneExport').addEventListener('click', () => {
+      this.setAllExportCheckboxes(false);
+    });
+
+    document.getElementById('selectAddressesOnly').addEventListener('click', () => {
+      this.setAddressesOnlyExport();
     });
 
     // Обработка дублей
@@ -342,45 +355,164 @@ class SettingsPage {
     }
   }
 
-  async exportData() {
+  /**
+   * Экспорт выбранных блоков данных
+   */
+  async fullExportData() {
     try {
-      const exportBtn = document.getElementById('exportDataBtn');
+      const exportBtn = document.getElementById('fullExportBtn');
+      const statusDiv = document.getElementById('fullExportStatus');
       const originalText = exportBtn.innerHTML;
       
-      exportBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Экспорт...';
+      // Получаем выбранные опции экспорта
+      const exportOptions = this.getExportOptions();
+      
+      // Проверяем, что что-то выбрано
+      const hasSelection = Object.values(exportOptions).some(value => value === true);
+      if (!hasSelection) {
+        this.showNotification('Выберите хотя бы один блок данных для экспорта', 'warning');
+        return;
+      }
+      
+      exportBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Экспорт данных...';
       exportBtn.disabled = true;
 
-      const exportData = await db.exportData();
+      statusDiv.textContent = 'Экспортируем выбранные данные из базы...';
+      statusDiv.classList.remove('hidden');
+
+      // Используем новый метод выборочного экспорта
+      const exportDataString = await db.selectiveExportData(exportOptions);
+      
+      statusDiv.textContent = 'Создаём файл для скачивания...';
       
       // Создаем файл для скачивания
-      const blob = new Blob([exportData], { type: 'application/json' });
+      const blob = new Blob([exportDataString], { type: 'application/json; charset=utf-8' });
       const url = URL.createObjectURL(blob);
       
       const now = new Date();
-      const filename = `neocenka-export-${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}.json`;
+      const selectedBlocks = Object.keys(exportOptions).filter(key => exportOptions[key]).join('-');
+      const filename = `neocenka-export-${selectedBlocks}-${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}.json`;
       
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
+      a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      this.showNotification('Данные экспортированы', 'success');
+      // Показываем результат
+      this.showSelectiveExportResult(JSON.parse(exportDataString));
+      this.showNotification('Выбранные данные экспортированы', 'success');
 
     } catch (error) {
       console.error('Ошибка экспорта:', error);
-      this.showNotification('Ошибка экспорта данных', 'error');
+      this.showNotification('Ошибка экспорта данных: ' + error.message, 'error');
+      
+      const statusDiv = document.getElementById('fullExportStatus');
+      statusDiv.textContent = '❌ Ошибка экспорта: ' + error.message;
     } finally {
-      const exportBtn = document.getElementById('exportDataBtn');
-      exportBtn.innerHTML = '<svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>Экспорт данных';
+      const exportBtn = document.getElementById('fullExportBtn');
+      exportBtn.innerHTML = '<svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>Экспорт выбранных данных';
       exportBtn.disabled = false;
     }
   }
 
-  importData() {
-    document.getElementById('importFileInput').click();
+  /**
+   * Полный импорт данных
+   */
+  fullImportData() {
+    document.getElementById('fullImportFileInput').click();
+  }
+
+  /**
+   * Обработка файла полного импорта
+   */
+  async handleFullImportFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+      const importBtn = document.getElementById('fullImportBtn');
+      const statusDiv = document.getElementById('fullImportStatus');
+      const originalText = importBtn.innerHTML;
+      
+      importBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Импорт базы данных...';
+      importBtn.disabled = true;
+
+      statusDiv.textContent = 'Читаем файл...';
+      statusDiv.classList.remove('hidden');
+
+      // Читаем файл
+      const fileContent = await this.readFileAsText(file);
+      
+      statusDiv.textContent = 'Валидируем данные...';
+
+      // Предварительная валидация
+      let previewData;
+      try {
+        previewData = JSON.parse(fileContent);
+      } catch (error) {
+        throw new Error('Некорректный формат JSON файла');
+      }
+
+      if (!previewData.application || previewData.application !== 'Neocenka Extension') {
+        throw new Error('Файл не является экспортом Neocenka Extension');
+      }
+
+      // Показываем предварительную информацию и запрашиваем подтверждение
+      const confirmImport = confirm(
+        `⚠️ ВНИМАНИЕ! Это действие удалит все текущие данные!\n\n` +
+        `Файл создан: ${previewData.timestamp ? new Date(previewData.timestamp).toLocaleString('ru-RU') : 'Неизвестно'}\n` +
+        `Версия: ${previewData.version || 'Неизвестно'}\n\n` +
+        `Будет импортировано:\n` +
+        `📍 Областей: ${previewData.statistics?.total_map_areas || (previewData.map_areas?.length || 0)}\n` +
+        `🏠 Адресов: ${previewData.statistics?.total_addresses || (previewData.addresses?.length || 0)}\n` +
+        `📋 Сегментов: ${previewData.statistics?.total_segments || (previewData.segments?.length || 0)}\n` +
+        `📊 Объявлений: ${previewData.statistics?.total_listings || (previewData.listings?.length || 0)}\n` +
+        `🏢 Объектов: ${previewData.statistics?.total_objects || (previewData.objects?.length || 0)}\n` +
+        `📈 Отчётов: ${previewData.statistics?.total_reports || (previewData.reports?.length || 0)}\n\n` +
+        `Продолжить импорт?`
+      );
+
+      if (!confirmImport) {
+        statusDiv.textContent = 'Импорт отменён пользователем';
+        return;
+      }
+
+      statusDiv.textContent = 'Импортируем данные в базу...';
+
+      // Выполняем полный импорт
+      const result = await db.fullImportData(fileContent);
+      
+      if (result.success) {
+        // Показываем результат
+        this.showFullImportResult(result);
+        
+        // Обновляем статистику на странице
+        await this.loadDatabaseStats();
+        
+        this.showNotification('База данных успешно импортирована', 'success');
+        statusDiv.textContent = '✅ Импорт завершён успешно';
+      } else {
+        throw new Error('Импорт завершился с ошибками');
+      }
+
+    } catch (error) {
+      console.error('Ошибка полного импорта:', error);
+      this.showNotification('Ошибка импорта: ' + error.message, 'error');
+      
+      const statusDiv = document.getElementById('fullImportStatus');
+      statusDiv.textContent = '❌ Ошибка импорта: ' + error.message;
+    } finally {
+      const importBtn = document.getElementById('fullImportBtn');
+      importBtn.innerHTML = '<svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path></svg>Полный импорт базы данных';
+      importBtn.disabled = false;
+      
+      // Очищаем input
+      event.target.value = '';
+    }
   }
 
   async handleImportFile(event) {
@@ -1375,6 +1507,223 @@ class SettingsPage {
       console.error('Ошибка копирования:', error);
       this.showNotification('Ошибка копирования в буфер обмена', 'error');
     }
+  }
+
+  /**
+   * Показ результатов полного экспорта
+   */
+  showFullExportResult(data) {
+    const resultsDiv = document.getElementById('fullDataOperationResults');
+    if (!resultsDiv) return;
+    
+    const stats = data.statistics;
+    
+    resultsDiv.innerHTML = `
+      <div class="bg-green-50 border border-green-200 rounded-md p-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-green-800">Экспорт завершен успешно</h3>
+            <div class="mt-2 text-sm text-green-700">
+              <p class="mb-2">Файл создан: ${new Date(data.timestamp).toLocaleString('ru-RU')}</p>
+              <ul class="list-disc list-inside space-y-1">
+                <li>📍 Областей экспортировано: ${stats.total_map_areas}</li>
+                <li>🏠 Адресов экспортировано: ${stats.total_addresses}</li>
+                <li>📋 Сегментов экспортировано: ${stats.total_segments}</li>
+                <li>📊 Объявлений экспортировано: ${stats.total_listings}</li>
+                <li>🏢 Объектов экспортировано: ${stats.total_objects}</li>
+                <li>📈 Отчётов экспортировано: ${stats.total_reports}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    resultsDiv.classList.remove('hidden');
+    
+    // Скрываем результат через 10 секунд
+    setTimeout(() => {
+      resultsDiv.classList.add('hidden');
+    }, 10000);
+  }
+
+  /**
+   * Показ результатов полного импорта
+   */
+  showFullImportResult(result) {
+    const resultsDiv = document.getElementById('fullDataOperationResults');
+    if (!resultsDiv) return;
+    
+    const stats = result.statistics;
+    const oldStats = result.oldStats;
+    
+    resultsDiv.innerHTML = `
+      <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-blue-800">Импорт завершен успешно</h3>
+            <div class="mt-2 text-sm text-blue-700">
+              <p class="mb-2">Файл создан: ${new Date(result.timestamp).toLocaleString('ru-RU')}</p>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <p class="font-medium mb-1">Было данных:</p>
+                  <ul class="list-disc list-inside space-y-1 text-xs">
+                    <li>📍 Областей: ${oldStats.map_areas}</li>
+                    <li>🏠 Адресов: ${oldStats.addresses}</li>
+                    <li>📋 Сегментов: ${oldStats.segments}</li>
+                    <li>📊 Объявлений: ${oldStats.listings}</li>
+                    <li>🏢 Объектов: ${oldStats.objects}</li>
+                    <li>📈 Отчётов: ${oldStats.reports}</li>
+                  </ul>
+                </div>
+                <div>
+                  <p class="font-medium mb-1">Импортировано:</p>
+                  <ul class="list-disc list-inside space-y-1 text-xs">
+                    <li>📍 Областей: ${stats.map_areas}</li>
+                    <li>🏠 Адресов: ${stats.addresses}</li>
+                    <li>📋 Сегментов: ${stats.segments}</li>
+                    <li>📊 Объявлений: ${stats.listings}</li>
+                    <li>🏢 Объектов: ${stats.objects}</li>
+                    <li>📈 Отчётов: ${stats.reports}</li>
+                    <li>⚙️ Настроек: ${stats.settings}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    resultsDiv.classList.remove('hidden');
+    
+    // Скрываем результат через 15 секунд
+    setTimeout(() => {
+      resultsDiv.classList.add('hidden');
+    }, 15000);
+  }
+
+  /**
+   * Получение настроек экспорта из чекбоксов
+   */
+  getExportOptions() {
+    return {
+      map_areas: document.getElementById('exportMapAreas').checked,
+      addresses: document.getElementById('exportAddresses').checked,
+      segments: document.getElementById('exportSegments').checked,
+      listings: document.getElementById('exportListings').checked,
+      reports: document.getElementById('exportReports').checked,
+      references: document.getElementById('exportReferences').checked,
+      settings: document.getElementById('exportSettings').checked
+    };
+  }
+
+  /**
+   * Установка всех чекбоксов экспорта
+   */
+  setAllExportCheckboxes(checked) {
+    const checkboxIds = [
+      'exportMapAreas', 'exportAddresses', 'exportSegments', 
+      'exportListings', 'exportReports', 'exportReferences', 'exportSettings'
+    ];
+    
+    checkboxIds.forEach(id => {
+      const checkbox = document.getElementById(id);
+      if (checkbox) {
+        checkbox.checked = checked;
+      }
+    });
+  }
+
+  /**
+   * Выбор только адресов для экспорта
+   */
+  setAddressesOnlyExport() {
+    // Сначала снимаем все
+    this.setAllExportCheckboxes(false);
+    
+    // Выбираем только адреса и связанные данные
+    document.getElementById('exportAddresses').checked = true;
+    document.getElementById('exportReferences').checked = true; // Справочники нужны для адресов
+  }
+
+  /**
+   * Показ результатов выборочного экспорта
+   */
+  showSelectiveExportResult(data) {
+    const resultsDiv = document.getElementById('fullDataOperationResults');
+    if (!resultsDiv) return;
+    
+    const stats = data.statistics;
+    const options = data.exportOptions;
+    
+    // Создаём список экспортированных блоков
+    let exportedBlocks = [];
+    if (options.map_areas && stats.total_map_areas !== undefined) {
+      exportedBlocks.push(`📍 Областей: ${stats.total_map_areas}`);
+    }
+    if (options.addresses && stats.total_addresses !== undefined) {
+      exportedBlocks.push(`🏠 Адресов: ${stats.total_addresses}`);
+    }
+    if (options.segments && stats.total_segments !== undefined) {
+      exportedBlocks.push(`📋 Сегментов: ${stats.total_segments}`);
+    }
+    if (options.listings && stats.total_listings !== undefined) {
+      exportedBlocks.push(`📊 Объявлений: ${stats.total_listings}`, `🏢 Объектов: ${stats.total_objects || 0}`);
+    }
+    if (options.reports && stats.total_reports !== undefined) {
+      exportedBlocks.push(`📈 Отчётов: ${stats.total_reports}`);
+    }
+    if (options.references) {
+      const refCount = (stats.total_wall_materials || 0) + 
+                      (stats.total_ceiling_materials || 0) + 
+                      (stats.total_house_series || 0) + 
+                      (stats.total_house_classes || 0) + 
+                      (stats.total_house_problems || 0);
+      exportedBlocks.push(`📚 Справочников: ${refCount}`);
+    }
+    if (options.settings && stats.total_settings !== undefined) {
+      exportedBlocks.push(`⚙️ Настроек: ${stats.total_settings}`);
+    }
+    
+    resultsDiv.innerHTML = `
+      <div class="bg-green-50 border border-green-200 rounded-md p-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-green-800">Выборочный экспорт завершен успешно</h3>
+            <div class="mt-2 text-sm text-green-700">
+              <p class="mb-2">Файл создан: ${new Date(data.timestamp).toLocaleString('ru-RU')}</p>
+              <p class="mb-2 font-medium">Экспортированные блоки:</p>
+              <ul class="list-disc list-inside space-y-1">
+                ${exportedBlocks.map(block => `<li>${block}</li>`).join('')}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    resultsDiv.classList.remove('hidden');
+    
+    // Скрываем результат через 10 секунд
+    setTimeout(() => {
+      resultsDiv.classList.add('hidden');
+    }, 10000);
   }
 }
 

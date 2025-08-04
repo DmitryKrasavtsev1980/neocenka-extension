@@ -708,6 +708,66 @@
                                         <div id="fileOperationStatus" class="mt-4 text-sm text-gray-600 hidden"></div>
                                     </div>
 
+                                    <!-- Импорт из GeoJSON Реформа ЖКХ -->
+                                    <div class="mt-6 pt-6 border-t border-gray-200">
+                                        <h5 class="text-sm font-medium text-gray-900 mb-4">Импорт из GeoJSON "Реформа ЖКХ"</h5>
+                                        <p class="text-xs text-gray-500 mb-4">Импорт адресов домов из файлов системы "Реформа ЖКХ" в формате GeoJSON</p>
+                                        
+                                        <div class="grid grid-cols-1 gap-4">
+                                            <!-- Выбор файла -->
+                                            <div class="space-y-3">
+                                                <label class="block text-sm font-medium text-gray-700">Выберите GeoJSON файл:</label>
+                                                <div class="relative">
+                                                    <input type="file" id="geojsonFile" accept=".geojson,.json" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                                    <button type="button" id="selectGeoJsonBtn" class="w-full inline-flex justify-center items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                                        </svg>
+                                                        Выбрать GeoJSON файл
+                                                    </button>
+                                                </div>
+                                                <div id="selectedFileName" class="text-xs text-gray-500 hidden"></div>
+                                            </div>
+                                            
+                                            <!-- Настройки импорта -->
+                                            <div class="bg-gray-50 p-3 rounded-md">
+                                                <h6 class="text-xs font-medium text-gray-700 mb-2">Настройки импорта:</h6>
+                                                <div class="space-y-2">
+                                                    <div class="flex items-center">
+                                                        <input type="checkbox" id="createReferences" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" checked>
+                                                        <label for="createReferences" class="ml-2 block text-xs text-gray-700">Создавать записи в справочниках</label>
+                                                    </div>
+                                                    <div class="text-xs text-gray-500 mt-2">
+                                                        ℹ️ Дубли автоматически пропускаются при точном совпадении адреса и координат (в радиусе 10м)
+                                                    </div>
+                                                </div>
+                                                
+                                            </div>
+                                            
+                                            <!-- Кнопки импорта -->
+                                            <div class="flex gap-2">
+                                                <button type="button" id="startGeoJsonImport" class="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                                                    <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                                    </svg>
+                                                    <span id="importButtonText">Начать импорт из GeoJSON</span>
+                                                </button>
+                                                <button type="button" id="stopGeoJsonImport" class="inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed hidden">
+                                                    <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z"></path>
+                                                    </svg>
+                                                    Стоп
+                                                </button>
+                                            </div>
+                                            
+                                            <!-- Результаты импорта -->
+                                            <div id="geojsonImportResults" class="hidden">
+                                                <!-- Результаты будут добавлены динамически -->
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <!-- Прогресс загрузки адресов -->
                                     <div class="mt-6 pt-6 border-t border-gray-200">
                                         <h5 class="text-sm font-medium text-gray-900 mb-3">Прогресс загрузки</h5>
@@ -2574,6 +2634,8 @@
     <script src="../utils/advanced-address-matcher.js"></script>
     <script src="../utils/smart-address-matcher.js"></script>
     <script src="../utils/ml-address-analyzer.js"></script>
+    <script src="../utils/reforma-gkh-reference-resolver.js"></script>
+    <script src="../utils/reforma-gkh-importer.js"></script>
     
     <!-- Модульная архитектура -->
     <!-- Основные системы -->
@@ -2594,6 +2656,7 @@
     <script src="managers/DuplicatesManager.js"></script>
     <script src="managers/SegmentsManager.js"></script>
     <script src="managers/ReportsManager.js"></script>
+    <script src="managers/GeoJsonImportManager.js"></script>
     
     <!-- Сервисная архитектура -->
     <script src="../services/base/BaseAPIService.js"></script>
