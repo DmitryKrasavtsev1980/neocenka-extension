@@ -8,10 +8,10 @@ if (typeof CianParser === 'undefined') {
 
 class CianParser {
     constructor() {
-        console.log('CianParser constructor called');
+        // console.log('CianParser constructor called');
 
         this.isListingPage = this.checkIsListingPage();
-        console.log('isListingPage:', this.isListingPage);
+        // console.log('isListingPage:', this.isListingPage);
 
         if (this.isListingPage) {
             this.setupMessageListener();
@@ -20,7 +20,7 @@ class CianParser {
             window.cianParserInstance = this;
             window.CianParser = CianParser; // Делаем класс глобально доступным
 
-            console.log('✅ CianParser доступен глобально как window.cianParserInstance');
+            // console.log('✅ CianParser доступен глобально как window.cianParserInstance');
         }
         
         // Инициализируем отладочный режим
@@ -50,7 +50,7 @@ class CianParser {
      */
     debugLog(...args) {
         // НЕ выводим отладочные сообщения в production для безопасности
-        // Сайт может отслеживать console.log для обнаружения парсеров
+        // Сайт может отслеживать // console.log для обнаружения парсеров
         
         // Только если явно включена отладка через настройки расширения
         if (window.debugLogger && window.debugLogger.isEnabled()) {
@@ -59,7 +59,7 @@ class CianParser {
         
         // Временно отключено для безопасности:
         // else if (localStorage.getItem('neocenka_debug_mode') === 'true') {
-        //     console.log('[DEBUG]', ...args);
+        //     // console.log('[DEBUG]', ...args);
         // }
     }
 
@@ -68,14 +68,14 @@ class CianParser {
      */
     checkIsListingPage() {
         const url = window.location.href;
-        console.log('Checking if listing page, URL:', url);
+        // console.log('Checking if listing page, URL:', url);
 
         // Проверяем, что это страница квартиры и содержит ID объявления
         const isListingPage = url.includes('/sale/flat/') &&
             url.match(/\/sale\/flat\/\d+/) &&
             !url.includes('/list/');
 
-        console.log('Is listing page:', isListingPage);
+        // console.log('Is listing page:', isListingPage);
         return isListingPage;
     }
 
@@ -84,18 +84,18 @@ class CianParser {
      */
     setupMessageListener() {
         chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-            console.log('📨 CianParser Message received:', request);
+            // console.log('📨 CianParser Message received:', request);
 
             if (request.action === 'parseCurrentListing') {
-                console.log('🎯 CianParser: Processing parseCurrentListing');
+                // console.log('🎯 CianParser: Processing parseCurrentListing');
 
                 if (this.isListingPage) {
-                    console.log('✅ CianParser: Parser instance available');
+                    // console.log('✅ CianParser: Parser instance available');
 
                     // Используем async/await для правильной обработки Promise
                     this.parseCurrentListing()
                         .then(data => {
-                            console.log('📊 CianParser: Parsed data:', data);
+                            // console.log('📊 CianParser: Parsed data:', data);
 
                             if (data) {
                                 sendResponse({ success: true, data: data });
@@ -104,7 +104,7 @@ class CianParser {
                             }
                         })
                         .catch(error => {
-                            console.error('❌ CianParser: Error in parseCurrentListing:', error);
+                            // console.error('❌ CianParser: Error in parseCurrentListing:', error);
                             sendResponse({ success: false, error: error.message || 'Ошибка парсинга' });
                         });
 
@@ -116,7 +116,7 @@ class CianParser {
                 }
 
             } else if (request.action === 'ping') {
-                console.log('🏓 CianParser: Получен ping, отвечаем pong');
+                // console.log('🏓 CianParser: Получен ping, отвечаем pong');
                 sendResponse({ success: true, message: 'pong' });
                 return;
 
@@ -130,18 +130,18 @@ class CianParser {
      * Обработчик сообщений (альтернативный метод)
      */
     handleMessage(request, sender, sendResponse) {
-        console.log('📨 CianParser handleMessage:', request);
+        // console.log('📨 CianParser handleMessage:', request);
 
         if (request.action === 'parseCurrentListing') {
-            console.log('🎯 CianParser: Processing parseCurrentListing');
+            // console.log('🎯 CianParser: Processing parseCurrentListing');
 
             if (this.isListingPage) {
-                console.log('✅ CianParser: Parser instance available');
+                // console.log('✅ CianParser: Parser instance available');
 
                 // Используем async/await для правильной обработки Promise
                 this.parseCurrentListing()
                     .then(data => {
-                        console.log('📊 CianParser: Parsed data:', data);
+                        // console.log('📊 CianParser: Parsed data:', data);
 
                         if (data) {
                             sendResponse({ success: true, data: data });
@@ -150,7 +150,7 @@ class CianParser {
                         }
                     })
                     .catch(error => {
-                        console.error('❌ CianParser: Error in parseCurrentListing:', error);
+                        // console.error('❌ CianParser: Error in parseCurrentListing:', error);
                         sendResponse({ success: false, error: error.message || 'Ошибка парсинга' });
                     });
 
@@ -172,9 +172,9 @@ class CianParser {
      * Основная функция парсинга объявления
      */
     async parseCurrentListing() {
-        console.log('🚀 === CianParser: НАЧАЛО ПАРСИНГА ОБЪЯВЛЕНИЯ ===');
-        console.log('📍 URL:', window.location.href);
-        console.log('⏰ Время начала:', new Date().toLocaleTimeString());
+        // console.log('🚀 === CianParser: НАЧАЛО ПАРСИНГА ОБЪЯВЛЕНИЯ ===');
+        // console.log('📍 URL:', window.location.href);
+        // console.log('⏰ Время начала:', new Date().toLocaleTimeString());
 
         let data = {};
         let criticalErrors = 0;
@@ -190,7 +190,7 @@ class CianParser {
             data.status = status;
             
             if (status === 'needs_processing') {
-                console.log('❌ Страница недоступна или повреждена, прекращаем парсинг. Статус:', status);
+                // console.log('❌ Страница недоступна или повреждена, прекращаем парсинг. Статус:', status);
                 return null;
             }
             
@@ -207,7 +207,7 @@ class CianParser {
                 }
                 data.external_id = external_id;
             } catch (error) {
-                console.error('❌ Критическая ошибка: не удалось извлечь ID объявления:', error);
+                // console.error('❌ Критическая ошибка: не удалось извлечь ID объявления:', error);
                 criticalErrors++;
                 return null;
             }
@@ -222,7 +222,7 @@ class CianParser {
                 data.title = this.extractTitle();
                 this.debugLog(`📋 Заголовок: "${data.title}"`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь заголовок:', error);
+                // console.warn('⚠️ Не удалось извлечь заголовок:', error);
                 data.title = 'Без названия';
                 optionalWarnings++;
             }
@@ -232,7 +232,7 @@ class CianParser {
                 data.price = this.extractPrice();
                 this.debugLog(`💰 Цена: ${data.price} руб.`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь цену:', error);
+                // console.warn('⚠️ Не удалось извлечь цену:', error);
                 data.price = 0;
                 optionalWarnings++;
             }
@@ -242,7 +242,7 @@ class CianParser {
                 data.description = this.extractDescription();
                 this.debugLog(`📄 Описание (длина): ${data.description ? data.description.length : 0} символов`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь описание:', error);
+                // console.warn('⚠️ Не удалось извлечь описание:', error);
                 data.description = '';
                 optionalWarnings++;
             }
@@ -252,7 +252,7 @@ class CianParser {
                 data.address = this.extractAddress();
                 this.debugLog(`📍 Адрес: "${data.address}"`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь адрес:', error);
+                // console.warn('⚠️ Не удалось извлечь адрес:', error);
                 data.address = '';
                 optionalWarnings++;
             }
@@ -264,7 +264,7 @@ class CianParser {
                 data.room_count = this.extractRoomCount();
                 this.debugLog(`🚪 Количество комнат: ${data.room_count}`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь количество комнат:', error);
+                // console.warn('⚠️ Не удалось извлечь количество комнат:', error);
                 data.room_count = null;
                 optionalWarnings++;
             }
@@ -273,7 +273,7 @@ class CianParser {
                 data.total_area = this.extractTotalArea();
                 this.debugLog(`📐 Общая площадь: ${data.total_area} м²`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь общую площадь:', error);
+                // console.warn('⚠️ Не удалось извлечь общую площадь:', error);
                 data.total_area = null;
                 optionalWarnings++;
             }
@@ -283,7 +283,7 @@ class CianParser {
                 data.total_floors = this.extractTotalFloors();
                 this.debugLog(`🏢 Этаж: ${data.floor} из ${data.total_floors}`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь этаж:', error);
+                // console.warn('⚠️ Не удалось извлечь этаж:', error);
                 data.floor = null;
                 data.total_floors = null;
                 optionalWarnings++;
@@ -296,7 +296,7 @@ class CianParser {
                 data.year_built = this.extractYearBuilt();
                 this.debugLog(`🏗️ Год постройки: ${data.year_built}`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь год постройки:', error);
+                // console.warn('⚠️ Не удалось извлечь год постройки:', error);
                 data.year_built = null;
                 optionalWarnings++;
             }
@@ -305,7 +305,7 @@ class CianParser {
                 data.bathroom_type = this.extractBathroomType();
                 this.debugLog(`🚿 Тип санузла: "${data.bathroom_type}"`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь тип санузла:', error);
+                // console.warn('⚠️ Не удалось извлечь тип санузла:', error);
                 data.bathroom_type = '';
                 optionalWarnings++;
             }
@@ -314,7 +314,7 @@ class CianParser {
                 data.balcony = this.extractBalcony();
                 this.debugLog(`🪟 Балкон: ${data.balcony ? 'есть' : 'нет'}`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь информацию о балконе:', error);
+                // console.warn('⚠️ Не удалось извлечь информацию о балконе:', error);
                 data.balcony = false;
                 optionalWarnings++;
             }
@@ -323,7 +323,7 @@ class CianParser {
                 data.ceiling_height = this.extractCeilingHeight();
                 this.debugLog(`📏 Высота потолков: ${data.ceiling_height} м`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь высоту потолков:', error);
+                // console.warn('⚠️ Не удалось извлечь высоту потолков:', error);
                 data.ceiling_height = null;
                 optionalWarnings++;
             }
@@ -335,7 +335,7 @@ class CianParser {
                 data.price_history = await this.extractPriceHistory();
                 this.debugLog(`📈 История цен: ${data.price_history ? data.price_history.length : 0} записей`);
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь историю цен:', error);
+                // console.warn('⚠️ Не удалось извлечь историю цен:', error);
                 data.price_history = [];
                 optionalWarnings++;
             }
@@ -344,7 +344,7 @@ class CianParser {
             try {
                 data.updated_date = this.extractUpdatedDate();
             } catch (error) {
-                console.warn('⚠️ Не удалось извлечь дату обновления:', error);
+                // console.warn('⚠️ Не удалось извлечь дату обновления:', error);
                 data.updated_date = null;
                 optionalWarnings++;
             }
@@ -352,15 +352,15 @@ class CianParser {
             // ===== 7. ФИНАЛИЗАЦИЯ =====
             data.parsed_at = new Date();
             
-            console.log(`✅ === CianParser: ПАРСИНГ ЗАВЕРШЕН ===`);
-            console.log(`📊 Критических ошибок: ${criticalErrors}`);
-            console.log(`⚠️ Предупреждений: ${optionalWarnings}`);
-            console.log(`⏰ Время завершения: ${new Date().toLocaleTimeString()}`);
+            // console.log(`✅ === CianParser: ПАРСИНГ ЗАВЕРШЕН ===`);
+            // console.log(`📊 Критических ошибок: ${criticalErrors}`);
+            // console.log(`⚠️ Предупреждений: ${optionalWarnings}`);
+            // console.log(`⏰ Время завершения: ${new Date().toLocaleTimeString()}`);
             
             return data;
 
         } catch (error) {
-            console.error('❌ Критическая ошибка парсинга:', error);
+            // console.error('❌ Критическая ошибка парсинга:', error);
             return null;
         }
     }
@@ -741,7 +741,7 @@ class CianParser {
             
             return null;
         } catch (error) {
-            console.error('Ошибка парсинга даты с временем:', error);
+            // console.error('Ошибка парсинга даты с временем:', error);
             return null;
         }
     }
@@ -1171,7 +1171,7 @@ class CianParser {
             
             return new Date(year, month, day);
         } catch (error) {
-            console.error('Ошибка парсинга даты:', error);
+            // console.error('Ошибка парсинга даты:', error);
             return null;
         }
     }
@@ -1186,47 +1186,47 @@ class CianParser {
 
 // Инициализируем парсер только на нужных страницах
 if (window.location.hostname.includes('cian.ru')) {
-  console.log('🚀 Cian parser script loaded!');
-  console.log('Current URL:', window.location.href);
-  console.log('Current hostname:', window.location.hostname);
+  // console.log('🚀 Cian parser script loaded!');
+  // console.log('Current URL:', window.location.href);
+  // console.log('Current hostname:', window.location.hostname);
 
   try {
-    console.log('✅ Hostname matches, creating Cian parser...');
+    // console.log('✅ Hostname matches, creating Cian parser...');
     const parser = new CianParser();
-    console.log('✅ CianParser created successfully');
-    console.log('✅ isListingPage:', parser.isListingPage);
+    // console.log('✅ CianParser created successfully');
+    // console.log('✅ isListingPage:', parser.isListingPage);
 
     // Делаем парсер доступным глобально для отладки
     window.cianParser = parser;
 
   } catch (error) {
-    console.error('❌ Error creating CianParser:', error);
+    // console.error('❌ Error creating CianParser:', error);
   }
 } else {
-  console.log('❌ Wrong hostname, Cian parser not initialized');
+  // console.log('❌ Wrong hostname, Cian parser not initialized');
 }
 
-console.log('✅ Cian parser initialization complete');
+// console.log('✅ Cian parser initialization complete');
 
 // Глобальный обработчик сообщений для совместимости
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('📨 GLOBAL CianParser: Получено сообщение:', request);
+    // console.log('📨 GLOBAL CianParser: Получено сообщение:', request);
     
     if (request.action === 'ping') {
-        console.log('🏓 GLOBAL CianParser: Получен ping, отвечаем pong');
+        // console.log('🏓 GLOBAL CianParser: Получен ping, отвечаем pong');
         sendResponse({ success: true, message: 'pong' });
         return;
     }
     
     if (request.action === 'parseCurrentListing') {
-        console.log('🎯 GLOBAL CianParser: Processing parseCurrentListing');
+        // console.log('🎯 GLOBAL CianParser: Processing parseCurrentListing');
         
         // Проверяем, что это страница объявления
         const url = window.location.href;
         const isListingPage = /\.?cian\.ru\/sale\/flat\/\d+/.test(url);
         
         if (!isListingPage) {
-            console.log('❌ GLOBAL CianParser: Неподходящая страница для парсинга');
+            // console.log('❌ GLOBAL CianParser: Неподходящая страница для парсинга');
             sendResponse({ success: false, error: 'Неподходящая страница для парсинга' });
             return;
         }
@@ -1235,24 +1235,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         let parserInstance = window.cianParserInstance || window.cianParser;
         
         if (!parserInstance) {
-            console.log('🔧 GLOBAL CianParser: Создаем новый экземпляр парсера');
+            // console.log('🔧 GLOBAL CianParser: Создаем новый экземпляр парсера');
             try {
                 parserInstance = new CianParser();
                 window.cianParserInstance = parserInstance;
-                console.log('✅ GLOBAL CianParser: Новый парсер создан успешно');
+                // console.log('✅ GLOBAL CianParser: Новый парсер создан успешно');
             } catch (error) {
-                console.error('❌ GLOBAL CianParser: Ошибка создания парсера:', error);
+                // console.error('❌ GLOBAL CianParser: Ошибка создания парсера:', error);
                 sendResponse({ success: false, error: 'Не удалось создать парсер' });
                 return;
             }
         }
         
         if (parserInstance && parserInstance.parseCurrentListing) {
-            console.log('✅ GLOBAL CianParser: Используем экземпляр парсера');
+            // console.log('✅ GLOBAL CianParser: Используем экземпляр парсера');
             
             parserInstance.parseCurrentListing()
                 .then(data => {
-                    console.log('📊 GLOBAL CianParser: Данные получены:', data);
+                    // console.log('📊 GLOBAL CianParser: Данные получены:', data);
                     if (data) {
                         sendResponse({ success: true, data: data });
                     } else {
@@ -1260,13 +1260,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     }
                 })
                 .catch(error => {
-                    console.error('❌ GLOBAL CianParser: Ошибка парсинга:', error);
+                    // console.error('❌ GLOBAL CianParser: Ошибка парсинга:', error);
                     sendResponse({ success: false, error: error.message || 'Ошибка парсинга' });
                 });
                 
             return true; // Асинхронный ответ
         } else {
-            console.error('❌ GLOBAL CianParser: Парсер недоступен');
+            // console.error('❌ GLOBAL CianParser: Парсер недоступен');
             sendResponse({ success: false, error: 'Парсер недоступен' });
         }
     }

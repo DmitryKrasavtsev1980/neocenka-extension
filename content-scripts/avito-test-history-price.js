@@ -1,6 +1,6 @@
 // Точный поиск кнопки истории цен
 function findPriceHistoryButtonPrecise() {
-    console.log('🎯 === ТОЧНЫЙ ПОИСК КНОПКИ ИСТОРИИ ЦЕН ===');
+    // console.log('🎯 === ТОЧНЫЙ ПОИСК КНОПКИ ИСТОРИИ ЦЕН ===');
 
     // Ищем по классам из разметки
     const selectors = [
@@ -19,13 +19,13 @@ function findPriceHistoryButtonPrecise() {
             // Для простых селекторов
             if (!selector.includes(':contains')) {
                 const elements = document.querySelectorAll(selector);
-                console.log(`Селектор "${selector}": найдено ${elements.length} элементов`);
+                // console.log(`Селектор "${selector}": найдено ${elements.length} элементов`);
 
                 elements.forEach(el => {
                     const text = el.textContent || '';
                     if (text.includes('История цены')) {
                         button = el;
-                        console.log('✅ Найден элемент истории цен:', el);
+                        // console.log('✅ Найден элемент истории цен:', el);
                     }
                 });
             }
@@ -40,9 +40,9 @@ function findPriceHistoryButtonPrecise() {
         allP.forEach(p => {
             if (p.textContent && p.textContent.trim() === 'История цены') {
                 button = p;
-                console.log('✅ Найден элемент по тексту:', p);
-                console.log('  Классы:', p.className);
-                console.log('  Родительский элемент:', p.parentElement);
+                // console.log('✅ Найден элемент по тексту:', p);
+                // console.log('  Классы:', p.className);
+                // console.log('  Родительский элемент:', p.parentElement);
             }
         });
     }
@@ -52,21 +52,21 @@ function findPriceHistoryButtonPrecise() {
 
 // Активация tooltip с историей цен
 function activatePriceHistoryTooltip() {
-    console.log('🚀 === АКТИВАЦИЯ TOOLTIP ИСТОРИИ ЦЕН ===');
+    // console.log('🚀 === АКТИВАЦИЯ TOOLTIP ИСТОРИИ ЦЕН ===');
 
     const button = findPriceHistoryButtonPrecise();
 
     if (!button) {
-        console.log('❌ Кнопка не найдена');
+        // console.log('❌ Кнопка не найдена');
         return;
     }
 
-    console.log('✅ Кнопка найдена, пробуем активировать tooltip...');
+    // console.log('✅ Кнопка найдена, пробуем активировать tooltip...');
 
     // Сначала устанавливаем фокус
     if (button.focus) {
         button.focus();
-        console.log('📍 Фокус установлен');
+        // console.log('📍 Фокус установлен');
     }
 
     // Пробуем разные события
@@ -86,7 +86,7 @@ function activatePriceHistoryTooltip() {
 
     events.forEach((event, index) => {
         setTimeout(() => {
-            console.log(`Отправляем событие ${event.type}`);
+            // console.log(`Отправляем событие ${event.type}`);
             button.dispatchEvent(event);
 
             // Также пробуем на родительский элемент
@@ -99,20 +99,20 @@ function activatePriceHistoryTooltip() {
     // Проверяем изменение aria-expanded
     setTimeout(() => {
         const expanded = button.getAttribute('aria-expanded');
-        console.log('aria-expanded после активации:', expanded);
+        // console.log('aria-expanded после активации:', expanded);
 
         if (expanded === 'true') {
-            console.log('✅ Tooltip активирован!');
+            // console.log('✅ Tooltip активирован!');
             findTooltipContent();
         } else {
-            console.log('⚠️ aria-expanded все еще false, tooltip может не открыться');
+            // console.log('⚠️ aria-expanded все еще false, tooltip может не открыться');
         }
     }, 1000);
 }
 
 // Поиск содержимого tooltip
 function findTooltipContent() {
-    console.log('🔍 === ПОИСК СОДЕРЖИМОГО TOOLTIP ===');
+    // console.log('🔍 === ПОИСК СОДЕРЖИМОГО TOOLTIP ===');
 
     // Ищем tooltip в разных местах
     const tooltipSelectors = [
@@ -141,20 +141,20 @@ function findTooltipContent() {
                  text.includes('июл') || text.includes('авг') || text.includes('сен') ||
                  text.includes('окт') || text.includes('ноя') || text.includes('дек'))) {
 
-                console.log('✅ Найден потенциальный tooltip с историей цен!');
-                console.log('  Селектор:', selector);
-                console.log('  Элемент:', el);
-                console.log('  HTML:', el.innerHTML.substring(0, 500) + '...');
+                // console.log('✅ Найден потенциальный tooltip с историей цен!');
+                // console.log('  Селектор:', selector);
+                // console.log('  Элемент:', el);
+                // console.log('  HTML:', el.innerHTML.substring(0, 500) + '...');
 
                 tooltipFound = true;
                 //parsePriceHistoryData(el);
-                console.log('  HTML:', extractPriceHistory(el));
+                // console.log('  HTML:', extractPriceHistory(el));
             }
         });
     });
 
     if (!tooltipFound) {
-        console.log('❌ Tooltip с историей цен не найден');
+        // console.log('❌ Tooltip с историей цен не найден');
     }
 
     return tooltipFound;
@@ -162,7 +162,7 @@ function findTooltipContent() {
 
 // Парсинг данных истории цен
 function parsePriceHistoryData(tooltipElement) {
-    console.log('📊 === ПАРСИНГ ДАННЫХ ИСТОРИИ ЦЕН ===');
+    // console.log('📊 === ПАРСИНГ ДАННЫХ ИСТОРИИ ЦЕН ===');
 
     const priceHistory = [];
 
@@ -172,11 +172,11 @@ function parsePriceHistoryData(tooltipElement) {
 
     // Получаем весь текст
     const fullText = tooltipElement.textContent;
-    console.log('Полный текст tooltip:', fullText);
+    // console.log('Полный текст tooltip:', fullText);
 
     // Ищем все строки с ценами
     const lines = fullText.split('\n').map(line => line.trim()).filter(line => line);
-    console.log('Строки с ценами:', lines);
+    // console.log('Строки с ценами:', lines);
 
     lines.forEach(line => {
         const priceMatch = line.match(pricePattern);
@@ -193,7 +193,7 @@ function parsePriceHistoryData(tooltipElement) {
                 raw_text: line
             });
 
-            console.log(`📅 ${date}: ${priceMatch[0]}`);
+            // console.log(`📅 ${date}: ${priceMatch[0]}`);
         }
     });
 
@@ -214,7 +214,7 @@ function parsePriceHistoryData(tooltipElement) {
         }
     });
 
-    console.log('\n📈 Итоговая история цен:', priceHistory);
+    // console.log('\n📈 Итоговая история цен:', priceHistory);
 
     // Сохраняем глобально
     window.parsedPriceHistory = priceHistory;
@@ -224,17 +224,17 @@ function parsePriceHistoryData(tooltipElement) {
 
 // Комплексный тест извлечения истории цен
 function testPriceHistoryComplete() {
-    console.log('🧪 === КОМПЛЕКСНЫЙ ТЕСТ ИСТОРИИ ЦЕН ===\n');
+    // console.log('🧪 === КОМПЛЕКСНЫЙ ТЕСТ ИСТОРИИ ЦЕН ===\n');
 
     // Шаг 1: Находим кнопку
     const button = findPriceHistoryButtonPrecise();
     if (!button) {
-        console.log('❌ Тест провален: кнопка не найдена');
+        // console.log('❌ Тест провален: кнопка не найдена');
         return;
     }
 
     // Шаг 2: Запускаем мониторинг DOM
-    console.log('\n📡 Запускаем мониторинг изменений DOM...');
+    // console.log('\n📡 Запускаем мониторинг изменений DOM...');
 
     const observer = new MutationObserver((mutations) => {
         mutations.forEach((mutation) => {
@@ -242,8 +242,8 @@ function testPriceHistoryComplete() {
                 if (node.nodeType === 1) {
                     const text = node.textContent || '';
                     if (text.includes('₽') && (text.includes('янв') || text.includes('фев') || text.includes('мар'))) {
-                        console.log('\n🎯 ОБНАРУЖЕН TOOLTIP!');
-                        console.log('Элемент:', node);
+                        // console.log('\n🎯 ОБНАРУЖЕН TOOLTIP!');
+                        // console.log('Элемент:', node);
                         parsePriceHistoryData(node);
                         observer.disconnect();
                     }
@@ -259,20 +259,20 @@ function testPriceHistoryComplete() {
 
     // Шаг 3: Активируем tooltip
     setTimeout(() => {
-        console.log('\n🖱️ Активируем tooltip...');
+        // console.log('\n🖱️ Активируем tooltip...');
         activatePriceHistoryTooltip();
     }, 500);
 
     // Шаг 4: Проверяем результат
     setTimeout(() => {
         if (!window.parsedPriceHistory || window.parsedPriceHistory.length === 0) {
-            console.log('\n💡 Если автоматическая активация не сработала:');
-            console.log('1. Наведите курсор мыши на текст "История цены" под ценой');
-            console.log('2. Подождите появления tooltip');
-            console.log('3. Затем выполните: findTooltipContent()');
+            // console.log('\n💡 Если автоматическая активация не сработала:');
+            // console.log('1. Наведите курсор мыши на текст "История цены" под ценой');
+            // console.log('2. Подождите появления tooltip');
+            // console.log('3. Затем выполните: findTooltipContent()');
         } else {
-            console.log('\n✅ История цен успешно извлечена!');
-            console.log('Данные доступны в window.parsedPriceHistory');
+            // console.log('\n✅ История цен успешно извлечена!');
+            // console.log('Данные доступны в window.parsedPriceHistory');
         }
 
         observer.disconnect();

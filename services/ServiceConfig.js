@@ -10,7 +10,7 @@ async function loadServiceSettings() {
     try {
         // Используем IndexedDB через объект db, если он доступен
         if (typeof db !== 'undefined' && db.getSetting) {
-            console.log('📋 Loading settings from IndexedDB...');
+            // console.log('📋 Loading settings from IndexedDB...');
             
             const inparsToken = await db.getSetting('inpars_api_token') || '';
             const inparsSourceAvito = await db.getSetting('inpars_source_avito');
@@ -23,8 +23,8 @@ async function loadServiceSettings() {
             if (inparsSourceAvito !== false) enabledSources.push('avito'); // по умолчанию true
             if (inparsSourceCian !== false) enabledSources.push('cian'); // по умолчанию true
             
-            console.log('🔑 Loaded inpars token:', inparsToken ? '***set***' : 'not set');
-            console.log('📡 Enabled sources:', enabledSources);
+            // console.log('🔑 Loaded inpars token:', inparsToken ? '***set***' : 'not set');
+            // console.log('📡 Enabled sources:', enabledSources);
             
             return {
                 inparsToken,
@@ -35,7 +35,7 @@ async function loadServiceSettings() {
         } 
         else if (typeof chrome !== 'undefined' && chrome.storage) {
             // Fallback к chrome.storage для других контекстов
-            console.log('📋 Loading settings from chrome.storage...');
+            // console.log('📋 Loading settings from chrome.storage...');
             const result = await chrome.storage.local.get([
                 'inpars_api_token',
                 'inpars_enabled_sources',
@@ -43,7 +43,7 @@ async function loadServiceSettings() {
                 'parsing_delay_cian'
             ]);
             
-            console.log('🔍 Debug chrome.storage result:', result);
+            // console.log('🔍 Debug chrome.storage result:', result);
             
             return {
                 inparsToken: result.inpars_api_token || '',
@@ -53,7 +53,7 @@ async function loadServiceSettings() {
             };
         } else {
             // Fallback для тестирования
-            console.log('📋 Using fallback settings...');
+            // console.log('📋 Using fallback settings...');
             return {
                 inparsToken: '',
                 inparsEnabledSources: ['avito', 'cian'],
@@ -78,10 +78,7 @@ async function loadServiceSettings() {
 async function createServiceConfig() {
     const settings = await loadServiceSettings();
     
-    console.log('🔍 Debug service config creation:', {
-        inparsToken: settings.inparsToken ? '***set***' : 'empty',
-        inparsEnabledSources: settings.inparsEnabledSources
-    });
+    // console.log('🔍 Debug service config creation:', { inparsToken: settings.inparsToken ? '***set***' : 'empty', inparsEnabledSources: settings.inparsEnabledSources });
 
     return {
         // Внешние API сервисы
@@ -164,7 +161,7 @@ async function initializeServices() {
         // Устанавливаем как глобальный экземпляр
         setServiceManager(manager);
         
-        console.log('✅ Services initialized successfully');
+        // console.log('✅ Services initialized successfully');
         return manager;
         
     } catch (error) {
@@ -179,7 +176,7 @@ async function initializeServices() {
 function setupGlobalEventHandlers(manager) {
     // Общие события
     manager.on('manager:initialized', () => {
-        console.log('🚀 ServiceManager initialized');
+        // console.log('🚀 ServiceManager initialized');
         dispatchGlobalEvent('services:ready', { manager });
     });
     
@@ -191,7 +188,7 @@ function setupGlobalEventHandlers(manager) {
     // События Inpars сервиса
     manager.on('service:initialized', ({ name }) => {
         if (name === 'inpars') {
-            console.log('✅ Inpars service initialized');
+            // console.log('✅ Inpars service initialized');
             dispatchGlobalEvent('inpars:ready');
         }
     });
@@ -289,7 +286,7 @@ async function updateServiceSettings(serviceName, settings) {
             await chrome.storage.local.set(storageData);
         }
         
-        console.log(`✅ Updated settings for service '${serviceName}'`);
+        // console.log(`✅ Updated settings for service '${serviceName}'`);
         
     } catch (error) {
         console.error(`❌ Failed to update settings for service '${serviceName}':`, error);

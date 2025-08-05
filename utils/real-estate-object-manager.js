@@ -27,7 +27,7 @@ class RealEstateObjectManager {
     }
     
     this.initialized = true;
-    console.log('🏠 RealEstateObjectManager инициализирован');
+    // console.log('🏠 RealEstateObjectManager инициализирован');
   }
 
   /**

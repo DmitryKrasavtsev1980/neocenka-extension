@@ -84,13 +84,13 @@ class AddressManager {
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESS_DELETED, async (data) => {
                 // Обновляем таблицу после удаления адреса
                 await this.loadAddresses();
-                console.log('✅ AddressManager: Таблица обновлена после удаления адреса');
+                // console.log('✅ AddressManager: Таблица обновлена после удаления адреса');
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESS_EDIT_REQUESTED, async (address) => {
                 // Обрабатываем запрос на редактирование адреса
                 await this.editAddress(address.id);
-                console.log('✅ AddressManager: Обработан запрос на редактирование адреса:', address.id);
+                // console.log('✅ AddressManager: Обработан запрос на редактирование адреса:', address.id);
             });
         }
         
@@ -287,7 +287,7 @@ class AddressManager {
                 return;
             }
             
-            console.log('🔄 AddressManager: Инициализация таблицы адресов');
+            // console.log('🔄 AddressManager: Инициализация таблицы адресов');
             
             if (this.addressesTable) {
                 this.addressesTable.destroy();
@@ -345,7 +345,7 @@ class AddressManager {
             }
             });
             
-            console.log('✅ AddressManager: Таблица адресов инициализирована');
+            // console.log('✅ AddressManager: Таблица адресов инициализирована');
             
             // Инициализируем фильтр по источнику
             this.initSourceFilter();
@@ -473,7 +473,7 @@ class AddressManager {
             await this.initializeSmartMatcher();
             
             // ОПТИМИЗАЦИЯ: Загружаем все объявления один раз вместо множественных запросов
-            console.log('⚡ Оптимизированная загрузка счетчиков объявлений...');
+            // console.log('⚡ Оптимизированная загрузка счетчиков объявлений...');
             const allListings = await window.db.getAll('listings');
             
             // Группируем объявления по address_id для быстрого подсчета
@@ -505,7 +505,7 @@ class AddressManager {
             // Сохраняем объявления в состояние для использования другими менеджерами
             // Это избежит повторной загрузки в loadListings()
             this.dataState.setState('allListingsCache', allListings);
-            console.log('💾 Кешированы объявления для оптимизации:', allListings.length);
+            // console.log('💾 Кешированы объявления для оптимизации:', allListings.length);
             
             // Обновляем таблицу
             if (this.addressesTable) {
@@ -2443,18 +2443,18 @@ class AddressManager {
      */
     async loadListings() {
         try {
-            console.log('🚀 AddressManager.loadListings: Начинаем загрузку объявлений для области');
-            console.log('🔍 AddressManager.loadListings: DataState экземпляр:', this.dataState);
+            // console.log('🚀 AddressManager.loadListings: Начинаем загрузку объявлений для области');
+            // console.log('🔍 AddressManager.loadListings: DataState экземпляр:', this.dataState);
             await Helpers.debugLog('📋 Загрузка объявлений для области...');
             
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea) {
-                console.log('❌ AddressManager.loadListings: Область не выбрана');
+                // console.log('❌ AddressManager.loadListings: Область не выбрана');
                 await Helpers.debugLog('❌ Область не выбрана для загрузки объявлений');
                 return;
             }
             
-            console.log('📍 AddressManager.loadListings: Область:', currentArea.name, 'ID:', currentArea.id);
+            // console.log('📍 AddressManager.loadListings: Область:', currentArea.name, 'ID:', currentArea.id);
             
             // ОПТИМИЗАЦИЯ: Используем кешированные объявления если доступны
             let allListings = this.dataState.getState('allListingsCache');
@@ -2462,7 +2462,7 @@ class AddressManager {
                 console.log('📦 Загружаем объявления из БД (кеш недоступен)');
                 allListings = await window.db.getAll('listings');
             } else {
-                console.log('⚡ Используем кешированные объявления:', allListings.length);
+                // console.log('⚡ Используем кешированные объявления:', allListings.length);
             }
             let areaListings = [];
             
@@ -2491,7 +2491,7 @@ class AddressManager {
                 for (const listing of debugListings) {
                     if (listing.coordinates) {
                         const isInside = window.db.isPointInPolygon(listing.coordinates, currentArea.polygon);
-                        console.log(`🔍 Отладка: ${listing.title} (${listing.coordinates.lat}, ${listing.coordinates.lng}) -> ${isInside ? 'ВНУТРИ' : 'ВНЕ'} области`);
+                        // console.log(`🔍 Отладка: ${listing.title} (${listing.coordinates.lat}, ${listing.coordinates.lng}) -> ${isInside ? 'ВНУТРИ' : 'ВНЕ'} области`);
                     }
                 }
             } else {
@@ -2506,9 +2506,9 @@ class AddressManager {
             await Helpers.debugLog(`📊 Объявлений для области найдено: ${areaListings.length}`);
             
             // Сохраняем объявления в состояние
-            console.log(`🔧 AddressManager.loadListings: Сохраняем ${areaListings.length} объявлений в DataState`);
+            // console.log(`🔧 AddressManager.loadListings: Сохраняем ${areaListings.length} объявлений в DataState`);
             this.dataState.setState('listings', areaListings);
-            console.log(`✅ AddressManager.loadListings: Объявления сохранены. Проверка:`, this.dataState.getState('listings')?.length);
+            // console.log(`✅ AddressManager.loadListings: Объявления сохранены. Проверка:`, this.dataState.getState('listings')?.length);
             
             // Уведомляем о загрузке объявлений
             this.eventBus.emit(CONSTANTS.EVENTS.LISTINGS_LOADED, {
@@ -3897,7 +3897,7 @@ class AddressManager {
             
             sourceFilterContainer.appendChild(select);
 
-            console.log('🔍 Найдено источников для фильтра:', uniqueSources);
+            // console.log('🔍 Найдено источников для фильтра:', uniqueSources);
 
             // Инициализируем SlimSelect
             this.sourceFilterSlimSelect = new SlimSelect({
@@ -3912,12 +3912,12 @@ class AddressManager {
                         const searchVal = val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '';
                         column.search(searchVal, true, false).draw();
                         
-                        console.log('🔍 Фильтр по источнику изменен:', val || 'Все источники');
+                        // console.log('🔍 Фильтр по источнику изменен:', val || 'Все источники');
                     }
                 }
             });
             
-            console.log('✅ Фильтр по источнику инициализирован');
+            // console.log('✅ Фильтр по источнику инициализирован');
 
         } catch (error) {
             console.error('❌ Ошибка инициализации фильтра по источнику:', error);

@@ -92,7 +92,7 @@ class AreaPage {
         try {
             // UI компоненты инициализируются в HTML
             // Здесь может быть дополнительная логика при необходимости
-            console.log('✅ UI компоненты готовы');
+            // console.log('✅ UI компоненты готовы');
         } catch (error) {
             console.error('Ошибка инициализации UI компонентов:', error);
         }
@@ -103,7 +103,7 @@ class AreaPage {
      */
     async init() {
         try {
-            console.log('🚀 Инициализация страницы управления областью');
+            // console.log('🚀 Инициализация страницы управления областью');
             
             // Инициализация UI компонентов
             await this.initUIComponents();
@@ -124,7 +124,7 @@ class AreaPage {
             // Привязка событий (после инициализации менеджеров и загрузки данных)
             this.bindEvents();
             
-            console.log('✅ Страница управления областью инициализирована');
+            // console.log('✅ Страница управления областью инициализирована');
             
         } catch (error) {
             console.error('❌ Ошибка инициализации страницы:', error);
@@ -154,18 +154,18 @@ class AreaPage {
             // Инициализация RealEstateObjectManager для совместимости со старой архитектурой
             if (typeof RealEstateObjectManager !== 'undefined') {
                 window.realEstateObjectManager = new RealEstateObjectManager();
-                console.log('✅ RealEstateObjectManager инициализирован');
+                // console.log('✅ RealEstateObjectManager инициализирован');
             }
             
             // Инициализация сервисов через ServiceConfig
-            console.log('🔌 initArchitecture: Инициализируем сервисы через ServiceConfig...');
+            // console.log('🔌 initArchitecture: Инициализируем сервисы через ServiceConfig...');
             this.serviceManager = await ServiceConfig.initializeServices();
-            console.log('✅ initArchitecture: Сервисы инициализированы:', !!this.serviceManager);
+            // console.log('✅ initArchitecture: Сервисы инициализированы:', !!this.serviceManager);
             
             // Инициализация интеграции сервисов
             if (typeof initializeAreaServicesIntegration === 'function') {
                 this.servicesIntegration = await initializeAreaServicesIntegration(this);
-                console.log('✅ AreaServicesIntegration инициализирован');
+                // // console.log('✅ AreaServicesIntegration инициализирован');
             } else {
                 console.error('❌ initializeAreaServicesIntegration функция не найдена');
             }
@@ -176,8 +176,8 @@ class AreaPage {
             // Инициализация умного алгоритма определения адресов
             await this.initSmartAddressMatcher();
             
-            console.log('✅ Архитектура инициализирована');
-            console.log('🔧 UIManager создан:', !!this.uiManager);
+            // console.log('✅ Архитектура инициализирована');
+            // // console.log('🔧 UIManager создан:', !!this.uiManager...
             
         } catch (error) {
             console.error('❌ Ошибка инициализации архитектуры:', error);
@@ -189,7 +189,7 @@ class AreaPage {
      */
     async loadAreaData() {
         try {
-            console.log('📊 Загрузка данных области:', this.currentAreaId);
+            // // console.log('📊 Загрузка данных области:', this.currentAreaId);
             
             // Проверка инициализации базы данных
             if (!window.db) {
@@ -225,13 +225,13 @@ class AreaPage {
             // Инициализация ReportsManager
             if (this.reportsManager) {
                 await this.reportsManager.initialize();
-                console.log('✅ ReportsManager инициализирован');
+                // console.log('✅ ReportsManager инициализирован');
             }
             
             // UI элементы будут инициализированы через подписку на событие AREA_LOADED
-            console.log('✅ Событие AREA_LOADED отправлено, менеджеры обработают загрузку');
+            // console.log('✅ Событие AREA_LOADED отправлено, менеджеры обработают загрузку');
             
-            console.log('✅ Данные области загружены:', this.currentArea.name);
+            // // console.log('✅ Данные области загружены:', this.currentArea.name);
             
         } catch (error) {
             console.error('❌ Ошибка загрузки данных области:', error);
@@ -289,14 +289,14 @@ class AreaPage {
      */
     handleModalEvent(data) {
         try {
-            console.log('🔍 Обработка модального события:', data);
+            // console.log('🔍 Обработка модального события...
             
             switch (data.modalType) {
                 case CONSTANTS.MODAL_TYPES.LISTING_DETAIL:
                     this.showListingDetailModal(data.listing);
                     break;
                 default:
-                    console.log('⚠️ Неизвестный тип модального окна:', data.modalType);
+                    // console.log('⚠️ Неизвестный тип модального окна...
             }
         } catch (error) {
             console.error('❌ Ошибка обработки модального события:', error);
@@ -308,7 +308,7 @@ class AreaPage {
      */
     showListingDetailModal(listing) {
         try {
-            console.log('📋 Показываем детали объявления:', listing);
+            // console.log('📋 Показываем детали объявления...
             
             // Используем UIManager для показа модального окна
             if (this.uiManager) {
@@ -332,7 +332,7 @@ class AreaPage {
             const contentElement = document.getElementById('area-content');
             if (contentElement) {
                 contentElement.classList.remove('hidden');
-                console.log('✅ Основной контент отображен');
+                // console.log('✅ Основной контент отображен');
             } else {
                 console.error('❌ Элемент area-content не найден');
             }
@@ -349,7 +349,7 @@ class AreaPage {
             // Подписка на событие инициализации карты
             if (this.eventBus) {
                 this.eventBus.on(CONSTANTS.EVENTS.MAP_INITIALIZED, () => {
-                    console.log('📍 Карта инициализирована');
+                    // console.log('📍 Карта инициализирована...
                 });
                 
                 // Обработчик модальных окон
@@ -361,10 +361,10 @@ class AreaPage {
             // Обработчик кнопки "Редактировать область"
             const editAreaBtn = document.getElementById('editAreaBtn');
             if (editAreaBtn) {
-                console.log('✅ Кнопка редактирования найдена, добавляем обработчик');
+                // console.log('✅ Кнопка редактирования найдена, добавляем обработчик');
                 editAreaBtn.addEventListener('click', (e) => {
                     e.preventDefault();
-                    console.log('🔧 Клик по кнопке редактирования области');
+                    // console.log('🔧 Клик по кнопке...
                     this.openEditAreaModal();
                 });
             } else {
@@ -399,7 +399,7 @@ class AreaPage {
             // Закрытие модальных окон при клике на overlay
             this.bindModalEvents();
             
-            console.log('✅ События привязаны');
+            // console.log('✅ События привязаны');
             
         } catch (error) {
             console.error('❌ Ошибка привязки событий:', error);
@@ -413,7 +413,7 @@ class AreaPage {
         // Кнопка обновления карты обрабатывается в MapManager.js
         // Убрана дублирующая привязка для предотвращения двойных уведомлений
         
-        console.log('✅ Обработчики кнопок карты привязаны');
+        // console.log('✅ Обработчики кнопок карты привязаны');
     }
     
     /**
@@ -435,7 +435,7 @@ class AreaPage {
             if (editAreaForm) {
                 editAreaForm.addEventListener('submit', (e) => {
                     e.preventDefault();
-                    console.log('📝 Отправка формы редактирования области');
+                    // console.log('📝 Отправка формы...
                     this.handleEditAreaSubmit();
                 });
             }
@@ -445,7 +445,7 @@ class AreaPage {
             if (cancelEditArea) {
                 cancelEditArea.addEventListener('click', (e) => {
                     e.preventDefault();
-                    console.log('❌ Отмена редактирования области');
+                    // console.log('❌ Отмена редактирования...
                     this.closeEditAreaModal();
                 });
             }
@@ -491,9 +491,9 @@ class AreaPage {
      */
     openEditAreaModal() {
         try {
-            console.log('🚀 Вызов openEditAreaModal');
-            console.log('📊 currentArea:', this.currentArea);
-            console.log('🔧 uiManager:', this.uiManager);
+            // console.log('🚀 Вызов openEditAreaModal');
+            // console.log('📊 currentArea:', this.currentArea);
+            // console.log('🔧 uiManager:', this.uiManager...
             
             if (!this.currentArea) {
                 console.error('❌ Нет данных области для редактирования');
@@ -505,7 +505,7 @@ class AreaPage {
             const editAvitoUrl = document.getElementById('editAvitoUrl');
             const editCianUrl = document.getElementById('editCianUrl');
             
-            console.log('🔍 Элементы формы:', { editAreaName, editAvitoUrl, editCianUrl });
+            // console.log('🔍 Элементы формы:', { editAreaName, editAvitoUrl, editCianUrl });
             
             if (editAreaName) editAreaName.value = this.currentArea.name || '';
             if (editAvitoUrl) editAvitoUrl.value = this.currentArea.avito_filter_url || '';
@@ -516,10 +516,10 @@ class AreaPage {
             
             // Открытие модального окна
             if (this.uiManager) {
-                console.log('📱 Используем UIManager для открытия модального окна');
+                // console.log('📱 Используем UIManager...
                 this.uiManager.openModal('editAreaModal');
             } else {
-                console.log('📱 Fallback: используем прямое управление DOM');
+                // console.log('📱 Fallback...
                 // Fallback если UIManager не инициализирован
                 const modal = document.getElementById('editAreaModal');
                 if (modal) {
@@ -595,7 +595,7 @@ class AreaPage {
             // Закрытие модального окна
             this.closeEditAreaModal();
             
-            console.log('✅ Область обновлена:', this.currentArea.name);
+            // console.log('✅ Область обновлена:', this.currentArea.name);
             
             // Показать уведомление об успешном сохранении
             if (this.uiManager && this.uiManager.showNotification) {
@@ -697,20 +697,20 @@ class AreaPage {
         try {
             // Инициализируем ML-алгоритм определения адресов
             if (typeof SmartAddressMatcher !== 'undefined' && !window.smartAddressMatcher) {
-                console.log('🧠 Инициализация SmartAddressMatcher...');
+                // console.log('🧠 Инициализация SmartAddressMatcher...');
                 
                 // Инициализируем пространственный индекс если еще не создан
                 if (!window.spatialIndexManager) {
-                    console.log('📍 Создание SpatialIndexManager...');
+                    // console.log('📍 Создание SpatialIndexManager...');
                     window.spatialIndexManager = new SpatialIndexManager();
                 }
                 
                 window.smartAddressMatcher = new SmartAddressMatcher(this.spatialManager || window.spatialIndexManager);
-                console.log('✅ SmartAddressMatcher инициализирован');
+                // console.log('✅ SmartAddressMatcher инициализирован');
             } else if (!window.SmartAddressMatcher && typeof SmartAddressMatcher === 'undefined') {
                 console.warn('⚠️ SmartAddressMatcher класс не найден');
             } else {
-                console.log('✅ SmartAddressMatcher уже инициализирован');
+                // console.log('✅ SmartAddressMatcher уже инициализирован');
             }
         } catch (error) {
             console.error('❌ Ошибка инициализации SmartAddressMatcher:', error);
@@ -722,23 +722,23 @@ class AreaPage {
      */
     initInparsPanel() {
         try {
-            console.log('🔧 initInparsPanel: Начинаем инициализацию панели Inpars');
+            // console.log('🔧 initInparsPanel: Начинаем инициализацию панели Inpars');
             
             const container = document.getElementById('inparsPanelContainer');
-            console.log('📦 initInparsPanel: Контейнер найден:', !!container, container);
+            // console.log('📦 initInparsPanel: Контейнер найден:', !!container, container);
             
             if (!container) {
                 console.error('❌ initInparsPanel: Контейнер inparsPanelContainer не найден');
                 return;
             }
             
-            console.log('🔌 initInparsPanel: ServiceManager доступен:', !!this.serviceManager);
-            console.log('📚 initInparsPanel: InparsPanel класс доступен:', typeof InparsPanel);
+            // console.log('🔌 initInparsPanel: ServiceManager доступен:', !!this.serviceManager);
+            // console.log('📚 initInparsPanel: InparsPanel класс доступен:', typeof InparsPanel);
             
             // Создаем панель Inpars
-            console.log('🔨 initInparsPanel: Создаем экземпляр InparsPanel...');
+            // console.log('🔨 initInparsPanel: Создаем экземпляр InparsPanel...');
             this.inparsPanel = new InparsPanel(container, this.serviceManager);
-            console.log('✅ initInparsPanel: InparsPanel создан:', !!this.inparsPanel);
+            // console.log('✅ initInparsPanel: InparsPanel создан:', !!this.inparsPanel);
             
             // Настраиваем провайдер полигона
             this.inparsPanel.setPolygonProvider(() => {
@@ -749,7 +749,7 @@ class AreaPage {
             // Обработка импорта осуществляется через area_services_integration.js
             // который правильно сохраняет данные в БД и показывает уведомления
             
-            console.log('✅ Панель Inpars инициализирована');
+            // console.log('✅ Панель Inpars инициализирована');
             
         } catch (error) {
             console.error('❌ Ошибка инициализации панели Inpars:', error);

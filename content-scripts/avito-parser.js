@@ -7,10 +7,10 @@ if (typeof AvitoParser === 'undefined') {
 
 class AvitoParser {
     constructor() {
-        //console.log('AvitoParser constructor called');
+        //// console.log('AvitoParser constructor called');
 
         this.isListingPage = this.checkIsListingPage();
-        //console.log('isListingPage:', this.isListingPage);
+        //// console.log('isListingPage:', this.isListingPage);
 
         if (this.isListingPage) {
             this.setupMessageListener();
@@ -19,7 +19,7 @@ class AvitoParser {
             window.avitoParserInstance = this;
             window.AvitoParser = AvitoParser; // Делаем класс глобально доступным
 
-            //console.log('✅ AvitoParser доступен глобально как window.avitoParserInstance');
+            //// console.log('✅ AvitoParser доступен глобально как window.avitoParserInstance');
         }
         this.setupAPIInterception();
         this.foundPriceHistory = null;
@@ -52,18 +52,66 @@ class AvitoParser {
     }
 
     /**
-     * Выводит отладочное сообщение в консоль (если отладка включена)
-     * @param {...any} args - аргументы для console.log
+     * БЕЗОПАСНАЯ отправка debug информации на страницу расширения
+     * НЕ ВЫВОДИТ В КОНСОЛЬ САЙТА для защиты от обнаружения парсинга
+     * @param {string} level - уровень сообщения (debug, info, warn, error)
+     * @param {...any} args - аргументы для логирования
+     */
+    safeLog(level, ...args) {
+        try {
+            const message = {
+                action: 'debugLog',
+                level: level,
+                source: 'avito-parser',
+                url: window.location.href,
+                timestamp: new Date().toISOString(),
+                data: args.map(arg => {
+                    if (typeof arg === 'object') {
+                        try {
+                            return JSON.stringify(arg, null, 2);
+                        } catch (e) {
+                            return '[Object - не удалось сериализовать]';
+                        }
+                    }
+                    return String(arg);
+                })
+            };
+            
+            // Отправляем в background script для пересылки в popup
+            chrome.runtime.sendMessage(message).catch(() => {
+                // Игнорируем ошибки отправки - главное не светиться в консоли сайта
+            });
+        } catch (error) {
+            // Даже ошибки не выводим в консоль сайта для безопасности
+        }
+    }
+
+    /**
+     * Отправка debug сообщений (безопасно)
      */
     debugLog(...args) {
-        // Проверяем доступность глобального отладочного логгера
-        if (window.debugLogger && window.debugLogger.isEnabled()) {
-            window.debugLogger.log(...args);
-        }
-        // Fallback: если логгер недоступен, но пользователь мог включить отладку в localStorage
-        else if (localStorage.getItem('neocenka_debug_mode') === 'true') {
-            console.log('[DEBUG]', ...args);
-        }
+        this.safeLog('debug', ...args);
+    }
+
+    /**
+     * Отправка info сообщений (безопасно)
+     */
+    infoLog(...args) {
+        this.safeLog('info', ...args);
+    }
+
+    /**
+     * Отправка warning сообщений (безопасно)
+     */
+    warnLog(...args) {
+        this.safeLog('warn', ...args);
+    }
+
+    /**
+     * Отправка error сообщений (безопасно)
+     */
+    errorLog(...args) {
+        this.safeLog('error', ...args);
     }
 
     /**
@@ -71,14 +119,14 @@ class AvitoParser {
      */
     checkIsListingPage() {
         const url = window.location.href;
-        // console.log('Checking if listing page, URL:', url);
+        // // console.log('Checking if listing page, URL:', url);
 
         // Проверяем, что это страница квартиры и содержит ID объявления
         const isListingPage = url.includes('/kvartiry/') &&
             url.match(/\/kvartiry\/.*_\d+/) &&
             !url.includes('/list/');
 
-        // console.log('Is listing page:', isListingPage);
+        // // console.log('Is listing page:', isListingPage);
         return isListingPage;
     }
 
@@ -87,18 +135,18 @@ class AvitoParser {
      */
     setupMessageListener() {
         chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-            console.log('📨 Message received:', request);
+            this.debugLog('Message received:', request);
 
             if (request.action === 'parseCurrentListing') {
-                console.log('🎯 Processing parseCurrentListing');
+                this.debugLog('Processing parseCurrentListing');
 
                 if (this.isListingPage) {
-                    console.log('✅ Parser instance available');
+                    this.debugLog('Parser instance available');
 
                     // ВАЖНО: Используем async/await для правильной обработки Promise
                     this.parseCurrentListing()
                         .then(data => {
-                            console.log('📊 Parsed data:', data);
+                            this.debugLog('Parsed data:', data);
 
                             if (data) {
                                 sendResponse({ success: true, data: data });
@@ -107,7 +155,7 @@ class AvitoParser {
                             }
                         })
                         .catch(error => {
-                            console.error('❌ Error in parseCurrentListing:', error);
+                            this.errorLog('Error in parseCurrentListing:', error);
                             sendResponse({ success: false, error: error.message || 'Ошибка парсинга' });
                         });
 
@@ -119,7 +167,7 @@ class AvitoParser {
                 }
 
             } else if (request.action === 'startMassParsing') {
-                console.log('🎯 Processing startMassParsing');
+                // console.log('🎯 Processing startMassParsing');
 
                 // Запускаем массовый парсинг
                 this.startMassParsing(request.settings)
@@ -127,14 +175,14 @@ class AvitoParser {
                         sendResponse({ success: true, data: result });
                     })
                     .catch(error => {
-                        console.error('❌ Error in startMassParsing:', error);
+                        // console.error('❌ Error in startMassParsing:', error);
                         sendResponse({ success: false, error: error.message || 'Ошибка массового парсинга' });
                     });
 
                 return true; // Асинхронный ответ
 
             } else if (request.action === 'parseMassByFilter') {
-                console.log('🎯 Processing parseMassByFilter');
+                // console.log('🎯 Processing parseMassByFilter');
 
                 // Запускаем парсинг по фильтру
                 this.parseMassByFilter(request.areaId)
@@ -142,7 +190,7 @@ class AvitoParser {
                         sendResponse({ success: true, parsed: result.parsed, errors: result.errors });
                     })
                     .catch(error => {
-                        console.error('❌ Error in parseMassByFilter:', error);
+                        // console.error('❌ Error in parseMassByFilter:', error);
                         sendResponse({ success: false, error: error.message || 'Ошибка парсинга по фильтру' });
                     });
 
@@ -158,18 +206,18 @@ class AvitoParser {
      * Обработчик сообщений (альтернативный метод)
      */
     handleMessage(request, sender, sendResponse) {
-        console.log('📨 AvitoParser handleMessage:', request);
+        // console.log('📨 AvitoParser handleMessage:', request);
 
         if (request.action === 'parseCurrentListing') {
-            console.log('🎯 Processing parseCurrentListing');
+            // console.log('🎯 Processing parseCurrentListing');
 
             if (this.isListingPage) {
-                console.log('✅ Parser instance available');
+                // console.log('✅ Parser instance available');
 
                 // ВАЖНО: Используем async/await для правильной обработки Promise
                 this.parseCurrentListing()
                     .then(data => {
-                        console.log('📊 Parsed data:', data);
+                        // console.log('📊 Parsed data:', data);
 
                         if (data) {
                             sendResponse({ success: true, data: data });
@@ -178,7 +226,7 @@ class AvitoParser {
                         }
                     })
                     .catch(error => {
-                        console.error('❌ Error in parseCurrentListing:', error);
+                        // console.error('❌ Error in parseCurrentListing:', error);
                         sendResponse({ success: false, error: error.message || 'Ошибка парсинга' });
                     });
 
@@ -190,7 +238,7 @@ class AvitoParser {
             }
 
         } else if (request.action === 'startMassParsing') {
-            console.log('🎯 Processing startMassParsing');
+            // console.log('🎯 Processing startMassParsing');
 
             // Запускаем массовый парсинг
             this.startMassParsing(request.settings)
@@ -198,7 +246,7 @@ class AvitoParser {
                     sendResponse({ success: true, data: result });
                 })
                 .catch(error => {
-                    console.error('❌ Error in startMassParsing:', error);
+                    // console.error('❌ Error in startMassParsing:', error);
                     sendResponse({ success: false, error: error.message || 'Ошибка массового парсинга' });
                 });
 
@@ -216,9 +264,9 @@ class AvitoParser {
      */
 
     async parseCurrentListing() {
-        console.log('🚀 === НАЧАЛО ПАРСИНГА ОБЪЯВЛЕНИЯ ===');
-        console.log('📍 URL:', window.location.href);
-        console.log('⏰ Время начала:', new Date().toLocaleTimeString());
+        // console.log('🚀 === НАЧАЛО ПАРСИНГА ОБЪЯВЛЕНИЯ ===');
+        // console.log('📍 URL:', window.location.href);
+        // console.log('⏰ Время начала:', new Date().toLocaleTimeString());
 
         // ВАЖНО: Инициализируем переменную data в начале функции
         let data = {};
@@ -232,7 +280,7 @@ class AvitoParser {
             this.debugLog(`📊 Статус объявления: ${status}`);
 
             if (status !== 'active') {
-                console.log('❌ Объявление неактивно, прекращаем парсинг. Статус:', status);
+                // console.log('❌ Объявление неактивно, прекращаем парсинг. Статус:', status);
                 return null;
             }
             this.debugLog('✅ Объявление активно, продолжаем парсинг');
@@ -259,151 +307,151 @@ class AvitoParser {
 
             try {
                 const title = this.extractTitle();
-                //console.log(`📋 Заголовок: "${title}"`);
+                //// console.log(`📋 Заголовок: "${title}"`);
                 if (!title) {
-                    //console.log('⚠️ Заголовок не найден');
+                    //// console.log('⚠️ Заголовок не найден');
                     optionalWarnings++;
                 }
                 data.title = title;
             } catch (error) {
-                console.log('❌ Ошибка извлечения заголовка:', error.message);
+                // console.log('❌ Ошибка извлечения заголовка:', error.message);
                 optionalWarnings++;
                 data.title = null;
             }
 
             try {
                 const address = this.extractAddress();
-                //console.log(`📍 Адрес: "${address}"`);
+                //// console.log(`📍 Адрес: "${address}"`);
                 if (!address) {
-                    //console.log('⚠️ Адрес не найден');
+                    //// console.log('⚠️ Адрес не найден');
                     optionalWarnings++;
                 }
                 data.address = address;
             } catch (error) {
-                console.log('❌ Ошибка извлечения адреса:', error.message);
+                // console.log('❌ Ошибка извлечения адреса:', error.message);
                 optionalWarnings++;
                 data.address = null;
             }
 
             try {
                 const price = this.extractPrice();
-                //console.log(`💰 Цена: ${price ? this.formatPrice(price) : 'НЕ НАЙДЕНА'}`);
+                //// console.log(`💰 Цена: ${price ? this.formatPrice(price) : 'НЕ НАЙДЕНА'}`);
                 if (!price) {
-                    //console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Цена не найдена');
+                    //// console.log('❌ КРИТИЧЕСКАЯ ОШИБКА: Цена не найдена');
                     criticalErrors++;
                 }
                 data.price = price;
             } catch (error) {
-                console.log('❌ Ошибка извлечения цены:', error.message);
+                // console.log('❌ Ошибка извлечения цены:', error.message);
                 criticalErrors++;
                 data.price = null;
             }
 
             // ===== 3. КООРДИНАТЫ И МЕДИА =====
-            //console.log('\n🗺️ === ШАГ 3: КООРДИНАТЫ И МЕДИА ===');
+            //// console.log('\n🗺️ === ШАГ 3: КООРДИНАТЫ И МЕДИА ===');
 
             try {
                 const coordinates = this.extractCoordinates();
-                //console.log(`📍 Координаты: lat=${coordinates?.lat}, lon=${coordinates?.lon}`);
+                //// console.log(`📍 Координаты: lat=${coordinates?.lat}, lon=${coordinates?.lon}`);
                 data.coordinates = coordinates;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения координат:', error.message);
+                // console.log('⚠️ Ошибка извлечения координат:', error.message);
                 optionalWarnings++;
                 data.coordinates = null;
             }
 
             try {
                 const photos = this.extractPhotos();
-                //console.log(`📸 Фотографий: ${photos ? photos.length : 0}`);
+                //// console.log(`📸 Фотографий: ${photos ? photos.length : 0}`);
                 if (photos && photos.length > 0) {
-                    //console.log('📸 Первое фото:', photos[0]?.substring(0, 50) + '...');
+                    //// console.log('📸 Первое фото:', photos[0]?.substring(0, 50) + '...');
                 }
                 data.photos = photos;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения фотографий:', error.message);
+                // console.log('⚠️ Ошибка извлечения фотографий:', error.message);
                 optionalWarnings++;
                 data.photos = [];
             }
 
             // ===== 4. ПАРСИНГ ПЛОЩАДЕЙ =====
-            //console.log('\n📐 === ШАГ 4: ПАРСИНГ ПЛОЩАДЕЙ ===');
+            //// console.log('\n📐 === ШАГ 4: ПАРСИНГ ПЛОЩАДЕЙ ===');
 
             try {
                 const area_total = this.extractTotalArea();
-                //console.log(`📐 Общая площадь: ${area_total} м²`);
+                //// console.log(`📐 Общая площадь: ${area_total} м²`);
                 data.area_total = area_total;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения общей площади:', error.message);
+                // console.log('⚠️ Ошибка извлечения общей площади:', error.message);
                 optionalWarnings++;
                 data.area_total = null;
             }
 
             try {
                 const area_kitchen = this.extractKitchenArea();
-                //console.log(`🍳 Площадь кухни: ${area_kitchen} м²`);
+                //// console.log(`🍳 Площадь кухни: ${area_kitchen} м²`);
                 data.area_kitchen = area_kitchen;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения площади кухни:', error.message);
+                // console.log('⚠️ Ошибка извлечения площади кухни:', error.message);
                 optionalWarnings++;
                 data.area_kitchen = null;
             }
 
             try {
                 const area_living = this.extractLivingArea();
-                //console.log(`🏠 Жилая площадь: ${area_living} м²`);
+                //// console.log(`🏠 Жилая площадь: ${area_living} м²`);
                 data.area_living = area_living;
-                //console.log('✅ Найдены площади: общая, кухня, жилая');
+                //// console.log('✅ Найдены площади: общая, кухня, жилая');
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения жилой площади:', error.message);
+                // console.log('⚠️ Ошибка извлечения жилой площади:', error.message);
                 optionalWarnings++;
                 data.area_living = null;
             }
 
             // ===== 5. ЭТАЖИ И КОМНАТЫ =====
-            //console.log('\n🏢 === ШАГ 5: ЭТАЖИ И КОМНАТЫ ===');
+            //// console.log('\n🏢 === ШАГ 5: ЭТАЖИ И КОМНАТЫ ===');
 
             try {
                 const floor = this.extractFloor();
-                //console.log(`🏢 Этаж: ${floor}`);
+                //// console.log(`🏢 Этаж: ${floor}`);
                 data.floor = floor;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения этажа:', error.message);
+                // console.log('⚠️ Ошибка извлечения этажа:', error.message);
                 optionalWarnings++;
                 data.floor = null;
             }
 
             try {
                 const total_floors = this.extractFloorsTotal();
-                //console.log(`🏗️ Этажность: ${total_floors}`);
+                //// console.log(`🏗️ Этажность: ${total_floors}`);
                 data.total_floors = total_floors;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения этажности:', error.message);
+                // console.log('⚠️ Ошибка извлечения этажности:', error.message);
                 optionalWarnings++;
                 data.total_floors = null;
             }
 
             try {
                 const rooms = this.extractRooms();
-                //console.log(`🚪 Комнат: ${rooms}`);
+                //// console.log(`🚪 Комнат: ${rooms}`);
                 data.rooms = rooms;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения количества комнат:', error.message);
+                // console.log('⚠️ Ошибка извлечения количества комнат:', error.message);
                 optionalWarnings++;
                 data.rooms = null;
             }
 
             try {
                 const property_type = this.extractPropertyType();
-                //console.log(`🏠 Тип недвижимости: ${property_type}`);
+                //// console.log(`🏠 Тип недвижимости: ${property_type}`);
                 data.property_type = property_type;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения типа недвижимости:', error.message);
+                // console.log('⚠️ Ошибка извлечения типа недвижимости:', error.message);
                 optionalWarnings++;
                 data.property_type = null;
             }
 
             // ===== 6. ДОПОЛНИТЕЛЬНЫЕ ХАРАКТЕРИСТИКИ =====
-            //console.log('\n🔧 === ШАГ 6: ДОПОЛНИТЕЛЬНЫЕ ХАРАКТЕРИСТИКИ ===');
+            //// console.log('\n🔧 === ШАГ 6: ДОПОЛНИТЕЛЬНЫЕ ХАРАКТЕРИСТИКИ ===');
 
             const additionalParams = [
                 { key: 'renovation', param: 'Ремонт', emoji: '🔧' },
@@ -417,105 +465,105 @@ class AvitoParser {
             additionalParams.forEach(({ key, param, emoji }) => {
                 try {
                     const value = this.findParamValue(param);
-                    //console.log(`${emoji} ${param}: ${value || '❌ НЕ УКАЗАН'}`);
+                    //// console.log(`${emoji} ${param}: ${value || '❌ НЕ УКАЗАН'}`);
                     data[key] = value;
                 } catch (error) {
-                    console.log(`⚠️ Ошибка извлечения ${param}:`, error.message);
+                    // console.log(`⚠️ Ошибка извлечения ${param}:`, error.message);
                     optionalWarnings++;
                     data[key] = null;
                 }
             });
 
             // ===== 7. ИНФОРМАЦИЯ О ПРОДАВЦЕ =====
-            //console.log('\n👤 === ШАГ 7: ИНФОРМАЦИЯ О ПРОДАВЦЕ ===');
+            //// console.log('\n👤 === ШАГ 7: ИНФОРМАЦИЯ О ПРОДАВЦЕ ===');
 
             try {
                 const seller_name = this.extractSellerName();
-                //console.log(`👤 Имя продавца: "${seller_name}"`);
+                //// console.log(`👤 Имя продавца: "${seller_name}"`);
                 data.seller_name = seller_name;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения имени продавца:', error.message);
+                // console.log('⚠️ Ошибка извлечения имени продавца:', error.message);
                 optionalWarnings++;
                 data.seller_name = null;
             }
 
             try {
                 const seller_type = this.extractSellerType();
-                //console.log(`🏢 Тип продавца: "${seller_type}"`);
+                //// console.log(`🏢 Тип продавца: "${seller_type}"`);
                 data.seller_type = seller_type;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения типа продавца:', error.message);
+                // console.log('⚠️ Ошибка извлечения типа продавца:', error.message);
                 optionalWarnings++;
                 data.seller_type = null;
             }
 
             // ===== 8. ДАТЫ И МЕТРИКИ =====
-            //console.log('\n📊 === ШАГ 8: ДАТЫ И МЕТРИКИ ===');
+            //// console.log('\n📊 === ШАГ 8: ДАТЫ И МЕТРИКИ ===');
 
             try {
                 const listing_date = this.extractListingDate();
-                //console.log(`📅 Дата размещения: ${listing_date || '❌ НЕ НАЙДЕНА'}`);
+                //// console.log(`📅 Дата размещения: ${listing_date || '❌ НЕ НАЙДЕНА'}`);
                 data.listing_date = listing_date;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения даты размещения:', error.message);
+                // console.log('⚠️ Ошибка извлечения даты размещения:', error.message);
                 optionalWarnings++;
                 data.listing_date = null;
             }
 
             try {
                 const last_update_date = this.extractUpdateDate();
-                //console.log(`🔄 Дата обновления: ${last_update_date || '❌ НЕ НАЙДЕНА'}`);
+                //// console.log(`🔄 Дата обновления: ${last_update_date || '❌ НЕ НАЙДЕНА'}`);
                 data.last_update_date = last_update_date;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения даты обновления:', error.message);
+                // console.log('⚠️ Ошибка извлечения даты обновления:', error.message);
                 optionalWarnings++;
                 data.last_update_date = null;
             }
 
             try {
                 const views_count = this.extractViewsCount();
-                //console.log(`👀 Просмотров: ${views_count}`);
+                //// console.log(`👀 Просмотров: ${views_count}`);
                 data.views_count = views_count;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения количества просмотров:', error.message);
+                // console.log('⚠️ Ошибка извлечения количества просмотров:', error.message);
                 optionalWarnings++;
                 data.views_count = null;
             }
 
             try {
                 const description = this.extractDescription();
-                //console.log(`📄 Описание: ${description ? description.substring(0, 100) + '...' : '❌ НЕ НАЙДЕНО'}`);
+                //// console.log(`📄 Описание: ${description ? description.substring(0, 100) + '...' : '❌ НЕ НАЙДЕНО'}`);
                 data.description = description;
             } catch (error) {
-                console.log('⚠️ Ошибка извлечения описания:', error.message);
+                // console.log('⚠️ Ошибка извлечения описания:', error.message);
                 optionalWarnings++;
                 data.description = null;
             }
 
             // ===== 8.5. ПАРСИНГ ИСТОРИИ ЦЕН =====
-            console.log('\n💰 === ШАГ 8.5: ПАРСИНГ ИСТОРИИ ЦЕН ===');
+            this.debugLog('\n💰 === ШАГ 8.5: ПАРСИНГ ИСТОРИИ ЦЕН ===');
 
             try {
                 const priceHistory = await this.parsePriceHistoryEnhanced();
                 if (priceHistory && priceHistory.length > 0) {
-                    console.log('✅ История цен найдена:', priceHistory);
+                    this.infoLog('✅ История цен найдена:', priceHistory);
                     data.price_history = priceHistory;
                 } else {
-                    console.log('❌ История цен не найдена');
+                    this.warnLog('❌ История цен не найдена');
                     data.price_history = [];
                 }
             } catch (error) {
-                console.log('❌ Ошибка при парсинге истории цен:', error.message);
+                this.errorLog('❌ Ошибка при парсинге истории цен:', error.message);
                 optionalWarnings++;
                 data.price_history = [];
             }
 
             // ===== 9. ОБЯЗАТЕЛЬНЫЕ ПОЛЯ =====
-            //console.log('\n🛠️ === ШАГ 9: УСТАНОВКА ОБЯЗАТЕЛЬНЫХ ПОЛЕЙ ===');
+            //// console.log('\n🛠️ === ШАГ 9: УСТАНОВКА ОБЯЗАТЕЛЬНЫХ ПОЛЕЙ ===');
 
             // Очищаем URL от context параметров
             data.url = this.cleanUrl(window.location.href);
-            //console.log(`🔗 Очищенный URL: ${data.url}`);
+            //// console.log(`🔗 Очищенный URL: ${data.url}`);
 
             // Устанавливаем источник
             data.source = 'avito';
@@ -549,43 +597,43 @@ class AvitoParser {
 
                 if (earliestDate) {
                     data.listing_date = earliestDate;
-                    // console.log(`📅 Дата создания объявления установлена из истории цен: ${earliestDate.toLocaleDateString()}`);
+                    // // console.log(`📅 Дата создания объявления установлена из истории цен: ${earliestDate.toLocaleDateString()}`);
                 } else {
                     data.listing_date = new Date();
-                    console.log('⚠️ Не удалось определить дату из истории цен, используем текущую дату');
+                    // console.log('⚠️ Не удалось определить дату из истории цен, используем текущую дату');
                 }
             } else {
                 // Если истории цен нет, используем текущую дату
                 data.listing_date = new Date();
-                console.log('⚠️ История цен не найдена, используем текущую дату');
+                // console.log('⚠️ История цен не найдена, используем текущую дату');
             }
 
-            console.log('✅ Обязательные поля установлены');
-            //console.log('✅ Обязательные поля установлены');
+            // console.log('✅ Обязательные поля установлены');
+            //// console.log('✅ Обязательные поля установлены');
 
             // ===== ИТОГОВЫЙ ОТЧЕТ =====
-            //console.log('\n📊 === ИТОГОВЫЙ ОТЧЕТ ПАРСИНГА ===');
-            //console.log(`⏰ Время завершения: ${new Date().toLocaleTimeString()}`);
-            //console.log(`✅ Критических ошибок: ${criticalErrors}`);
-            //console.log(`⚠️ Предупреждений: ${optionalWarnings}`);
-            //console.log(`📊 Статус: ${criticalErrors > 0 ? '❌ ОШИБКА' : optionalWarnings > 0 ? '⚠️ С ПРЕДУПРЕЖДЕНИЯМИ' : '✅ УСПЕШНО'}`);
+            //// console.log('\n📊 === ИТОГОВЫЙ ОТЧЕТ ПАРСИНГА ===');
+            //// console.log(`⏰ Время завершения: ${new Date().toLocaleTimeString()}`);
+            //// console.log(`✅ Критических ошибок: ${criticalErrors}`);
+            //// console.log(`⚠️ Предупреждений: ${optionalWarnings}`);
+            //// console.log(`📊 Статус: ${criticalErrors > 0 ? '❌ ОШИБКА' : optionalWarnings > 0 ? '⚠️ С ПРЕДУПРЕЖДЕНИЯМИ' : '✅ УСПЕШНО'}`);
 
             if (criticalErrors > 0) {
-                console.log('🚨 ВНИМАНИЕ: Есть критические ошибки! Объявление может быть сохранено некорректно.');
+                // console.log('🚨 ВНИМАНИЕ: Есть критические ошибки! Объявление может быть сохранено некорректно.');
             }
 
-            //console.log('\n📋 === ФИНАЛЬНЫЕ ДАННЫЕ ===');
-            //console.log('📊 Объект данных:', data);
-            //console.log('🏁 === КОНЕЦ ПАРСИНГА ОБЪЯВЛЕНИЯ ===\n');
+            //// console.log('\n📋 === ФИНАЛЬНЫЕ ДАННЫЕ ===');
+            //// console.log('📊 Объект данных:', data);
+            //// console.log('🏁 === КОНЕЦ ПАРСИНГА ОБЪЯВЛЕНИЯ ===\n');
 
             return data;
 
         } catch (error) {
-            console.log('\n💥 === КРИТИЧЕСКАЯ ОШИБКА ===');
-            console.error('❌ Критическая ошибка парсинга объявления:', error);
-            console.error('📍 Stack trace:', error.stack);
-            console.log('⏰ Время ошибки:', new Date().toLocaleTimeString());
-            console.log('🔚 === КОНЕЦ С ОШИБКОЙ ===\n');
+            // console.log('\n💥 === КРИТИЧЕСКАЯ ОШИБКА ===');
+            // console.error('❌ Критическая ошибка парсинга объявления:', error);
+            // console.error('📍 Stack trace:', error.stack);
+            // console.log('⏰ Время ошибки:', new Date().toLocaleTimeString());
+            // console.log('🔚 === КОНЕЦ С ОШИБКОЙ ===\n');
             
             // Отправляем отчет об ошибке в Telegram
             if (typeof reportParsingError === 'function') {
@@ -640,7 +688,7 @@ class AvitoParser {
      * ДОПОЛНИТЕЛЬНЫЙ метод для быстрой диагностики всех полей
      */
     quickDiagnostic() {
-        //console.log('🔍 === БЫСТРАЯ ДИАГНОСТИКА ===');
+        //// console.log('🔍 === БЫСТРАЯ ДИАГНОСТИКА ===');
 
         const results = {
             external_id: this.extractExternalId(),
@@ -653,7 +701,7 @@ class AvitoParser {
             rooms: this.extractRooms()
         };
 
-        console.table(results);
+        // console.table(results);
         return results;
     }
 
@@ -666,10 +714,10 @@ class AvitoParser {
         const hasPrice = !!document.querySelector('[data-marker="item-view/item-price"]');
         const hasParams = !!document.querySelector('#bx_item-params') || !!document.querySelector('.params-paramsList-_awNW');
 
-        //console.log('🔍 Проверка готовности страницы:');
-        //console.log('  📋 Заголовок найден:', hasTitle);
-        //console.log('  💰 Цена найдена:', hasPrice);
-        //console.log('  📊 Параметры найдены:', hasParams);
+        //// console.log('🔍 Проверка готовности страницы:');
+        //// console.log('  📋 Заголовок найден:', hasTitle);
+        //// console.log('  💰 Цена найдена:', hasPrice);
+        //// console.log('  📊 Параметры найдены:', hasParams);
 
         return hasTitle && hasPrice;
     }
@@ -707,13 +755,13 @@ class AvitoParser {
 
     // Метод для парсинга истории цен в классе AvitoParser
     async parsePriceHistoryEnhanced() {
-        console.log('💰 === ПАРСИНГ ИСТОРИИ ЦЕН (ENHANCED) ===');
+        this.debugLog('=== ПАРСИНГ ИСТОРИИ ЦЕН (ENHANCED) ===');
 
         try {
             // Находим кнопку истории цен
             const button = this.findPriceHistoryButtonPrecise();
             if (!button) {
-                console.log('❌ Кнопка истории цен не найдена');
+                this.warnLog('❌ Кнопка истории цен не найдена');
                 
                 // Отправляем отчет об ошибке в Telegram
                 if (typeof reportSelectorError === 'function') {
@@ -732,7 +780,7 @@ class AvitoParser {
                 return [];
             }
 
-            console.log('✅ Кнопка найдена, активируем tooltip...');
+            this.infoLog('✅ Кнопка найдена, активируем tooltip...');
 
             // Активируем tooltip с правильными событиями
             return new Promise((resolve) => {
@@ -753,7 +801,7 @@ class AvitoParser {
                                         text.includes('июл') || text.includes('авг') || text.includes('сен') ||
                                         text.includes('окт') || text.includes('ноя') || text.includes('дек'))) {
 
-                                    console.log('✅ Tooltip с историей цен обнаружен!');
+                                    this.infoLog('✅ Tooltip с историей цен обнаружен!');
                                     resolved = true;
                                     observer.disconnect();
 
@@ -779,14 +827,14 @@ class AvitoParser {
                     if (!resolved) {
                         resolved = true;
                         observer.disconnect();
-                        console.log('⏱️ Таймаут ожидания tooltip');
+                        this.warnLog('⏱️ Таймаут ожидания tooltip');
                         resolve([]);
                     }
                 }, 5000); // Увеличиваем таймаут до 5 секунд
             });
 
         } catch (error) {
-            console.error('❌ Ошибка при парсинге истории цен:', error);
+            this.errorLog('❌ Ошибка при парсинге истории цен:', error);
             return [];
         }
     }
@@ -795,14 +843,19 @@ class AvitoParser {
      * Точный поиск кнопки истории цен
      */
     findPriceHistoryButtonPrecise() {
-        console.log('🎯 === ТОЧНЫЙ ПОИСК КНОПКИ ИСТОРИИ ЦЕН ===');
+        this.debugLog('=== ТОЧНЫЙ ПОИСК КНОПКИ ИСТОРИИ ЦЕН ===');
 
-        // Ищем по классам из разметки
+        // Обновленные селекторы под новую вёрстку 2025
         const selectors = [
+            // Точный селектор из новой вёрстки
+            'p[aria-haspopup="true"][aria-expanded="false"][tabindex="0"].T7ujv.Tdsqf.dsi88.cujIu.aStJv',
+            'div.K5h5l.price-history-entry-point-iKhax p[tabindex="0"]',
+            
+            // Старые селекторы для совместимости
             'p.T7ujv.Tdsqf.dsi88.cujIu.aStJv',
-            'div.K5h5l p[tabindex="0"]',
+            'div.K5h5l p[tabindex="0"]', 
             'p[aria-haspopup="true"][aria-expanded="false"]',
-            '.price-history-entry-point-iKhax',
+            '.price-history-entry-point-iKhax p',
             '.K5h5l.price-history-entry-point-iKhax',
             '[class*="price-history-entry-point"]'
         ];
@@ -812,29 +865,43 @@ class AvitoParser {
         for (const selector of selectors) {
             try {
                 const elements = document.querySelectorAll(selector);
-                console.log(`Селектор "${selector}": найдено ${elements.length} элементов`);
+                this.debugLog(`Селектор "${selector}": найдено ${elements.length} элементов`);
 
                 elements.forEach(el => {
                     const text = el.textContent || '';
                     if (text.includes('история цены') || text.includes('История цены')) {
                         button = el;
-                        console.log('✅ Найден элемент истории цен:', el);
+                        this.debugLog('✅ Найден элемент истории цен:', el);
+                        this.debugLog('  📝 Текст:', text);
+                        this.debugLog('  🏷️ Классы:', el.className);
+                        this.debugLog('  📋 aria-haspopup:', el.getAttribute('aria-haspopup'));
+                        this.debugLog('  📋 aria-expanded:', el.getAttribute('aria-expanded'));
+                        this.debugLog('  📋 tabindex:', el.getAttribute('tabindex'));
                     }
                 });
             } catch (e) {
-                // Игнорируем ошибки
+                this.warnLog(`⚠️ Ошибка в селекторе "${selector}":`, e.message);
             }
         }
 
         // Если не нашли, ищем по тексту
         if (!button) {
+            this.debugLog('🔍 Поиск по тексту...');
             const allP = document.querySelectorAll('p');
             allP.forEach(p => {
                 if (p.textContent && (p.textContent.includes('история цены') || p.textContent.includes('История цены'))) {
                     button = p;
-                    console.log('✅ Найден элемент по тексту:', p);
+                    this.debugLog('✅ Найден элемент по тексту:', p);
                 }
             });
+        }
+
+        if (!button) {
+            this.warnLog('❌ Кнопка не найдена. Отладочная информация:');
+            this.debugLog('  📊 Всего p элементов:', document.querySelectorAll('p').length);
+            this.debugLog('  📊 Элементов с tabindex:', document.querySelectorAll('[tabindex]').length);
+            this.debugLog('  📊 Элементов с aria-haspopup:', document.querySelectorAll('[aria-haspopup]').length);
+            this.debugLog('  📊 Элементов .price-history-entry-point-iKhax:', document.querySelectorAll('.price-history-entry-point-iKhax').length);
         }
 
         return button;
@@ -844,59 +911,119 @@ class AvitoParser {
      * Улучшенная активация tooltip истории цен
      */
     activatePriceHistoryTooltipImproved(button) {
-        console.log('🚀 === АКТИВАЦИЯ TOOLTIP ИСТОРИИ ЦЕН ===');
+        this.debugLog('🚀 === АКТИВАЦИЯ TOOLTIP ИСТОРИИ ЦЕН ===');
+        this.debugLog('🎯 Кнопка для активации:', button);
+        this.debugLog('📋 Начальное значение aria-expanded:', button.getAttribute('aria-expanded'));
+
+        // Получаем координаты центра кнопки
+        const rect = button.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        this.debugLog('📐 Координаты кнопки:', { x: centerX, y: centerY, rect });
 
         // Сначала устанавливаем фокус
         if (button.focus) {
             button.focus();
-            console.log('📍 Фокус установлен');
+            this.debugLog('📍 Фокус установлен');
         }
 
-        // Пробуем разные события
+        // Пробуем разные события с правильными координатами
         const events = [
-            new MouseEvent('mouseenter', { bubbles: true, cancelable: true, view: window }),
-            new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }),
-            new PointerEvent('pointerenter', { bubbles: true, cancelable: true }),
-            new PointerEvent('pointerover', { bubbles: true, cancelable: true }),
+            new MouseEvent('mouseenter', { 
+                bubbles: true, 
+                cancelable: true, 
+                view: window,
+                clientX: centerX,
+                clientY: centerY
+            }),
+            new MouseEvent('mouseover', { 
+                bubbles: true, 
+                cancelable: true, 
+                view: window,
+                clientX: centerX,
+                clientY: centerY
+            }),
+            new PointerEvent('pointerenter', { 
+                bubbles: true, 
+                cancelable: true,
+                pointerId: 1,
+                clientX: centerX,
+                clientY: centerY
+            }),
+            new PointerEvent('pointerover', { 
+                bubbles: true, 
+                cancelable: true,
+                pointerId: 1,
+                clientX: centerX,
+                clientY: centerY
+            }),
             new MouseEvent('mousemove', {
                 bubbles: true,
                 cancelable: true,
                 view: window,
-                clientX: button.getBoundingClientRect().left + 10,
-                clientY: button.getBoundingClientRect().top + 10
+                clientX: centerX,
+                clientY: centerY
             })
         ];
 
         events.forEach((event, index) => {
             setTimeout(() => {
-                console.log(`Отправляем событие ${event.type}`);
+                this.debugLog(`${index + 1}️⃣ Отправляем событие ${event.type} на кнопку`);
                 button.dispatchEvent(event);
 
-                // Также пробуем на родительский элемент
+                // Также пробуем на родительский элемент (.K5h5l.price-history-entry-point-iKhax)
                 if (button.parentElement) {
+                    this.debugLog(`${index + 1}️⃣ Отправляем событие ${event.type} на родителя`);
                     button.parentElement.dispatchEvent(event);
+                    
+                    // И на контейнер цены (.M3D7I.AWOsK.AhRNo)
+                    if (button.parentElement.parentElement) {
+                        this.debugLog(`${index + 1}️⃣ Отправляем событие ${event.type} на контейнер`);
+                        button.parentElement.parentElement.dispatchEvent(event);
+                    }
                 }
-            }, index * 100);
+            }, index * 150); // Увеличиваем задержку
         });
 
-        // Проверяем изменение aria-expanded через секунду
+        // Дополнительно пробуем click события
+        setTimeout(() => {
+            this.debugLog('6️⃣ Пробуем click событие...');
+            const clickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: centerX,
+                clientY: centerY
+            });
+            button.dispatchEvent(clickEvent);
+        }, events.length * 150);
+
+        // Проверяем изменения через 2 секунды
         setTimeout(() => {
             const expanded = button.getAttribute('aria-expanded');
-            console.log('aria-expanded после активации:', expanded);
+            this.debugLog('🔍 aria-expanded после активации:', expanded);
 
             if (expanded === 'true') {
-                console.log('✅ Tooltip активирован!');
+                this.infoLog('✅ Tooltip активирован! aria-expanded изменился на true');
             } else {
-                console.log('⚠️ aria-expanded все еще false, tooltip может не открыться');
+                this.warnLog('⚠️ aria-expanded все еще false');
+                
+                // Дополнительная отладка
+                this.debugLog('🔍 Дополнительная информация:');
+                this.debugLog('  📋 Классы кнопки:', button.className);
+                this.debugLog('  📋 Все атрибуты кнопки:', button.attributes);
+                this.debugLog('  📋 Родительский элемент:', button.parentElement);
+                this.debugLog('  📋 Стили кнопки:', getComputedStyle(button));
             }
-        }, 1000);
+        }, 2000);
     }
 
     /**
      * Извлечение истории цен из tooltip с точным парсингом
      */
     extractPriceHistoryFromTooltip(element) {
-        console.log('📊 === ИЗВЛЕЧЕНИЕ ИСТОРИИ ЦЕН ИЗ TOOLTIP ===');
+        this.debugLog('=== ИЗВЛЕЧЕНИЕ ИСТОРИИ ЦЕН ИЗ TOOLTIP ===');
 
         const priceHistory = [];
         const now = new Date();
@@ -911,7 +1038,21 @@ class AvitoParser {
         };
 
         try {
-            // Находим все блоки с записями об изменении цены
+            // Сначала пробуем извлечь из текстового содержимого (новый формат 2025)
+            const tooltipText = element.textContent || '';
+            this.debugLog('📝 Содержимое tooltip:', tooltipText);
+            
+            // Пример: "30 июля 9 000 000 ₽ПубликацияСледить за ценой"
+            if (tooltipText && tooltipText.includes('₽')) {
+                const textHistory = this.parseHistoryFromText(tooltipText);
+                if (textHistory.length > 0) {
+                    this.debugLog('✅ Извлечена история из текста:', textHistory);
+                    return textHistory;
+                }
+            }
+            
+            // Если текстовый парсинг не сработал, пробуем старый способ через DOM селекторы
+            this.debugLog('🔍 Пробуем DOM селекторы...');
             const historyEntries = element.querySelectorAll('div[style*="--module-spacer-column-gap: var(--theme-gap-0)"]');
 
             let prevYear = currentYear;
@@ -980,15 +1121,96 @@ class AvitoParser {
             // Сортируем по дате (от новых к старым)
             priceHistory.sort((a, b) => b.timestamp - a.timestamp);
 
-            console.log('📈 Найдено записей истории цен:', priceHistory.length);
+            // console.log('📈 Найдено записей истории цен:', priceHistory.length);
             priceHistory.forEach(entry => {
-                console.log(`  📅 ${entry.date}: ${entry.price}${entry.change ? ` (${entry.change})` : ''}`);
+                // console.log(`  📅 ${entry.date}: ${entry.price}${entry.change ? ` (${entry.change})` : ''}`);
             });
 
             return priceHistory;
 
         } catch (error) {
-            console.error('❌ Ошибка извлечения истории цен:', error);
+            this.errorLog('❌ Ошибка извлечения истории цен:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Парсинг истории цены из текстового содержимого tooltip (формат 2025)
+     * @param {string} text - текст типа "30 июля 9 000 000 ₽ПубликацияСледить за ценой"
+     * @returns {Array} массив записей истории цены
+     */
+    parseHistoryFromText(text) {
+        this.debugLog('📝 === ПАРСИНГ ИСТОРИИ ИЗ ТЕКСТА ===');
+        this.debugLog('🔤 Исходный текст:', text);
+        
+        const priceHistory = [];
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        
+        // Словарь месяцев
+        const monthMap = {
+            'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4,
+            'мая': 5, 'июня': 6, 'июля': 7, 'августа': 8,
+            'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12
+        };
+        
+        try {
+            // Паттерн для поиска записей: "число месяц цена₽"
+            // Пример: "30 июля 9 000 000 ₽"
+            const pattern = /(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+([\d\s]+)\s*₽/g;
+            
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const day = parseInt(match[1]);
+                const monthName = match[2];
+                const priceStr = match[3];
+                
+                // Очищаем цену от пробелов и парсим
+                const cleanPrice = priceStr.replace(/\s/g, '');
+                const price = parseInt(cleanPrice);
+                
+                if (!isNaN(day) && monthName && !isNaN(price)) {
+                    const monthNum = monthMap[monthName];
+                    
+                    // Определяем год (если месяц больше текущего, то прошлый год)
+                    let year = currentYear;
+                    if (monthNum > now.getMonth() + 1) {
+                        year = currentYear - 1;
+                    }
+                    
+                    const formattedDate = `${day.toString().padStart(2, '0')}.${monthNum.toString().padStart(2, '0')}.${year}`;
+                    const timestamp = new Date(year, monthNum - 1, day).getTime();
+                    
+                    // Проверяем, является ли это публикацией
+                    const isPublication = text.includes('Публикация');
+                    
+                    const historyEntry = {
+                        date: `${day} ${monthName}`,
+                        fullDate: formattedDate,
+                        year: year,
+                        price: `${price.toLocaleString('ru-RU')} ₽`,
+                        priceNumeric: price,
+                        change: null,
+                        changeType: null,
+                        isPublication: isPublication,
+                        timestamp: timestamp
+                    };
+                    
+                    priceHistory.push(historyEntry);
+                    
+                    this.debugLog(`📅 Найдена запись: ${historyEntry.date} - ${historyEntry.price}${isPublication ? ' (Публикация)' : ''}`);
+                }
+            }
+            
+            // Сортируем по дате (от новых к старым)
+            priceHistory.sort((a, b) => b.timestamp - a.timestamp);
+            
+            this.debugLog(`📈 Найдено записей истории цен: ${priceHistory.length}`);
+            
+            return priceHistory;
+            
+        } catch (error) {
+            this.errorLog('❌ Ошибка парсинга текста истории цен:', error);
             return [];
         }
     }
@@ -1049,15 +1271,15 @@ class AvitoParser {
      * Добавить как отдельный метод в AvitoParser
      */
     async debugPriceHistory() {
-        console.log('🔍 Отладка парсинга истории цен...');
+        // console.log('🔍 Отладка парсинга истории цен...');
 
         try {
             // Проверяем наличие элемента-триггера
             const priceHistoryElement = document.querySelector('.price-history-entry-point-iKhax');
-            console.log('🎯 Элемент истории цен:', priceHistoryElement);
+            // console.log('🎯 Элемент истории цен:', priceHistoryElement);
 
             if (!priceHistoryElement) {
-                console.log('❌ Элемент-триггер истории цен не найден');
+                // console.log('❌ Элемент-триггер истории цен не найден');
 
                 // Ищем альтернативные селекторы
                 const alternatives = [
@@ -1071,7 +1293,7 @@ class AvitoParser {
                 for (const selector of alternatives) {
                     const alt = document.querySelector(selector);
                     if (alt) {
-                        console.log(`🔍 Найден альтернативный элемент: ${selector}`, alt);
+                        // console.log(`🔍 Найден альтернативный элемент: ${selector}`, alt);
                     }
                 }
                 return [];
@@ -1082,17 +1304,17 @@ class AvitoParser {
                 key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance')
             );
 
-            console.log('🔗 React Fiber ключи:', fiberKeys);
+            // console.log('🔗 React Fiber ключи:', fiberKeys);
 
             if (fiberKeys.length === 0) {
-                console.log('❌ React Fiber не найден');
+                // console.log('❌ React Fiber не найден');
                 return [];
             }
 
             // Исследуем структуру Fiber
             for (const fiberKey of fiberKeys) {
                 const fiber = priceHistoryElement[fiberKey];
-                console.log(`🧬 Исследуем ${fiberKey}:`, fiber);
+                // console.log(`🧬 Исследуем ${fiberKey}:`, fiber);
 
                 // Проверяем различные пути к данным
                 const paths = [
@@ -1117,7 +1339,7 @@ class AvitoParser {
                         }
 
                         if (current && current.priceHistory) {
-                            console.log(`✅ Найдены данные по пути ${path}:`, current.priceHistory);
+                            // console.log(`✅ Найдены данные по пути ${path}:`, current.priceHistory);
                             return current.priceHistory;
                         }
                     } catch (e) {
@@ -1126,11 +1348,11 @@ class AvitoParser {
                 }
             }
 
-            console.log('❌ Данные истории цен не найдены ни по одному пути');
+            // console.log('❌ Данные истории цен не найдены ни по одному пути');
             return [];
 
         } catch (error) {
-            console.error('❌ Ошибка отладки истории цен:', error);
+            // console.error('❌ Ошибка отладки истории цен:', error);
             return [];
         }
     }
@@ -1145,38 +1367,38 @@ class AvitoParser {
      * Заменить метод extractPriceHistory() в avito-parser.js
      */
     async extractPriceHistory() {  // ← ДОБАВИТЬ async!
-        console.log('💰 Парсинг истории цен...');
+        // console.log('💰 Парсинг истории цен...');
 
         try {
             // МЕТОД 1: ПОИСК В ПОРТАЛЬНОМ КОНТЕЙНЕРЕ (приоритетный для модальных окон)
-            console.log('🔍 Метод 1: Поиск в портальном контейнере...');
+            // console.log('🔍 Метод 1: Поиск в портальном контейнере...');
             const portalHistory = this.extractFromPortalContainer();
             if (portalHistory && portalHistory.length > 0) {
-                console.log(`✅ Найдено ${portalHistory.length} записей в портальном контейнере`);
+                // console.log(`✅ Найдено ${portalHistory.length} записей в портальном контейнере`);
                 return portalHistory;
             }
 
             // МЕТОД 2: СИМУЛЯЦИЯ НАВЕДЕНИЯ НА КНОПКУ + ПАРСИНГ ПОРТАЛА
-            console.log('🔍 Метод 2: Симуляция наведения и парсинг...');
+            // console.log('🔍 Метод 2: Симуляция наведения и парсинг...');
             const hoverHistory = await this.triggerHoverAndParse();
             if (hoverHistory && hoverHistory.length > 0) {
-                console.log(`✅ Найдено ${hoverHistory.length} записей после hover`);
+                // console.log(`✅ Найдено ${hoverHistory.length} записей после hover`);
                 return hoverHistory;
             }
 
             // МЕТОД 3: РЕЗЕРВНЫЙ ПОИСК В DOM
-            console.log('🔍 Метод 3: Резервный поиск в DOM...');
+            // console.log('🔍 Метод 3: Резервный поиск в DOM...');
             const domHistory = this.extractFromDOMSearch();
             if (domHistory && domHistory.length > 0) {
-                console.log(`✅ Найдено ${domHistory.length} записей в DOM`);
+                // console.log(`✅ Найдено ${domHistory.length} записей в DOM`);
                 return domHistory;
             }
 
-            console.log('❌ История цен не найдена ни одним методом');
+            // console.log('❌ История цен не найдена ни одним методом');
             return [];
 
         } catch (error) {
-            console.error('❌ Ошибка парсинга истории цен:', error);
+            // console.error('❌ Ошибка парсинга истории цен:', error);
             return [];
         }
     }
@@ -1185,32 +1407,32 @@ class AvitoParser {
      * МЕТОД 1: Извлечение из портального контейнера
      */
     extractFromPortalContainer() {
-        console.log('🔍 Поиск в портальном контейнере...');
+        // console.log('🔍 Поиск в портальном контейнере...');
 
         try {
             // Ищем контейнер портала
             const portalContainer = document.querySelector('[data-marker="portals-container"]');
             if (!portalContainer) {
-                console.log('❌ Портальный контейнер не найден');
+                // console.log('❌ Портальный контейнер не найден');
                 return null;
             }
 
-            console.log('✅ Найден портальный контейнер');
+            // console.log('✅ Найден портальный контейнер');
 
             // Ищем tooltip с историей цен
             const tooltip = portalContainer.querySelector('[role="tooltip"]');
             if (!tooltip) {
-                console.log('❌ Tooltip в портальном контейнере не найден');
+                // console.log('❌ Tooltip в портальном контейнере не найден');
                 return null;
             }
 
-            console.log('✅ Найден tooltip с историей цен');
+            // console.log('✅ Найден tooltip с историей цен');
 
             // Парсим данные из tooltip
             return this.parseHistoryFromTooltip(tooltip);
 
         } catch (error) {
-            console.error('❌ Ошибка поиска в портальном контейнере:', error);
+            // console.error('❌ Ошибка поиска в портальном контейнере:', error);
             return null;
         }
     }
@@ -1219,31 +1441,31 @@ class AvitoParser {
      * Исправленный метод поиска в портальном контейнере
      */
     async searchInPortalContainer() {
-        console.log('🔍 Поиск в портальном контейнере...');
+        // console.log('🔍 Поиск в портальном контейнере...');
 
         try {
             const portalContainer = document.querySelector('[data-marker="portals-container"]');
             if (!portalContainer) {
-                console.log('❌ Портальный контейнер не найден');
+                // console.log('❌ Портальный контейнер не найден');
                 return null;
             }
 
-            console.log('✅ Найден портальный контейнер');
+            // console.log('✅ Найден портальный контейнер');
 
             // Ищем tooltip с историей цен
             const tooltip = portalContainer.querySelector('[role="tooltip"]');
             if (!tooltip) {
-                console.log('❌ Tooltip в портальном контейнере не найден');
+                // console.log('❌ Tooltip в портальном контейнере не найден');
                 return null;
             }
 
-            console.log('✅ Найден tooltip с историей цен');
+            // console.log('✅ Найден tooltip с историей цен');
 
             // Парсим данные из tooltip
             return this.parseHistoryFromTooltip(tooltip);
 
         } catch (error) {
-            console.error('❌ Ошибка поиска в портальном контейнере:', error);
+            // console.error('❌ Ошибка поиска в портальном контейнере:', error);
             return null;
         }
     }
@@ -1252,7 +1474,7 @@ class AvitoParser {
      * Исправленный парсинг истории цен из tooltip
      */
     parseHistoryFromTooltip(tooltip) {
-        console.log('📊 Парсинг данных из tooltip...');
+        // console.log('📊 Парсинг данных из tooltip...');
 
         try {
             const historyEntries = [];
@@ -1264,20 +1486,20 @@ class AvitoParser {
                 return /\b(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b/.test(text);
             });
 
-            console.log(`🔍 Найдено ${dateElements.length} элементов с датами`);
+            // console.log(`🔍 Найдено ${dateElements.length} элементов с датами`);
 
             for (let i = 0; i < dateElements.length; i++) {
                 const dateElement = dateElements[i];
                 const dateText = dateElement.textContent.trim();
 
-                console.log(`📅 Обрабатываем дату ${i + 1}: "${dateText}"`);
+                // console.log(`📅 Обрабатываем дату ${i + 1}: "${dateText}"`);
 
                 // Ищем ближайший элемент с ценой
                 const priceElement = this.findNearestPriceElement(dateElement);
 
                 if (priceElement) {
                     const priceText = priceElement.textContent.trim();
-                    console.log(`💰 Найдена цена: "${priceText}"`);
+                    // console.log(`💰 Найдена цена: "${priceText}"`);
 
                     // Парсим дату и цену
                     const date = this.parseRussianDate(dateText);
@@ -1297,23 +1519,23 @@ class AvitoParser {
                         };
 
                         historyEntries.push(entry);
-                        console.log(`✅ Добавлена запись истории:`, entry);
+                        // console.log(`✅ Добавлена запись истории:`, entry);
                     } else {
-                        console.log(`❌ Не удалось распарсить: дата=${date}, цена=${price}`);
+                        // console.log(`❌ Не удалось распарсить: дата=${date}, цена=${price}`);
                     }
                 } else {
-                    console.log(`❌ Не найдена цена для даты: "${dateText}"`);
+                    // console.log(`❌ Не найдена цена для даты: "${dateText}"`);
                 }
             }
 
             // Сортируем по дате (новые сначала)
             historyEntries.sort((a, b) => b.date.getTime() - a.date.getTime());
 
-            console.log(`📊 Итого найдено ${historyEntries.length} записей истории`);
+            // console.log(`📊 Итого найдено ${historyEntries.length} записей истории`);
             return historyEntries;
 
         } catch (error) {
-            console.error('❌ Ошибка парсинга tooltip:', error);
+            // console.error('❌ Ошибка парсинга tooltip:', error);
             return [];
         }
     }
@@ -1418,27 +1640,27 @@ class AvitoParser {
      * Обновленный основной метод парсинга истории цен
      */
     async parsePriceHistory() {
-        console.log('💰 === ПАРСИНГ ИСТОРИИ ЦЕН (ОБНОВЛЕННЫЙ) ===');
+        // console.log('💰 === ПАРСИНГ ИСТОРИИ ЦЕН (ОБНОВЛЕННЫЙ) ===');
 
         try {
             // Находим кнопку истории цен с правильными селекторами
             const button = this.findPriceHistoryButton();
             if (!button) {
-                console.log('❌ Кнопка истории цен не найдена');
+                // console.log('❌ Кнопка истории цен не найдена');
                 return [];
             }
 
-            console.log('✅ Кнопка найдена:', button);
+            // console.log('✅ Кнопка найдена:', button);
 
             // Проверяем, не открыт ли уже tooltip
             let tooltip = document.querySelector('[role="tooltip"]');
             if (tooltip && tooltip.textContent.includes('₽')) {
-                console.log('✅ Tooltip уже открыт, парсим данные');
+                // console.log('✅ Tooltip уже открыт, парсим данные');
                 return this.parseTooltipData(tooltip);
             }
 
             // Если tooltip закрыт, открываем его
-            console.log('🖱️ Активируем tooltip...');
+            // console.log('🖱️ Активируем tooltip...');
 
             return new Promise((resolve) => {
                 let resolved = false;
@@ -1457,7 +1679,7 @@ class AvitoParser {
                                     text.includes('июн') || text.includes('июл') || text.includes('авг') ||
                                     text.includes('сен') || text.includes('окт') || text.includes('ноя') ||
                                     text.includes('дек'))) {
-                                    console.log('✅ Tooltip с историей цен обнаружен!');
+                                    // console.log('✅ Tooltip с историей цен обнаружен!');
                                     resolved = true;
                                     observer.disconnect();
 
@@ -1485,24 +1707,29 @@ class AvitoParser {
                     if (!resolved) {
                         resolved = true;
                         observer.disconnect();
-                        console.log('⏱️ Таймаут ожидания tooltip');
+                        // console.log('⏱️ Таймаут ожидания tooltip');
                         resolve([]);
                     }
                 }, 3000);
             });
 
         } catch (error) {
-            console.error('Ошибка при парсинге истории цен:', error);
+            // console.error('Ошибка при парсинге истории цен:', error);
             return [];
         }
     }
 
 
     findPriceHistoryButton() {
-        console.log('🔍 Поиск кнопки истории цен...');
+        // console.log('🔍 Поиск кнопки истории цен...');
 
-        // Актуальные селекторы для кнопки
+        // Обновленные селекторы под новую вёрстку 2025
         const selectors = [
+            // Точный селектор из новой вёрстки
+            'p[aria-haspopup="true"][aria-expanded="false"][tabindex="0"].T7ujv.Tdsqf.dsi88.cujIu.aStJv',
+            'div.K5h5l.price-history-entry-point-iKhax p[tabindex="0"]',
+            
+            // Старые селекторы для совместимости
             '.price-history-entry-point-iKhax',
             '.K5h5l.price-history-entry-point-iKhax',
             '[class*="price-history-entry-point"]',
@@ -1515,7 +1742,7 @@ class AvitoParser {
             for (const el of elements) {
                 const text = el.textContent || '';
                 if (text.includes('История цены') || text.includes('История цен')) {
-                    console.log(`✅ Кнопка найдена по селектору: ${selector}`);
+                    // console.log(`✅ Кнопка найдена по селектору: ${selector}`);
                     return el;
                 }
             }
@@ -1526,22 +1753,22 @@ class AvitoParser {
         for (const p of allP) {
             if (p.textContent && (p.textContent.trim() === 'История цены' ||
                 p.textContent.trim() === 'История цен')) {
-                console.log('✅ Кнопка найдена по тексту');
+                // console.log('✅ Кнопка найдена по тексту');
                 return p;
             }
         }
 
-        console.log('❌ Кнопка не найдена ни одним методом');
+        // console.log('❌ Кнопка не найдена ни одним методом');
         return null;
     }
 
     activatePriceHistoryTooltip(button) {
-        console.log('🖱️ Активация tooltip...');
+        // console.log('🖱️ Активация tooltip...');
 
         // Сначала фокус
         if (button.focus) {
             button.focus();
-            console.log('📍 Фокус установлен');
+            // console.log('📍 Фокус установлен');
         }
 
         // Последовательность событий как на реальном сайте
@@ -1554,7 +1781,7 @@ class AvitoParser {
 
         events.forEach((event, index) => {
             setTimeout(() => {
-                console.log(`  Отправка события: ${event.type}`);
+                // console.log(`  Отправка события: ${event.type}`);
                 button.dispatchEvent(event);
 
                 // Также на родительский элемент
@@ -1567,7 +1794,7 @@ class AvitoParser {
 
 
     parseTooltipData(tooltipElement) {
-        console.log('📊 Парсинг данных из tooltip...');
+        // console.log('📊 Парсинг данных из tooltip...');
 
         const priceHistory = [];
         const currentYear = new Date().getFullYear();
@@ -1585,7 +1812,7 @@ class AvitoParser {
 
         // Получаем текст
         const fullText = tooltipElement.textContent;
-        console.log('Текст tooltip:', fullText);
+        // console.log('Текст tooltip:', fullText);
 
         // Разбиваем на логические части
         const lines = fullText.split(/(?=\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/gi);
@@ -1634,14 +1861,14 @@ class AvitoParser {
                 }
 
                 priceHistory.push(entry);
-                console.log('  Добавлена запись:', entry);
+                // console.log('  Добавлена запись:', entry);
             }
         });
 
         // Сортируем по дате (новые первые)
         priceHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        console.log(`✅ Распарсено записей: ${priceHistory.length}`);
+        // console.log(`✅ Распарсено записей: ${priceHistory.length}`);
         return priceHistory;
     }
 
@@ -1652,16 +1879,16 @@ class AvitoParser {
         try {
             const button = document.querySelector('.price-history-entry-point-iKhax');
             if (!button) {
-                console.log('❌ Кнопка истории цен не найдена');
+                // console.log('❌ Кнопка истории цен не найдена');
                 return [];
             }
 
-            console.log('🖱️ Кнопка найдена, активируем tooltip...');
+            // console.log('🖱️ Кнопка найдена, активируем tooltip...');
 
             // Устанавливаем мониторинг портала перед активацией
             const portal = document.querySelector('[data-marker="portals-container"]');
             if (!portal) {
-                console.log('❌ Портальный контейнер не найден');
+                // console.log('❌ Портальный контейнер не найден');
                 return [];
             }
 
@@ -1674,7 +1901,7 @@ class AvitoParser {
                     mutation.addedNodes.forEach((node) => {
                         if (node.nodeType === Node.ELEMENT_NODE &&
                             node.getAttribute && node.getAttribute('role') === 'tooltip') {
-                            console.log('🎯 Tooltip появился:', node);
+                            // console.log('🎯 Tooltip появился:', node);
 
                             const tooltipText = node.textContent;
                             const parsedHistory = this.parseTooltipHistory(tooltipText);
@@ -1732,7 +1959,7 @@ class AvitoParser {
             return history;
 
         } catch (error) {
-            console.error('❌ Ошибка активации tooltip:', error);
+            // console.error('❌ Ошибка активации tooltip:', error);
             return [];
         }
     }
@@ -1741,7 +1968,7 @@ class AvitoParser {
      * 🎯 МЕТОД 4: API перехват XHR/Fetch запросов
      */
     setupAPIInterception() {
-        // console.log('📡 Настройка API перехвата...');
+        // // console.log('📡 Настройка API перехвата...');
 
         try {
             const originalFetch = window.fetch;
@@ -1751,10 +1978,10 @@ class AvitoParser {
             window.fetch = function (...args) {
                 return originalFetch.apply(this, args).then(response => {
                     if (args[0].includes('price') || args[0].includes('history')) {
-                        console.log('🔍 API запрос с историей цен:', args[0]);
+                        // console.log('🔍 API запрос с историей цен:', args[0]);
                         return response.clone().json().then(data => {
                             if (data.priceHistory) {
-                                // console.log('💰 Найдена история в API:', data.priceHistory);
+                                // // console.log('💰 Найдена история в API:', data.priceHistory);
                                 window.foundPriceHistory = data.priceHistory;
                             }
                             return response;
@@ -1771,7 +1998,7 @@ class AvitoParser {
                         try {
                             const data = JSON.parse(this.responseText);
                             if (data.priceHistory) {
-                                // console.log('💰 XHR история цен:', data.priceHistory);
+                                // // console.log('💰 XHR история цен:', data.priceHistory);
                                 window.foundPriceHistory = data.priceHistory;
                             }
                         } catch (e) {
@@ -1783,10 +2010,10 @@ class AvitoParser {
                 return originalXHROpen.call(this, method, url, ...args);
             };
 
-            // console.log('✅ API перехват настроен');
+            // // console.log('✅ API перехват настроен');
 
         } catch (error) {
-            console.error('❌ Ошибка настройки API перехвата:', error);
+            // console.error('❌ Ошибка настройки API перехвата:', error);
         }
     }
 
@@ -1810,7 +2037,7 @@ class AvitoParser {
             const context = text.substring(start, end);
 
             if (context.includes('priceHistory') || context.includes('price_history')) {
-                console.log('🎯 Найден контекст с историей вокруг ID');
+                // console.log('🎯 Найден контекст с историей вокруг ID');
 
                 // Пытаемся извлечь JSON
                 const jsonMatch = context.match(/"priceHistory"\s*:\s*(\[.*?\])/);
@@ -1859,7 +2086,7 @@ class AvitoParser {
             return null;
 
         } catch (error) {
-            console.error('❌ Ошибка проверки tooltip:', error);
+            // console.error('❌ Ошибка проверки tooltip:', error);
             return null;
         }
     }
@@ -1928,29 +2155,29 @@ class AvitoParser {
      * Диагностика истории цен
      */
     async debugPriceHistoryExtraction() {
-        console.log('\n🔍 === ДИАГНОСТИКА ИЗВЛЕЧЕНИЯ ИСТОРИИ ЦЕН ===');
+        // console.log('\n🔍 === ДИАГНОСТИКА ИЗВЛЕЧЕНИЯ ИСТОРИИ ЦЕН ===');
 
         const currentId = this.extractExternalId();
-        console.log('🎯 ID объявления:', currentId);
+        // console.log('🎯 ID объявления:', currentId);
 
         // Проверяем dataLayer
         const dataLayerResult = this.extractFromDataLayer(currentId);
-        console.log('📊 DataLayer:', dataLayerResult.length > 0 ? '✅ Найдено' : '❌ Не найдено');
+        // console.log('📊 DataLayer:', dataLayerResult.length > 0 ? '✅ Найдено' : '❌ Не найдено');
 
         // Проверяем script теги
         const scriptResult = this.extractFromScriptTags();
-        console.log('📜 Script теги:', scriptResult.length > 0 ? '✅ Найдено' : '❌ Не найдено');
+        // console.log('📜 Script теги:', scriptResult.length > 0 ? '✅ Найдено' : '❌ Не найдено');
 
         // Проверяем React Fiber
         const fiberResult = this.extractFromReactFiber();
-        console.log('⚛️ React Fiber:', fiberResult.length > 0 ? '✅ Найдено' : '❌ Не найдено');
+        // console.log('⚛️ React Fiber:', fiberResult.length > 0 ? '✅ Найдено' : '❌ Не найдено');
 
         // Проверяем кнопку tooltip
         const button = document.querySelector('.price-history-entry-point-iKhax');
-        console.log('🖱️ Кнопка tooltip:', button ? '✅ Найдена' : '❌ Не найдена');
+        // console.log('🖱️ Кнопка tooltip:', button ? '✅ Найдена' : '❌ Не найдена');
 
         const finalResult = await this.parsePriceHistory();
-        console.log('🏁 Итоговый результат:', finalResult);
+        // console.log('🏁 Итоговый результат:', finalResult);
 
         return finalResult;
     }
@@ -1960,15 +2187,15 @@ class AvitoParser {
      * Симуляция наведения мыши на элемент истории цен
      */
     async simulateHoverAndParse() {
-        console.log('🖱️ Симуляция наведения на кнопку истории цен...');
+        // console.log('🖱️ Симуляция наведения на кнопку истории цен...');
 
         const button = this.findPriceHistoryButton();
         if (!button) {
-            console.log('❌ Кнопка истории цен не найдена');
+            // console.log('❌ Кнопка истории цен не найдена');
             return null;
         }
 
-        console.log('✅ Найдена кнопка истории цен');
+        // console.log('✅ Найдена кнопка истории цен');
 
         // Активируем tooltip
         this.activatePriceHistoryTooltip(button);
@@ -1981,14 +2208,14 @@ class AvitoParser {
 
                 if (tooltip && tooltip.textContent.includes('₽')) {
                     clearInterval(checkInterval);
-                    console.log('✅ Tooltip появился');
+                    // console.log('✅ Tooltip появился');
 
                     // Парсим данные
                     const history = this.parseTooltipData(tooltip);
                     resolve(history);
                 } else if (checkCount > 30) { // 3 секунды
                     clearInterval(checkInterval);
-                    console.log('❌ Timeout: tooltip не появился');
+                    // console.log('❌ Timeout: tooltip не появился');
                     resolve(null);
                 }
 
@@ -2007,13 +2234,13 @@ class AvitoParser {
         for (let i = 0; i < maxAttempts; i++) {
             const tooltip = await this.searchInPortalContainer();
             if (tooltip && tooltip.length > 0) {
-                console.log(`✅ Tooltip появился после ${i * delay}мс`);
+                // console.log(`✅ Tooltip появился после ${i * delay}мс`);
                 return true;
             }
             await new Promise(resolve => setTimeout(resolve, delay));
         }
 
-        console.log('⏰ Время ожидания tooltip истекло');
+        // console.log('⏰ Время ожидания tooltip истекло');
         return false;
     }
 
@@ -2021,17 +2248,17 @@ class AvitoParser {
      * МЕТОД 2: Симуляция наведения на кнопку и парсинг появившегося содержимого
      */
     async triggerHoverAndParse() {
-        console.log('🖱️ Симуляция наведения на кнопку истории цен...');
+        // console.log('🖱️ Симуляция наведения на кнопку истории цен...');
 
         try {
             // Находим кнопку истории цен
             const historyButton = document.querySelector('.price-history-entry-point-iKhax');
             if (!historyButton) {
-                console.log('❌ Кнопка истории цен не найдена');
+                // console.log('❌ Кнопка истории цен не найдена');
                 return null;
             }
 
-            console.log('✅ Найдена кнопка истории цен');
+            // console.log('✅ Найдена кнопка истории цен');
 
             // Симулируем mouseenter
             const mouseEnterEvent = new MouseEvent('mouseenter', {
@@ -2041,7 +2268,7 @@ class AvitoParser {
             });
 
             historyButton.dispatchEvent(mouseEnterEvent);
-            console.log('🖱️ Событие mouseenter отправлено');
+            // console.log('🖱️ Событие mouseenter отправлено');
 
             // Ждем появления tooltip
             const maxWaitTime = 3000; // 3 секунды
@@ -2051,7 +2278,7 @@ class AvitoParser {
             while (waitTime < maxWaitTime) {
                 const portalHistory = this.extractFromPortalContainer();
                 if (portalHistory && portalHistory.length > 0) {
-                    console.log('✅ Tooltip появился, данные найдены');
+                    // console.log('✅ Tooltip появился, данные найдены');
                     return portalHistory;
                 }
 
@@ -2059,11 +2286,11 @@ class AvitoParser {
                 waitTime += checkInterval;
             }
 
-            console.log('⏰ Время ожидания tooltip истекло');
+            // console.log('⏰ Время ожидания tooltip истекло');
             return null;
 
         } catch (error) {
-            console.error('❌ Ошибка симуляции hover:', error);
+            // console.error('❌ Ошибка симуляции hover:', error);
             return null;
         }
     }
@@ -2073,7 +2300,7 @@ class AvitoParser {
      * Резервный поиск в DOM
      */
     async fallbackDOMSearch() {
-        console.log('🔍 Резервный поиск в DOM...');
+        // console.log('🔍 Резервный поиск в DOM...');
 
         try {
             const historyEntries = [];
@@ -2094,7 +2321,7 @@ class AvitoParser {
                     if (container.textContent.includes('₽') &&
                         /\b(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b/.test(container.textContent)) {
 
-                        console.log(`📦 Найден потенциальный контейнер с историей: ${selector}`);
+                        // console.log(`📦 Найден потенциальный контейнер с историей: ${selector}`);
                         const data = this.parseHistoryFromTooltip(container);
 
                         if (data && data.length > 0) {
@@ -2107,7 +2334,7 @@ class AvitoParser {
             return historyEntries;
 
         } catch (error) {
-            console.error('❌ Ошибка резервного поиска:', error);
+            // console.error('❌ Ошибка резервного поиска:', error);
             return [];
         }
     }
@@ -2116,36 +2343,36 @@ class AvitoParser {
      * Отладочный метод для анализа структуры tooltip
      */
     debugTooltipStructure(tooltip) {
-        console.log('🔍 Анализ структуры tooltip...');
+        // console.log('🔍 Анализ структуры tooltip...');
 
-        console.log('📋 Текстовое содержимое tooltip:');
-        console.log(tooltip.textContent);
+        // console.log('📋 Текстовое содержимое tooltip:');
+        // console.log(tooltip.textContent);
 
-        console.log('📋 HTML структура tooltip:');
-        console.log(tooltip.innerHTML.substring(0, 1000));
+        // console.log('📋 HTML структура tooltip:');
+        // console.log(tooltip.innerHTML.substring(0, 1000));
 
-        console.log('📋 Все элементы p в tooltip:');
+        // console.log('📋 Все элементы p в tooltip:');
         const pElements = tooltip.querySelectorAll('p');
         pElements.forEach((p, index) => {
-            console.log(`P[${index}]: "${p.textContent.trim()}" - classes: ${p.className}`);
+            // console.log(`P[${index}]: "${p.textContent.trim()}" - classes: ${p.className}`);
         });
 
-        console.log('📋 Элементы с датами:');
+        // console.log('📋 Элементы с датами:');
         const dateElements = Array.from(pElements).filter(p => {
             const text = p.textContent.trim();
             return /\b(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b/.test(text);
         });
         dateElements.forEach((p, index) => {
-            console.log(`Дата[${index}]: "${p.textContent.trim()}"`);
+            // console.log(`Дата[${index}]: "${p.textContent.trim()}"`);
         });
 
-        console.log('📋 Элементы с ценами:');
+        // console.log('📋 Элементы с ценами:');
         const priceElements = Array.from(pElements).filter(p => {
             const text = p.textContent.trim();
             return /\d[\d\s]*₽/.test(text);
         });
         priceElements.forEach((p, index) => {
-            console.log(`Цена[${index}]: "${p.textContent.trim()}"`);
+            // console.log(`Цена[${index}]: "${p.textContent.trim()}"`);
         });
     }
 
@@ -2154,7 +2381,7 @@ class AvitoParser {
      * МЕТОД 3: Резервный поиск в DOM
      */
     extractFromDOMSearch() {
-        console.log('🔍 Резервный поиск в DOM...');
+        // console.log('🔍 Резервный поиск в DOM...');
 
         try {
             const historyEntries = [];
@@ -2174,7 +2401,7 @@ class AvitoParser {
                 const hasPrice = text.includes('₽') && /\d+/.test(text);
 
                 if (hasMonth && hasPrice && text.length < 100) { // Ограничиваем длину текста
-                    console.log(`🔍 Проверяем элемент: "${text}"`);
+                    // console.log(`🔍 Проверяем элемент: "${text}"`);
 
                     // Пробуем извлечь дату и цену
                     const patterns = [
@@ -2207,7 +2434,7 @@ class AvitoParser {
                                 );
 
                                 if (!isDuplicate) {
-                                    console.log(`✅ Найдена запись в DOM:`, entry);
+                                    // console.log(`✅ Найдена запись в DOM:`, entry);
                                     historyEntries.push(entry);
                                 }
                             }
@@ -2223,7 +2450,7 @@ class AvitoParser {
             return historyEntries.length > 0 ? historyEntries : null;
 
         } catch (error) {
-            console.error('❌ Ошибка резервного поиска:', error);
+            // console.error('❌ Ошибка резервного поиска:', error);
             return null;
         }
     }
@@ -2269,8 +2496,8 @@ class AvitoParser {
      * 🔍 Полная диагностика всех методов парсинга истории цен
      */
     async runFullPriceHistoryDiagnostic() {
-        console.log('\n🔍 === ПОЛНАЯ ДИАГНОСТИКА ИСТОРИИ ЦЕН ===');
-        console.log(`⏰ Время начала: ${new Date().toLocaleTimeString()}`);
+        // console.log('\n🔍 === ПОЛНАЯ ДИАГНОСТИКА ИСТОРИИ ЦЕН ===');
+        // console.log(`⏰ Время начала: ${new Date().toLocaleTimeString()}`);
 
         const methods = [
             {
@@ -2303,8 +2530,8 @@ class AvitoParser {
         const results = {};
 
         for (const { name, method, description } of methods) {
-            console.log(`\n🔄 Тестируем: ${name}`);
-            console.log(`📝 ${description}`);
+            // console.log(`\n🔄 Тестируем: ${name}`);
+            // console.log(`📝 ${description}`);
 
             try {
                 const startTime = performance.now();
@@ -2320,14 +2547,14 @@ class AvitoParser {
                 };
 
                 if (result && result.length > 0) {
-                    console.log(`✅ ${name}: Найдено ${result.length} записей за ${duration}мс`);
-                    console.log(`📊 Примеры данных:`, result.slice(0, 2));
+                    // console.log(`✅ ${name}: Найдено ${result.length} записей за ${duration}мс`);
+                    // console.log(`📊 Примеры данных:`, result.slice(0, 2));
                 } else {
-                    console.log(`❌ ${name}: Данные не найдены (${duration}мс)`);
+                    // console.log(`❌ ${name}: Данные не найдены (${duration}мс)`);
                 }
 
             } catch (error) {
-                console.log(`💥 ${name}: Ошибка - ${error.message}`);
+                // console.log(`💥 ${name}: Ошибка - ${error.message}`);
                 results[name] = {
                     success: false,
                     error: error.message,
@@ -2337,19 +2564,19 @@ class AvitoParser {
         }
 
         // Итоговый отчет
-        console.log('\n📊 === ИТОГОВЫЙ ОТЧЕТ ===');
+        // console.log('\n📊 === ИТОГОВЫЙ ОТЧЕТ ===');
         const successful = Object.values(results).filter(r => r.success).length;
-        console.log(`✅ Успешных методов: ${successful}/${methods.length}`);
+        // console.log(`✅ Успешных методов: ${successful}/${methods.length}`);
 
         if (successful > 0) {
             const bestMethod = Object.entries(results)
                 .filter(([_, r]) => r.success)
                 .sort(([_, a], [__, b]) => b.count - a.count)[0];
 
-            console.log(`🏆 Лучший метод: ${bestMethod[0]} (${bestMethod[1].count} записей)`);
+            // console.log(`🏆 Лучший метод: ${bestMethod[0]} (${bestMethod[1].count} записей)`);
         }
 
-        console.log('🔚 === КОНЕЦ ДИАГНОСТИКИ ===\n');
+        // console.log('🔚 === КОНЕЦ ДИАГНОСТИКИ ===\n');
         return results;
     }
 
@@ -2357,11 +2584,11 @@ class AvitoParser {
      * 🧪 Тест разных способов активации tooltip
      */
     async tryDifferentActivationMethods() {
-        console.log('\n🧪 === ТЕСТ АКТИВАЦИИ TOOLTIP ===');
+        // console.log('\n🧪 === ТЕСТ АКТИВАЦИИ TOOLTIP ===');
 
         const priceButton = document.querySelector('.price-history-entry-point-iKhax');
         if (!priceButton) {
-            console.log('❌ Кнопка истории цен не найдена');
+            // console.log('❌ Кнопка истории цен не найдена');
             return false;
         }
 
@@ -2389,7 +2616,7 @@ class AvitoParser {
         ];
 
         for (const { name, action } of methods) {
-            console.log(`🔄 Тестируем: ${name}`);
+            // console.log(`🔄 Тестируем: ${name}`);
 
             try {
                 action();
@@ -2397,18 +2624,18 @@ class AvitoParser {
 
                 const tooltip = this.checkForVisibleTooltip();
                 if (tooltip) {
-                    console.log(`✅ ${name}: Tooltip активирован!`);
+                    // console.log(`✅ ${name}: Tooltip активирован!`);
                     return true;
                 } else {
-                    console.log(`❌ ${name}: Tooltip не появился`);
+                    // console.log(`❌ ${name}: Tooltip не появился`);
                 }
 
             } catch (error) {
-                console.log(`💥 ${name}: Ошибка - ${error.message}`);
+                // console.log(`💥 ${name}: Ошибка - ${error.message}`);
             }
         }
 
-        console.log('🔚 === КОНЕЦ ТЕСТА АКТИВАЦИИ ===\n');
+        // console.log('🔚 === КОНЕЦ ТЕСТА АКТИВАЦИИ ===\n');
         return false;
     }
 
@@ -2431,7 +2658,7 @@ class AvitoParser {
      * @returns {Promise<Array>} массив записей истории цены
      */
     async parsePriceHistoryData() {
-        console.log('📊 Парсинг данных истории цены из открытой формы...');
+        // console.log('📊 Парсинг данных истории цены из открытой формы...');
 
         const historyEntries = [];
 
@@ -2439,32 +2666,32 @@ class AvitoParser {
             // Ищем контейнер с историей цены
             const portalsContainer = document.querySelector('[data-marker="portals-container"]');
             if (!portalsContainer) {
-                console.log('❌ Контейнер портала не найден');
+                // console.log('❌ Контейнер портала не найден');
                 return [];
             }
 
             // Ищем активную форму с историей
             const historyContainer = this.findHistoryContentInPortals(portalsContainer);
             if (!historyContainer) {
-                console.log('❌ Контейнер истории цены не найден');
+                // console.log('❌ Контейнер истории цены не найден');
                 return [];
             }
 
-            console.log('✅ Найден контейнер истории цены:', historyContainer);
+            // console.log('✅ Найден контейнер истории цены:', historyContainer);
 
             // Пробуем разные способы парсинга структуры
             const parsedData = await this.tryMultipleParseMethods(historyContainer);
 
             if (parsedData.length > 0) {
-                console.log(`✅ Успешно распарсено ${parsedData.length} записей истории`);
+                // console.log(`✅ Успешно распарсено ${parsedData.length} записей истории`);
                 return parsedData;
             } else {
-                console.log('⚠️ Данные истории не найдены в контейнере');
+                // console.log('⚠️ Данные истории не найдены в контейнере');
                 return [];
             }
 
         } catch (error) {
-            console.error('❌ Ошибка при парсинге данных истории:', error);
+            // console.error('❌ Ошибка при парсинге данных истории:', error);
             return [];
         }
     }
@@ -2474,7 +2701,7 @@ class AvitoParser {
  */
     parseAllPricesInContainer(container, priceHistory) {
         const text = container.textContent;
-        console.log('📦 Парсим контейнер:', text.substring(0, 200));
+        // console.log('📦 Парсим контейнер:', text.substring(0, 200));
 
         // Ищем все упоминания цен с датами
         const pricePatterns = [
@@ -2607,10 +2834,10 @@ class AvitoParser {
      * извлечение ID объявления из URL
      */
     extractExternalId() {
-        console.log('🆔 Извлекаем внешний ID...');
+        // console.log('🆔 Извлекаем внешний ID...');
 
         const url = window.location.href;
-        console.log(`URL: ${url}`);
+        // console.log(`URL: ${url}`);
 
         // ✅ Рабочий паттерн из диагностики: ID = 7348952051
         const patterns = [
@@ -2623,12 +2850,12 @@ class AvitoParser {
             const match = url.match(pattern);
             if (match && match[1]) {
                 const id = String(match[1]); // Убеждаемся, что возвращаем строку
-                console.log(`✅ ID найден через паттерн "${pattern}": ${id} (тип: ${typeof id})`);
+                // console.log(`✅ ID найден через паттерн "${pattern}": ${id} (тип: ${typeof id})`);
                 return id;
             }
         }
 
-        console.log('❌ Внешний ID не найден');
+        // console.log('❌ Внешний ID не найден');
         return '';
     }
 
@@ -2636,7 +2863,7 @@ class AvitoParser {
      * Извлечение заголовка
      */
     extractTitle() {
-        console.log('📝 Извлекаем заголовок...');
+        // console.log('📝 Извлекаем заголовок...');
 
         const titleSelectors = [
             // ✅ РАБОЧИЕ селекторы из диагностики
@@ -2654,15 +2881,15 @@ class AvitoParser {
                 const element = document.querySelector(selector);
                 if (element && element.textContent.trim()) {
                     const title = element.textContent.trim();
-                    console.log(`✅ Заголовок найден через "${selector}": "${title}"`);
+                    // console.log(`✅ Заголовок найден через "${selector}": "${title}"`);
                     return title;
                 }
             } catch (error) {
-                console.log(`⚠️ Ошибка с селектором "${selector}":`, error.message);
+                // console.log(`⚠️ Ошибка с селектором "${selector}":`, error.message);
             }
         }
 
-        console.log('❌ Заголовок не найден');
+        // console.log('❌ Заголовок не найден');
         return '';
     }
 
@@ -2670,7 +2897,7 @@ class AvitoParser {
      * Извлечение адреса
      */
     extractAddress() {
-        console.log('📍 Извлекаем адрес...');
+        // console.log('📍 Извлекаем адрес...');
 
         const addressSelectors = [
             // ✅ РАБОЧИЙ селектор из диагностики
@@ -2694,16 +2921,16 @@ class AvitoParser {
                     }
 
                     if (address.length > 5) { // Минимальная длина адреса
-                        console.log(`✅ Адрес найден через "${selector}": "${address}"`);
+                        // console.log(`✅ Адрес найден через "${selector}": "${address}"`);
                         return address;
                     }
                 }
             } catch (error) {
-                console.log(`⚠️ Ошибка с селектором адреса "${selector}":`, error.message);
+                // console.log(`⚠️ Ошибка с селектором адреса "${selector}":`, error.message);
             }
         }
 
-        console.log('❌ Адрес не найден');
+        // console.log('❌ Адрес не найден');
         return '';
     }
 
@@ -2738,7 +2965,7 @@ class AvitoParser {
      * Извлечение цены
      */
     extractPrice() {
-        console.log('💰 Извлекаем цену...');
+        // console.log('💰 Извлекаем цену...');
 
         const priceSelectors = [
             // ✅ РАБОЧИЕ селекторы из диагностики
@@ -2752,24 +2979,24 @@ class AvitoParser {
                 const element = document.querySelector(selector);
                 if (element) {
                     const priceText = element.textContent.trim();
-                    console.log(`🔍 Найден элемент цены "${selector}": "${priceText}"`);
+                    // console.log(`🔍 Найден элемент цены "${selector}": "${priceText}"`);
 
                     // Извлекаем числовое значение цены
                     const priceMatch = priceText.match(/(\d[\d\s]*\d|\d+)/);
                     if (priceMatch) {
                         const price = parseInt(priceMatch[1].replace(/\s/g, ''));
                         if (price > 1000) { // Разумная цена для недвижимости
-                            console.log(`✅ Цена найдена: ${price}`);
+                            // console.log(`✅ Цена найдена: ${price}`);
                             return price;
                         }
                     }
                 }
             } catch (error) {
-                console.log(`⚠️ Ошибка с селектором цены "${selector}":`, error.message);
+                // console.log(`⚠️ Ошибка с селектором цены "${selector}":`, error.message);
             }
         }
 
-        console.log('❌ Цена не найдена');
+        // console.log('❌ Цена не найдена');
         return null;
     }
 
@@ -2926,7 +3153,7 @@ class AvitoParser {
      * Извлечение общей площади
      */
     extractTotalArea() {
-        console.log('📐 Извлекаем общую площадь...');
+        // console.log('📐 Извлекаем общую площадь...');
 
         // Метод 1: Из заголовка (самый надежный для данной страницы)
         const title = this.extractTitle();
@@ -2935,7 +3162,7 @@ class AvitoParser {
             const areaMatch = title.match(/(\d+(?:[.,]\d+)?)\s*м²/);
             if (areaMatch) {
                 const area = parseFloat(areaMatch[1].replace(',', '.'));
-                console.log(`✅ Площадь найдена в заголовке: ${area} м²`);
+                // console.log(`✅ Площадь найдена в заголовке: ${area} м²`);
                 return area;
             }
         }
@@ -2946,12 +3173,12 @@ class AvitoParser {
             const areaMatch = paramResult.match(/(\d+(?:[.,]\d+)?)/);
             if (areaMatch) {
                 const area = parseFloat(areaMatch[1].replace(',', '.'));
-                console.log(`✅ Площадь найдена в параметрах: ${area} м²`);
+                // console.log(`✅ Площадь найдена в параметрах: ${area} м²`);
                 return area;
             }
         }
 
-        console.log('❌ Общая площадь не найдена');
+        // console.log('❌ Общая площадь не найдена');
         return null;
     }
 
@@ -2959,16 +3186,16 @@ class AvitoParser {
      * Извлечение площади кухни
      */
     extractKitchenArea() {
-        console.log('🍳 Извлекаем площадь кухни...');
+        // console.log('🍳 Извлекаем площадь кухни...');
 
         // Метод 1: Поиск в параметрах (основной)
         const areaParam = this.findParamValue('Площадь кухни');
         if (areaParam) {
-            console.log('Найдена площадь кухни в параметрах:', areaParam);
+            // console.log('Найдена площадь кухни в параметрах:', areaParam);
             const match = areaParam.match(/(\d+(?:[.,]\d+)?)/);
             if (match) {
                 const area = parseFloat(match[1].replace(',', '.'));
-                console.log(`✅ Площадь кухни из параметров: ${area} м²`);
+                // console.log(`✅ Площадь кухни из параметров: ${area} м²`);
                 return area;
             }
         }
@@ -2976,19 +3203,19 @@ class AvitoParser {
         // Метод 2: Прямой поиск в контейнере параметров
         const paramsContainer = document.querySelector('#bx_item-params');
         if (paramsContainer) {
-            console.log('Проверяем контейнер параметров для площади кухни');
+            // console.log('Проверяем контейнер параметров для площади кухни');
             const html = paramsContainer.innerHTML;
 
             // Ищем "Площадь кухни" в HTML
             const kitchenMatch = html.match(/Площадь кухни[^>]*>([^<]*)/i);
             if (kitchenMatch) {
                 const areaText = kitchenMatch[1];
-                console.log('Найден текст площади кухни в HTML:', areaText);
+                // console.log('Найден текст площади кухни в HTML:', areaText);
 
                 const numberMatch = areaText.match(/(\d+(?:[.,]\d+)?)/);
                 if (numberMatch) {
                     const area = parseFloat(numberMatch[1].replace(',', '.'));
-                    console.log(`✅ Площадь кухни из HTML: ${area} м²`);
+                    // console.log(`✅ Площадь кухни из HTML: ${area} м²`);
                     return area;
                 }
             }
@@ -3004,7 +3231,7 @@ class AvitoParser {
 
         for (const selector of alternativeSelectors) {
             const paramItems = document.querySelectorAll(selector);
-            console.log(`Проверяем селектор ${selector} для площади кухни, найдено элементов:`, paramItems.length);
+            // console.log(`Проверяем селектор ${selector} для площади кухни, найдено элементов:`, paramItems.length);
 
             for (const item of paramItems) {
                 const text = item.textContent;
@@ -3012,18 +3239,18 @@ class AvitoParser {
                 if (text.toLowerCase().includes('площадь кухни') ||
                     (text.toLowerCase().includes('кухня') && text.toLowerCase().includes('м²'))) {
 
-                    console.log('Найден элемент с площадью кухни:', text);
+                    // console.log('Найден элемент с площадью кухни:', text);
                     const match = text.match(/(\d+(?:[.,]\d+)?)\s*м²?/);
                     if (match) {
                         const area = parseFloat(match[1].replace(',', '.'));
-                        console.log(`✅ Площадь кухни из альтернативных селекторов: ${area} м²`);
+                        // console.log(`✅ Площадь кухни из альтернативных селекторов: ${area} м²`);
                         return area;
                     }
                 }
             }
         }
 
-        console.log('❌ Площадь кухни не найдена');
+        // console.log('❌ Площадь кухни не найдена');
         return null;
     }
 
@@ -3031,16 +3258,16 @@ class AvitoParser {
      * Извлечение жилой площади
      */
     extractLivingArea() {
-        console.log('🏠 Извлекаем жилую площадь...');
+        // console.log('🏠 Извлекаем жилую площадь...');
 
         // Метод 1: Поиск в параметрах (основной)
         const areaParam = this.findParamValue('Жилая площадь');
         if (areaParam) {
-            console.log('Найдена жилая площадь в параметрах:', areaParam);
+            // console.log('Найдена жилая площадь в параметрах:', areaParam);
             const match = areaParam.match(/(\d+(?:[.,]\d+)?)/);
             if (match) {
                 const area = parseFloat(match[1].replace(',', '.'));
-                console.log(`✅ Жилая площадь из параметров: ${area} м²`);
+                // console.log(`✅ Жилая площадь из параметров: ${area} м²`);
                 return area;
             }
         }
@@ -3048,19 +3275,19 @@ class AvitoParser {
         // Метод 2: Прямой поиск в контейнере параметров
         const paramsContainer = document.querySelector('#bx_item-params');
         if (paramsContainer) {
-            console.log('Проверяем контейнер параметров для жилой площади');
+            // console.log('Проверяем контейнер параметров для жилой площади');
             const html = paramsContainer.innerHTML;
 
             // Ищем "Жилая площадь" в HTML
             const livingMatch = html.match(/Жилая площадь[^>]*>([^<]*)/i);
             if (livingMatch) {
                 const areaText = livingMatch[1];
-                console.log('Найден текст жилой площади в HTML:', areaText);
+                // console.log('Найден текст жилой площади в HTML:', areaText);
 
                 const numberMatch = areaText.match(/(\d+(?:[.,]\d+)?)/);
                 if (numberMatch) {
                     const area = parseFloat(numberMatch[1].replace(',', '.'));
-                    console.log(`✅ Жилая площадь из HTML: ${area} м²`);
+                    // console.log(`✅ Жилая площадь из HTML: ${area} м²`);
                     return area;
                 }
             }
@@ -3076,7 +3303,7 @@ class AvitoParser {
 
         for (const selector of alternativeSelectors) {
             const paramItems = document.querySelectorAll(selector);
-            console.log(`Проверяем селектор ${selector} для жилой площади, найдено элементов:`, paramItems.length);
+            // console.log(`Проверяем селектор ${selector} для жилой площади, найдено элементов:`, paramItems.length);
 
             for (const item of paramItems) {
                 const text = item.textContent;
@@ -3084,18 +3311,18 @@ class AvitoParser {
                 if (text.toLowerCase().includes('жилая площадь') ||
                     (text.toLowerCase().includes('жилая') && text.toLowerCase().includes('м²'))) {
 
-                    console.log('Найден элемент с жилой площадью:', text);
+                    // console.log('Найден элемент с жилой площадью:', text);
                     const match = text.match(/(\d+(?:[.,]\d+)?)\s*м²?/);
                     if (match) {
                         const area = parseFloat(match[1].replace(',', '.'));
-                        console.log(`✅ Жилая площадь из альтернативных селекторов: ${area} м²`);
+                        // console.log(`✅ Жилая площадь из альтернативных селекторов: ${area} м²`);
                         return area;
                     }
                 }
             }
         }
 
-        console.log('❌ Жилая площадь не найдена');
+        // console.log('❌ Жилая площадь не найдена');
         return null;
     }
 
@@ -3103,18 +3330,17 @@ class AvitoParser {
      * Отладка парсинга всех площадей - РАСШИРЕННАЯ ВЕРСИЯ
      */
     debugAllAreasParsing() {
-        console.log('=== 🔍 ДИАГНОСТИКА ПАРСИНГА ВСЕХ ПЛОЩАДЕЙ ===');
+        // console.log('=== 🔍 ДИАГНОСТИКА ПАРСИНГА ВСЕХ ПЛОЩАДЕЙ ===');
 
         // Проверяем заголовок
         const title = this.extractTitle();
-        console.log('📝 Заголовок:', title);
+        // console.log('📝 Заголовок:', title);
 
         // Проверяем контейнер параметров
         const paramsContainer = document.querySelector('#bx_item-params');
         if (paramsContainer) {
-            console.log('✅ Контейнер параметров найден');
-            console.log('📄 HTML параметров (первые 1000 символов):',
-                paramsContainer.innerHTML.substring(0, 1000));
+            // console.log('✅ Контейнер параметров найден');
+            // console.log('📄 HTML параметров (первые 1000 символов):', paramsContainer.innerHTML.substring(0, 1000));
 
             // Ищем все упоминания площадей в HTML
             const html = paramsContainer.innerHTML;
@@ -3124,42 +3350,42 @@ class AvitoParser {
                 'Жилая площадь': html.match(/Жилая площадь[^>]*>([^<]*)/i)
             };
 
-            console.log('🔍 Поиск площадей в HTML:');
+            // console.log('🔍 Поиск площадей в HTML:');
             Object.entries(areaMatches).forEach(([type, match]) => {
                 if (match) {
-                    console.log(`  ✅ ${type}: "${match[1]}"`);
+                    // console.log(`  ✅ ${type}: "${match[1]}"`);
                 } else {
-                    console.log(`  ❌ ${type}: не найдена`);
+                    // console.log(`  ❌ ${type}: не найдена`);
                 }
             });
         } else {
-            console.log('❌ Контейнер параметров НЕ найден');
+            // console.log('❌ Контейнер параметров НЕ найден');
         }
 
         // Проверяем элементы параметров
         const paramItems = document.querySelectorAll('.params-paramsList-_awNW .params-paramsList__item-_2Y2O');
-        console.log(`📋 Найдено элементов параметров: ${paramItems.length}`);
+        // console.log(`📋 Найдено элементов параметров: ${paramItems.length}`);
 
         paramItems.forEach((item, index) => {
             const text = item.textContent.trim();
             if (text.toLowerCase().includes('площадь')) {
-                console.log(`  📐 Параметр ${index + 1}: "${text}"`);
+                // console.log(`  📐 Параметр ${index + 1}: "${text}"`);
             }
         });
 
         // Тестируем все методы извлечения площадей
-        console.log('🧪 ТЕСТИРОВАНИЕ МЕТОДОВ:');
+        // console.log('🧪 ТЕСТИРОВАНИЕ МЕТОДОВ:');
 
         const totalArea = this.extractTotalArea();
-        console.log(`📐 Общая площадь: ${totalArea || 'НЕ НАЙДЕНА'} м²`);
+        // console.log(`📐 Общая площадь: ${totalArea || 'НЕ НАЙДЕНА'} м²`);
 
         const kitchenArea = this.extractKitchenArea();
-        console.log(`🍳 Площадь кухни: ${kitchenArea || 'НЕ НАЙДЕНА'} м²`);
+        // console.log(`🍳 Площадь кухни: ${kitchenArea || 'НЕ НАЙДЕНА'} м²`);
 
         const livingArea = this.extractLivingArea();
-        console.log(`🏠 Жилая площадь: ${livingArea || 'НЕ НАЙДЕНА'} м²`);
+        // console.log(`🏠 Жилая площадь: ${livingArea || 'НЕ НАЙДЕНА'} м²`);
 
-        console.log('=== 🏁 КОНЕЦ ДИАГНОСТИКИ ПЛОЩАДЕЙ ===');
+        // console.log('=== 🏁 КОНЕЦ ДИАГНОСТИКИ ПЛОЩАДЕЙ ===');
 
         return {
             total: totalArea,
@@ -3172,7 +3398,7 @@ class AvitoParser {
      * Извлечение этажа
      */
     extractFloor() {
-        console.log('🏢 Извлекаем этаж...');
+        // console.log('🏢 Извлекаем этаж...');
 
         // Из заголовка
         const title = this.extractTitle();
@@ -3181,7 +3407,7 @@ class AvitoParser {
             const floorMatch = title.match(/(\d+)\/\d+\s*эт\./);
             if (floorMatch) {
                 const floor = parseInt(floorMatch[1]);
-                console.log(`✅ Этаж найден в заголовке: ${floor}`);
+                // console.log(`✅ Этаж найден в заголовке: ${floor}`);
                 return floor;
             }
         }
@@ -3192,12 +3418,12 @@ class AvitoParser {
             const floorMatch = paramResult.match(/(\d+)/);
             if (floorMatch) {
                 const floor = parseInt(floorMatch[1]);
-                console.log(`✅ Этаж найден в параметрах: ${floor}`);
+                // console.log(`✅ Этаж найден в параметрах: ${floor}`);
                 return floor;
             }
         }
 
-        console.log('❌ Этаж не найден');
+        // console.log('❌ Этаж не найден');
         return null;
     }
 
@@ -3205,7 +3431,7 @@ class AvitoParser {
      * Извлечение этажности дома
      */
     extractFloorsTotal() {
-        console.log('🏗️ Извлекаем общее количество этажей...');
+        // console.log('🏗️ Извлекаем общее количество этажей...');
 
         // Из заголовка
         const title = this.extractTitle();
@@ -3214,7 +3440,7 @@ class AvitoParser {
             const floorsMatch = title.match(/\d+\/(\d+)\s*эт\./);
             if (floorsMatch) {
                 const floors = parseInt(floorsMatch[1]);
-                console.log(`✅ Этажность найдена в заголовке: ${floors}`);
+                // console.log(`✅ Этажность найдена в заголовке: ${floors}`);
                 return floors;
             }
         }
@@ -3225,12 +3451,12 @@ class AvitoParser {
             const floorsMatch = paramResult.match(/(\d+)/);
             if (floorsMatch) {
                 const floors = parseInt(floorsMatch[1]);
-                console.log(`✅ Этажность найдена в параметрах: ${floors}`);
+                // console.log(`✅ Этажность найдена в параметрах: ${floors}`);
                 return floors;
             }
         }
 
-        console.log('❌ Этажность не найдена');
+        // console.log('❌ Этажность не найдена');
         return null;
     }
 
@@ -3238,7 +3464,7 @@ class AvitoParser {
      * Извлечение количества комнат
      */
     extractRooms() {
-        console.log('🚪 Извлекаем количество комнат...');
+        // console.log('🚪 Извлекаем количество комнат...');
 
         // Из заголовка
         const title = this.extractTitle();
@@ -3247,7 +3473,7 @@ class AvitoParser {
             const roomsMatch = title.match(/(\d+)-к\.\s*квартира/i);
             if (roomsMatch) {
                 const rooms = parseInt(roomsMatch[1]);
-                console.log(`✅ Количество комнат найдено в заголовке: ${rooms}`);
+                // console.log(`✅ Количество комнат найдено в заголовке: ${rooms}`);
                 return rooms;
             }
         }
@@ -3258,12 +3484,12 @@ class AvitoParser {
             const roomsMatch = paramResult.match(/(\d+)/);
             if (roomsMatch) {
                 const rooms = parseInt(roomsMatch[1]);
-                console.log(`✅ Количество комнат найдено в параметрах: ${rooms}`);
+                // console.log(`✅ Количество комнат найдено в параметрах: ${rooms}`);
                 return rooms;
             }
         }
 
-        console.log('❌ Количество комнат не найдено');
+        // console.log('❌ Количество комнат не найдено');
         return null;
     }
 
@@ -3330,7 +3556,7 @@ class AvitoParser {
      * Поиск значения параметра по имени
      */
     findParamValue(paramName) {
-        console.log('Ищем параметр:', paramName);
+        // console.log('Ищем параметр:', paramName);
 
         // ОБНОВЛЕННЫЕ селекторы для новой структуры Авито
         const paramSelectors = [
@@ -3350,20 +3576,20 @@ class AvitoParser {
 
         for (const selector of paramSelectors) {
             const paramItems = document.querySelectorAll(selector);
-            console.log(`Селектор ${selector}: найдено ${paramItems.length} элементов`);
+            // console.log(`Селектор ${selector}: найдено ${paramItems.length} элементов`);
 
             for (const item of paramItems) {
                 const text = item.textContent;
-                console.log('Проверяем текст параметра:', text);
+                // console.log('Проверяем текст параметра:', text);
 
                 if (text.toLowerCase().includes(paramName.toLowerCase())) {
-                    console.log('Найден подходящий параметр:', text);
+                    // console.log('Найден подходящий параметр:', text);
 
                     // Пробуем разные способы извлечения значения
                     const colonSplit = text.split(':');
                     if (colonSplit.length > 1) {
                         const value = colonSplit[1].trim();
-                        console.log('Значение после двоеточия:', value);
+                        // console.log('Значение после двоеточия:', value);
                         return value;
                     }
 
@@ -3373,7 +3599,7 @@ class AvitoParser {
             }
         }
 
-        console.log('Параметр не найден:', paramName);
+        // console.log('Параметр не найден:', paramName);
         
         // Отправляем отчет об ошибке в Telegram
         if (typeof reportSelectorError === 'function') {
@@ -3430,7 +3656,7 @@ class AvitoParser {
                 }
             }
         } catch (error) {
-            console.error('Error parsing date:', dateText, error);
+            // console.error('Error parsing date:', dateText, error);
         }
 
         return null;
@@ -3480,11 +3706,11 @@ class AvitoParser {
     }
 
     debugAreaParsing() {
-        console.log('=== ДИАГНОСТИКА ПАРСИНГА ПЛОЩАДИ ===');
+        // console.log('=== ДИАГНОСТИКА ПАРСИНГА ПЛОЩАДИ ===');
 
         // Проверяем заголовок
         const title = this.extractTitle();
-        console.log('Заголовок:', title);
+        // console.log('Заголовок:', title);
 
         // Проверяем все возможные селекторы параметров (обновленные)
         const selectors = [
@@ -3499,20 +3725,20 @@ class AvitoParser {
         selectors.forEach(selector => {
             const container = document.querySelector(selector);
             if (container) {
-                console.log(`Контейнер ${selector} найден:`, container);
-                console.log('HTML содержимое:', container.innerHTML.substring(0, 1000));
+                // console.log(`Контейнер ${selector} найден:`, container);
+                // console.log('HTML содержимое:', container.innerHTML.substring(0, 1000));
 
                 // Проверяем элементы параметров внутри
                 const items = container.querySelectorAll('li, .params-paramsList__item-_2Y2O, .params-item');
-                console.log(`Элементов параметров внутри: ${items.length}`);
+                // console.log(`Элементов параметров внутри: ${items.length}`);
 
                 items.forEach((item, index) => {
                     if (index < 5) { // Показываем первые 5
-                        console.log(`  Параметр ${index + 1}:`, item.textContent);
+                        // console.log(`  Параметр ${index + 1}:`, item.textContent);
                     }
                 });
             } else {
-                console.log(`Контейнер ${selector} НЕ найден`);
+                // console.log(`Контейнер ${selector} НЕ найден`);
             }
         });
 
@@ -3530,8 +3756,8 @@ class AvitoParser {
             }
         });
 
-        console.log('Элементы со словом "площадь":', areaElements.slice(0, 10)); // Показываем первые 10
-        console.log('=== КОНЕЦ ДИАГНОСТИКИ ===');
+        // console.log('Элементы со словом "площадь":', areaElements.slice(0, 10)); // Показываем первые 10
+        // console.log('=== КОНЕЦ ДИАГНОСТИКИ ===');
     }
 
 
@@ -3583,11 +3809,11 @@ class AvitoParser {
 
             // Возвращаем очищенный URL
             const cleanedUrl = urlObj.toString();
-            console.log('URL очищен:', url, '→', cleanedUrl);
+            // console.log('URL очищен:', url, '→', cleanedUrl);
             return cleanedUrl;
 
         } catch (error) {
-            console.error('Ошибка при очистке URL:', error);
+            // console.error('Ошибка при очистке URL:', error);
             return url; // Возвращаем исходный URL если не удалось очистить
         }
     }
@@ -3626,7 +3852,7 @@ class AvitoParser {
      * @returns {Promise<void>}
      */
     async triggerPriceHistoryOpen(triggerElement) {
-        console.log('🖱️ Имитируем mouseenter для открытия формы...');
+        // console.log('🖱️ Имитируем mouseenter для открытия формы...');
 
         try {
             // Создаем событие mouseenter
@@ -3664,10 +3890,10 @@ class AvitoParser {
             // Даем время для обработки события
             await this.delay(100);
 
-            console.log('✅ События отправлены, ждем реакции...');
+            // console.log('✅ События отправлены, ждем реакции...');
 
         } catch (error) {
-            console.error('❌ Ошибка при отправке событий:', error);
+            // console.error('❌ Ошибка при отправке событий:', error);
             throw error;
         }
     }
@@ -3678,7 +3904,7 @@ class AvitoParser {
      * @returns {Promise<Element|null>} контейнер с историей или null
      */
     async waitForPriceHistoryContainer(maxWaitTime = 3000) {
-        console.log('⏳ Ждем появления контейнера с историей цены...');
+        // console.log('⏳ Ждем появления контейнера с историей цены...');
 
         const startTime = Date.now();
         const checkInterval = 100; // проверяем каждые 100мс
@@ -3689,13 +3915,13 @@ class AvitoParser {
                 const portalsContainer = document.querySelector('[data-marker="portals-container"]');
 
                 if (portalsContainer) {
-                    console.log('✅ Найден portals-container:', portalsContainer);
+                    // console.log('✅ Найден portals-container:', portalsContainer);
 
                     // Ищем внутри контейнера блоки с историей цены
                     const historyContainer = this.findHistoryContentInPortals(portalsContainer);
 
                     if (historyContainer) {
-                        console.log('✅ Найден контент истории цены!');
+                        // console.log('✅ Найден контент истории цены!');
                         resolve(historyContainer);
                         return;
                     }
@@ -3703,7 +3929,7 @@ class AvitoParser {
 
                 // Проверяем таймаут
                 if (Date.now() - startTime > maxWaitTime) {
-                    console.log('❌ Таймаут ожидания контейнера истории цены');
+                    // console.log('❌ Таймаут ожидания контейнера истории цены');
                     resolve(null);
                     return;
                 }
@@ -3722,7 +3948,7 @@ class AvitoParser {
      * @returns {Element|null} элемент с историей цены или null
      */
     findHistoryContentInPortals(portalsContainer) {
-        console.log('🔍 Поиск контента истории в portals-container...');
+        // console.log('🔍 Поиск контента истории в portals-container...');
 
         // Ищем дочерние элементы с theme классами
         const themeElements = portalsContainer.querySelectorAll('[class*="theme"]');
@@ -3730,7 +3956,7 @@ class AvitoParser {
         for (const element of themeElements) {
             // Проверяем, есть ли внутри элемента контент, связанный с историей цен
             if (this.containsPriceHistoryContent(element)) {
-                console.log('✅ Найден элемент с контентом истории цены:', element);
+                // console.log('✅ Найден элемент с контентом истории цены:', element);
                 return element;
             }
         }
@@ -3743,12 +3969,12 @@ class AvitoParser {
                 child.textContent.includes('₽') ||
                 child.textContent.includes('руб')
             )) {
-                console.log('✅ Найден элемент по содержимому:', child);
+                // console.log('✅ Найден элемент по содержимому:', child);
                 return child.closest('[class*="theme"]') || child;
             }
         }
 
-        console.log('❌ Контент истории цены не найден в portals-container');
+        // console.log('❌ Контент истории цены не найден в portals-container');
         return null;
     }
 
@@ -3788,7 +4014,7 @@ class AvitoParser {
     }
 
     testParserMethods() {
-        console.log('🧪 === ТЕСТ МЕТОДОВ ПАРСЕРА ===');
+        // console.log('🧪 === ТЕСТ МЕТОДОВ ПАРСЕРА ===');
 
         const methods = [
             'extractExternalId',
@@ -3807,14 +4033,14 @@ class AvitoParser {
             try {
                 const result = this[methodName]();
                 results[methodName] = result;
-                console.log(`✅ ${methodName}: ${JSON.stringify(result)}`);
+                // console.log(`✅ ${methodName}: ${JSON.stringify(result)}`);
             } catch (error) {
                 results[methodName] = `ОШИБКА: ${error.message}`;
-                console.log(`❌ ${methodName}: ${error.message}`);
+                // console.log(`❌ ${methodName}: ${error.message}`);
             }
         });
 
-        console.log('📊 Итоги тестирования:', results);
+        // console.log('📊 Итоги тестирования:', results);
         return results;
     }
 
@@ -3822,8 +4048,8 @@ class AvitoParser {
      * Массовый парсинг объявлений Avito
      */
     async startMassParsing(settings) {
-        console.log('🚀 === НАЧАЛО МАССОВОГО ПАРСИНГА ===');
-        console.log('⚙️ Настройки:', settings);
+        // console.log('🚀 === НАЧАЛО МАССОВОГО ПАРСИНГА ===');
+        // console.log('⚙️ Настройки:', settings);
 
         try {
             // Создаем панель мониторинга
@@ -3852,9 +4078,9 @@ class AvitoParser {
             this.updateMonitoringPanel();
 
             // Получаем ссылки на объявления
-            console.log('🔍 Поиск объявлений на странице...');
+            // console.log('🔍 Поиск объявлений на странице...');
             let allListingLinks = await this.collectListingLinks(settings);
-            console.log(`📋 Найдено объявлений: ${allListingLinks.length}`);
+            // console.log(`📋 Найдено объявлений: ${allListingLinks.length}`);
 
             if (allListingLinks.length === 0) {
                 this.parsingState.currentPhase = 'completed';
@@ -3863,14 +4089,14 @@ class AvitoParser {
             }
 
             // Фильтруем только новые объявления (которых нет в базе)
-            console.log('🔍 Проверяем существующие объявления в базе данных...');
+            // console.log('🔍 Проверяем существующие объявления в базе данных...');
             const newListingLinks = await this.filterNewListings(allListingLinks);
             const skippedCount = allListingLinks.length - newListingLinks.length;
             this.parsingState.skipped = skippedCount;
-            console.log(`📊 Из ${allListingLinks.length} найденных объявлений: ${newListingLinks.length} новых, ${skippedCount} пропущено`);
+            // console.log(`📊 Из ${allListingLinks.length} найденных объявлений: ${newListingLinks.length} новых, ${skippedCount} пропущено`);
 
             if (newListingLinks.length === 0) {
-                console.log('ℹ️ Все найденные объявления уже есть в базе данных');
+                // console.log('ℹ️ Все найденные объявления уже есть в базе данных');
                 this.parsingState.currentPhase = 'completed';
                 this.updateMonitoringPanel();
                 return this.parsingState;
@@ -3886,7 +4112,7 @@ class AvitoParser {
             for (let i = 0; i < newListingLinks.length; i++) {
                 // Проверяем состояние парсинга
                 if (!this.parsingState.isRunning) {
-                    console.log('⏹️ Парсинг остановлен пользователем');
+                    // console.log('⏹️ Парсинг остановлен пользователем');
                     break;
                 }
                 
@@ -3896,7 +4122,7 @@ class AvitoParser {
                 }
                 
                 const link = newListingLinks[i];
-                console.log(`📄 Обработка ${i + 1}/${newListingLinks.length}: ${link} (только новые)`);
+                // console.log(`📄 Обработка ${i + 1}/${newListingLinks.length}: ${link} (только новые)`);
 
                 try {
                     // Открываем объявление в новой вкладке
@@ -3905,17 +4131,17 @@ class AvitoParser {
                     if (listingData) {
                         this.parsingState.successfullyParsed++;
                         this.parsingState.listings.push(listingData);
-                        console.log(`✅ Успешно спарсено: ${listingData.title}`);
+                        // console.log(`✅ Успешно спарсено: ${listingData.title}`);
                     } else {
                         this.parsingState.errors++;
                         this.parsingState.errorLinks.push(link);
-                        console.log(`❌ Не удалось спарсить объявление`);
+                        // console.log(`❌ Не удалось спарсить объявление`);
                     }
 
                 } catch (error) {
                     this.parsingState.errors++;
                     this.parsingState.errorLinks.push(link);
-                    console.error(`❌ Ошибка парсинга объявления ${link}:`, error);
+                    // console.error(`❌ Ошибка парсинга объявления ${link}:`, error);
                 }
 
                 this.parsingState.totalProcessed++;
@@ -3923,7 +4149,7 @@ class AvitoParser {
 
                 // Задержка между запросами
                 if (i < allListingLinks.length - 1 && this.parsingState.isRunning) {
-                    console.log(`⏳ Ожидание ${settings.delay}мс...`);
+                    // console.log(`⏳ Ожидание ${settings.delay}мс...`);
                     await this.delay(settings.delay);
                 }
             }
@@ -3932,8 +4158,8 @@ class AvitoParser {
             this.parsingState.isRunning = false;
             this.updateMonitoringPanel();
 
-            console.log('🎉 === МАССОВЫЙ ПАРСИНГ ЗАВЕРШЁН ===');
-            console.log('📊 Статистика:', this.parsingState);
+            // console.log('🎉 === МАССОВЫЙ ПАРСИНГ ЗАВЕРШЁН ===');
+            // console.log('📊 Статистика:', this.parsingState);
 
             return {
                 totalProcessed: this.parsingState.totalProcessed,
@@ -3948,7 +4174,7 @@ class AvitoParser {
                 this.parsingState.isRunning = false;
                 this.updateMonitoringPanel();
             }
-            console.error('❌ Ошибка массового парсинга:', error);
+            // console.error('❌ Ошибка массового парсинга:', error);
             throw error;
         }
     }
@@ -3974,11 +4200,11 @@ class AvitoParser {
         let previousCount = 0;
         let stableCount = 0;
 
-        console.log('📜 Начинаем сбор ссылок с прокруткой...');
+        // console.log('📜 Начинаем сбор ссылок с прокруткой...');
         
         // Функция для сбора текущих ссылок
         const collectCurrentLinks = () => {
-            console.log('🔍 Ищем объявления на странице...');
+            // console.log('🔍 Ищем объявления на странице...');
             
             // Пробуем основной селектор для объявлений
             let listings = document.querySelectorAll('.styles-snippet-ZgKUd');
@@ -3997,12 +4223,12 @@ class AvitoParser {
                 for (const selector of selectors) {
                     listings = document.querySelectorAll(selector);
                     if (listings.length > 0) {
-                        console.log(`✅ Используем селектор: ${selector}, найдено: ${listings.length}`);
+                        // console.log(`✅ Используем селектор: ${selector}, найдено: ${listings.length}`);
                         break;
                     }
                 }
             } else {
-                console.log(`✅ Используем основной селектор: .styles-snippet-ZgKUd, найдено: ${listings.length}`);
+                // console.log(`✅ Используем основной селектор: .styles-snippet-ZgKUd, найдено: ${listings.length}`);
             }
             
             let newLinksCount = 0;
@@ -4014,7 +4240,7 @@ class AvitoParser {
                     if (!allLinks.has(fullUrl)) {
                         allLinks.add(fullUrl);
                         newLinksCount++;
-                        console.log(`🔗 Ссылка ${allLinks.size}: ${fullUrl}`);
+                        // console.log(`🔗 Ссылка ${allLinks.size}: ${fullUrl}`);
                     }
                 }
             });
@@ -4024,11 +4250,11 @@ class AvitoParser {
 
         // Первоначальный сбор ссылок
         let newLinks = collectCurrentLinks();
-        console.log(`📄 Начальный сбор: ${allLinks.size} ссылок`);
+        // console.log(`📄 Начальный сбор: ${allLinks.size} ссылок`);
 
         // Собираем ВСЕ доступные объявления через прокрутку
         while (scrollAttempts < maxScrolls) {
-            console.log(`🔄 Попытка прокрутки ${scrollAttempts + 1}/${maxScrolls} (текущих ссылок: ${allLinks.size})`);
+            // console.log(`🔄 Попытка прокрутки ${scrollAttempts + 1}/${maxScrolls} (текущих ссылок: ${allLinks.size})`);
             
             // Новый подход: ищем видимый активный контейнер на главной странице
             let mainContainer = null;
@@ -4051,36 +4277,36 @@ class AvitoParser {
                     const isVisible = rect.top >= -100 && rect.top <= window.innerHeight + 100; // Более гибкая проверка видимости
                     const hasAds = candidate.querySelectorAll('.styles-snippet-ZgKUd').length > 0;
                     
-                    console.log(`🔍 Проверяем контейнер ${selector}:`);
-                    console.log(`   - Позиция: top=${rect.top}, visible=${isVisible}`);
-                    console.log(`   - Объявления: ${hasAds ? candidate.querySelectorAll('.styles-snippet-ZgKUd').length : 0}`);
+                    // console.log(`🔍 Проверяем контейнер ${selector}:`);
+                    // console.log(`   - Позиция: top=${rect.top}, visible=${isVisible}`);
+                    // console.log(`   - Объявления: ${hasAds ? candidate.querySelectorAll('.styles-snippet-ZgKUd').length : 0}`);
                     
                     if (isVisible && hasAds) {
                         mainContainer = candidate;
-                        console.log(`✅ Выбран видимый контейнер с объявлениями: ${selector}`);
+                        // console.log(`✅ Выбран видимый контейнер с объявлениями: ${selector}`);
                         break;
                     } else if (!mainContainer && candidate) {
                         mainContainer = candidate; // Запасной вариант
-                        console.log(`⚠️ Запасной контейнер: ${selector}`);
+                        // console.log(`⚠️ Запасной контейнер: ${selector}`);
                     }
                 }
             }
             
             if (mainContainer) {
-                console.log(`🎯 Найден контейнер: ${mainContainer.className}`);
+                // console.log(`🎯 Найден контейнер: ${mainContainer.className}`);
                 
                 // Проверяем, видим ли контейнер
                 const rect = mainContainer.getBoundingClientRect();
                 const isVisible = rect.top >= -100 && rect.top <= window.innerHeight + 100;
                 
                 if (!isVisible) {
-                    console.log('⚠️ Контейнер не видим, используем альтернативный подход - прокрутка страницы');
+                    // console.log('⚠️ Контейнер не видим, используем альтернативный подход - прокрутка страницы');
                     
                     // Альтернативный подход для невидимых контейнеров
                     await this.handleInvisibleContainer();
                     
                 } else {
-                    console.log('✅ Контейнер видим, работаем с ним напрямую');
+                    // console.log('✅ Контейнер видим, работаем с ним напрямую');
                 
                 try {
                     // Шаг 1: Контейнер уже в видимой области
@@ -4091,25 +4317,25 @@ class AvitoParser {
                     
                     // Проверяем позицию
                     let rect = mainContainer.getBoundingClientRect();
-                    console.log(`📐 Позиция после scrollIntoView: top=${rect.top}, left=${rect.left}, width=${rect.width}, height=${rect.height}`);
+                    // console.log(`📐 Позиция после scrollIntoView: top=${rect.top}, left=${rect.left}, width=${rect.width}, height=${rect.height}`);
                     
                     // Если контейнер все еще не в видимой области, используем альтернативный подход
                     if (rect.top < 0 || rect.top > window.innerHeight) {
-                        console.log('⚠️ Контейнер не в видимой области, пробуем альтернативный подход');
+                        // console.log('⚠️ Контейнер не в видимой области, пробуем альтернативный подход');
                         
                         // Используем offsetTop для точного позиционирования
                         const containerOffsetTop = mainContainer.offsetTop || 0;
                         const targetScrollPosition = Math.max(0, containerOffsetTop - 100); // Оставляем 100px сверху
                         
-                        console.log(`📍 Прокручиваем страницу к позиции: ${targetScrollPosition} (offsetTop контейнера: ${containerOffsetTop})`);
+                        // console.log(`📍 Прокручиваем страницу к позиции: ${targetScrollPosition} (offsetTop контейнера: ${containerOffsetTop})`);
                         window.scrollTo({ top: targetScrollPosition, behavior: 'smooth' });
                         await this.delay(1500);
                         
                         // Обновляем позицию
                         rect = mainContainer.getBoundingClientRect();
-                        console.log(`📐 Финальная позиция контейнера: top=${rect.top}, видимость: ${rect.top >= 0 && rect.top <= window.innerHeight}`);
+                        // console.log(`📐 Финальная позиция контейнера: top=${rect.top}, видимость: ${rect.top >= 0 && rect.top <= window.innerHeight}`);
                     } else {
-                        console.log('✅ Контейнер в видимой области');
+                        // console.log('✅ Контейнер в видимой области');
                     }
                     
                     // Шаг 2: ОБЯЗАТЕЛЬНО кликаем по контейнеру для активации
@@ -4120,7 +4346,7 @@ class AvitoParser {
                     const clickX = rect.left + 1;
                     const clickY = rect.top + 1;
                     
-                    console.log(`👆 Кликаем по краю контейнера (левый верхний угол + 1px): x=${clickX}, y=${clickY}`);
+                    // console.log(`👆 Кликаем по краю контейнера (левый верхний угол + 1px): x=${clickX}, y=${clickY}`);
                     
                     // Обязательный клик для активации контейнера
                     const clickEvent = new MouseEvent('click', {
@@ -4147,7 +4373,7 @@ class AvitoParser {
                     
                     // Сначала проверяем, можно ли прокручивать основной контейнер
                     if (mainContainer.scrollHeight > mainContainer.clientHeight) {
-                        console.log(`✅ Основной контейнер прокручиваемый: scrollHeight=${mainContainer.scrollHeight}, clientHeight=${mainContainer.clientHeight}`);
+                        // console.log(`✅ Основной контейнер прокручиваемый: scrollHeight=${mainContainer.scrollHeight}, clientHeight=${mainContainer.clientHeight}`);
                         scrollableContainer = mainContainer;
                     } else {
                         // Ищем самый большой прокручиваемый дочерний контейнер (игнорируем маленькие элементы)
@@ -4158,7 +4384,7 @@ class AvitoParser {
                         for (const container of possibleScrollContainers) {
                             if (container.scrollHeight > container.clientHeight) {
                                 const containerSize = container.scrollHeight * container.clientHeight;
-                                console.log(`🔍 Найден прокручиваемый контейнер: ${container.className || 'без класса'}, размер: ${containerSize}px²`);
+                                // console.log(`🔍 Найден прокручиваемый контейнер: ${container.className || 'без класса'}, размер: ${containerSize}px²`);
                                 
                                 // Берем контейнер с наибольшей площадью прокрутки
                                 if (containerSize > bestSize && containerSize > 10000) { // Минимум 10000px² для исключения мелких элементов
@@ -4169,63 +4395,63 @@ class AvitoParser {
                         }
                         
                         if (bestContainer) {
-                            console.log(`✅ Выбран лучший прокручиваемый контейнер: ${bestContainer.className || 'без класса'}`);
+                            // console.log(`✅ Выбран лучший прокручиваемый контейнер: ${bestContainer.className || 'без класса'}`);
                             scrollableContainer = bestContainer;
                         } else {
-                            console.log(`⚠️ Прокручиваемый контейнер не найден, используем основной`);
+                            // console.log(`⚠️ Прокручиваемый контейнер не найден, используем основной`);
                         }
                     }
                     
                     const initialScrollTop = scrollableContainer.scrollTop;
                     const initialScrollHeight = scrollableContainer.scrollHeight;
                     const initialClientHeight = scrollableContainer.clientHeight;
-                    console.log(`📐 Начальное состояние: scrollTop=${initialScrollTop}, scrollHeight=${initialScrollHeight}, clientHeight=${initialClientHeight}`);
+                    // console.log(`📐 Начальное состояние: scrollTop=${initialScrollTop}, scrollHeight=${initialScrollHeight}, clientHeight=${initialClientHeight}`);
                     
                     // Проверяем, нужна ли вообще прокрутка
                     if (initialScrollHeight <= initialClientHeight) {
-                        console.log('📏 Контейнер не нуждается в прокрутке (весь контент видим), используем клавиши навигации');
+                        // console.log('📏 Контейнер не нуждается в прокрутке (весь контент видим), используем клавиши навигации');
                         
                         // Контейнер не прокручиваемый - используем только scrollTop с задержкой
-                        console.log('📏 Контейнер не нуждается в прокрутке, ожидаем загрузки...');
+                        // console.log('📏 Контейнер не нуждается в прокрутке, ожидаем загрузки...');
                         await this.delay(3000);
                         
                     } else {
                         // Пробуем обычную прокрутку
-                        console.log('📏 Контейнер прокручиваемый, пробуем стандартные методы прокрутки');
+                        // console.log('📏 Контейнер прокручиваемый, пробуем стандартные методы прокрутки');
                         
                         // Шаг 4: Прокручиваем значительно больше для гарантированной загрузки новых объявлений
                         const scrollAmount = Math.max(1000, initialClientHeight * 0.8); // Минимум 1000px или 80% высоты контейнера
                         const targetScroll = Math.min(initialScrollTop + scrollAmount, initialScrollHeight - initialClientHeight);
                         
-                        console.log(`🔄 Планируем прокрутку на ${scrollAmount}px (до позиции ${targetScroll})`);
+                        // console.log(`🔄 Планируем прокрутку на ${scrollAmount}px (до позиции ${targetScroll})`);
                         
                         // ЕДИНСТВЕННЫЙ РАБОТАЮЩИЙ МЕТОД: Прямая установка scrollTop
                         scrollableContainer.scrollTop = targetScroll;
-                        console.log(`🔄 Установка scrollTop=${targetScroll}, результат=${scrollableContainer.scrollTop}`);
+                        // console.log(`🔄 Установка scrollTop=${targetScroll}, результат=${scrollableContainer.scrollTop}`);
                         
                         await this.delay(2000);
                         
                         // Проверяем результат
                         const finalScrollTop = scrollableContainer.scrollTop;
                         const scrollDistance = finalScrollTop - initialScrollTop;
-                        console.log(`📏 Прокрутка выполнена: начальная=${initialScrollTop}, финальная=${finalScrollTop}, дистанция=${scrollDistance}px`);
+                        // console.log(`📏 Прокрутка выполнена: начальная=${initialScrollTop}, финальная=${finalScrollTop}, дистанция=${scrollDistance}px`);
                         
-                        console.log('⏳ Ожидаем загрузки новых объявлений...');
+                        // console.log('⏳ Ожидаем загрузки новых объявлений...');
                         await this.delay(2000);
                     }
                     
                     // Шаг 5: Дополнительное время ожидания для полной загрузки новых объявлений
-                    console.log('⏳ Финальное ожидание загрузки...');
+                    // console.log('⏳ Финальное ожидание загрузки...');
                     await this.delay(4000);
                     
-                    console.log(`✅ Прокрутка завершена`);
+                    // console.log(`✅ Прокрутка завершена`);
                     
                 } catch (e) {
-                    console.log('⚠️ Ошибка при прокрутке контейнера:', e);
+                    // console.log('⚠️ Ошибка при прокрутке контейнера:', e);
                 }
                 }
             } else {
-                console.log('⚠️ Контейнер не найден, пробуем прокрутку всей страницы');
+                // console.log('⚠️ Контейнер не найден, пробуем прокрутку всей страницы');
                 
                 // Прокрутка всей страницы
                 window.scrollTo({
@@ -4238,7 +4464,7 @@ class AvitoParser {
             
             // Собираем новые ссылки после прокрутки
             newLinks = collectCurrentLinks();
-            console.log(`📄 После прокрутки ${scrollAttempts + 1}: ${allLinks.size} ссылок (+${newLinks})`);
+            // console.log(`📄 После прокрутки ${scrollAttempts + 1}: ${allLinks.size} ссылок (+${newLinks})`);
 
             // Обновляем панель мониторинга
             if (this.parsingState) {
@@ -4249,14 +4475,14 @@ class AvitoParser {
             // Проверяем, добавились ли новые ссылки
             if (allLinks.size === previousCount) {
                 stableCount++;
-                console.log(`⚠️ Количество ссылок не изменилось: ${allLinks.size} (попытка ${stableCount}/5)`);
+                // console.log(`⚠️ Количество ссылок не изменилось: ${allLinks.size} (попытка ${stableCount}/5)`);
                 if (stableCount >= 5) {
-                    console.log('🔄 Количество ссылок стабилизировалось после 5 попыток, завершаем сбор');
+                    // console.log('🔄 Количество ссылок стабилизировалось после 5 попыток, завершаем сбор');
                     break;
                 }
             } else {
                 stableCount = 0;
-                console.log(`✅ Новые ссылки найдены: +${allLinks.size - previousCount} (всего: ${allLinks.size})`);
+                // console.log(`✅ Новые ссылки найдены: +${allLinks.size - previousCount} (всего: ${allLinks.size})`);
             }
             
             previousCount = allLinks.size;
@@ -4264,7 +4490,7 @@ class AvitoParser {
         }
 
         // Финальный поиск дополнительных ссылок на всей странице
-        console.log(`🔍 Финальный поиск дополнительных ссылок...`);
+        // console.log(`🔍 Финальный поиск дополнительных ссылок...`);
         const allPageLinks = document.querySelectorAll('a[href*="/kvartiry/"], a[href*="/komnaty/"]');
         
         let additionalCount = 0;
@@ -4279,11 +4505,11 @@ class AvitoParser {
         });
         
         if (additionalCount > 0) {
-            console.log(`✅ Найдено ${additionalCount} дополнительных ссылок`);
+            // console.log(`✅ Найдено ${additionalCount} дополнительных ссылок`);
         }
 
-        console.log(`🎯 Итого собрано уникальных ссылок: ${allLinks.size}`);
-        console.log(`📈 Результат сбора: найдено ${allLinks.size} уникальных объявлений для парсинга`);
+        // console.log(`🎯 Итого собрано уникальных ссылок: ${allLinks.size}`);
+        // console.log(`📈 Результат сбора: найдено ${allLinks.size} уникальных объявлений для парсинга`);
         return Array.from(allLinks);
     }
 
@@ -4667,7 +4893,7 @@ class AvitoParser {
         if (this.parsingState) {
             this.parsingState.isPaused = !this.parsingState.isPaused;
             this.updateMonitoringPanel();
-            console.log(this.parsingState.isPaused ? '⏸️ Парсинг поставлен на паузу' : '▶️ Парсинг продолжен');
+            // console.log(this.parsingState.isPaused ? '⏸️ Парсинг поставлен на паузу' : '▶️ Парсинг продолжен');
         }
     }
 
@@ -4680,7 +4906,7 @@ class AvitoParser {
             this.parsingState.isPaused = false;
             this.parsingState.currentPhase = 'completed';
             this.updateMonitoringPanel();
-            console.log('⏹️ Парсинг остановлен пользователем');
+            // console.log('⏹️ Парсинг остановлен пользователем');
         }
     }
 
@@ -4690,7 +4916,7 @@ class AvitoParser {
     async retryFailedParsing() {
         if (!this.parsingState || this.parsingState.errorLinks.length === 0) return;
 
-        console.log(`🔄 Повторный парсинг ${this.parsingState.errorLinks.length} ошибочных объявлений`);
+        // console.log(`🔄 Повторный парсинг ${this.parsingState.errorLinks.length} ошибочных объявлений`);
 
         const errorLinks = [...this.parsingState.errorLinks];
         this.parsingState.errorLinks = [];
@@ -4711,7 +4937,7 @@ class AvitoParser {
             }
             
             const link = errorLinks[i];
-            console.log(`🔄 Повтор ${i + 1}/${errorLinks.length}: ${link}`);
+            // console.log(`🔄 Повтор ${i + 1}/${errorLinks.length}: ${link}`);
 
             try {
                 const listingData = await this.parseSingleListingFromLink(link);
@@ -4719,7 +4945,7 @@ class AvitoParser {
                 if (listingData) {
                     this.parsingState.successfullyParsed++;
                     this.parsingState.listings.push(listingData);
-                    console.log(`✅ Повторно успешно: ${listingData.title}`);
+                    // console.log(`✅ Повторно успешно: ${listingData.title}`);
                 } else {
                     this.parsingState.errors++;
                     this.parsingState.errorLinks.push(link);
@@ -4727,7 +4953,7 @@ class AvitoParser {
             } catch (error) {
                 this.parsingState.errors++;
                 this.parsingState.errorLinks.push(link);
-                console.error(`❌ Повторная ошибка ${link}:`, error);
+                // console.error(`❌ Повторная ошибка ${link}:`, error);
             }
 
             this.parsingState.totalProcessed++;
@@ -4742,14 +4968,14 @@ class AvitoParser {
         this.parsingState.isRunning = false;
         this.updateMonitoringPanel();
         
-        console.log('🔄 Повторный парсинг завершен');
+        // console.log('🔄 Повторный парсинг завершен');
     }
 
     /**
      * Обработка невидимых контейнеров - прокрутка всей страницы
      */
     async handleInvisibleContainer() {
-        console.log('🌐 Альтернативный подход: прокрутка всей страницы для загрузки новых объявлений');
+        // console.log('🌐 Альтернативный подход: прокрутка всей страницы для загрузки новых объявлений');
         
         // Фокусируемся на document для клавиатурных событий
         document.body.focus();
@@ -4784,10 +5010,10 @@ class AvitoParser {
             
             // Проверяем количество объявлений
             const currentCount = document.querySelectorAll('.styles-snippet-ZgKUd').length;
-            console.log(`🌐 После цикла ${i + 1}: найдено ${currentCount} объявлений`);
+            // console.log(`🌐 После цикла ${i + 1}: найдено ${currentCount} объявлений`);
             
             if (currentCount > 10) {
-                console.log(`✅ Новые объявления загружены через прокрутку страницы!`);
+                // console.log(`✅ Новые объявления загружены через прокрутку страницы!`);
                 break;
             }
         }
@@ -4805,7 +5031,7 @@ class AvitoParser {
                 // НЕ передаем segmentId - объявления находятся по координатам
             }, (response) => {
                 if (chrome.runtime.lastError) {
-                    console.error('Ошибка связи с background script:', chrome.runtime.lastError);
+                    // console.error('Ошибка связи с background script:', chrome.runtime.lastError);
                     resolve(null);
                     return;
                 }
@@ -4813,7 +5039,7 @@ class AvitoParser {
                 if (response && response.success) {
                     resolve(response.data);
                 } else {
-                    console.error('Ошибка парсинга в новой вкладке:', response?.error);
+                    // console.error('Ошибка парсинга в новой вкладке:', response?.error);
                     resolve(null);
                 }
             });
@@ -4833,7 +5059,7 @@ class AvitoParser {
     async filterNewListings(listingLinks) {
         const newLinks = [];
         
-        console.log(`🔍 Начинаем фильтрацию ${listingLinks.length} объявлений...`);
+        // console.log(`🔍 Начинаем фильтрацию ${listingLinks.length} объявлений...`);
         
         for (let i = 0; i < listingLinks.length; i++) {
             const link = listingLinks[i];
@@ -4855,47 +5081,47 @@ class AvitoParser {
                 }
                 
                 if (!externalId) {
-                    console.log(`⚠️ Не удалось извлечь ID из ссылки: ${link}`);
+                    // console.log(`⚠️ Не удалось извлечь ID из ссылки: ${link}`);
                     continue;
                 }
-                console.log(`📋 Проверяем объявление ${i + 1}/${listingLinks.length}: ID ${externalId} (тип: ${typeof externalId}), полная ссылка: ${link}`);
+                // console.log(`📋 Проверяем объявление ${i + 1}/${listingLinks.length}: ID ${externalId} (тип: ${typeof externalId}), полная ссылка: ${link}`);
                 
                 // Убеждаемся, что ID - строка
                 externalId = String(externalId);
                 
                 // Проверяем, есть ли объявление в базе
                 const existingListing = await this.checkListingExists('avito', externalId);
-                console.log(`🔍 Результат проверки для ID ${externalId}: exists=${existingListing}`);
+                // console.log(`🔍 Результат проверки для ID ${externalId}: exists=${existingListing}`);
                 
                 if (!existingListing) {
                     newLinks.push(link);
-                    console.log(`✅ Новое объявление добавлено: ${externalId}`);
+                    // console.log(`✅ Новое объявление добавлено: ${externalId}`);
                 } else {
-                    console.log(`⏭️ Объявление уже существует, пропускаем: ${externalId}`);
+                    // console.log(`⏭️ Объявление уже существует, пропускаем: ${externalId}`);
                 }
                 
             } catch (error) {
-                console.error(`❌ Ошибка проверки объявления ${link}:`, error);
+                // console.error(`❌ Ошибка проверки объявления ${link}:`, error);
                 // В случае ошибки добавляем в список для парсинга
                 newLinks.push(link);
-                console.log(`⚠️ Добавляем в список из-за ошибки: ${link}`);
+                // console.log(`⚠️ Добавляем в список из-за ошибки: ${link}`);
             }
         }
         
-        console.log(`📊 Фильтрация завершена: ${newLinks.length} новых из ${listingLinks.length} найденных`);
+        // console.log(`📊 Фильтрация завершена: ${newLinks.length} новых из ${listingLinks.length} найденных`);
         
         // Отладочная информация: выводим список всех external_id в базе
         try {
             const allListings = await this.getAllListingsForDebug();
-            console.log(`🗄️ Всего объявлений в базе: ${allListings.length}`);
+            // console.log(`🗄️ Всего объявлений в базе: ${allListings.length}`);
             const avitoListings = allListings.filter(l => l.source === 'avito');
-            console.log(`🟡 Avito объявлений в базе: ${avitoListings.length}`);
+            // console.log(`🟡 Avito объявлений в базе: ${avitoListings.length}`);
             
             if (avitoListings.length > 0) {
-                console.log(`📋 Первые 5 Avito external_id в базе:`, avitoListings.slice(0, 5).map(l => `"${l.external_id}" (${typeof l.external_id})`));
+                // console.log(`📋 Первые 5 Avito external_id в базе:`, avitoListings.slice(0, 5).map(l => `"${l.external_id}" (${typeof l.external_id})`));
             }
         } catch (error) {
-            console.log(`⚠️ Не удалось получить отладочную информацию о базе:`, error);
+            // console.log(`⚠️ Не удалось получить отладочную информацию о базе:`, error);
         }
         
         return newLinks;
@@ -4913,11 +5139,11 @@ class AvitoParser {
             if (response && response.success) {
                 return response.listings || [];
             } else {
-                console.log('Не удалось получить объявления для отладки');
+                // console.log('Не удалось получить объявления для отладки');
                 return [];
             }
         } catch (error) {
-            console.error('Ошибка получения объявлений для отладки:', error);
+            // console.error('Ошибка получения объявлений для отладки:', error);
             return [];
         }
     }
@@ -4938,7 +5164,7 @@ class AvitoParser {
             return exists;
             
         } catch (error) {
-            console.error('Ошибка проверки существования объявления:', error);
+            // console.error('Ошибка проверки существования объявления:', error);
             return false; // В случае ошибки считаем объявление новым
         }
     }
@@ -4947,7 +5173,7 @@ class AvitoParser {
      * Массовый парсинг объявлений по фильтру
      */
     async parseMassByFilter(areaId) {
-        console.log('🚀 Начинаем массовый парсинг по фильтру для области:', areaId);
+        // console.log('🚀 Начинаем массовый парсинг по фильтру для области:', areaId);
         
         try {
             // Ждем загрузки страницы
@@ -4965,8 +5191,8 @@ class AvitoParser {
             const listingData = await this.extractListingLinksWithPriceCheck();
             const { allLinks, priorityLinks } = listingData;
             
-            console.log(`📋 Найдено ${allLinks.length} объявлений для парсинга`);
-            console.log(`💱 Из них ${priorityLinks.length} с изменившимися ценами`);
+            // console.log(`📋 Найдено ${allLinks.length} объявлений для парсинга`);
+            // console.log(`💱 Из них ${priorityLinks.length} с изменившимися ценами`);
             
             if (allLinks.length === 0) {
                 return { parsed: 0, errors: 1 };
@@ -4990,7 +5216,7 @@ class AvitoParser {
                 const isPriority = priorityLinks.includes(link);
                 const statusPrefix = isPriority ? '💱 [ЦЕНА ИЗМЕНЕНА]' : '📄';
                 try {
-                    console.log(`${statusPrefix} Парсинг объявления ${index + 1}/${finalLinksToProcess.length}: ${link}`);
+                    // console.log(`${statusPrefix} Парсинг объявления ${index + 1}/${finalLinksToProcess.length}: ${link}`);
                     
                     // Открываем объявление в новой вкладке через background script
                     const result = await chrome.runtime.sendMessage({
@@ -5000,26 +5226,26 @@ class AvitoParser {
 
                     if (result && result.success) {
                         parsed++;
-                        console.log(`✅ Объявление спарсено успешно`);
+                        // console.log(`✅ Объявление спарсено успешно`);
                     } else {
                         errors++;
-                        console.log(`❌ Ошибка парсинга: ${result?.error}`);
+                        // console.log(`❌ Ошибка парсинга: ${result?.error}`);
                     }
                     
                     // Пауза между запросами
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     
                 } catch (error) {
-                    console.error(`❌ Ошибка обработки ссылки ${link}:`, error);
+                    // console.error(`❌ Ошибка обработки ссылки ${link}:`, error);
                     errors++;
                 }
             }
 
-            console.log(`📊 Массовый парсинг завершен. Успешно: ${parsed}, ошибок: ${errors}`);
+            // console.log(`📊 Массовый парсинг завершен. Успешно: ${parsed}, ошибок: ${errors}`);
             return { parsed, errors };
 
         } catch (error) {
-            console.error('❌ Ошибка массового парсинга:', error);
+            // console.error('❌ Ошибка массового парсинга:', error);
             return { parsed: 0, errors: 1 };
         }
     }
@@ -5433,38 +5659,38 @@ class AvitoParser {
 
 // Функция для надежной инициализации парсера
 function initializeAvitoParser() {
-    console.log('🚀 Начинаем инициализацию AvitoParser...');
-    console.log('Current URL:', window.location.href);
-    console.log('Current hostname:', window.location.hostname);
+    // console.log('🚀 Начинаем инициализацию AvitoParser...');
+    // console.log('Current URL:', window.location.href);
+    // console.log('Current hostname:', window.location.hostname);
 
     try {
         // Проверяем, что мы на правильном сайте
         if (!window.location.hostname.includes('avito.ru')) {
-            console.log('❌ Неподходящий сайт, парсер не инициализирован');
+            // console.log('❌ Неподходящий сайт, парсер не инициализирован');
             return false;
         }
 
         // Проверяем, не создан ли уже экземпляр
         if (window.avitoParserInstance) {
-            console.log('✅ AvitoParser уже инициализирован');
+            // console.log('✅ AvitoParser уже инициализирован');
             return true;
         }
 
         // Создаем экземпляр парсера
         const parser = new AvitoParser();
-        console.log('✅ AvitoParser создан успешно');
-        console.log('✅ isListingPage:', parser.isListingPage);
+        // console.log('✅ AvitoParser создан успешно');
+        // console.log('✅ isListingPage:', parser.isListingPage);
 
         // Делаем парсер доступным глобально
         window.avitoParser = parser;
         window.avitoParserInstance = parser;
         window.AvitoParser = AvitoParser;
 
-        console.log('✅ AvitoParser полностью инициализирован');
+        // console.log('✅ AvitoParser полностью инициализирован');
         return true;
 
     } catch (error) {
-        console.error('❌ Ошибка создания AvitoParser:', error);
+        // console.error('❌ Ошибка создания AvitoParser:', error);
         return false;
     }
 }
@@ -5487,12 +5713,12 @@ if (typeof window !== 'undefined' && window.location.href.includes('avito.ru')) 
 
     // Автоматически создаем экземпляр для страниц объявлений
     if (window.location.href.includes('/kvartiry/') || window.location.href.includes('/komnaty/')) {
-        console.log('🎯 Обнаружена страница с объявлениями');
+        // console.log('🎯 Обнаружена страница с объявлениями');
 
         // Задержка для полной загрузки DOM
         setTimeout(() => {
             if (!window.avitoParserInstance) {
-                console.log('🔄 Повторная попытка инициализации...');
+                // console.log('🔄 Повторная попытка инициализации...');
                 initializeAvitoParser();
             }
         }, 1000);
@@ -5500,7 +5726,7 @@ if (typeof window !== 'undefined' && window.location.href.includes('avito.ru')) 
         // Еще одна попытка через большую задержку
         setTimeout(() => {
             if (!window.avitoParserInstance) {
-                console.log('🔄 Финальная попытка инициализации...');
+                // console.log('🔄 Финальная попытка инициализации...');
                 initializeAvitoParser();
             }
         }, 3000);
@@ -5511,16 +5737,16 @@ if (typeof window !== 'undefined' && window.location.href.includes('avito.ru')) 
 
 // Простой и надежный обработчик сообщений
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('📨 GLOBAL: Получено сообщение:', request);
+    // console.log('📨 GLOBAL: Получено сообщение:', request);
     
     if (request.action === 'ping') {
-        console.log('🏓 AvitoParser: Получен ping, отвечаем pong');
+        // console.log('🏓 AvitoParser: Получен ping, отвечаем pong');
         sendResponse({ success: true, message: 'pong' });
         return;
     }
     
     if (request.action === 'parseCurrentListing') {
-        console.log('🎯 GLOBAL: Processing parseCurrentListing');
+        // console.log('🎯 GLOBAL: Processing parseCurrentListing');
         
         // Проверяем, что это страница объявления
         const url = window.location.href;
@@ -5529,7 +5755,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                             !url.includes('/list/');
         
         if (!isListingPage) {
-            console.log('❌ GLOBAL: Неподходящая страница для парсинга');
+            // console.log('❌ GLOBAL: Неподходящая страница для парсинга');
             sendResponse({ success: false, error: 'Неподходящая страница для парсинга' });
             return;
         }
@@ -5537,11 +5763,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Создаем парсер и выполняем парсинг
         try {
             const parser = new AvitoParser();
-            console.log('✅ GLOBAL: Парсер создан');
+            // console.log('✅ GLOBAL: Парсер создан');
             
             parser.parseCurrentListing()
                 .then(data => {
-                    console.log('📊 GLOBAL: Parsed data:', data);
+                    // console.log('📊 GLOBAL: Parsed data:', data);
                     if (data) {
                         sendResponse({ success: true, data: data });
                     } else {
@@ -5549,19 +5775,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     }
                 })
                 .catch(error => {
-                    console.error('❌ GLOBAL: Error in parseCurrentListing:', error);
+                    // console.error('❌ GLOBAL: Error in parseCurrentListing:', error);
                     sendResponse({ success: false, error: error.message || 'Ошибка парсинга' });
                 });
                 
             return true; // Асинхронный ответ
             
         } catch (error) {
-            console.error('❌ GLOBAL: Ошибка создания парсера:', error);
+            // console.error('❌ GLOBAL: Ошибка создания парсера:', error);
             sendResponse({ success: false, error: 'Ошибка создания парсера: ' + error.message });
             return;
         }
     } else if (request.action === 'parseMassByFilter') {
-        console.log('🎯 GLOBAL: Processing parseMassByFilter');
+        // console.log('🎯 GLOBAL: Processing parseMassByFilter');
         
         // Проверяем, что это страница со списком объявлений
         const url = window.location.href;
@@ -5570,7 +5796,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                             !url.match(/\/kvartiry\/.*_\d+/); // Не страница конкретного объявления
         
         if (!isFilterPage) {
-            console.log('❌ GLOBAL: Неподходящая страница для массового парсинга');
+            // console.log('❌ GLOBAL: Неподходящая страница для массового парсинга');
             sendResponse({ success: false, error: 'Неподходящая страница для массового парсинга' });
             return;
         }
@@ -5578,7 +5804,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // Создаем парсер и запускаем массовый парсинг с полным интерфейсом
         try {
             const parser = new AvitoParser();
-            console.log('✅ GLOBAL: Парсер создан для массового парсинга');
+            // console.log('✅ GLOBAL: Парсер создан для массового парсинга');
             
             // Используем правильный метод startMassParsing с настройками
             const settings = {
@@ -5593,18 +5819,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             
             parser.startMassParsing(settings)
                 .then(result => {
-                    console.log('📊 GLOBAL: Mass parsing result:', result);
+                    // console.log('📊 GLOBAL: Mass parsing result:', result);
                     sendResponse({ success: true, parsed: result.parsed || result.successfullyParsed, errors: result.errors });
                 })
                 .catch(error => {
-                    console.error('❌ GLOBAL: Error in startMassParsing:', error);
+                    // console.error('❌ GLOBAL: Error in startMassParsing:', error);
                     sendResponse({ success: false, error: error.message || 'Ошибка массового парсинга' });
                 });
                 
             return true; // Асинхронный ответ
             
         } catch (error) {
-            console.error('❌ GLOBAL: Ошибка создания парсера для массового парсинга:', error);
+            // console.error('❌ GLOBAL: Ошибка создания парсера для массового парсинга:', error);
             sendResponse({ success: false, error: 'Ошибка создания парсера: ' + error.message });
             return;
         }
@@ -5616,14 +5842,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Функции для тестирования в консоли
 window.testAvitoParser = function () {
-    console.log('🧪 === ТЕСТИРОВАНИЕ AVITO PARSER ===');
+    // console.log('🧪 === ТЕСТИРОВАНИЕ AVITO PARSER ===');
 
     if (!window.avitoParserInstance) {
-        console.log('❌ Создаем экземпляр парсера...');
+        // console.log('❌ Создаем экземпляр парсера...');
         try {
             window.avitoParserInstance = new AvitoParser();
         } catch (error) {
-            console.error('❌ Ошибка создания парсера:', error);
+            // console.error('❌ Ошибка создания парсера:', error);
             return null;
         }
     }
@@ -5632,23 +5858,23 @@ window.testAvitoParser = function () {
 };
 
 window.parseAvitoListing = async function () {
-    // console.log('🎯 === ПОЛНЫЙ ПАРСИНГ ОБЪЯВЛЕНИЯ ===');
+    // // console.log('🎯 === ПОЛНЫЙ ПАРСИНГ ОБЪЯВЛЕНИЯ ===');
 
     if (!window.avitoParserInstance) {
         try {
             window.avitoParserInstance = new AvitoParser();
         } catch (error) {
-            console.error('❌ Ошибка создания парсера:', error);
+            // console.error('❌ Ошибка создания парсера:', error);
             return null;
         }
     }
 
     try {
         const data = await window.avitoParserInstance.parseCurrentListing();
-        console.log('📦 Результат парсинга:', data);
+        // console.log('📦 Результат парсинга:', data);
         return data;
     } catch (error) {
-        console.error('❌ Ошибка парсинга:', error);
+        // console.error('❌ Ошибка парсинга:', error);
         return null;
     }
 };
@@ -5661,9 +5887,9 @@ window.checkPageReady = function () {
     return window.avitoParserInstance.isPageReady();
 };
 
-// console.log('✅ AvitoParser загружен. Доступные команды в консоли:');
-// console.log('  - testAvitoParser() // Тест отдельных методов');
-// console.log('  - parseAvitoListing() // Полный парсинг объявления (async)');
-// console.log('  - checkPageReady() // Проверка готовности страницы');
+// // console.log('✅ AvitoParser загружен. Доступные команды в консоли:');
+// // console.log('  - testAvitoParser() // Тест отдельных методов');
+// // console.log('  - parseAvitoListing() // Полный парсинг объявления (async)');
+// // console.log('  - checkPageReady() // Проверка готовности страницы');
 
-// console.log('✅ Parser initialization complete');
+// // console.log('✅ Parser initialization complete');

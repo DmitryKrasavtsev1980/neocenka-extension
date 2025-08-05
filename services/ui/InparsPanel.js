@@ -28,19 +28,19 @@ class InparsPanel {
      */
     async initialize() {
         try {
-            console.log('🔧 Initializing InparsPanel...');
+            // // console.log('🔧 Initializing InparsPanel...');
             
             // Получаем сервис Inpars
             this.inparsService = this.serviceManager.getService('inpars');
-            console.log('📋 InparsService status:', this.inparsService?.status);
+            // console.log('📋 InparsService status:', this.inparsService?.status);
             
             // Создаем UI
             this.createUI();
-            console.log('🎨 UI created');
+            // console.log('🎨 UI created');
             
             // Настраиваем обработчики событий
             this.setupEventHandlers();
-            console.log('🔗 Event handlers set up');
+            // console.log('🔗 Event handlers set up');
             
             // Всегда инициализируем базовый SlimSelect
             this.initializeSlimSelect();
@@ -75,7 +75,7 @@ class InparsPanel {
         return new Promise((resolve) => {
             const checkStatus = () => {
                 if (this.inparsService.status !== 'initializing') {
-                    console.log('✅ Service initialization completed. Final status:', this.inparsService.status);
+                    // console.log('✅ Service initialization completed. Final status:', this.inparsService.status);
                     resolve();
                 } else {
                     setTimeout(checkStatus, 100); // Проверяем каждые 100ms
@@ -170,20 +170,20 @@ class InparsPanel {
      */
     async loadCategories() {
         try {
-            console.log('📂 Loading Inpars categories...');
+            // console.log('📂 Loading Inpars categories...');
             
             const categories = this.inparsService.getCategories();
-            console.log('📋 Got categories from service:', categories);
+            // console.log('📋 Got categories from service:', categories);
             
             if (categories.length === 0) {
-                console.log('📥 No categories cached, loading from API...');
+                // console.log('📥 No categories cached, loading from API...');
                 await this.inparsService.loadCategories();
                 // После загрузки получаем обновленные категории
                 const updatedCategories = this.inparsService.getCategories();
-                console.log('📋 Updated categories from service:', updatedCategories);
+                // console.log('📋 Updated categories from service:', updatedCategories);
                 this.populateCategories(updatedCategories);
             } else {
-                console.log('📋 Using cached categories');
+                // console.log('📋 Using cached categories');
                 this.populateCategories(categories);
             }
             
@@ -202,11 +202,11 @@ class InparsPanel {
         // Очищаем селектор
         select.innerHTML = '';
         
-        console.log('📂 Populating categories:', categories);
+        // console.log('📂 Populating categories:', categories);
         
         // Проверяем формат данных (массив или Map)
         const categoriesArray = Array.isArray(categories) ? categories : Array.from(categories.values());
-        console.log(`📊 Total categories received: ${categoriesArray.length}`);
+        // console.log(`📊 Total categories received: ${categoriesArray.length}`);
         
         let filteredCount = 0;
         let excludedRoomsCount = 0;
@@ -224,15 +224,15 @@ class InparsPanel {
                     select.appendChild(option);
                 } else if (category.title && category.title.toLowerCase().includes('комната')) {
                     excludedRoomsCount++;
-                    console.log(`🚫 Excluded room category: ${category.title}`);
+                    // console.log(`🚫 Excluded room category: ${category.title}`);
                 }
             }
         }
         
-        console.log(`🔍 Filtered categories (sectionId=1, typeId=2): ${filteredCount}`);
-        console.log(`🚫 Excluded rooms: ${excludedRoomsCount}`);
+        // console.log(`🔍 Filtered categories (sectionId=1, typeId=2): ${filteredCount}`);
+        // console.log(`🚫 Excluded rooms: ${excludedRoomsCount}`);
         
-        console.log(`✅ Added ${select.options.length} categories to select`);
+        // console.log(`✅ Added ${select.options.length} categories to select`);
         
         // Обновляем SlimSelect
         if (this.slimSelect) {
@@ -245,16 +245,16 @@ class InparsPanel {
      * Инициализация SlimSelect
      */
     initializeSlimSelect() {
-        console.log('🎛️ Initializing SlimSelect...');
+        // console.log('🎛️ Initializing SlimSelect...');
         
         if (this.slimSelect) {
             this.slimSelect.destroy();
-            console.log('🗑️ Destroyed existing SlimSelect');
+            // console.log('🗑️ Destroyed existing SlimSelect');
         }
         
         if (typeof SlimSelect !== 'undefined') {
-            console.log('📚 SlimSelect library available');
-            console.log('🎯 Category select element:', this.elements.categorySelect);
+            // console.log('📚 SlimSelect library available');
+            // console.log('🎯 Category select element:', this.elements.categorySelect);
             
             try {
                 this.slimSelect = new SlimSelect({
@@ -267,7 +267,7 @@ class InparsPanel {
                         closeOnSelect: false
                     }
                 });
-                console.log('✅ SlimSelect initialized successfully');
+                // console.log('✅ SlimSelect initialized successfully');
             } catch (error) {
                 console.error('❌ Error initializing SlimSelect:', error);
                 // Если не удается инициализировать SlimSelect, продолжаем работу с обычным select

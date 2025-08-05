@@ -21,21 +21,21 @@ class AreaServicesIntegration {
      */
     async initialize() {
         try {
-            console.log('🚀 Initializing service integration...');
+            // console.log('🚀 Initializing service integration...');
             
             // Ждем готовности сервисов
             this.serviceManager = await ServiceConfig.waitForServices();
-            console.log('✅ ServiceManager ready');
+            // console.log('✅ ServiceManager ready');
             
             // Получаем сервис Inpars
             this.inparsService = this.serviceManager.getService('inpars');
-            console.log('✅ InparsService ready');
+            // console.log('✅ InparsService ready');
             
             // InparsPanel инициализируется в area.js через initInparsPanel()
             
             // Настраиваем обработчики событий
             this.setupEventHandlers();
-            console.log('✅ Event handlers configured');
+            // console.log('✅ Event handlers configured');
             
         } catch (error) {
             console.error('❌ Failed to initialize service integration:', error);
@@ -55,7 +55,7 @@ class AreaServicesIntegration {
             inparsContainer.addEventListener('import:completed', (event) => {
                 this.onImportCompleted(event.detail);
             });
-            console.log('✅ Event listener для import:completed добавлен на inparsPanelContainer');
+            // console.log('✅ Event listener для import:completed добавлен на inparsPanelContainer');
         } else {
             console.error('❌ inparsPanelContainer не найден для добавления event listener');
         }
@@ -75,11 +75,11 @@ class AreaServicesIntegration {
         
         // События глобальные
         document.addEventListener('services:ready', () => {
-            console.log('✅ All services are ready');
+            // console.log('✅ All services are ready');
         });
         
         document.addEventListener('inpars:ready', () => {
-            console.log('✅ Inpars service is ready');
+            // console.log('✅ Inpars service is ready');
         });
     }
 
@@ -88,17 +88,17 @@ class AreaServicesIntegration {
      */
     async onImportCompleted(result) {
         try {
-            console.log('📊 Import completed:', result);
-            console.log('📊 result.count:', result.count);
-            console.log('📊 result.listings:', result.listings);
-            console.log('📊 result.listings?.length:', result.listings?.length);
+            // console.log('📊 Import completed:', result);
+            // console.log('📊 result.count:', result.count);
+            // console.log('📊 result.listings:', result.listings);
+            // console.log('📊 result.listings?.length:', result.listings?.length);
             
             // Обрабатываем полученные объявления через существующую логику
             if (result.listings && result.listings.length > 0) {
                 await this.processImportedListings(result.listings);
                 
                 // После сохранения в БД обновляем DataState новыми данными из базы
-                console.log('🔄 Обновляем DataState после импорта...');
+                // console.log('🔄 Обновляем DataState после импорта...');
                 if (this.areaPage.addressManager) {
                     await this.areaPage.addressManager.loadListings();
                 }
@@ -114,8 +114,8 @@ class AreaServicesIntegration {
             
             // Показываем уведомление
             const importedCount = (result.listings && result.listings.length) || result.count || 0;
-            console.log('🔍 Отладка уведомления: result =', result);
-            console.log('🔍 Отладка уведомления: importedCount =', importedCount);
+            // console.log('🔍 Отладка уведомления: result =', result);
+            // console.log('🔍 Отладка уведомления: importedCount =', importedCount);
             
             if (importedCount > 0) {
                 this.showSuccess(`Успешно импортировано ${importedCount} объявлений`);
@@ -133,8 +133,8 @@ class AreaServicesIntegration {
      * Обработка импортированных объявлений
      */
     async processImportedListings(listings) {
-        console.log(`🔍 processImportedListings: Получено ${listings.length} объявлений для сохранения`);
-        console.log(`🔍 processImportedListings: currentAreaId = ${this.areaPage.currentAreaId}`);
+        // console.log(`🔍 processImportedListings: Получено ${listings.length} объявлений для сохранения`);
+        // console.log(`🔍 processImportedListings: currentAreaId = ${this.areaPage.currentAreaId}`);
         
         // Устанавливаем map_area_id для всех объявлений
         const processedListings = listings.map(listing => ({
@@ -144,15 +144,15 @@ class AreaServicesIntegration {
             updated_at: new Date()
         }));
         
-        console.log(`🔍 processImportedListings: Первое объявление после обработки:`, processedListings[0]);
+        // console.log(`🔍 processImportedListings: Первое объявление после обработки:`, processedListings[0]);
         
         try {
-            console.log(`💾 processImportedListings: Вызываем db.saveListings с ${processedListings.length} объявлениями`);
+            // console.log(`💾 processImportedListings: Вызываем db.saveListings с ${processedListings.length} объявлениями`);
             
             // Используем единый метод сохранения с правильной обработкой истории цен
             const result = await window.db.saveListings(processedListings);
             
-            console.log(`📊 Import results: ${result.added} new, ${result.updated} updated, ${result.skipped} errors`);
+            // console.log(`📊 Import results: ${result.added} new, ${result.updated} updated, ${result.skipped} errors`);
             return { 
                 newCount: result.added, 
                 updatedCount: result.updated, 
@@ -169,7 +169,7 @@ class AreaServicesIntegration {
      * Обработчик загрузки объявлений
      */
     onListingsLoaded(data) {
-        console.log(`✅ Loaded ${data.count} listings from Inpars`);
+        // console.log(`✅ Loaded ${data.count} listings from Inpars`);
         
         // Можно добавить дополнительную логику обработки
         if (data.count === 0) {
@@ -209,7 +209,7 @@ class AreaServicesIntegration {
                 this.inparsService.setEnabledSources(settings.inparsEnabledSources);
             }
             
-            console.log('✅ Service settings updated');
+            // console.log('✅ Service settings updated');
             
         } catch (error) {
             console.error('❌ Failed to update service settings:', error);
@@ -231,11 +231,11 @@ class AreaServicesIntegration {
      * Утилиты для уведомлений (интегрируются с существующей системой)
      */
     showSuccess(message) {
-        console.log('🔍 showSuccess вызван с message =', message, typeof message);
+        // console.log('🔍 showSuccess вызван с message =', message, typeof message);
         if (this.areaPage.showSuccess) {
             this.areaPage.showSuccess(message);
         } else {
-            console.log('✅ ' + message);
+            // console.log('✅ ' + message);
         }
     }
 
@@ -284,7 +284,7 @@ async function initializeAreaServicesIntegration(areaPageInstance) {
     try {
         // Инициализируем сервисы если еще не инициализированы
         if (!window.serviceManager || !window.serviceManager.isInitialized) {
-            console.log('🚀 Initializing services...');
+            // console.log('🚀 Initializing services...');
             window.serviceManager = await ServiceConfig.initializeServices();
         }
         

@@ -79,6 +79,21 @@ class NeocenkaBackground {
           sendResponse(result);
           break;
 
+        case 'debugLog':
+          // Обрабатываем debug сообщения от content-scripts
+          await this.handleDebugLog(request);
+          sendResponse({ success: true });
+          break;
+
+        case 'getDebugLogs':
+          sendResponse({ success: true, logs: this.getDebugLogs() });
+          break;
+
+        case 'clearDebugLogs':
+          this.clearDebugLogs();
+          sendResponse({ success: true });
+          break;
+
         case 'openTab':
           const tab = await chrome.tabs.create({ url: request.url });
           sendResponse({ success: true, tabId: tab.id });
@@ -233,6 +248,64 @@ class NeocenkaBackground {
       console.error('Ошибка получения статистики:', error);
       return null;
     }
+  }
+
+  /**
+   * Обработка debug сообщений от content-scripts
+   */
+  async handleDebugLog(request) {
+    // Сохраняем debug сообщения в памяти для отображения в popup
+    if (!this.debugLogs) {
+      this.debugLogs = [];
+    }
+
+    const logEntry = {
+      id: Date.now() + Math.random(),
+      timestamp: request.timestamp,
+      level: request.level,
+      source: request.source,
+      url: request.url,
+      data: request.data,
+      created: new Date().toISOString()
+    };
+
+    this.debugLogs.push(logEntry);
+
+    // Ограничиваем количество сохраненных логов (последние 100)
+    if (this.debugLogs.length > 100) {
+      this.debugLogs = this.debugLogs.slice(-100);
+    }
+
+    // Если есть открытые popup окна, отправляем им debug сообщение
+    try {
+      const tabs = await chrome.tabs.query({});
+      for (const tab of tabs) {
+        if (tab.url && tab.url.includes('chrome-extension://') && tab.url.includes('popup.html')) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'newDebugLog',
+            logEntry: logEntry
+          }).catch(() => {
+            // Игнорируем ошибки отправки
+          });
+        }
+      }
+    } catch (error) {
+      // Игнорируем ошибки
+    }
+  }
+
+  /**
+   * Получение всех debug логов
+   */
+  getDebugLogs() {
+    return this.debugLogs || [];
+  }
+
+  /**
+   * Очистка debug логов
+   */
+  clearDebugLogs() {
+    this.debugLogs = [];
   }
 
   /**

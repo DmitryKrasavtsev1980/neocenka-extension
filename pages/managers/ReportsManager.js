@@ -47,7 +47,7 @@ class ReportsManager {
     async initialize() {
         try {
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Инициализация...');
+                // console.log('🔍 ReportsManager: Инициализация...');
             }
 
             // Получение настроек отладки
@@ -72,7 +72,7 @@ class ReportsManager {
             await this.updateReportsVisibility();
 
             if (this.debugEnabled) {
-                console.log('✅ ReportsManager: Инициализация завершена');
+                // console.log('✅ ReportsManager: Инициализация завершена');
             }
 
         } catch (error) {
@@ -121,7 +121,7 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Элементы интерфейса инициализированы');
+            // console.log('🔍 ReportsManager: Элементы интерфейса инициализированы');
         }
     }
 
@@ -209,7 +209,7 @@ class ReportsManager {
         });
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Обработчики событий установлены');
+            // console.log('🔍 ReportsManager: Обработчики событий установлены');
         }
     }
 
@@ -233,19 +233,19 @@ class ReportsManager {
                         afterChange: (newVal) => {
                             const subsegmentId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
                                                (newVal && newVal.value !== undefined ? newVal.value : newVal);
-                            console.log('🔍 ReportsManager: SlimSelect подсегмент изменен:', newVal, 'извлечено ID:', subsegmentId);
+                            // console.log('🔍 ReportsManager: SlimSelect подсегмент изменен:', newVal, 'извлечено ID:', subsegmentId);
                             this.handleSubsegmentChange(subsegmentId);
                         }
                     }
                 });
                 
                 if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: SlimSelect для подсегментов инициализирован (отключен)');
+                    // console.log('🔍 ReportsManager: SlimSelect для подсегментов инициализирован (отключен)');
                 }
             }
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: SlimSelect инициализация завершена');
+                // console.log('🔍 ReportsManager: SlimSelect инициализация завершена');
             }
 
         } catch (error) {
@@ -270,7 +270,7 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Панель', isHidden ? 'развернута' : 'свернута');
+            // console.log('🔍 ReportsManager: Панель', isHidden ? 'развернута' : 'свернута');
         }
     }
 
@@ -283,7 +283,7 @@ class ReportsManager {
         this.reportsDropdown.classList.toggle('hidden');
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Выпадающий список отчётов переключен');
+            // console.log('🔍 ReportsManager: Выпадающий список отчётов переключен');
         }
     }
 
@@ -362,14 +362,14 @@ class ReportsManager {
             const currentArea = this.areaPage.dataState?.getState('currentArea');
             if (!currentArea) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: Нет текущей области для загрузки сегментов');
+                    // console.log('🔍 ReportsManager: Нет текущей области для загрузки сегментов');
                 }
                 return;
             }
 
             if (!this.database) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: База данных недоступна');
+                    // console.log('🔍 ReportsManager: База данных недоступна');
                 }
                 return;
             }
@@ -381,7 +381,7 @@ class ReportsManager {
             this.updateSegmentFilter();
 
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Загружено сегментов:', this.segments.length, 'для области:', currentArea.name);
+                // console.log('🔍 ReportsManager: Загружено сегментов:', this.segments.length, 'для области:', currentArea.name);
             }
 
         } catch (error) {
@@ -424,7 +424,7 @@ class ReportsManager {
                         // newVal может быть массивом или объектом, извлекаем значение
                         const segmentId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
                                          (newVal && newVal.value !== undefined ? newVal.value : newVal);
-                        console.log('🔍 ReportsManager: SlimSelect afterChange для сегмента:', newVal, 'извлечено ID:', segmentId);
+                        // console.log('🔍 ReportsManager: SlimSelect afterChange для сегмента:', newVal, 'извлечено ID:', segmentId);
                         this.handleSegmentChange(segmentId);
                     }
                 }
@@ -435,7 +435,7 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Фильтр сегментов обновлен, сегментов:', this.segments.length);
+            // console.log('🔍 ReportsManager: Фильтр сегментов обновлен, сегментов:', this.segments.length);
         }
     }
 
@@ -444,13 +444,13 @@ class ReportsManager {
      */
     async handleSegmentChange(segmentId) {
         try {
-            console.log('🔍 ReportsManager: handleSegmentChange вызван с segmentId:', segmentId, 'тип:', typeof segmentId);
+            // console.log('🔍 ReportsManager: handleSegmentChange вызван с segmentId:', segmentId, 'тип:', typeof segmentId);
             
             this.currentSegment = segmentId ? this.segments.find(s => s.id === parseInt(segmentId)) : null;
             this.currentSubsegment = null;
             
             if (!segmentId) {
-                console.log('🔍 ReportsManager: Сегмент не выбран, отключаем подсегменты');
+                // console.log('🔍 ReportsManager: Сегмент не выбран, отключаем подсегменты');
                 // Если сегмент не выбран, отключаем подсегменты и очищаем данные
                 if (this.subsegmentSlimSelect) {
                     this.subsegmentSlimSelect.setData([{ text: 'Все подсегменты', value: '' }]);
@@ -459,10 +459,10 @@ class ReportsManager {
                 }
                 this.subsegments = [];
             } else {
-                console.log('🔍 ReportsManager: Загружаем подсегменты для сегмента:', segmentId);
+                // console.log('🔍 ReportsManager: Загружаем подсегменты для сегмента:', segmentId);
                 // Загружаем подсегменты для выбранного сегмента
                 const subsegments = await this.database.getSubsegmentsBySegment(segmentId);
-                console.log('🔍 ReportsManager: Получено подсегментов:', subsegments.length, subsegments);
+                // console.log('🔍 ReportsManager: Получено подсегментов:', subsegments.length, subsegments);
                 
                 // Очищаем и заполняем опции подсегментов
                 this.subsegmentFilter.innerHTML = '<option value="">Все подсегменты</option>';
@@ -471,14 +471,14 @@ class ReportsManager {
                     option.value = subsegment.id;
                     option.textContent = subsegment.name;
                     this.subsegmentFilter.appendChild(option);
-                    console.log('🔍 ReportsManager: Добавлен подсегмент:', subsegment.name, 'id:', subsegment.id);
+                    // console.log('🔍 ReportsManager: Добавлен подсегмент:', subsegment.name, 'id:', subsegment.id);
                 });
                 
-                console.log('🔍 ReportsManager: HTML подсегментов:', this.subsegmentFilter.innerHTML);
+                // console.log('🔍 ReportsManager: HTML подсегментов:', this.subsegmentFilter.innerHTML);
                 
                 // Обновляем существующий SlimSelect
                 if (this.subsegmentSlimSelect) {
-                    console.log('🔍 ReportsManager: Обновляем SlimSelect для подсегментов');
+                    // console.log('🔍 ReportsManager: Обновляем SlimSelect для подсегментов');
                     this.subsegmentSlimSelect.setData([
                         { text: 'Все подсегменты', value: '' },
                         ...subsegments.map(subsegment => ({ 
@@ -489,13 +489,13 @@ class ReportsManager {
                     this.subsegmentSlimSelect.enable(true);
                 }
                 
-                console.log('🔍 ReportsManager: Подсегменты включены');
+                // console.log('🔍 ReportsManager: Подсегменты включены');
                 
                 // Сохраняем подсегменты
                 this.subsegments = subsegments;
             }
 
-            console.log('🔍 ReportsManager: Выбран сегмент:', this.currentSegment?.name || 'Не выбран', 'подсегментов:', this.subsegments?.length || 0);
+            // console.log('🔍 ReportsManager: Выбран сегмент:', this.currentSegment?.name || 'Не выбран', 'подсегментов:', this.subsegments?.length || 0);
             
             // Обновляем отчёты при изменении сегмента
             await this.updateReportsVisibility();
@@ -516,7 +516,7 @@ class ReportsManager {
         await this.updateReportsVisibility();
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Выбран подсегмент:', this.currentSubsegment?.name || 'Весь сегмент');
+            // console.log('🔍 ReportsManager: Выбран подсегмент:', this.currentSubsegment?.name || 'Весь сегмент');
         }
     }
 
@@ -542,7 +542,7 @@ class ReportsManager {
     async generateReports() {
         try {
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Генерация отчётов...');
+                // console.log('🔍 ReportsManager: Генерация отчётов...');
             }
 
             // Получение данных для отчётов
@@ -558,7 +558,7 @@ class ReportsManager {
             await this.createMarketCorridorChart(reportData);
 
             if (this.debugEnabled) {
-                console.log('✅ ReportsManager: Отчёты сгенерированы');
+                // console.log('✅ ReportsManager: Отчёты сгенерированы');
             }
 
         } catch (error) {
@@ -575,7 +575,7 @@ class ReportsManager {
             const currentArea = this.areaPage.dataState?.getState('currentArea');
             if (!currentArea) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: Нет текущей области');
+                    // console.log('🔍 ReportsManager: Нет текущей области');
                 }
                 return this.getEmptyReportData();
             }
@@ -599,7 +599,7 @@ class ReportsManager {
             const objects = await this.getFilteredRealEstateObjects(currentArea.id, segmentId, subsegmentId, dateFrom, dateTo);
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Загружено объектов:', objects.length);
+                // console.log('🔍 ReportsManager: Загружено объектов:', objects.length);
             }
 
             // Группируем данные по месяцам и подготавливаем для отчётов
@@ -641,24 +641,36 @@ class ReportsManager {
                 }
             }
 
-            // Фильтрация по датам
+            // ✅ ИСПРАВЛЕНО: Включаем объекты с активностью в период
             objects = objects.filter(obj => {
+                // Объект должен иметь хотя бы одну дату
                 if (!obj.created && !obj.updated) return false;
                 
-                // Используем дату создания или обновления
-                const objDate = new Date(obj.updated || obj.created);
-                const isValid = objDate >= dateFrom && objDate <= dateTo;
+                const createdDate = obj.created ? new Date(obj.created) : null;
+                const updatedDate = obj.updated ? new Date(obj.updated) : null;
                 
-                if (this.debugEnabled && !isValid) {
-                    console.log('🔍 ReportsManager: Объект исключен по дате:', {
-                        objDate: objDate.toISOString(),
+                // Включаем объект если:
+                // 1. Создан В период, ИЛИ
+                // 2. Обновлен В период (имел активность в период), ИЛИ
+                // 3. Создан ДО периода но еще активен (для подсчета активных объектов)
+                
+                const createdInPeriod = createdDate && createdDate >= dateFrom && createdDate <= dateTo;
+                const updatedInPeriod = updatedDate && updatedDate >= dateFrom && updatedDate <= dateTo;
+                const createdBeforePeriod = createdDate && createdDate < dateFrom;
+                
+                const shouldInclude = createdInPeriod || updatedInPeriod || createdBeforePeriod;
+                
+                if (this.debugEnabled && !shouldInclude) {
+                    console.log('🔍 ReportsManager: Объект исключен - нет активности в период:', {
+                        created: createdDate?.toISOString(),
+                        updated: updatedDate?.toISOString(),
                         dateFrom: dateFrom.toISOString(),
                         dateTo: dateTo.toISOString(),
                         obj: obj.id
                     });
                 }
                 
-                return isValid;
+                return shouldInclude;
             });
 
             return objects;
@@ -725,60 +737,167 @@ class ReportsManager {
             active: new Array(months.length).fill(0),
             averageСost: new Array(months.length).fill(0),
             averageСostMeter: new Array(months.length).fill(0),
+            averageСostArchive: new Array(months.length).fill(0),
+            averageСostMeterArchive: new Array(months.length).fill(0),
             datetime: months.map(date => {
                 // ApexCharts требует формат YYYY-MM-DD или timestamp
                 return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-01';
             })
         };
 
-        // Группируем объекты по месяцам создания и статусам
+        // ✅ ИСПРАВЛЕНО: Правильный подсчет новых объектов
+        // Подсчитываем ВСЕ объекты, созданные в каждом месяце (независимо от статуса)
         objects.forEach(obj => {
-            const createdDate = new Date(obj.created || obj.updated);
+            const createdDate = new Date(obj.created);
             const monthIndex = this.getMonthIndex(createdDate, months);
             
-            if (monthIndex >= 0) {
-                // Подсчитываем новые объекты
-                if (obj.status === 'active') {
-                    reportData.new[monthIndex]++;
-                }
-                
-                // Для закрытых/архивных объектов
-                if (obj.status === 'archived' || obj.status === 'sold') {
+            if (monthIndex >= 0 && obj.created) {
+                // Новые объекты - ВСЕ созданные в этом месяце
+                reportData.new[monthIndex]++;
+            }
+        });
+
+        // ✅ ИСПРАВЛЕНО: Правильный подсчет ушедших с рынка
+        // Подсчитываем объекты со статусом "Архив" по дате обновления
+        objects.forEach(obj => {
+            if (obj.status === 'archive' && obj.updated) {
+                const closeDate = new Date(obj.updated);
+                const monthIndex = this.getMonthIndex(closeDate, months);
+                if (monthIndex >= 0) {
                     reportData.close[monthIndex]++;
                 }
             }
         });
 
-        // Подсчитываем активные объекты на начало каждого месяца
+        // ✅ ИСПРАВЛЕНО: Правильный подсчет активных объектов на начало месяца
         months.forEach((month, index) => {
-            const activeAtMonth = objects.filter(obj => {
-                const objDate = new Date(obj.created || obj.updated);
-                return objDate <= month && (obj.status === 'active' || obj.status === 'selling');
+            // Подсчитываем объекты, которые были активны на начало месяца
+            const activeAtMonthStart = objects.filter(obj => {
+                if (!obj.created) return false;
+                
+                const createdDate = new Date(obj.created);
+                const updatedDate = obj.updated ? new Date(obj.updated) : null;
+                
+                // Объект должен быть создан ДО начала месяца
+                if (createdDate >= month) return false;
+                
+                // Если объект архивный, проверяем когда он стал архивным
+                if (obj.status === 'archive') {
+                    // Если есть дата обновления и она ДО начала месяца - объект уже был архивным
+                    if (updatedDate && updatedDate < month) {
+                        return false;
+                    }
+                    // Если дата обновления ПОСЛЕ начала месяца - объект еще был активен на начало месяца
+                    return true;
+                }
+                
+                // Активные объекты
+                return obj.status === 'active';
             }).length;
             
-            reportData.active[index] = activeAtMonth;
+            reportData.active[index] = activeAtMonthStart;
         });
 
-        // Подсчитываем средние цены по месяцам
+        // ✅ ИСПРАВЛЕНО: Подсчитываем средние цены на начало каждого месяца
         months.forEach((month, index) => {
-            const monthObjects = objects.filter(obj => {
-                const objDate = new Date(obj.created || obj.updated);
-                return this.isSameMonth(objDate, month) && obj.current_price > 0;
+            // Находим АКТИВНЫЕ объекты на начало месяца
+            const activeObjects = objects.filter(obj => {
+                if (!obj.created || obj.status === 'archive') return false;
+                
+                const createdDate = new Date(obj.created);
+                const updatedDate = obj.updated ? new Date(obj.updated) : new Date(); // Если нет updated - объект еще активен
+                
+                // Объект активен на начало месяца если: created <= начало_месяца < updated
+                return createdDate <= month && month < updatedDate;
             });
 
-            if (monthObjects.length > 0) {
-                const totalPrice = monthObjects.reduce((sum, obj) => sum + obj.current_price, 0);
-                const totalPricePerMeter = monthObjects
-                    .filter(obj => obj.price_per_meter > 0)
-                    .reduce((sum, obj) => sum + obj.price_per_meter, 0);
-                const countWithPricePerMeter = monthObjects.filter(obj => obj.price_per_meter > 0).length;
+            // Находим АРХИВНЫЕ объекты на начало месяца
+            const archiveObjects = objects.filter(obj => {
+                if (!obj.created || obj.status !== 'archive') return false;
+                
+                const createdDate = new Date(obj.created);
+                const updatedDate = obj.updated ? new Date(obj.updated) : new Date();
+                
+                // Архивный объект был активен на начало месяца если: created <= начало_месяца < updated
+                return createdDate <= month && month < updatedDate;
+            });
 
-                reportData.averageСost[index] = Math.round(totalPrice / monthObjects.length);
-                reportData.averageСostMeter[index] = countWithPricePerMeter > 0 
-                    ? Math.round(totalPricePerMeter / countWithPricePerMeter) 
-                    : 0;
+            // Обрабатываем АКТИВНЫЕ объекты
+            if (activeObjects.length > 0) {
+                const pricesAtMonth = [];
+                const pricesPerMeterAtMonth = [];
+
+                activeObjects.forEach(obj => {
+                    // Находим цену объекта на начало месяца из истории цен
+                    const priceAtMonth = this.getPriceAtDate(obj, month);
+                    const pricePerMeterAtMonth = this.getPricePerMeterAtDate(obj, month);
+                    
+                    if (priceAtMonth > 0) {
+                        pricesAtMonth.push(priceAtMonth);
+                    }
+                    
+                    if (pricePerMeterAtMonth > 0) {
+                        pricesPerMeterAtMonth.push(pricePerMeterAtMonth);
+                    }
+                });
+
+                // Вычисляем средние цены для активных объектов
+                if (pricesAtMonth.length > 0) {
+                    const totalPrice = pricesAtMonth.reduce((sum, price) => sum + price, 0);
+                    reportData.averageСost[index] = Math.round(totalPrice / pricesAtMonth.length);
+                }
+
+                if (pricesPerMeterAtMonth.length > 0) {
+                    const totalPricePerMeter = pricesPerMeterAtMonth.reduce((sum, price) => sum + price, 0);
+                    reportData.averageСostMeter[index] = Math.round(totalPricePerMeter / pricesPerMeterAtMonth.length);
+                }
+            }
+
+            // Обрабатываем АРХИВНЫЕ объекты
+            if (archiveObjects.length > 0) {
+                const pricesAtMonthArchive = [];
+                const pricesPerMeterAtMonthArchive = [];
+
+                archiveObjects.forEach(obj => {
+                    // Находим цену архивного объекта на начало месяца из истории цен
+                    const priceAtMonth = this.getPriceAtDate(obj, month);
+                    const pricePerMeterAtMonth = this.getPricePerMeterAtDate(obj, month);
+                    
+                    if (priceAtMonth > 0) {
+                        pricesAtMonthArchive.push(priceAtMonth);
+                    }
+                    
+                    if (pricePerMeterAtMonth > 0) {
+                        pricesPerMeterAtMonthArchive.push(pricePerMeterAtMonth);
+                    }
+                });
+
+                // Вычисляем средние цены для архивных объектов
+                if (pricesAtMonthArchive.length > 0) {
+                    const totalPriceArchive = pricesAtMonthArchive.reduce((sum, price) => sum + price, 0);
+                    reportData.averageСostArchive[index] = Math.round(totalPriceArchive / pricesAtMonthArchive.length);
+                }
+
+                if (pricesPerMeterAtMonthArchive.length > 0) {
+                    const totalPricePerMeterArchive = pricesPerMeterAtMonthArchive.reduce((sum, price) => sum + price, 0);
+                    reportData.averageСostMeterArchive[index] = Math.round(totalPricePerMeterArchive / pricesPerMeterAtMonthArchive.length);
+                }
             }
         });
+
+        if (this.debugEnabled) {
+            console.log('🔍 ReportsManager: Данные отчета по месяцам:', {
+                months: reportData.datetime,
+                new: reportData.new,
+                close: reportData.close,
+                active: reportData.active,
+                averageСost: reportData.averageСost,
+                averageСostMeter: reportData.averageСostMeter,
+                averageСostArchive: reportData.averageСostArchive,
+                averageСostMeterArchive: reportData.averageСostMeterArchive,
+                totalObjects: objects.length
+            });
+        }
 
         return reportData;
     }
@@ -828,6 +947,8 @@ class ReportsManager {
             active: [0],
             averageСost: [0],
             averageСostMeter: [0],
+            averageСostArchive: [0],
+            averageСostMeterArchive: [0],
             datetime: [dateStr]
         };
     }
@@ -926,7 +1047,7 @@ class ReportsManager {
             this.liquidityChart.render();
 
             if (this.debugEnabled) {
-                console.log('✅ ReportsManager: График ликвидности создан');
+                // console.log('✅ ReportsManager: График ликвидности создан');
             }
 
         } catch (error) {
@@ -948,17 +1069,27 @@ class ReportsManager {
             const options = {
                 series: [
                     {
-                        name: 'Средняя цена квадратного метра',
+                        name: 'Средняя цена квадратного метра (Активные)',
                         type: 'column',
                         data: data['averageСostMeter']
                     },
                     {
-                        name: 'Средняя цена объекта',
+                        name: 'Средняя цена объекта (Активные)',
                         type: 'line',
                         data: data['averageСost']
+                    },
+                    {
+                        name: 'Средняя цена квадратного метра (Архив)',
+                        type: 'column',
+                        data: data['averageСostMeterArchive']
+                    },
+                    {
+                        name: 'Средняя цена объекта (Архив)',
+                        type: 'line',
+                        data: data['averageСostArchive']
                     }
                 ],
-                colors: ['#60ba5d', '#629bc2'],
+                colors: ['#60ba5d', '#629bc2', '#ff9800', '#e91e63'],
                 chart: {
                     height: 350,
                     locales: [{
@@ -1020,7 +1151,7 @@ class ReportsManager {
             this.priceChangesChart.render();
 
             if (this.debugEnabled) {
-                console.log('✅ ReportsManager: График изменения цен создан');
+                // console.log('✅ ReportsManager: График изменения цен создан');
             }
 
         } catch (error) {
@@ -1154,7 +1285,7 @@ class ReportsManager {
             this.marketCorridorChart.render();
 
             if (this.debugEnabled) {
-                console.log('✅ ReportsManager: График коридора рынка создан');
+                // console.log('✅ ReportsManager: График коридора рынка создан');
             }
 
         } catch (error) {
@@ -1238,6 +1369,99 @@ class ReportsManager {
     }
 
     /**
+     * Получение цены объекта на конкретную дату из истории цен
+     * @param {Object} obj - объект недвижимости
+     * @param {Date} targetDate - целевая дата
+     * @returns {number} - цена на указанную дату
+     */
+    getPriceAtDate(obj, targetDate) {
+        try {
+            // Если нет истории цен, используем текущую цену
+            if (!obj.price_history || !Array.isArray(obj.price_history) || obj.price_history.length === 0) {
+                return obj.current_price || 0;
+            }
+
+            // Сортируем историю по дате (по возрастанию)
+            const sortedHistory = [...obj.price_history].sort((a, b) => {
+                const dateA = new Date(a.date || a.timestamp || a.created);
+                const dateB = new Date(b.date || b.timestamp || b.created);
+                return dateA - dateB;
+            });
+
+            // Ищем последнюю цену ДО или НА целевую дату
+            let priceAtDate = null;
+            for (const priceEntry of sortedHistory) {
+                const entryDate = new Date(priceEntry.date || priceEntry.timestamp || priceEntry.created);
+                if (entryDate <= targetDate) {
+                    priceAtDate = priceEntry.price || priceEntry.current_price || 0;
+                } else {
+                    break; // Прекращаем поиск, так как дошли до даты после целевой
+                }
+            }
+
+            // Если не найдена цена до целевой даты, берем первую доступную
+            if (priceAtDate === null && sortedHistory.length > 0) {
+                priceAtDate = sortedHistory[0].price || sortedHistory[0].current_price || 0;
+            }
+
+            // Если все еще нет цены, используем текущую
+            return priceAtDate || obj.current_price || 0;
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения цены на дату:', error);
+            return obj.current_price || 0;
+        }
+    }
+
+    /**
+     * Получение цены за м² объекта на конкретную дату из истории цен
+     * @param {Object} obj - объект недвижимости
+     * @param {Date} targetDate - целевая дата
+     * @returns {number} - цена за м² на указанную дату
+     */
+    getPricePerMeterAtDate(obj, targetDate) {
+        try {
+            // Получаем цену на дату
+            const priceAtDate = this.getPriceAtDate(obj, targetDate);
+            
+            // Если есть площадь, вычисляем цену за м²
+            if (priceAtDate > 0 && obj.area_total > 0) {
+                return Math.round(priceAtDate / obj.area_total);
+            }
+
+            // Если в истории есть готовое значение price_per_meter, используем его
+            if (obj.price_history && Array.isArray(obj.price_history)) {
+                const sortedHistory = [...obj.price_history].sort((a, b) => {
+                    const dateA = new Date(a.date || a.timestamp || a.created);
+                    const dateB = new Date(b.date || b.timestamp || b.created);
+                    return dateA - dateB;
+                });
+
+                let pricePerMeterAtDate = null;
+                for (const priceEntry of sortedHistory) {
+                    const entryDate = new Date(priceEntry.date || priceEntry.timestamp || priceEntry.created);
+                    if (entryDate <= targetDate && (priceEntry.price_per_meter || priceEntry.pricePerMeter)) {
+                        pricePerMeterAtDate = priceEntry.price_per_meter || priceEntry.pricePerMeter;
+                    } else if (entryDate > targetDate) {
+                        break;
+                    }
+                }
+
+                if (pricePerMeterAtDate) {
+                    return pricePerMeterAtDate;
+                }
+            }
+
+            // Fallback к текущему значению
+            return obj.price_per_meter || 0;
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения цены за м² на дату:', error);
+            return obj.price_per_meter || 0;
+        }
+    }
+
+    /**
      * Показать панель
      */
     showPanel() {
@@ -1288,7 +1512,7 @@ class ReportsManager {
         this.eventBus.off(CONSTANTS.EVENTS.SUBSEGMENT_DELETED);
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Ресурсы очищены');
+            // console.log('🔍 ReportsManager: Ресурсы очищены');
         }
     }
 }

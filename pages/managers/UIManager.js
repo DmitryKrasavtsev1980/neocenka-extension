@@ -145,13 +145,13 @@ class UIManager {
             
             
             this.eventBus.on(CONSTANTS.EVENTS.AREA_UPDATED, async (area) => {
-                console.log('🔄 UIManager: Получено событие AREA_UPDATED, обновляем статистику и графики');
+                // console.log('🔄 UIManager: Получено событие AREA_UPDATED, обновляем статистику и графики');
                 await this.updateAreaStatistics();
                 
                 // Принудительно обновляем графики после обновления статистики
                 setTimeout(async () => {
                     try {
-                        console.log('📊 UIManager: Принудительное обновление графиков после AREA_UPDATED');
+                        // console.log('📊 UIManager: Принудительное обновление графиков после AREA_UPDATED');
                         await this.updateSourcesChart();
                         await this.updateAddressAnalyticsCharts();
                     } catch (error) {
@@ -273,7 +273,7 @@ class UIManager {
             });
         });
         
-        console.log('✅ UIManager: Привязано обработчиков кнопок закрытия:', closeButtons.length);
+        // console.log('✅ UIManager: Привязано обработчиков кнопок закрытия:', closeButtons.length);
     }
 
     /**
@@ -358,7 +358,7 @@ class UIManager {
         const titleElement = document.getElementById('areaTitle');
         if (titleElement) {
             titleElement.textContent = area.name;
-            console.log('✅ UIManager: Название области обновлено:', area.name);
+            // console.log('✅ UIManager: Название области обновлено:', area.name);
         } else {
             console.error('❌ UIManager: Элемент areaTitle не найден');
         }
@@ -382,7 +382,7 @@ class UIManager {
         const content = document.getElementById(config.content);
         const chevron = document.getElementById(config.chevron);
         
-        console.log(`🔍 UIManager: Элементы панели "${panelName}":`); 
+        // console.log(`🔍 UIManager: Элементы панели "${panelName}":`); 
         console.log(`   - content (#${config.content}):`, content ? 'найден' : 'НЕ НАЙДЕН');
         console.log(`   - chevron (#${config.chevron}):`, chevron ? 'найден' : 'НЕ НАЙДЕН');
         
@@ -394,8 +394,8 @@ class UIManager {
         const currentState = this.uiState.panels[panelName];
         const isExpanded = currentState.expanded;
         
-        console.log(`📊 UIManager: Текущее состояние панели "${panelName}":`, currentState);
-        console.log(`🔄 UIManager: isExpanded = ${isExpanded} -> ${!isExpanded}`);
+        // console.log(`📊 UIManager: Текущее состояние панели "${panelName}":`, currentState);
+        // console.log(`🔄 UIManager: isExpanded = ${isExpanded} -> ${!isExpanded}`);
         
         // Очищаем все inline стили display
         content.style.display = '';
@@ -405,18 +405,18 @@ class UIManager {
             // Сворачиваем панель
             content.classList.add('hidden');
             chevron.style.transform = 'rotate(-90deg)';
-            console.log(`➡️ UIManager: Сворачиваем панель "${panelName}" - добавили 'hidden'`);
+            // console.log(`➡️ UIManager: Сворачиваем панель "${panelName}" - добавили 'hidden'`);
         } else {
             // Разворачиваем панель
             content.classList.remove('hidden');
             chevron.style.transform = 'rotate(0deg)';
-            console.log(`⬇️ UIManager: Разворачиваем панель "${panelName}" - убрали 'hidden'`);
+            // console.log(`⬇️ UIManager: Разворачиваем панель "${panelName}" - убрали 'hidden'`);
         }
         
         // Обновляем состояние
         this.uiState.panels[panelName].expanded = !isExpanded;
         
-        console.log(`💾 UIManager: Новое состояние панели "${panelName}":`, this.uiState.panels[panelName]);
+        // console.log(`💾 UIManager: Новое состояние панели "${panelName}":`, this.uiState.panels[panelName]);
         
         // Сохраняем состояние
         this.savePanelState(panelName);
@@ -428,10 +428,10 @@ class UIManager {
                 expanded: !isExpanded,
                 timestamp: new Date()
             });
-            console.log(`📡 UIManager: Событие PANEL_TOGGLED отправлено для "${panelName}"`);
+            // console.log(`📡 UIManager: Событие PANEL_TOGGLED отправлено для "${panelName}"`);
         }
         
-        console.log(`✅ UIManager: Переключение панели "${panelName}" завершено`);
+        // console.log(`✅ UIManager: Переключение панели "${panelName}" завершено`);
     }
     
     // Новая простая система управления панелями
@@ -440,7 +440,7 @@ class UIManager {
      * Простое переключение панели
      */
     simpleTogglePanel(panelName, contentId, chevronId) {
-        console.log(`🔵 UIManager: Простое переключение панели "${panelName}"`);
+        // console.log(`🔵 UIManager: Простое переключение панели "${panelName}"`);
         
         const content = document.getElementById(contentId);
         const chevron = document.getElementById(chevronId);
@@ -451,15 +451,15 @@ class UIManager {
         }
         
         // Диагностика CSS перед изменениями
-        console.log(`🔍 UIManager: ПЕРЕД изменением панели "${panelName}":`);
-        console.log(`   - content.classList: ${content.className}`);
-        console.log(`   - content.style.display: "${content.style.display}"`);
-        console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
-        console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
+        // console.log(`🔍 UIManager: ПЕРЕД изменением панели "${panelName}":`);
+        // console.log(`   - content.classList: ${content.className}`);
+        // console.log(`   - content.style.display: "${content.style.display}"`);
+        // console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
+        // console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
         
         // Очищаем любые inline стили display, которые могут конфликтовать с CSS классами
         if (content.style.display) {
-            console.log(`⚠️ UIManager: Обнаружен inline стиль display: "${content.style.display}", очищаем`);
+            // console.log(`⚠️ UIManager: Обнаружен inline стиль display: "${content.style.display}", очищаем`);
             content.style.removeProperty('display');
         }
         
@@ -471,7 +471,7 @@ class UIManager {
             content.classList.remove('hidden');
             chevron.style.transform = 'rotate(0deg)';
             this.saveSimplePanelState(panelName, true);
-            console.log(`⬇️ UIManager: Панель "${panelName}" развернута`);
+            // console.log(`⬇️ UIManager: Панель "${panelName}" развернута`);
             
             // Уведомляем о развертывании панели (для карты и других компонентов)
             if (this.eventBus) {
@@ -486,7 +486,7 @@ class UIManager {
             content.classList.add('hidden');
             chevron.style.transform = 'rotate(-90deg)';
             this.saveSimplePanelState(panelName, false);
-            console.log(`➡️ UIManager: Панель "${panelName}" свернута`);
+            // console.log(`➡️ UIManager: Панель "${panelName}" свернута`);
             
             // Уведомляем о сворачивании панели
             if (this.eventBus) {
@@ -499,11 +499,11 @@ class UIManager {
         }
         
         // Диагностика CSS после изменений
-        console.log(`🔍 UIManager: ПОСЛЕ изменения панели "${panelName}":`);
-        console.log(`   - content.classList: ${content.className}`);
-        console.log(`   - content.style.display: "${content.style.display}"`);
-        console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
-        console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
+        // console.log(`🔍 UIManager: ПОСЛЕ изменения панели "${panelName}":`);
+        // console.log(`   - content.classList: ${content.className}`);
+        // console.log(`   - content.style.display: "${content.style.display}"`);
+        // console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
+        // console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
     }
     
     /**
@@ -515,7 +515,7 @@ class UIManager {
         
         const stateKey = `simple_panel_${panelName}_${currentArea.id}`;
         localStorage.setItem(stateKey, isExpanded ? 'expanded' : 'collapsed');
-        console.log(`💾 UIManager: Простое состояние панели "${panelName}" сохранено: ${isExpanded ? 'expanded' : 'collapsed'}`);
+        // console.log(`💾 UIManager: Простое состояние панели "${panelName}" сохранено: ${isExpanded ? 'expanded' : 'collapsed'}`);
     }
     
     /**
@@ -621,7 +621,7 @@ class UIManager {
         const stateKey = `panel_${panelName}_${currentArea.id}`;
         
         localStorage.setItem(stateKey, JSON.stringify(state));
-        console.log(`💾 UIManager: Состояние панели "${panelName}" сохранено: ${stateKey} = ${JSON.stringify(state)}`);
+        // console.log(`💾 UIManager: Состояние панели "${panelName}" сохранено: ${stateKey} = ${JSON.stringify(state)}`);
     }
     
     /**
@@ -646,7 +646,7 @@ class UIManager {
                 }
             });
             
-            console.log('✅ UIManager: Переключатели панелей инициализированы');
+            // console.log('✅ UIManager: Переключатели панелей инициализированы');
             
         } catch (error) {
             console.error('❌ UIManager: Ошибка инициализации переключателей панелей:', error);
@@ -687,7 +687,7 @@ class UIManager {
                 state: this.uiState.panels[panelName]
             });
             
-            console.log(`👁️ UIManager: Панель "${panelName}" ${visible ? 'показана' : 'скрыта'}`);
+            // console.log(`👁️ UIManager: Панель "${panelName}" ${visible ? 'показана' : 'скрыта'}`);
             
         } catch (error) {
             console.error(`❌ UIManager: Ошибка переключения панели "${panelName}":`, error);
@@ -698,14 +698,14 @@ class UIManager {
      * Открытие модального окна
      */
     async openModal(modalName, options = {}) {
-        console.log(`🔓 UIManager: Открываем модальное окно "${modalName}"`);
+        // console.log(`🔓 UIManager: Открываем модальное окно "${modalName}"`);
         const modal = document.getElementById(modalName);
         if (!modal) {
             console.error(`❌ UIManager: Модальное окно "${modalName}" не найдено`);
             return;
         }
         
-        console.log(`✅ UIManager: Модальное окно "${modalName}" найдено, показываем...`);
+        // console.log(`✅ UIManager: Модальное окно "${modalName}" найдено, показываем...`);
         
         // Специальная обработка для модального окна объекта - заполняем контент ДО показа
         if (modalName === 'objectModal' && options.objectData) {
@@ -782,7 +782,7 @@ class UIManager {
                 // Инициализируем карту объекта (требует видимого контейнера)
                 if (duplicatesManager && duplicatesManager.renderObjectMap) {
                     duplicatesManager.renderObjectMap(realEstateObject);
-                    console.log('🗺️ Карта объекта инициализирована после показа модального окна');
+                    // console.log('🗺️ Карта объекта инициализирована...
                 }
                 
                 // Очищаем временные данные
@@ -802,7 +802,7 @@ class UIManager {
      * Закрытие модального окна
      */
     closeModal(modalName) {
-        console.log(`🔒 UIManager: Закрываем модальное окно "${modalName}"`);
+        // console.log(`🔒 UIManager: Закрываем модальное окно "${modalName}"`);
         const modal = document.getElementById(modalName);
         if (!modal) {
             console.error(`❌ UIManager: Модальное окно "${modalName}" не найдено`);
@@ -832,7 +832,7 @@ class UIManager {
      */
     handleModalOpen(data) {
         try {
-            console.log('🔓 UIManager: Обрабатываем запрос на открытие модального окна:', data);
+            // console.log('🔓 UIManager: Обрабатываем запрос на открытие модального окна:', data);
             
             switch (data.modalType) {
                 case CONSTANTS.MODAL_TYPES.LISTING_DETAIL:
@@ -869,7 +869,7 @@ class UIManager {
      */
     async populateListingModal(modal, listing) {
         try {
-            console.log('📋 UIManager: Заполняем модальное окно данными объявления:', listing);
+            // console.log('📋 UIManager: Заполняем модальное окно данными объявления:', listing);
             
             // Загружаем свежие данные из базы данных
             const freshListing = await window.db.getListing(listing.id);
@@ -1014,7 +1014,7 @@ class UIManager {
      */
     async populateObjectModal(modal, objectData) {
         try {
-            console.log('🏠 UIManager: Заполняем модальное окно данными объекта:', objectData);
+            // console.log('🏠 UIManager: Заполняем модальное окно данными объекта:', objectData);
             
             const { realEstateObject, objectListings, duplicatesManager } = objectData;
             
@@ -1065,7 +1065,7 @@ class UIManager {
                 realEstateObject
             };
             
-            console.log('✅ Базовые компоненты модального окна объекта инициализированы:', realEstateObject.id);
+            // console.log('✅ Базовые компоненты модального окна...
             
         } catch (error) {
             console.error('❌ UIManager: Ошибка заполнения модального окна объекта:', error);
@@ -1140,15 +1140,15 @@ class UIManager {
         // Обрабатываем фотографии
         const photos = this.getListingPhotos(listing);
         
-        console.log(`📸 Объявление ${listing.id}: найдено фотографий: ${photos.length}`);
-        console.log('📸 Поля с фотографиями в объявлении:', {
-            photos: listing.photos,
-            images: listing.images,
-            photo_urls: listing.photo_urls,
-            main_photo: listing.main_photo,
-            photo: listing.photo,
-            image_url: listing.image_url
-        });
+        // console.log(`📸 Объявление ${listing.id}: найдено фотографий: ${photos.length}`);
+        // console.log('📸 Поля с фотографиями в объявлении:', {
+        //     photos: listing.photos,
+        //     images: listing.images,
+        //     photo_urls: listing.photo_urls,
+        //     main_photo: listing.main_photo,
+        //     photo: listing.photo,
+        //     image_url: listing.image_url
+        // });
         
         return `
             <!-- Карта местоположения -->
@@ -2422,7 +2422,7 @@ class UIManager {
      */
     restoreUIState() {
         const currentArea = this.dataState.getState('currentArea');
-        console.log('🔄 UIManager: Восстановление общего состояния UI для области:', currentArea?.id);
+        // console.log('🔄 UIManager: Восстановление общего состояния UI для области:', currentArea?.id);
         
         if (!currentArea) {
             console.warn('⚠️ UIManager: Область не найдена в dataState для восстановления UI');
@@ -2431,15 +2431,15 @@ class UIManager {
         
         const stateKey = `ui-state_${currentArea.id}`;
         const savedState = localStorage.getItem(stateKey);
-        console.log(`🔍 UIManager: Общее состояние UI - ключ: "${stateKey}", значение:`, savedState);
+        // console.log(`🔍 UIManager: Общее состояние UI - ключ: "${stateKey}", значение:`, savedState);
         
         if (savedState) {
             try {
                 const state = JSON.parse(savedState);
-                console.log('✅ UIManager: Общее состояние UI восстановлено:', state);
+                // console.log('✅ UIManager: Общее состояние UI восстановлено:', state);
                 
                 // Общее состояние UI восстановлено (панели управляются отдельно)
-                console.log('✅ UIManager: Общее состояние UI применено');
+                // console.log('✅ UIManager: Общее состояние UI применено');
                 
                 // Восстанавливаем тему
                 if (state.theme) {
@@ -2453,7 +2453,7 @@ class UIManager {
                 return null;
             }
         } else {
-            console.log('💡 UIManager: Общее состояние UI не найдено, используем значения по умолчанию');
+            // console.log('💡 UIManager: Общее состояние UI не найдено, используем значения по умолчанию');
             return null;
         }
     }
@@ -2469,14 +2469,14 @@ class UIManager {
             const filteredListings = this.dataState.getState('listings') || [];
             
             // Всегда выводим отладочную информацию для диагностики
-            console.log(`🔍 UIManager.getListingsInArea: DataState содержит ${filteredListings.length} объявлений`);
-            console.log(`🔍 UIManager.getListingsInArea: DataState экземпляр:`, this.dataState);
-            console.log(`🔍 UIManager.getListingsInArea: listings напрямую:`, this.dataState.listings?.length || 0);
+            // console.log(`🔍 UIManager.getListingsInArea: DataState содержит ${filteredListings.length} объявлений`);
+            // console.log(`🔍 UIManager.getListingsInArea: DataState экземпляр:`, this.dataState);
+            // console.log(`🔍 UIManager.getListingsInArea: listings напрямую:`, this.dataState.listings?.length || 0);
             
             if (debugEnabled) {
-                console.log(`📊 UIManager: Получено отфильтрованных объявлений из DataState: ${filteredListings.length}`);
+                // console.log(`📊 UIManager: Получено отфильтрованных объявлений из DataState: ${filteredListings.length}`);
                 if (filteredListings.length > 0) {
-                    console.log(`📊 UIManager: Первые 3 объявления:`, filteredListings.slice(0, 3));
+                    // console.log(`📊 UIManager: Первые 3 объявления:`, filteredListings.slice(0, 3));
                 }
             }
             
@@ -2497,7 +2497,7 @@ class UIManager {
             
             if (!this.dataState.currentArea) {
                 if (debugEnabled) {
-                    console.log('⚠️ UIManager: Нет данных области для обновления графика источников');
+                    // console.log('⚠️ UIManager: Нет данных области для обновления графика источников');
                 }
                 return;
             }
@@ -2601,11 +2601,11 @@ class UIManager {
             }
             
             // Создаем/обновляем график
-            console.log('🎨 UIManager: Вызываем renderSourcesChart с данными:', chartData.length, 'элементов');
+//             // console.log('🎨 UIManager: Вызываем renderSourcesChart с данными:', chartData.length, 'элементов');
             await this.renderSourcesChart(chartData, colors);
             
             // Обновляем таблицу
-            console.log('📋 UIManager: Обновляем таблицу источников с данными:', tableData.length, 'элементов');
+            // console.log('📋 UIManager: Обновляем таблицу источников с данными:', tableData.length, 'элементов');
             this.updateSourcesTable(tableData);
             
         } catch (error) {
@@ -2623,9 +2623,9 @@ class UIManager {
             return;
         }
         
-        console.log('📊 renderSourcesChart вызван с данными:', data, 'цвета:', colors);
-        console.log('🔍 renderSourcesChart: Элемент sourcesChart найден:', !!chartElement);
-        console.log('🔍 renderSourcesChart: Данные для графика:', data.length, 'элементов');
+//         console.log('📊 renderSourcesChart вызван с данными:', data, 'цвета:', colors);
+//         console.log('🔍 renderSourcesChart: Элемент sourcesChart найден:', !!chartElement);
+//         console.log('🔍 renderSourcesChart: Данные для графика:', data.length, 'элементов');
         
         // Если график уже существует, уничтожаем его
         if (this.sourcesChartInstance) {
@@ -2704,7 +2704,7 @@ class UIManager {
         try {
             this.sourcesChartInstance = new ApexCharts(chartElement, options);
             await this.sourcesChartInstance.render();
-            console.log('✅ UIManager: График источников успешно создан');
+            // console.log('✅ UIManager: График источников успешно создан');
         } catch (error) {
             console.error('❌ UIManager: Ошибка создания/рендеринга графика источников:', error);
             chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка создания графика источников</div>';
@@ -2749,7 +2749,7 @@ class UIManager {
             
             if (!this.dataState.currentArea) {
                 if (debugEnabled) {
-                    console.log('⚠️ UIManager: Нет данных области для обновления графиков адресов');
+                    // console.log('⚠️ UIManager: Нет данных области для обновления графиков адресов');
                 }
                 return;
             }
@@ -3087,14 +3087,14 @@ class UIManager {
             let totalListingsCount = Math.max(addressLinkedListingsCount, filteredListings.length);
             
             // Всегда выводим отладочную информацию для диагностики
-            console.log(`🔍 UIManager.updateAreaStatistics: DataState содержит ${filteredListings.length} объявлений`);
-            console.log(`🔍 UIManager.updateAreaStatistics: Объявлений через адреса: ${addressLinkedListingsCount}`);
-            console.log(`🔍 UIManager.updateAreaStatistics: Итоговый счетчик: ${totalListingsCount}`);
+            // console.log(`🔍 UIManager.updateAreaStatistics: DataState содержит ${filteredListings.length} объявлений`);
+            // console.log(`🔍 UIManager.updateAreaStatistics: Объявлений через адреса: ${addressLinkedListingsCount}`);
+            // console.log(`🔍 UIManager.updateAreaStatistics: Итоговый счетчик: ${totalListingsCount}`);
             
             if (debugEnabled) {
-                console.log(`📊 UIManager: Объявлений из DataState: ${filteredListings.length}`);
-                console.log(`📊 UIManager: Объявлений через адреса: ${addressLinkedListingsCount}`);
-                console.log(`📊 UIManager: Итоговый счетчик: ${totalListingsCount}`);
+                // console.log(`📊 UIManager: Объявлений из DataState: ${filteredListings.length}`);
+                // console.log(`📊 UIManager: Объявлений через адреса: ${addressLinkedListingsCount}`);
+                // console.log(`📊 UIManager: Итоговый счетчик: ${totalListingsCount}`);
             }
             
             // Получаем сегменты
@@ -3158,7 +3158,7 @@ class UIManager {
                     objectsCount = objectsArrays.flat().length;
                 } catch (error) {
                     if (debugEnabled) {
-                        console.log('⚠️ UIManager: Метод getObjectsByAddress недоступен, объекты = 0');
+                        // console.log('⚠️ UIManager: Метод getObjectsByAddress недоступен, объекты = 0');
                     }
                     objectsCount = 0;
                 }
@@ -3246,7 +3246,7 @@ class UIManager {
             // Сохраняем выбранный таб
             localStorage.setItem('dataWorkActiveTab', tabId);
             
-            console.log(`✅ UIManager: Переключен таб на "${tabId}"`);
+            // console.log(`✅ UIManager: Переключен таб на "${tabId}"`);
         } else {
             console.warn(`UIManager: Не найдены элементы для таба "${tabId}"`);
         }
@@ -3271,7 +3271,7 @@ class UIManager {
         const activeTab = localStorage.getItem('dataWorkActiveTab') || 'import-addresses';
         this.switchDataWorkTab(activeTab);
         
-        console.log('✅ UIManager: Табы панели работы с данными инициализированы');
+        // console.log('✅ UIManager: Табы панели работы с данными инициализированы');
     }
     
     /**
