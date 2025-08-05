@@ -149,6 +149,7 @@ class AreaPage {
             this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager, this.uiManager);
             this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
             this.reportsManager = new ReportsManager(this);
+            this.comparativeAnalysisManager = new ComparativeAnalysisManager(this);
             this.geoJsonImportManager = new GeoJsonImportManager(window.db, this.progressManager);
             
             // Инициализация RealEstateObjectManager для совместимости со старой архитектурой
@@ -226,6 +227,12 @@ class AreaPage {
             if (this.reportsManager) {
                 await this.reportsManager.initialize();
                 // console.log('✅ ReportsManager инициализирован');
+            }
+            
+            // Инициализация ComparativeAnalysisManager
+            if (this.comparativeAnalysisManager) {
+                await this.comparativeAnalysisManager.initialize();
+                // console.log('✅ ComparativeAnalysisManager инициализирован');
             }
             
             // UI элементы будут инициализированы через подписку на событие AREA_LOADED

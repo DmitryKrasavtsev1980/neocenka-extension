@@ -26,6 +26,7 @@ class ReportsManager {
         // SlimSelect instances
         this.segmentSlimSelect = null;
         this.subsegmentSlimSelect = null;
+        this.marketCorridorModeSlimSelect = null;
         
         // Графики
         this.liquidityChart = null;
@@ -37,6 +38,9 @@ class ReportsManager {
         this.subsegments = [];
         this.currentSegment = null;
         this.currentSubsegment = null;
+        
+        // Режим коридора рынка
+        this.marketCorridorMode = 'sales'; // 'sales' или 'history'
         
         this.debugEnabled = false;
     }
@@ -157,6 +161,7 @@ class ReportsManager {
         const liquidityCheck = document.getElementById('liquidityReportCheck');
         const priceChangesCheck = document.getElementById('priceChangesReportCheck');
         const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
+        const comparativeAnalysisCheck = document.getElementById('comparativeAnalysisReportCheck');
         
         if (liquidityCheck) {
             liquidityCheck.addEventListener('change', () => {
@@ -172,6 +177,12 @@ class ReportsManager {
 
         if (marketCorridorCheck) {
             marketCorridorCheck.addEventListener('change', () => {
+                this.updateReportsVisibility();
+            });
+        }
+
+        if (comparativeAnalysisCheck) {
+            comparativeAnalysisCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
             });
         }
@@ -243,6 +254,28 @@ class ReportsManager {
                     // console.log('🔍 ReportsManager: SlimSelect для подсегментов инициализирован (отключен)');
                 }
             }
+
+            // Создаем SlimSelect для переключателя режимов коридора рынка
+            const marketCorridorModeSelect = document.getElementById('marketCorridorModeSelect');
+            if (marketCorridorModeSelect && typeof SlimSelect !== 'undefined') {
+                this.marketCorridorModeSlimSelect = new SlimSelect({
+                    select: marketCorridorModeSelect,
+                    settings: {
+                        showSearch: false
+                    },
+                    events: {
+                        afterChange: (newVal) => {
+                            const mode = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
+                                        (newVal && newVal.value !== undefined ? newVal.value : newVal);
+                            this.handleMarketCorridorModeChange(mode);
+                        }
+                    }
+                });
+                
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: SlimSelect для режимов коридора рынка инициализирован');
+                }
+            }
             
             if (this.debugEnabled) {
                 // console.log('🔍 ReportsManager: SlimSelect инициализация завершена');
@@ -296,13 +329,15 @@ class ReportsManager {
         const liquidityCheck = document.getElementById('liquidityReportCheck');
         const priceChangesCheck = document.getElementById('priceChangesReportCheck');
         const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
+        const comparativeAnalysisCheck = document.getElementById('comparativeAnalysisReportCheck');
         
         const showLiquidity = liquidityCheck?.checked || false;
         const showPriceChanges = priceChangesCheck?.checked || false;
         const showMarketCorridor = marketCorridorCheck?.checked || false;
+        const showComparativeAnalysis = comparativeAnalysisCheck?.checked || false;
 
         // Показать контейнер отчётов если выбран хотя бы один отчёт
-        if (showLiquidity || showPriceChanges || showMarketCorridor) {
+        if (showLiquidity || showPriceChanges || showMarketCorridor || showComparativeAnalysis) {
             this.reportsContent.classList.remove('hidden');
             
             // Генерация отчётов
@@ -312,6 +347,7 @@ class ReportsManager {
             const liquidityReport = document.querySelector('#liquidityChart').closest('.bg-white');
             const priceChangesReport = document.querySelector('#priceChangesChart').closest('.bg-white');
             const marketCorridorReport = document.querySelector('#marketCorridorChart').closest('.bg-white');
+            const comparativeAnalysisReport = document.querySelector('#comparativeAnalysisContainer').closest('.bg-white');
             
             if (liquidityReport) {
                 liquidityReport.style.display = showLiquidity ? 'block' : 'none';
@@ -324,15 +360,32 @@ class ReportsManager {
             if (marketCorridorReport) {
                 marketCorridorReport.style.display = showMarketCorridor ? 'block' : 'none';
             }
+
+            if (comparativeAnalysisReport) {
+                comparativeAnalysisReport.style.display = showComparativeAnalysis ? 'block' : 'none';
+            }
+
+            // Управление интерфейсом сравнительного анализа
+            if (showComparativeAnalysis && this.areaPage.comparativeAnalysisManager) {
+                await this.areaPage.comparativeAnalysisManager.showComparativeAnalysis();
+            } else if (!showComparativeAnalysis && this.areaPage.comparativeAnalysisManager) {
+                this.areaPage.comparativeAnalysisManager.hideComparativeAnalysis();
+            }
         } else {
             this.reportsContent.classList.add('hidden');
+            
+            // Скрываем сравнительный анализ если контейнер отчетов скрыт
+            if (this.areaPage.comparativeAnalysisManager) {
+                this.areaPage.comparativeAnalysisManager.hideComparativeAnalysis();
+            }
         }
 
         if (this.debugEnabled) {
             console.log('🔍 ReportsManager: Видимость отчётов обновлена', {
                 showLiquidity,
                 showPriceChanges,
-                showMarketCorridor
+                showMarketCorridor,
+                showComparativeAnalysis
             });
         }
     }
@@ -517,6 +570,44 @@ class ReportsManager {
 
         if (this.debugEnabled) {
             // console.log('🔍 ReportsManager: Выбран подсегмент:', this.currentSubsegment?.name || 'Весь сегмент');
+        }
+    }
+
+    /**
+     * Обработка изменения режима коридора рынка
+     */
+    async handleMarketCorridorModeChange(mode) {
+        this.marketCorridorMode = mode;
+
+        // Обновляем описание графика
+        this.updateMarketCorridorDescription(mode);
+
+        // Перестраиваем график коридора рынка если он уже создан
+        if (this.marketCorridorChart) {
+            await this.createMarketCorridorChart();
+        }
+
+        if (this.debugEnabled) {
+            console.log('🔍 ReportsManager: Изменен режим коридора рынка:', mode);
+        }
+    }
+
+    /**
+     * Обновление описания графика в зависимости от режима
+     */
+    updateMarketCorridorDescription(mode) {
+        const descriptionElement = document.getElementById('marketCorridorDescription');
+        if (!descriptionElement) return;
+
+        switch (mode) {
+            case 'sales':
+                descriptionElement.textContent = 'График отображает точки последних цен в объектах недвижимости. Архивные объекты показаны красным цветом на дату ухода с рынка, активные - синим на текущую дату.';
+                break;
+            case 'history':
+                descriptionElement.textContent = 'График показывает полную историю изменения цен для активных объектов и последние цены архивных объектов (красным цветом). Каждая линия - один объект.';
+                break;
+            default:
+                descriptionElement.textContent = 'График отображает точки последних цен в объектах недвижимости по вертикали, по горизонтали дата последнего обновления объекта недвижимости.';
         }
     }
 
@@ -1176,6 +1267,7 @@ class ReportsManager {
             const options = {
                 chart: {
                     height: 600,
+                    type: this.marketCorridorMode === 'history' ? 'line' : 'scatter',
                     locales: [{
                         "name": "ru",
                         "options": {
@@ -1198,27 +1290,30 @@ class ReportsManager {
                         }
                     }],
                     defaultLocale: "ru",
-                    type: 'line',
-                    shadow: {
-                        enabled: false,
-                        color: 'rgba(187,187,187,0.47)',
-                        top: 3,
-                        left: 2,
-                        blur: 3,
-                        opacity: 1
+                    events: {
+                        click: (event, chartContext, config) => {
+                            // Обработка клика по точке
+                            this.handleMarketCorridorPointClick(event, chartContext, config);
+                        }
                     }
                 },
                 stroke: {
-                    curve: 'stepline',
-                    width: [2, 2, 2] // ширины линий для каждой серии
+                    width: this.marketCorridorMode === 'history' ? 2 : 0, // Линии только в режиме истории
+                    curve: this.marketCorridorMode === 'history' ? 'stepline' : 'straight'
                 },
                 series: pointsData.series,
                 colors: pointsData.colors,
                 xaxis: {
                     type: 'datetime'
                 },
+                legend: {
+                    show: false,
+                    showForSingleSeries: false,
+                    showForNullSeries: false,
+                    showForZeroSeries: false
+                },
                 title: {
-                    text: 'Коридор рынка недвижимости',
+                    text: this.marketCorridorMode === 'history' ? 'История активных объектов' : 'Коридор рынка недвижимости',
                     align: 'left',
                     style: {
                         fontSize: "14px",
@@ -1228,7 +1323,6 @@ class ReportsManager {
                 markers: {
                     size: 4,
                     opacity: 0.9,
-                    colors: ["#56c2d6"],
                     strokeColor: "#fff",
                     strokeWidth: 2,
                     style: 'inverted',
@@ -1238,7 +1332,55 @@ class ReportsManager {
                 },
                 tooltip: {
                     shared: false,
-                    intersect: true
+                    intersect: true,
+                    custom: (tooltipModel) => {
+                        const { series, seriesIndex, dataPointIndex, w } = tooltipModel;
+                        
+                        // Получаем данные точки из сохраненного массива через this
+                        const reportsManager = window.reportsManagerInstance; // Временное решение
+                        
+                        let point = null;
+                        
+                        if (reportsManager && reportsManager.currentPointsData) {
+                            if (reportsManager.marketCorridorMode === 'history') {
+                                // В режиме истории нужно найти соответствующую точку по координатам
+                                const seriesData = w.config.series[seriesIndex];
+                                if (seriesData && seriesData.data && seriesData.data[dataPointIndex]) {
+                                    const [timestamp, price] = seriesData.data[dataPointIndex];
+                                    
+                                    // Ищем точку с такими же координатами в сохраненных данных
+                                    point = reportsManager.currentPointsData.find(p => 
+                                        Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                                    );
+                                }
+                            } else {
+                                // В режиме коридора продаж используем старую логику
+                                point = reportsManager.currentPointsData[dataPointIndex];
+                            }
+                        }
+                        
+                        if (!point) {
+                            return '<div style="padding: 8px;">Нет данных</div>';
+                        }
+
+                        const price = new Intl.NumberFormat('ru-RU').format(point.y);
+                        const date = new Date(point.x).toLocaleDateString('ru-RU');
+                        const status = point.status === 'active' ? 'Активный' : 'Архив';
+                        const rooms = point.rooms || 'н/д';
+                        const area = point.area ? `${point.area} м²` : 'н/д';
+                        const floor = point.floor && point.floors_total ? `${point.floor}/${point.floors_total}` : 'н/д';
+
+                        return `
+                            <div style="background: white; border: 1px solid #d1d5db; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); padding: 12px; max-width: 300px;">
+                                <div style="font-weight: 600; color: #1f2937; margin-bottom: 8px;">${rooms} комн., ${area}</div>
+                                <div style="font-size: 14px; color: #6b7280; margin-bottom: 4px;">Этаж: ${floor}</div>
+                                <div style="font-size: 14px; color: #6b7280; margin-bottom: 4px;">Статус: <span style="font-weight: 500; color: ${point.status === 'active' ? '#059669' : '#6b7280'};">${status}</span></div>
+                                <div style="font-size: 14px; color: #6b7280; margin-bottom: 4px;">Дата: ${date}</div>
+                                <div style="font-weight: bold; font-size: 18px; color: #2563eb;">${price} ₽</div>
+                                <div style="font-size: 12px; color: #9ca3af; margin-top: 8px;">Кликните для подробностей</div>
+                            </div>
+                        `;
+                    }
                 },
                 yaxis: {
                     min: pointsData.minPrice,
@@ -1282,10 +1424,21 @@ class ReportsManager {
 
             document.getElementById('marketCorridorChart').innerHTML = '';
             this.marketCorridorChart = new ApexCharts(document.querySelector("#marketCorridorChart"), options);
+            
+            // Сохраняем данные точек для использования в обработчиках
+            this.currentPointsData = pointsData.pointsData;
+            
+            // Создаем глобальную ссылку для tooltip
+            window.reportsManagerInstance = this;
+            
             this.marketCorridorChart.render();
 
             if (this.debugEnabled) {
-                // console.log('✅ ReportsManager: График коридора рынка создан');
+                console.log('✅ ReportsManager: График коридора рынка создан', {
+                    pointsCount: pointsData.pointsData.length,
+                    samplePoint: pointsData.pointsData[0],
+                    globalInstance: !!window.reportsManagerInstance
+                });
             }
 
         } catch (error) {
@@ -1316,41 +1469,206 @@ class ReportsManager {
                 return this.getEmptyMarketCorridorData();
             }
 
-            // Подготавливаем данные для точечного графика
-            // Каждая точка: [дата последнего обновления, цена]
-            const pointsData = objects
-                .filter(obj => obj.current_price > 0 && (obj.updated || obj.created))
-                .map(obj => {
-                    const lastUpdate = new Date(obj.updated || obj.created);
-                    return [lastUpdate.getTime(), obj.current_price];
-                })
-                .sort((a, b) => a[0] - b[0]); // сортируем по дате
+            // ✅ ИСПРАВЛЕНО: Подготавливаем данные для коридора рынка в зависимости от режима
+            const activePointsData = [];
+            const archivePointsData = [];
+            
+            objects.forEach(obj => {
+                if (obj.current_price <= 0) return;
+                
+                if (obj.status === 'archive') {
+                    // Архивные объекты: последняя цена на дату ухода с рынка (всегда одна точка)
+                    if (obj.updated) {
+                        archivePointsData.push({
+                            x: new Date(obj.updated).getTime(),
+                            y: obj.current_price,
+                            // Дополнительные данные для tooltip и модального окна
+                            objectId: obj.id,
+                            address: obj.address_id,
+                            rooms: obj.rooms || obj.property_type,
+                            area: obj.area_total,
+                            floor: obj.floor,
+                            floors_total: obj.floors_total,
+                            status: obj.status,
+                            created: obj.created,
+                            updated: obj.updated
+                        });
+                    }
+                } else if (obj.status === 'active') {
+                    // Активные объекты: зависит от режима
+                    if (this.marketCorridorMode === 'history') {
+                        // Режим "История активных" - используем алгоритм из модального окна
+                        const objectPriceHistory = this.prepareObjectPriceHistoryForChart(obj);
+                        
+                        // Каждая точка истории добавляется с информацией об объекте
+                        objectPriceHistory.forEach(historyPoint => {
+                            activePointsData.push({
+                                x: historyPoint.date,
+                                y: historyPoint.price,
+                                objectId: obj.id,
+                                address: obj.address_id,
+                                rooms: obj.rooms || obj.property_type,
+                                area: obj.area_total,
+                                floor: obj.floor,
+                                floors_total: obj.floors_total,
+                                status: obj.status,
+                                created: obj.created,
+                                updated: obj.updated,
+                                historyEntry: true
+                            });
+                        });
+                    } else {
+                        // Режим "Коридор продаж" - только текущая цена на текущую дату
+                        activePointsData.push({
+                            x: new Date().getTime(),
+                            y: obj.current_price,
+                            objectId: obj.id,
+                            address: obj.address_id,
+                            rooms: obj.rooms || obj.property_type,
+                            area: obj.area_total,
+                            floor: obj.floor,
+                            floors_total: obj.floors_total,
+                            status: obj.status,
+                            created: obj.created,
+                            updated: obj.updated
+                        });
+                    }
+                }
+            });
+            
+            // Сортируем данные по дате
+            activePointsData.sort((a, b) => a.x - b.x);
+            archivePointsData.sort((a, b) => a.x - b.x);
 
             // Вычисляем минимальную и максимальную цены для оси Y
-            const prices = pointsData.map(point => point[1]);
-            const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
-            const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+            const allPrices = [...activePointsData, ...archivePointsData].map(point => point.y);
+            const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+            const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : 0;
 
             // Добавляем небольшой отступ для лучшего отображения
             const priceRange = maxPrice - minPrice;
             const padding = priceRange * 0.1; // 10% отступ
 
-            return {
-                series: [
-                    {
-                        name: 'Объекты недвижимости',
-                        data: pointsData
+            // Формируем серии данных с разными цветами
+            const series = [];
+            const colors = [];
+            
+            if (this.marketCorridorMode === 'history') {
+                // В режиме истории группируем активные объекты по ID для создания отдельных линий
+                const activeObjectsGrouped = {};
+                activePointsData.forEach(point => {
+                    if (!activeObjectsGrouped[point.objectId]) {
+                        activeObjectsGrouped[point.objectId] = {
+                            name: `Объект #${point.objectId}`,
+                            data: [],
+                            color: '#56c2d6'
+                        };
                     }
-                ],
-                colors: ['#56c2d6'],
+                    activeObjectsGrouped[point.objectId].data.push([point.x, point.y]);
+                });
+                
+                // Добавляем каждый объект как отдельную серию
+                Object.values(activeObjectsGrouped).forEach(objectSeries => {
+                    // Сортируем данные по дате для правильного соединения линий
+                    objectSeries.data.sort((a, b) => a[0] - b[0]);
+                    series.push(objectSeries);
+                    colors.push('#56c2d6');
+                });
+                
+                // Архивные объекты показываем как отдельные точки
+                if (archivePointsData.length > 0) {
+                    series.push({
+                        name: 'Архивные объекты',
+                        data: archivePointsData.map(point => [point.x, point.y]),
+                        type: 'scatter' // Точки без линий
+                    });
+                    colors.push('#dc2626');
+                }
+            } else {
+                // В режиме коридора продаж - обычные scatter точки
+                if (activePointsData.length > 0) {
+                    series.push({
+                        name: 'Активные объекты',
+                        data: activePointsData.map(point => [point.x, point.y])
+                    });
+                    colors.push('#56c2d6'); // Синий цвет для активных
+                }
+                
+                if (archivePointsData.length > 0) {
+                    series.push({
+                        name: 'Архивные объекты',
+                        data: archivePointsData.map(point => [point.x, point.y])
+                    });
+                    colors.push('#dc2626'); // Красный цвет для архивных
+                }
+            }
+
+            return {
+                series: series,
+                colors: colors,
                 minPrice: Math.max(0, minPrice - padding),
-                maxPrice: maxPrice + padding
+                maxPrice: maxPrice + padding,
+                pointsData: [...activePointsData, ...archivePointsData] // Сохраняем все данные для tooltip и кликов
             };
 
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка получения данных коридора рынка:', error);
             return this.getEmptyMarketCorridorData();
         }
+    }
+
+    /**
+     * Подготовка данных истории цен объекта для графика (копия из DuplicatesManager)
+     */
+    prepareObjectPriceHistoryForChart(realEstateObject) {
+        const history = [];
+        
+        // Добавляем историю цен если есть
+        if (realEstateObject.price_history && Array.isArray(realEstateObject.price_history)) {
+            realEstateObject.price_history.forEach(item => {
+                if (item.price && item.date) {
+                    history.push({
+                        date: new Date(item.date).getTime(),
+                        price: parseInt(item.price)
+                    });
+                }
+            });
+        }
+
+        // Добавляем конечную точку с текущей ценой объекта (аналогично логике объявления)
+        if (realEstateObject.current_price) {
+            let endPriceDate;
+            
+            if (realEstateObject.status === 'active') {
+                // Для активных объектов - текущая дата
+                endPriceDate = new Date();
+            } else {
+                // Для архивных объектов - дата последнего обновления
+                endPriceDate = new Date(realEstateObject.updated_at || realEstateObject.created_at || Date.now());
+            }
+            
+            // Добавляем конечную точку только если она отличается от уже существующих
+            const lastHistoryDate = history.length > 0 ? history[history.length - 1].date : 0;
+            if (Math.abs(endPriceDate.getTime() - lastHistoryDate) > 24 * 60 * 60 * 1000) {
+                history.push({
+                    date: endPriceDate.getTime(),
+                    price: parseInt(realEstateObject.current_price)
+                });
+            }
+        }
+
+        // Сортируем по дате
+        history.sort((a, b) => a.date - b.date);
+        
+        // Убираем дубликаты цен подряд, но оставляем ключевые точки
+        const filtered = [];
+        for (let i = 0; i < history.length; i++) {
+            if (i === 0 || i === history.length - 1 || history[i].price !== history[i-1].price) {
+                filtered.push(history[i]);
+            }
+        }
+
+        return filtered;
     }
 
     /**
@@ -1410,6 +1728,83 @@ class ReportsManager {
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка получения цены на дату:', error);
             return obj.current_price || 0;
+        }
+    }
+
+    /**
+     * Обработка клика по точке на графике коридора рынка
+     * @param {Event} event - событие клика
+     * @param {Object} chartContext - контекст графика
+     * @param {Object} config - конфигурация точки
+     */
+    handleMarketCorridorPointClick(event, chartContext, config) {
+        try {
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Клик по графику коридора рынка:', { event, chartContext, config });
+            }
+
+            let point = null;
+            
+            if (config && config.dataPointIndex >= 0 && this.currentPointsData) {
+                if (this.marketCorridorMode === 'history') {
+                    // В режиме истории нужно найти соответствующую точку по координатам
+                    if (config.seriesIndex >= 0 && this.marketCorridorChart) {
+                        const seriesData = this.marketCorridorChart.w.config.series[config.seriesIndex];
+                        if (seriesData && seriesData.data && seriesData.data[config.dataPointIndex]) {
+                            const [timestamp, price] = seriesData.data[config.dataPointIndex];
+                            
+                            // Ищем точку с такими же координатами в сохраненных данных
+                            point = this.currentPointsData.find(p => 
+                                Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                            );
+                        }
+                    }
+                } else {
+                    // В режиме коридора продаж используем старую логику
+                    point = this.currentPointsData[config.dataPointIndex];
+                }
+            }
+            
+            if (point) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: Найдена точка:', point);
+                }
+                
+                // Открываем существующее модальное окно просмотра объекта
+                this.showObjectDetails(point.objectId);
+            } else {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: Не удалось найти данные точки:', {
+                        dataPointIndex: config?.dataPointIndex,
+                        seriesIndex: config?.seriesIndex,
+                        mode: this.marketCorridorMode,
+                        currentPointsDataLength: this.currentPointsData?.length
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка обработки клика по точке:', error);
+        }
+    }
+
+    /**
+     * Показать детали объекта недвижимости (использует существующее модальное окно)
+     * @param {string} objectId - ID объекта
+     */
+    async showObjectDetails(objectId) {
+        try {
+            // Используем метод из DuplicatesManager через areaPage
+            if (this.areaPage && this.areaPage.duplicatesManager && this.areaPage.duplicatesManager.showObjectDetails) {
+                await this.areaPage.duplicatesManager.showObjectDetails(objectId);
+            } else {
+                console.error('❌ ReportsManager: DuplicatesManager недоступен для показа деталей объекта');
+                
+                // Fallback - показываем простое уведомление
+                alert(`Просмотр объекта: ${objectId}\n\nДля полного просмотра откройте панель "Управление дублями"`);
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка показа деталей объекта:', error);
         }
     }
 
