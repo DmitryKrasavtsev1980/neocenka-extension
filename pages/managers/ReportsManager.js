@@ -244,8 +244,7 @@ class ReportsManager {
                         afterChange: (newVal) => {
                             const subsegmentId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
                                                (newVal && newVal.value !== undefined ? newVal.value : newVal);
-                            // console.log('🔍 ReportsManager: SlimSelect подсегмент изменен:', newVal, 'извлечено ID:', subsegmentId);
-                            this.handleSubsegmentChange(subsegmentId);
+                                            this.handleSubsegmentChange(subsegmentId);
                         }
                     }
                 });
@@ -417,14 +416,14 @@ class ReportsManager {
             const currentArea = this.areaPage.dataState?.getState('currentArea');
             if (!currentArea) {
                 if (this.debugEnabled) {
-                    // console.log('🔍 ReportsManager: Нет текущей области для загрузки сегментов');
+                    console.log('⚠️ ReportsManager: Нет текущей области для загрузки сегментов');
                 }
                 return;
             }
 
             if (!this.database) {
                 if (this.debugEnabled) {
-                    // console.log('🔍 ReportsManager: База данных недоступна');
+                    console.log('⚠️ ReportsManager: База данных недоступна');
                 }
                 return;
             }
@@ -436,7 +435,7 @@ class ReportsManager {
             this.updateSegmentFilter();
 
             if (this.debugEnabled) {
-                // console.log('🔍 ReportsManager: Загружено сегментов:', this.segments.length, 'для области:', currentArea.name);
+                console.log('✅ ReportsManager: Загружено сегментов:', this.segments.length, 'для области:', currentArea.name);
             }
 
         } catch (error) {
@@ -479,8 +478,7 @@ class ReportsManager {
                         // newVal может быть массивом или объектом, извлекаем значение
                         const segmentId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
                                          (newVal && newVal.value !== undefined ? newVal.value : newVal);
-                        // console.log('🔍 ReportsManager: SlimSelect afterChange для сегмента:', newVal, 'извлечено ID:', segmentId);
-                        this.handleSegmentChange(segmentId);
+                                this.handleSegmentChange(segmentId);
                     }
                 }
             });
@@ -499,13 +497,14 @@ class ReportsManager {
      */
     async handleSegmentChange(segmentId) {
         try {
-            // console.log('🔍 ReportsManager: handleSegmentChange вызван с segmentId:', segmentId, 'тип:', typeof segmentId);
-            
-            this.currentSegment = segmentId ? this.segments.find(s => s.id === parseInt(segmentId)) : null;
+            this.currentSegment = segmentId ? this.segments.find(s => s.id === segmentId || s.id === parseInt(segmentId)) : null;
             this.currentSubsegment = null;
             
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Выбран сегмент:', this.currentSegment?.name || 'Не выбран');
+            }
+            
             if (!segmentId) {
-                // console.log('🔍 ReportsManager: Сегмент не выбран, отключаем подсегменты');
                 // Если сегмент не выбран, отключаем подсегменты и очищаем данные
                 if (this.subsegmentSlimSelect) {
                     this.subsegmentSlimSelect.setData([{ text: 'Все подсегменты', value: '' }]);
@@ -514,10 +513,8 @@ class ReportsManager {
                 }
                 this.subsegments = [];
             } else {
-                // console.log('🔍 ReportsManager: Загружаем подсегменты для сегмента:', segmentId);
                 // Загружаем подсегменты для выбранного сегмента
                 const subsegments = await this.database.getSubsegmentsBySegment(segmentId);
-                // console.log('🔍 ReportsManager: Получено подсегментов:', subsegments.length, subsegments);
                 
                 // Очищаем и заполняем опции подсегментов
                 this.subsegmentFilter.innerHTML = '<option value="">Все подсегменты</option>';
@@ -526,14 +523,11 @@ class ReportsManager {
                     option.value = subsegment.id;
                     option.textContent = subsegment.name;
                     this.subsegmentFilter.appendChild(option);
-                    // console.log('🔍 ReportsManager: Добавлен подсегмент:', subsegment.name, 'id:', subsegment.id);
                 });
                 
-                // console.log('🔍 ReportsManager: HTML подсегментов:', this.subsegmentFilter.innerHTML);
                 
                 // Обновляем существующий SlimSelect
                 if (this.subsegmentSlimSelect) {
-                    // console.log('🔍 ReportsManager: Обновляем SlimSelect для подсегментов');
                     this.subsegmentSlimSelect.setData([
                         { text: 'Все подсегменты', value: '' },
                         ...subsegments.map(subsegment => ({ 
@@ -544,13 +538,11 @@ class ReportsManager {
                     this.subsegmentSlimSelect.enable(true);
                 }
                 
-                // console.log('🔍 ReportsManager: Подсегменты включены');
                 
                 // Сохраняем подсегменты
                 this.subsegments = subsegments;
             }
 
-            // console.log('🔍 ReportsManager: Выбран сегмент:', this.currentSegment?.name || 'Не выбран', 'подсегментов:', this.subsegments?.length || 0);
             
             // Обновляем отчёты при изменении сегмента
             await this.updateReportsVisibility();
@@ -565,14 +557,11 @@ class ReportsManager {
      * Обработка изменения подсегмента
      */
     async handleSubsegmentChange(subsegmentId) {
-        this.currentSubsegment = subsegmentId ? this.subsegments.find(s => s.id === parseInt(subsegmentId)) : null;
+        this.currentSubsegment = subsegmentId ? this.subsegments.find(s => s.id === subsegmentId || s.id === parseInt(subsegmentId)) : null;
 
         // Обновляем отчёты при изменении подсегмента
         await this.updateReportsVisibility();
 
-        if (this.debugEnabled) {
-            // console.log('🔍 ReportsManager: Выбран подсегмент:', this.currentSubsegment?.name || 'Весь сегмент');
-        }
     }
 
     /**
@@ -683,6 +672,7 @@ class ReportsManager {
                     areaId: currentArea.id,
                     segmentId,
                     subsegmentId,
+                    segmentName: this.currentSegment?.name || 'Вся область',
                     dateFrom: dateFrom.toISOString(),
                     dateTo: dateTo.toISOString()
                 });
@@ -714,16 +704,43 @@ class ReportsManager {
             let objects = [];
 
             if (segmentId) {
-                // Получаем объекты по сегменту
-                objects = await this.database.getObjectsBySegment(segmentId);
+                // ✅ ИСПРАВЛЕНО: Правильная логика фильтрации сегментов
+                const segment = await this.database.getSegment(segmentId);
+                if (!segment) {
+                    if (this.debugEnabled) {
+                        console.log('⚠️ ReportsManager: Сегмент не найден:', segmentId);
+                    }
+                    return [];
+                }
+                
+                // Получаем все адреса в области сегмента
+                const addresses = await this.database.getAddressesInMapArea(segment.map_area_id);
+                
+                // Фильтруем адреса по критериям сегмента (если есть)
+                let filteredAddresses = addresses;
+                if (segment.filters) {
+                    filteredAddresses = this.filterAddressesBySegmentCriteria(addresses, segment.filters);
+                }
+                
+                // Получаем все объекты для отфильтрованных адресов
+                for (const address of filteredAddresses) {
+                    const addressObjects = await this.database.getObjectsByAddress(address.id);
+                    objects.push(...addressObjects);
+                }
                 
                 if (subsegmentId) {
-                    // Дополнительная фильтрация по подсегменту
-                    // Нужно получить адреса подсегмента и отфильтровать объекты
+                    // Дополнительная фильтрация объектов по критериям подсегмента
                     const subsegment = await this.database.getSubsegment(subsegmentId);
-                    if (subsegment && subsegment.filter_criteria) {
+                    
+                    if (subsegment && subsegment.filters) {
+                        const objectsBeforeFilter = objects.length;
                         objects = this.filterObjectsBySubsegment(objects, subsegment);
+                    } else {
                     }
+                }
+                
+                if (this.debugEnabled) {
+                    console.log(`🔍 ReportsManager: Сегмент ${segment.name}: ${filteredAddresses.length} адресов → ${objects.length} объектов`);
                 }
             } else {
                 // Получаем все объекты в области
@@ -731,6 +748,10 @@ class ReportsManager {
                 for (const address of addresses) {
                     const addressObjects = await this.database.getObjectsByAddress(address.id);
                     objects.push(...addressObjects);
+                }
+                
+                if (this.debugEnabled) {
+                    console.log(`🔍 ReportsManager: Вся область: ${addresses.length} адресов → ${objects.length} объектов`);
                 }
             }
 
@@ -777,34 +798,59 @@ class ReportsManager {
     /**
      * Фильтрация объектов по критериям подсегмента
      */
+    /**
+     * Фильтрация адресов по критериям сегмента (адаптировано из DuplicatesManager)
+     */
+    filterAddressesBySegmentCriteria(addresses, segmentFilters) {
+        if (!segmentFilters) return addresses;
+        
+        return addresses.filter(address => {
+            // Проверка типа дома
+            if (segmentFilters.type && segmentFilters.type.length > 0) {
+                if (!segmentFilters.type.includes(address.building_type)) {
+                    return false;
+                }
+            }
+            
+            // Проверка списка конкретных адресов
+            if (segmentFilters.addresses && Array.isArray(segmentFilters.addresses) && segmentFilters.addresses.length > 0) {
+                if (!segmentFilters.addresses.includes(address.id)) {
+                    return false;
+                }
+            }
+            
+            // Другие критерии сегментов можно добавить здесь
+            // (площадь дома, количество этажей и т.д.)
+            
+            return true;
+        });
+    }
+
+    /**
+     * Фильтрация объектов по критериям подсегмента
+     */
     filterObjectsBySubsegment(objects, subsegment) {
-        if (!subsegment.filter_criteria) return objects;
+        if (!subsegment.filters) return objects;
 
         return objects.filter(obj => {
-            const criteria = subsegment.filter_criteria;
+            const criteria = subsegment.filters;
             
-            // Фильтр по количеству комнат
-            if (criteria.rooms && criteria.rooms.length > 0) {
-                if (!criteria.rooms.includes(obj.rooms)) return false;
+            // Фильтр по типу недвижимости (количество комнат)
+            if (criteria.property_type && criteria.property_type.length > 0) {
+                if (!criteria.property_type.includes(obj.property_type)) return false;
             }
 
             // Фильтр по этажам
-            if (criteria.floors && (criteria.floors.min || criteria.floors.max)) {
-                if (criteria.floors.min && obj.floors_total < criteria.floors.min) return false;
-                if (criteria.floors.max && obj.floors_total > criteria.floors.max) return false;
-            }
+            if (criteria.floor_from && obj.floor < criteria.floor_from) return false;
+            if (criteria.floor_to && obj.floor > criteria.floor_to) return false;
 
             // Фильтр по площади
-            if (criteria.area && (criteria.area.min || criteria.area.max)) {
-                if (criteria.area.min && obj.area_total < criteria.area.min) return false;
-                if (criteria.area.max && obj.area_total > criteria.area.max) return false;
-            }
+            if (criteria.area_from && obj.area_total < criteria.area_from) return false;
+            if (criteria.area_to && obj.area_total > criteria.area_to) return false;
 
             // Фильтр по цене
-            if (criteria.price && (criteria.price.min || criteria.price.max)) {
-                if (criteria.price.min && obj.current_price < criteria.price.min) return false;
-                if (criteria.price.max && obj.current_price > criteria.price.max) return false;
-            }
+            if (criteria.price_from && obj.current_price < criteria.price_from) return false;
+            if (criteria.price_to && obj.current_price > criteria.price_to) return false;
 
             return true;
         });
@@ -1159,6 +1205,7 @@ class ReportsManager {
                 return;
             }
 
+
             const options = {
                 series: [
                     {
@@ -1226,14 +1273,26 @@ class ReportsManager {
                 },
                 yaxis: [
                     {
+                        seriesName: ['Средняя цена квадратного метра (Активные)', 'Средняя цена квадратного метра (Архив)'],
                         title: {
                             text: 'Средняя цена квадратного метра',
                         },
+                        labels: {
+                            formatter: function (val) {
+                                return new Intl.NumberFormat('ru-RU').format(val);
+                            }
+                        }
                     },
                     {
+                        seriesName: ['Средняя цена объекта (Активные)', 'Средняя цена объекта (Архив)'],
                         opposite: true,
                         title: {
                             text: 'Средняя цена объекта'
+                        },
+                        labels: {
+                            formatter: function (val) {
+                                return new Intl.NumberFormat('ru-RU').format(val);
+                            }
                         }
                     }
                 ]
@@ -1269,6 +1328,7 @@ class ReportsManager {
             const options = {
                 chart: {
                     height: 600,
+                    // Используем mixed тип для смешанного графика (линии + точки)
                     type: this.marketCorridorMode === 'history' ? 'line' : 'scatter',
                     locales: [{
                         "name": "ru",
@@ -1573,6 +1633,8 @@ class ReportsManager {
                 Object.values(activeObjectsGrouped).forEach(objectSeries => {
                     // Сортируем данные по дате для правильного соединения линий
                     objectSeries.data.sort((a, b) => a[0] - b[0]);
+                    // Явно указываем тип линии для активных объектов в режиме истории
+                    objectSeries.type = 'line';
                     series.push(objectSeries);
                     colors.push('#56c2d6');
                 });

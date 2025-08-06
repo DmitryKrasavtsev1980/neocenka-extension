@@ -1773,7 +1773,7 @@ class DuplicatesManager {
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea) return;
             
-            // Получаем данные для статистики
+            // Получаем данные для статистики (статистика области - без фильтров сегментов)
             const listings = await this.getListingsInArea();
             const realEstateObjects = await this.getRealEstateObjects();
             

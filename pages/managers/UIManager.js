@@ -2489,6 +2489,7 @@ class UIManager {
     /**
      * Получение объявлений в области (используем уже отфильтрованные из DataState)
      */
+
     async getListingsInArea(area) {
         try {
             const debugEnabled = await this.isDebugEnabled();
@@ -2496,16 +2497,8 @@ class UIManager {
             // Используем уже отфильтрованные объявления из DataState (как делает карта)
             const filteredListings = this.dataState.getState('listings') || [];
             
-            // Всегда выводим отладочную информацию для диагностики
-            // console.log(`🔍 UIManager.getListingsInArea: DataState содержит ${filteredListings.length} объявлений`);
-            // console.log(`🔍 UIManager.getListingsInArea: DataState экземпляр:`, this.dataState);
-            // console.log(`🔍 UIManager.getListingsInArea: listings напрямую:`, this.dataState.listings?.length || 0);
-            
             if (debugEnabled) {
-                // console.log(`📊 UIManager: Получено отфильтрованных объявлений из DataState: ${filteredListings.length}`);
-                if (filteredListings.length > 0) {
-                    // console.log(`📊 UIManager: Первые 3 объявления:`, filteredListings.slice(0, 3));
-                }
+                console.log(`📊 UIManager: Получено объявлений из DataState: ${filteredListings.length} (статистика области - без фильтров сегментов)`);
             }
             
             return filteredListings;
@@ -2783,11 +2776,12 @@ class UIManager {
             }
             
             const areaId = this.dataState.currentArea.id;
-            const allAddresses = await window.db.getAll('addresses');
-            const addresses = allAddresses.filter(address => address.map_area_id === areaId);
+            
+            // Получаем все адреса в полигоне области (статистика области - без фильтров сегментов)
+            const addresses = await window.db.getAddressesInMapArea(areaId);
             
             if (debugEnabled) {
-                console.log(`📊 Обновление графиков адресов: ${addresses.length} адресов в области`);
+                console.log(`📊 UIManager: Обновление графиков адресов: ${addresses.length} адресов в области (статистика области - без фильтров сегментов)`);
             }
             
             // Обновляем график точности определения
