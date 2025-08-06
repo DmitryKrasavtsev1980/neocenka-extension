@@ -180,6 +180,22 @@ class UIManager {
                     console.error('❌ UIManager: Ошибка обновления статистики после импорта объявлений:', error);
                 }
             });
+            
+            // Обрабатываем обновление объявлений
+            this.eventBus.on(CONSTANTS.EVENTS.LISTING_UPDATED, async (eventData) => {
+                try {
+                    await this.debugLog('🔄 UIManager: Получено событие LISTING_UPDATED для объявления:', eventData.listing.id);
+                    
+                    // Если открыто модальное окно этого объявления, обновляем его
+                    await this.handleListingUpdated(eventData);
+                    
+                    // Обновляем статистику
+                    await this.updateAreaStatistics();
+                    
+                } catch (error) {
+                    console.error('❌ UIManager: Ошибка обработки обновления объявления:', error);
+                }
+            });
         }
         
         // Привязка к панелям
@@ -763,6 +779,9 @@ class UIManager {
         
         // Специальная обработка для модального окна объявления
         if (modalName === 'listingModal' && options.listing) {
+            // Сохраняем ID объявления для отслеживания обновлений
+            modal.dataset.listingId = options.listing.id;
+            
             this.populateListingModal(modal, options.listing).catch(error => {
                 console.error('❌ Ошибка загрузки данных объявления:', error);
             });
@@ -1137,6 +1156,12 @@ class UIManager {
      * Генерация HTML с деталями объявления
      */
     generateListingDetailHtml(listing) {
+        // Проверяем есть ли информация о последнем обновлении для подсветки
+        const updateInfo = this.lastUpdatedListing;
+        const shouldHighlight = updateInfo && 
+                               updateInfo.listing.id === listing.id && 
+                               (new Date() - updateInfo.updatedAt) < 30000; // подсвечиваем 30 секунд
+        
         // Обрабатываем фотографии
         const photos = this.getListingPhotos(listing);
         
@@ -1303,7 +1328,10 @@ class UIManager {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- Основная информация -->
                 <div>
-                    <h4 class="text-lg font-medium text-gray-900 mb-4">Основная информация</h4>
+                    <h4 class="text-lg font-medium text-gray-900 mb-4">
+                        Основная информация
+                        ${shouldHighlight ? `<span class="ml-2 text-xs px-2 py-1 bg-green-100 text-green-800 rounded-full animate-pulse">Обновлено ${updateInfo.archived ? '(архивировано)' : ''}</span>` : ''}
+                    </h4>
                     <dl class="space-y-3">
                         <div>
                             <dt class="text-sm font-medium text-gray-500">Заголовок</dt>
@@ -1315,7 +1343,7 @@ class UIManager {
                         </div>
                         <div>
                             <dt class="text-sm font-medium text-gray-500">Цена</dt>
-                            <dd class="text-sm text-gray-900">${this.formatPrice(listing.price)}</dd>
+                            <dd class="text-sm text-gray-900 ${shouldHighlight && updateInfo.priceChanged ? 'bg-yellow-200 px-2 py-1 rounded transition-colors duration-3000' : ''}">${this.formatPrice(listing.price)}${shouldHighlight && updateInfo.priceChanged ? ` <span class="text-xs text-green-600">(обновлено)</span>` : ''}</dd>
                         </div>
                         <div>
                             <dt class="text-sm font-medium text-gray-500">Цена за м²</dt>
@@ -1381,7 +1409,7 @@ class UIManager {
                         </div>
                         <div>
                             <dt class="text-sm font-medium text-gray-500">Дата обновления</dt>
-                            <dd class="text-sm text-gray-900">${this.formatDate(listing.updated)}</dd>
+                            <dd class="text-sm text-gray-900 ${shouldHighlight ? 'bg-yellow-200 px-2 py-1 rounded transition-colors duration-3000' : ''}">${this.formatDate(listing.updated)}${shouldHighlight ? ` <span class="text-xs text-green-600">(обновлено)</span>` : ''}</dd>
                         </div>
                         <div>
                             <dt class="text-sm font-medium text-gray-500">Продавец</dt>
@@ -5113,10 +5141,155 @@ class UIManager {
                     console.log(response.data);
                     console.log('==========================================');
                     
+                    // Парсим дату обновления из строки типа "Обновлено: 31 июл, 09:01"
+                    let updatedDate = new Date();
+                    if (response.data.updated_date) {
+                        try {
+                            console.log('📅 Парсим дату:', response.data.updated_date);
+                            // Извлекаем дату из строки "Обновлено: 31 июл, 09:01"
+                            const dateMatch = response.data.updated_date.match(/(\d{1,2})\s+(янв|фев|мар|апр|мая|май|июн|июл|авг|сен|окт|ноя|дек),?\s+(\d{1,2}):(\d{2})/i);
+                            console.log('📅 Результат регекса:', dateMatch);
+                            if (dateMatch) {
+                                const day = parseInt(dateMatch[1]);
+                                const monthName = dateMatch[2];
+                                const hours = parseInt(dateMatch[3]);
+                                const minutes = parseInt(dateMatch[4]);
+                                
+                                const monthMap = {
+                                    'янв': 0, 'фев': 1, 'мар': 2, 'апр': 3, 'мая': 4, 'май': 4, 'июн': 5,
+                                    'июл': 6, 'авг': 7, 'сен': 8, 'окт': 9, 'ноя': 10, 'дек': 11
+                                };
+                                
+                                const currentDate = new Date();
+                                const currentYear = currentDate.getFullYear();
+                                const month = monthMap[monthName.toLowerCase()];
+                                
+                                if (month !== undefined) {
+                                    // Создаем дату с текущим годом
+                                    updatedDate = new Date(currentYear, month, day, hours, minutes);
+                                    
+                                    // Если получившаяся дата больше текущей - значит это прошлый год
+                                    if (updatedDate > currentDate) {
+                                        updatedDate = new Date(currentYear - 1, month, day, hours, minutes);
+                                        console.log('📅 Дата скорректирована на прошлый год');
+                                    }
+                                    
+                                    console.log('✅ Спарсенная дата:', updatedDate);
+                                } else {
+                                    console.warn('⚠️ Месяц не найден:', monthName);
+                                }
+                            }
+                        } catch (dateError) {
+                            console.warn('⚠️ Ошибка парсинга даты обновления:', dateError);
+                        }
+                    }
+                    
+                    // Создаем обновленное объявление, изменяя только необходимые поля
+                    const updatedListing = {
+                        ...listing, // Сохраняем все существующие данные
+                        updated_at: new Date() // Системная дата обновления
+                    };
+                    
+                    // Обрабатываем историю цен - сохраняем существующую
+                    let priceHistory = listing.price_history || [];
+                    
+                    // Если история пустая, создаем базовую запись с датой создания
+                    if (priceHistory.length === 0 && listing.created) {
+                        priceHistory = [{
+                            date: listing.created,
+                            price: listing.price,
+                            source: 'initial'
+                        }];
+                    }
+                    
+                    // Обрабатываем архивный статус
+                    const isArchived = response.data.status === 'archived';
+                    if (isArchived) {
+                        updatedListing.status = 'archived';
+                        // Устанавливаем дату закрытия только если она пришла с сайта
+                        if (response.data.updated_date) {
+                            updatedListing.updated = updatedDate; // Дата закрытия с сайта
+                        }
+                        updatedListing.last_seen = updatedDate;
+                    }
+                    
+                    // Проверяем изменение цены в любом случае
+                    const priceChanged = listing.price !== response.data.price;
+                    
+                    // 1. Если из парсинга пришла история цен - объединяем с существующей
+                    if (response.data.price_history && response.data.price_history.length > 0) {
+                        const newHistory = response.data.price_history.map(entry => ({
+                            date: entry.date,
+                            price: entry.price
+                        }));
+                        
+                        // Объединяем с существующей историей, избегая дублей
+                        // Фильтруем существующую историю - оставляем только записи с валидным price
+                        const filteredExistingHistory = priceHistory.filter(entry => entry.price && entry.price > 0);
+                        const combinedHistory = [...filteredExistingHistory];
+                        for (const newEntry of newHistory) {
+                            // Добавляем только записи с валидным полем price
+                            if (newEntry.price && newEntry.price > 0) {
+                                const exists = combinedHistory.some(existing => 
+                                    existing.date === newEntry.date && existing.price === newEntry.price
+                                );
+                                if (!exists) {
+                                    combinedHistory.push(newEntry);
+                                }
+                            }
+                        }
+                        
+                        // Сортируем по дате и обновляем историю
+                        priceHistory = combinedHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+                        
+                        // Берем последнюю цену из истории
+                        const sortedByDateDesc = priceHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+                        updatedListing.price = sortedByDateDesc[0].price;
+                        
+                    } else {
+                        // 2. Если истории нет, но цена изменилась
+                        if (priceChanged) {
+                            updatedListing.price = response.data.price;
+                            
+                            // Определяем дату для записи
+                            const dateForEntry = isArchived ? updatedDate : new Date();
+                            
+                            // Добавляем новую запись в историю
+                            priceHistory = [...priceHistory];
+                            priceHistory.push({
+                                date: dateForEntry.toISOString(),
+                                price: response.data.price
+                            });
+                            priceHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+                        }
+                    }
+                    
+                    
+                    updatedListing.price_history = priceHistory;
+                    
+                    // Логируем что сохраняем
+                    console.log('💾 Сохраняем объявление с updated:', updatedListing.updated);
+                    console.log('💾 Полные данные объявления:', updatedListing);
+                    
+                    // Сохраняем в базу данных
+                    await window.db.update('listings', updatedListing);
+                    
+                    // Отправляем событие об обновлении
+                    this.eventBus.emit(CONSTANTS.EVENTS.LISTING_UPDATED, {
+                        listing: updatedListing,
+                        oldListing: listing,
+                        priceChanged: priceChanged,
+                        archived: isArchived
+                    });
+                    
+                    let message = isArchived 
+                        ? 'Объявление архивировано (снято с публикации)'
+                        : `Объявление обновлено! ${priceChanged ? 'Цена изменилась!' : 'Цена не изменилась.'}`;
+                    
                     this.showNotification({
-                        type: 'success',
-                        message: `Парсинг завершен! Данные выведены в консоль. ${listing.price !== response.data.price ? 'Цена изменилась!' : 'Цена не изменилась.'}`,
-                        duration: 7000
+                        type: isArchived ? 'warning' : 'success',
+                        message: message,
+                        duration: 5000
                     });
                     
                 } else {
@@ -5331,6 +5504,78 @@ class UIManager {
                 // Ждем перед следующей попыткой
                 await new Promise(resolve => setTimeout(resolve, attemptDelay));
             }
+        }
+    }
+    
+    /**
+     * Обработка обновления объявления
+     */
+    async handleListingUpdated(eventData) {
+        try {
+            const { listing, oldListing, priceChanged, archived } = eventData;
+            
+            // Проверяем, открыто ли модальное окно объявления
+            const listingModal = document.getElementById('listingModal');
+            if (!listingModal || listingModal.classList.contains('hidden')) {
+                return; // Модальное окно не открыто
+            }
+            
+            // Проверяем, что обновляется именно текущее объявление
+            const currentListingId = listingModal.dataset.listingId;
+            if (currentListingId !== listing.id.toString()) {
+                return; // Открыто модальное окно другого объявления
+            }
+            
+            await this.debugLog('🔄 UIManager: Обновляем модальное окно объявления:', listing.id);
+            await this.debugLog('🔄 UIManager: Старая дата обновления:', oldListing.updated);
+            await this.debugLog('🔄 UIManager: Новая дата обновления:', listing.updated);
+            
+            // Сохраняем информацию об изменениях для подсветки
+            this.lastUpdatedListing = {
+                listing,
+                oldListing,
+                priceChanged,
+                archived,
+                updatedAt: new Date()
+            };
+            
+            // Обновляем модальное окно с подсветкой изменений
+            await this.populateListingModal(listingModal, listing);
+            
+            // Показываем уведомление о обновлении
+            let notificationMessage = `Объявление #${listing.id} обновлено`;
+            if (priceChanged) {
+                const oldPrice = oldListing.price ? new Intl.NumberFormat('ru-RU').format(oldListing.price) : '0';
+                const newPrice = listing.price ? new Intl.NumberFormat('ru-RU').format(listing.price) : '0';
+                notificationMessage += `\nЦена изменена: ${oldPrice} ₽ → ${newPrice} ₽`;
+            }
+            if (archived) {
+                notificationMessage = `Объявление #${listing.id} архивировано`;
+            }
+            
+            this.progressManager.showSuccess(notificationMessage);
+            
+            // Обновляем связанный объект недвижимости
+            if (window.realEstateObjectManager && listing.object_id) {
+                try {
+                    console.log('🏠 Обновляем объект недвижимости');
+                    console.log('🏠 Старое объявление - цена:', oldListing.price);
+                    console.log('🏠 Новое объявление - цена:', listing.price);
+                    console.log('🏠 Object ID:', listing.object_id);
+                    
+                    await window.realEstateObjectManager.updateObjectOnListingChange(
+                        listing.id, 
+                        oldListing, 
+                        listing
+                    );
+                    await this.debugLog('✅ UIManager: Связанный объект недвижимости обновлен');
+                } catch (error) {
+                    console.error('❌ UIManager: Ошибка обновления объекта недвижимости:', error);
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ UIManager: Ошибка обработки обновления объявления:', error);
         }
     }
 }

@@ -13,6 +13,7 @@ class ComparativeAnalysisManager {
         this.selectedListingId = null;
         this.evaluations = new Map(); // objectId -> evaluation
         this.statusFilter = 'all';
+        this.addresses = []; // кэш адресов
         
         // Коридоры цен
         this.corridors = {
@@ -23,10 +24,20 @@ class ComparativeAnalysisManager {
         
         // График
         this.comparativeChart = null;
+        this.isUpdatingChart = false; // флаг для предотвращения одновременных обновлений
+        this.updateChartTimeout = null; // таймаут для дебаунса
         this.debugEnabled = false;
         
         // Флаг инициализации
         this.isInitialized = false;
+        
+        // Обработчик изменения видимости страницы
+        this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
+        document.addEventListener('visibilitychange', this.handleVisibilityChange);
+        
+        // Глобальный обработчик ошибок ApexCharts
+        this.handleApexChartsError = this.handleApexChartsError.bind(this);
+        window.addEventListener('error', this.handleApexChartsError);
     }
     
     /**
@@ -109,6 +120,9 @@ class ComparativeAnalysisManager {
             if (placeholder) placeholder.classList.add('hidden');
             if (content) content.classList.remove('hidden');
             
+            // Загружаем адреса
+            await this.loadAddresses();
+            
             // Запускаем новый анализ
             await this.startNewAnalysis();
             
@@ -148,7 +162,7 @@ class ComparativeAnalysisManager {
             
             // Отображаем интерфейс
             this.updateObjectsDisplay();
-            this.updateChart();
+            this.updateChartDebounced();
             this.updateCorridorInfo();
             
         } catch (error) {
@@ -243,12 +257,57 @@ class ComparativeAnalysisManager {
             const evaluationClass = evaluation ? `evaluated-${this.getEvaluationClass(evaluation)}` : '';
             const selectedClass = obj.id === this.selectedObjectId ? 'selected' : '';
             
+            // Форматируем характеристики без цены
+            const characteristics = this.formatObjectCharacteristics(obj);
+            
+            // Форматируем цену
+            const price = obj.current_price || 0;
+            const formattedPrice = this.formatPrice(price);
+            
+            // Цена за кв.м без скобок
+            let pricePerSqm = '';
+            if (price > 0 && obj.area_total > 0) {
+                const perSqm = Math.round(price / obj.area_total);
+                pricePerSqm = `${new Intl.NumberFormat('ru-RU').format(perSqm)} ₽/м²`;
+            }
+            
+            // Получаем адрес по address_id
+            const address = this.getAddressNameById(obj.address_id) || 'Адрес не указан';
+            
+            // Форматируем информацию о датах в зависимости от статуса
+            let dateInfo = '';
+            if (obj.status === 'archive') {
+                // Для архивных: дата создания и дата обновления
+                const createdDate = obj.created ? new Date(obj.created).toLocaleDateString('ru-RU') : '';
+                const updatedDate = obj.updated ? new Date(obj.updated).toLocaleDateString('ru-RU') : '';
+                if (createdDate && updatedDate) {
+                    dateInfo = `Архив: ${createdDate} - ${updatedDate}`;
+                } else if (createdDate) {
+                    dateInfo = `${createdDate}`;
+                } else if (updatedDate) {
+                    dateInfo = `${updatedDate}`;
+                }
+            } else {
+                // Для активных: текущая дата
+                const createdDate = obj.created ? new Date(obj.created).toLocaleDateString('ru-RU') : '';
+                const currentDate = new Date().toLocaleDateString('ru-RU');
+                dateInfo = `Активный: ${createdDate} - ${currentDate}`;
+            }
+            
             return `
                 <div class="object-block ${evaluationClass} ${selectedClass}" 
                      data-object-id="${obj.id}">
-                    <div class="object-id">Id ${obj.id}</div>
-                    <div class="object-price">${this.formatPrice(obj.current_price)}</div>
-                    <div class="object-info">${obj.rooms || obj.property_type || 'н/д'}, ${obj.area_total || 0}м²</div>
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="flex-1 mr-2">
+                            <div class="object-characteristics font-semibold text-sm">${characteristics}</div>
+                        </div>
+                        <div class="flex-shrink-0 text-right">
+                            <div class="object-price" style="font-size: 16px !important; color: #059669 !important; font-weight: 600 !important;">${formattedPrice}</div>
+                            ${pricePerSqm ? `<div class="price-per-sqm" style="font-size: 10px !important; color: #10b981 !important; font-weight: 400 !important;">${pricePerSqm}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="object-address text-xs text-gray-500">${address}</div>
+                    ${dateInfo ? `<div class="object-dates text-xs text-gray-400 mt-1">${dateInfo}</div>` : ''}
                 </div>
             `;
         }).join('');
@@ -257,7 +316,14 @@ class ComparativeAnalysisManager {
         grid.querySelectorAll('.object-block').forEach(block => {
             block.addEventListener('click', () => {
                 const objectId = block.dataset.objectId;
-                this.selectObject(objectId);
+                
+                // Если объект уже выбран, показываем модальное окно
+                if (this.selectedObjectId === objectId) {
+                    this.showObjectModal(objectId);
+                } else {
+                    // Иначе просто выбираем объект
+                    this.selectObject(objectId);
+                }
             });
         });
     }
@@ -292,6 +358,9 @@ class ComparativeAnalysisManager {
             // Обновляем отображение блоков
             this.updateObjectsDisplay();
             
+            // Обновляем график (выбранный объект станет розовым)
+            this.updateChartDebounced();
+            
             // Загружаем объявления объекта
             await this.loadObjectListings(objectId);
             
@@ -301,6 +370,18 @@ class ComparativeAnalysisManager {
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка выбора объекта:', error);
         }
+    }
+    
+    /**
+     * Выбор объекта с прокруткой (для использования из внешних источников)
+     */
+    async selectObjectWithScroll(objectId) {
+        await this.selectObject(objectId);
+        
+        // Небольшая задержка, чтобы UI успел обновиться
+        setTimeout(() => {
+            this.scrollToSelectedObject(objectId);
+        }, 100);
     }
     
     /**
@@ -324,13 +405,37 @@ class ComparativeAnalysisManager {
             
             listingsList.innerHTML = listings.map(listing => {
                 const selectedClass = listing.id === this.selectedListingId ? 'selected' : '';
-                const updateDate = new Date(listing.updated).toLocaleDateString('ru-RU');
+                
+                // Форматируем информацию о датах в зависимости от статуса объявления
+                let dateInfo = '';
+                if (listing.status === 'archived') {
+                    // Для архивных: дата создания и дата обновления
+                    const createdDate = listing.created ? new Date(listing.created).toLocaleDateString('ru-RU') : '';
+                    const updatedDate = listing.updated ? new Date(listing.updated).toLocaleDateString('ru-RU') : '';
+                    if (createdDate && updatedDate) {
+                        dateInfo = `Архив: ${createdDate} - ${updatedDate}`;
+                    } else if (createdDate) {
+                        dateInfo = `${createdDate}`;
+                    } else if (updatedDate) {
+                        dateInfo = `${updatedDate}`;
+                    }
+                } else {
+                    // Для активных: текущая дата
+                    const createdDate = listing.created ? new Date(listing.created).toLocaleDateString('ru-RU') : '';
+                    const currentDate = new Date().toLocaleDateString('ru-RU');
+                    dateInfo = `Активный:  ${createdDate} - ${currentDate}`;
+                }
+                
+                // Создаем характеристики объявления (без адреса)
+                const characteristics = this.formatObjectCharacteristics(listing);
+                const price = this.formatPrice(listing.price);
                 
                 return `
                     <div class="listing-block ${selectedClass}"
                          data-listing-id="${listing.id}">
-                        <div>Id ${listing.id}</div>
-                        <div class="text-xs text-gray-500">Обновлено: ${updateDate}</div>
+                        <div class="listing-characteristics text-sm font-medium">${characteristics}</div>
+                        <div class="listing-price text-sm text-blue-600">${price}</div>
+                        <div class="text-xs text-gray-500 mt-1">${dateInfo}</div>
                     </div>
                 `;
             }).join('');
@@ -339,7 +444,14 @@ class ComparativeAnalysisManager {
             listingsList.querySelectorAll('.listing-block').forEach(block => {
                 block.addEventListener('click', () => {
                     const listingId = block.dataset.listingId;
-                    this.selectListing(listingId);
+                    
+                    // Если объявление уже выбрано, показываем модальное окно
+                    if (this.selectedListingId === listingId) {
+                        this.showListingModal(listingId);
+                    } else {
+                        // Иначе просто выбираем объявление
+                        this.selectListing(listingId);
+                    }
                 });
             });
             
@@ -385,34 +497,99 @@ class ComparativeAnalysisManager {
             const listing = await window.db.getListing(listingId);
             if (!listing) return;
             
-            // Отображаем фотографии
-            const photosGallery = document.getElementById('photosGallery');
-            if (photosGallery) {
-                if (listing.photos && listing.photos.length > 0) {
-                    photosGallery.innerHTML = listing.photos.slice(0, 8).map(photo => `
-                        <div class="photo-thumb">
-                            <img src="${photo}" alt="Фото объявления" data-photo-url="${photo}">
-                        </div>
-                    `).join('');
-                    
-                    // Добавляем обработчики событий для фотографий
-                    photosGallery.querySelectorAll('.photo-thumb img').forEach(img => {
-                        img.addEventListener('click', () => {
-                            const photoUrl = img.dataset.photoUrl;
-                            window.open(photoUrl, '_blank');
-                        });
-                    });
-                } else {
-                    photosGallery.innerHTML = '<div class="text-xs text-gray-500">Нет фотографий</div>';
+            // Найдем контейнер деталей объявления
+            let detailsContainer = document.getElementById('listingDetails');
+            if (!detailsContainer) {
+                // Fallback - ищем через старые элементы
+                const photosGallery = document.getElementById('photosGallery');
+                const descriptionDiv = document.getElementById('listingDescription');
+                if (photosGallery && descriptionDiv) {
+                    detailsContainer = photosGallery.parentElement;
                 }
             }
             
-            // Отображаем описание
-            const descriptionDiv = document.getElementById('listingDescription');
-            if (descriptionDiv) {
-                const description = listing.description || 'Описание отсутствует';
-                descriptionDiv.innerHTML = description.length > 300 ? 
-                    description.substring(0, 300) + '...' : description;
+            if (detailsContainer) {
+                // Показываем контейнер деталей, если он скрыт
+                if (detailsContainer.classList.contains('hidden')) {
+                    detailsContainer.classList.remove('hidden');
+                }
+                
+                // Убираем вертикальные отступы, оставляем небольшие горизонтальные
+                detailsContainer.style.padding = '0 8px';
+                detailsContainer.style.margin = '0';
+                
+                // Создаём HTML структуру с фотогалереей точно как в UIManager
+                if (listing.photos && listing.photos.length > 0) {
+                    detailsContainer.innerHTML = `
+                        <div class="grid grid-cols-2 gap-x-6" style="height: 380px;">
+                            <!-- Левая часть - фотогалерея -->
+                            <div class="fotorama-container">
+                                <div class="fotorama" 
+                                     data-nav="thumbs" 
+                                     data-width="100%" 
+                                     data-height="300"
+                                     data-thumbheight="50"
+                                     data-thumbwidth="50"
+                                     data-allowfullscreen="true"
+                                     data-transition="slide"
+                                     data-loop="true"
+                                     id="comparative-gallery-${listingId}">
+                                    ${listing.photos.map(photo => `<img src="${photo}" alt="Фото объявления" class="listing-photo">`).join('')}
+                                </div>
+                            </div>
+                            
+                            <!-- Правая часть - описание -->
+                            <div class="description-container h-80 flex flex-col">
+                                <div class="mb-3 font-medium text-gray-800 flex-shrink-0">Описание:</div>
+                                <div class="bg-gray-50 border border-gray-200 rounded p-4 overflow-y-auto flex-1">
+                                    <div id="fullDescription" class="text-sm text-gray-700 leading-relaxed"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    detailsContainer.innerHTML = `
+                        <div class="grid grid-cols-2 gap-4" style="height: 380px;">
+                            <!-- Левая часть - заглушка -->
+                            <div class="fotorama-container">
+                                <div class="bg-gray-100 rounded-lg p-8 text-center text-gray-500" style="height: 380px;">
+                                    📷 Фотографии не найдены
+                                </div>
+                            </div>
+                            
+                            <!-- Правая часть - описание -->
+                            <div class="description-container h-80 flex flex-col">
+                                <div class="mb-3 font-medium text-gray-800 flex-shrink-0">Описание:</div>
+                                <div class="bg-gray-50 border border-gray-200 rounded p-4 overflow-y-auto flex-1">
+                                    <div id="fullDescription" class="text-sm text-gray-700 leading-relaxed"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Сразу заполняем описание (убираем мигание)
+                const fullDescriptionDiv = document.getElementById('fullDescription');
+                if (fullDescriptionDiv) {
+                    if (listing.description && listing.description.trim()) {
+                        fullDescriptionDiv.innerHTML = `<div class="whitespace-pre-wrap">${listing.description}</div>`;
+                    } else {
+                        fullDescriptionDiv.innerHTML = '<div class="text-gray-500">Описание отсутствует</div>';
+                    }
+                }
+                
+                // Инициализируем Fotorama (если есть фото)
+                if (listing.photos && listing.photos.length > 0) {
+                    setTimeout(() => {
+                        const galleryElement = document.getElementById(`comparative-gallery-${listingId}`);
+                        if (galleryElement && window.$ && $.fn.fotorama) {
+                            $(galleryElement).fotorama();
+                            if (this.debugEnabled) {
+                                console.log('📸 Fotorama инициализирован для объявления:', listingId);
+                            }
+                        }
+                    }, 100);
+                }
             }
             
         } catch (error) {
@@ -448,7 +625,7 @@ class ComparativeAnalysisManager {
             
             // Обновляем отображение
             this.updateObjectsDisplay();
-            this.updateChart();
+            this.updateChartDebounced();
             this.updateCorridorInfo();
             this.updateEvaluationButtons();
             
@@ -605,19 +782,67 @@ class ComparativeAnalysisManager {
     }
     
     /**
+     * Дебаунс-обновление графика (предотвращает множественные обновления)
+     */
+    updateChartDebounced(delay = 300) {
+        // Отменяем предыдущий таймаут если он есть
+        if (this.updateChartTimeout) {
+            clearTimeout(this.updateChartTimeout);
+        }
+        
+        // Устанавливаем новый таймаут
+        this.updateChartTimeout = setTimeout(async () => {
+            await this.updateChart();
+            this.updateChartTimeout = null;
+        }, delay);
+    }
+
+    /**
      * Обновление графика
      */
     async updateChart() {
-        const chartContainer = document.getElementById('comparativeChart');
-        if (!chartContainer) return;
+        // Предварительная проверка состояния
+        if (this.isUpdatingChart) {
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: График уже обновляется, пропускаем');
+            }
+            return;
+        }
+        
+        this.isUpdatingChart = true;
         
         try {
+            const chartContainer = document.getElementById('comparativeChart');
+            if (!chartContainer) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: Контейнер графика не найден');
+                }
+                return;
+            }
+            
+            // Множественные проверки готовности контейнера
+            if (!this.isContainerReady(chartContainer)) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: Контейнер графика не готов');
+                }
+                return;
+            }
+            
             // Подготовка данных для графика
             const chartData = this.generateChartData();
             
-            // Создание/обновление графика
-            if (this.comparativeChart) {
-                this.comparativeChart.destroy();
+            // Уничтожение старого графика
+            await this.destroyChart();
+            
+            // Дополнительная задержка и проверка перед созданием
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
+            // Повторная проверка после задержки
+            if (!this.isContainerReady(chartContainer)) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: Контейнер стал недоступен после задержки');
+                }
+                return;
             }
             
             const options = {
@@ -625,6 +850,14 @@ class ComparativeAnalysisManager {
                     type: 'scatter',
                     height: 400,
                     toolbar: { show: false },
+                    events: {
+                        dataPointSelection: (event, chartContext, config) => {
+                            // Обернём в setTimeout, так как ApexCharts не поддерживает async коллбэки
+                            setTimeout(async () => {
+                                await this.onChartPointClick(config);
+                            }, 0);
+                        }
+                    },
                     locales: [{
                         "name": "ru",
                         "options": {
@@ -651,8 +884,8 @@ class ComparativeAnalysisManager {
                 tooltip: {
                     shared: false,
                     intersect: true,
-                    custom: (tooltipModel) => {
-                        return this.generateTooltip(tooltipModel);
+                    custom: ({ series, seriesIndex, dataPointIndex, w }) => {
+                        return this.generateTooltip({ series, seriesIndex, dataPointIndex, w });
                     }
                 },
                 markers: {
@@ -668,11 +901,96 @@ class ComparativeAnalysisManager {
                 }
             };
             
-            this.comparativeChart = new ApexCharts(chartContainer, options);
-            await this.comparativeChart.render();
+            try {
+                this.comparativeChart = new ApexCharts(chartContainer, options);
+                await this.comparativeChart.render();
+                
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: График успешно создан');
+                }
+                
+            } catch (renderError) {
+                console.error('❌ ComparativeAnalysisManager: Ошибка рендеринга графика:', renderError);
+                await this.destroyChart();
+            }
             
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка обновления графика:', error);
+            await this.destroyChart();
+        } finally {
+            this.isUpdatingChart = false;
+        }
+    }
+    
+    /**
+     * Проверка готовности контейнера для графика
+     */
+    isContainerReady(container) {
+        if (!container) return false;
+        
+        // Проверяем подключение к DOM
+        if (!container.isConnected) return false;
+        
+        // Проверяем видимость
+        if (container.offsetParent === null) return false;
+        
+        // Проверяем размеры
+        if (container.offsetWidth === 0 || container.offsetHeight === 0) return false;
+        
+        // Проверяем что контейнер не скрыт через CSS
+        const computedStyle = window.getComputedStyle(container);
+        if (computedStyle.display === 'none' || computedStyle.visibility === 'hidden') return false;
+        
+        return true;
+    }
+    
+    /**
+     * Безопасное уничтожение графика
+     */
+    async destroyChart() {
+        // Отменяем любые ожидающие обновления
+        if (this.updateChartTimeout) {
+            clearTimeout(this.updateChartTimeout);
+            this.updateChartTimeout = null;
+        }
+        
+        if (this.comparativeChart) {
+            try {
+                // Сначала пытаемся очистить все обработчики событий
+                if (this.comparativeChart.w && this.comparativeChart.w.globals) {
+                    this.comparativeChart.w.globals.resized = true;
+                }
+                
+                // Пытаемся скрыть tooltip и другие элементы
+                if (this.comparativeChart.w && this.comparativeChart.w.globals.dom) {
+                    const tooltips = this.comparativeChart.w.globals.dom.baseEl.querySelectorAll('.apexcharts-tooltip');
+                    tooltips.forEach(tooltip => {
+                        if (tooltip && tooltip.style) {
+                            tooltip.style.display = 'none';
+                        }
+                    });
+                }
+                
+                // Уничтожаем график
+                await this.comparativeChart.destroy();
+                
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: График успешно уничтожен');
+                }
+            } catch (error) {
+                console.error('❌ ComparativeAnalysisManager: Ошибка при уничтожении графика:', error);
+                
+                // Попытка принудительной очистки
+                try {
+                    if (this.comparativeChart.w && this.comparativeChart.w.globals.dom && this.comparativeChart.w.globals.dom.baseEl) {
+                        this.comparativeChart.w.globals.dom.baseEl.innerHTML = '';
+                    }
+                } catch (cleanupError) {
+                    console.error('❌ ComparativeAnalysisManager: Ошибка принудительной очистки:', cleanupError);
+                }
+            } finally {
+                this.comparativeChart = null;
+            }
         }
     }
     
@@ -696,8 +1014,17 @@ class ComparativeAnalysisManager {
             'excluded': { objects: [], color: '#dc2626', name: 'Исключенные' }
         };
         
+        // Отдельная группа для выбранного объекта
+        let selectedObject = null;
+        
         // Распределение объектов по группам
         this.currentObjects.forEach(obj => {
+            // Если объект выбран, выделяем его отдельно
+            if (this.selectedObjectId && obj.id === this.selectedObjectId) {
+                selectedObject = obj;
+                return; // Не добавляем в обычные группы
+            }
+            
             const evaluation = this.evaluations.get(obj.id);
             
             let groupKey;
@@ -714,19 +1041,58 @@ class ComparativeAnalysisManager {
             }
         });
         
-        // Создание серий для ApexCharts
+        // Создание серий для обычных объектов
         Object.entries(groups).forEach(([groupKey, group]) => {
             if (group.objects.length > 0) {
                 series.push({
                     name: group.name,
-                    data: group.objects.map(obj => [
-                        new Date(obj.updated || obj.created).getTime(), 
-                        obj.current_price
-                    ])
+                    data: group.objects.map(obj => {
+                        let dateForChart;
+                        
+                        if (obj.status === 'active') {
+                            // Для активных объектов используем текущую дату
+                            dateForChart = new Date().getTime();
+                        } else {
+                            // Для архивных объектов используем дату последнего обновления
+                            dateForChart = new Date(obj.updated || obj.created).getTime();
+                        }
+                        
+                        return {
+                            x: dateForChart,
+                            y: obj.current_price,
+                            objectData: obj // Добавляем данные объекта для tooltip и кликов
+                        };
+                    })
                 });
                 colors.push(group.color);
             }
         });
+        
+        // Добавляем выбранный объект как отдельную серию с розовым цветом
+        if (selectedObject) {
+            let dateForChart;
+            
+            if (selectedObject.status === 'active') {
+                dateForChart = new Date().getTime();
+            } else {
+                dateForChart = new Date(selectedObject.updated || selectedObject.created).getTime();
+            }
+            
+            series.push({
+                name: 'Выбранный объект',
+                data: [{
+                    x: dateForChart,
+                    y: selectedObject.current_price,
+                    objectData: selectedObject // Добавляем данные объекта
+                }],
+                marker: {
+                    size: 10, // Увеличенный размер для выбранного объекта
+                    strokeWidth: 3,
+                    strokeColor: '#fff'
+                }
+            });
+            colors.push('#ec4899'); // Розовый цвет для выбранного объекта
+        }
         
         return { series, colors };
     }
@@ -925,5 +1291,410 @@ class ComparativeAnalysisManager {
     formatPrice(price) {
         if (!price) return '0 ₽';
         return new Intl.NumberFormat('ru-RU').format(price) + ' ₽';
+    }
+
+    /**
+     * Форматирование характеристик объекта (аналогично DuplicatesManager)
+     */
+    formatObjectCharacteristics(realEstateObject) {
+        const parts = [];
+        
+        // Тип недвижимости
+        if (realEstateObject.property_type) {
+            const types = {
+                'studio': 'Студия',
+                '1k': '1-к',
+                '2k': '2-к',
+                '3k': '3-к',
+                '4k+': '4-к+'
+            };
+            parts.push(types[realEstateObject.property_type] || realEstateObject.property_type);
+            parts.push('квартира');
+        }
+        
+        // Площади
+        const areas = [];
+        if (realEstateObject.area_total) areas.push(realEstateObject.area_total);
+        if (realEstateObject.area_living) areas.push(realEstateObject.area_living);
+        if (realEstateObject.area_kitchen) areas.push(realEstateObject.area_kitchen);
+        if (areas.length > 0) parts.push(`${areas.join('/')}м²`);
+        
+        // Этаж/этажность
+        if (realEstateObject.floor && realEstateObject.total_floors) {
+            parts.push(`${realEstateObject.floor}/${realEstateObject.total_floors} эт.`);
+        }
+        
+        return parts.length > 0 ? parts.join(', ') : 'Характеристики не указаны';
+    }
+
+    /**
+     * Форматирование полной строки с характеристиками и ценой
+     */
+    formatObjectFullInfo(obj) {
+        const characteristics = this.formatObjectCharacteristics(obj);
+        const price = obj.current_price || 0;
+        const formattedPrice = this.formatPrice(price);
+        
+        // Цена за кв.м если есть общая площадь
+        let pricePerSqm = '';
+        if (price > 0 && obj.area_total > 0) {
+            const perSqm = Math.round(price / obj.area_total);
+            pricePerSqm = ` (${new Intl.NumberFormat('ru-RU').format(perSqm)})`;
+        }
+        
+        return `${characteristics} ${formattedPrice}${pricePerSqm}`;
+    }
+
+    /**
+     * Получение названия адреса по ID
+     */
+    getAddressNameById(addressId) {
+        if (!addressId || !this.addresses) return '';
+        const address = this.addresses.find(addr => addr.id === addressId);
+        return address ? address.address : '';
+    }
+
+    /**
+     * Загрузка адресов в текущей области (оптимизированно)
+     */
+    async loadAddresses() {
+        try {
+            const areaId = this.areaPage.currentAreaId;
+            if (!areaId) {
+                this.addresses = [];
+                return;
+            }
+
+            this.addresses = await window.db.getAddressesInMapArea(areaId);
+            if (this.debugEnabled) {
+                console.log(`📍 ComparativeAnalysisManager: Загружено ${this.addresses.length} адресов в области ${areaId}`);
+            }
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка загрузки адресов:', error);
+            this.addresses = [];
+        }
+    }
+    
+    /**
+     * Показать модальное окно объекта недвижимости
+     */
+    async showObjectModal(objectId) {
+        try {
+            // Используем существующий метод из DuplicatesManager
+            if (this.areaPage && this.areaPage.duplicatesManager) {
+                await this.areaPage.duplicatesManager.showObjectDetails(objectId);
+            } else {
+                console.error('❌ ComparativeAnalysisManager: DuplicatesManager не найден');
+            }
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Открыто модальное окно объекта:', objectId);
+            }
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка открытия модального окна объекта:', error);
+        }
+    }
+    
+    /**
+     * Показать модальное окно объявления
+     */
+    async showListingModal(listingId) {
+        try {
+            // Используем существующий метод из DuplicatesManager
+            if (this.areaPage && this.areaPage.duplicatesManager) {
+                await this.areaPage.duplicatesManager.showListingDetails(listingId);
+            } else {
+                console.error('❌ ComparativeAnalysisManager: DuplicatesManager не найден');
+            }
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Открыто модальное окно объявления:', listingId);
+            }
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка открытия модального окна объявления:', error);
+        }
+    }
+    
+    /**
+     * Генерация пользовательского tooltip для точек графика
+     */
+    generateTooltip({ series, seriesIndex, dataPointIndex, w }) {
+        try {
+            // Получаем данные точки
+            const chartData = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
+            const objectData = chartData?.objectData;
+            
+            if (!objectData) {
+                return '<div class="custom-tooltip">Нет данных</div>';
+            }
+            
+            // Форматируем характеристики объекта
+            const characteristics = this.formatObjectCharacteristics(objectData);
+            const price = this.formatPrice(objectData.current_price);
+            
+            // Форматируем дату в зависимости от статуса
+            let dateInfo = '';
+            if (objectData.status === 'archive') {
+                const createdDate = objectData.created ? new Date(objectData.created).toLocaleDateString('ru-RU') : '';
+                const updatedDate = objectData.updated ? new Date(objectData.updated).toLocaleDateString('ru-RU') : '';
+                if (createdDate && updatedDate) {
+                    dateInfo = `Архив: ${createdDate} - ${updatedDate}`;
+                } else if (createdDate) {
+                    dateInfo = `${createdDate}`;
+                } else if (updatedDate) {
+                    dateInfo = `${updatedDate}`;
+                }
+            } else {
+                const createdDate = objectData.created ? new Date(objectData.created).toLocaleDateString('ru-RU') : '';
+                const currentDate = new Date().toLocaleDateString('ru-RU');
+                dateInfo = `Активный: ${createdDate} - ${currentDate}`;
+            }
+            
+            return `
+                <div class="custom-tooltip bg-white p-3 rounded-lg shadow-lg border max-w-xs">
+                    <div class="font-semibold text-sm mb-2">${characteristics}</div>
+                    <div class="font-bold text-blue-600 text-sm mb-1">${price}</div>
+                    <div class="text-xs text-gray-500">${dateInfo}</div>
+                    <div class="text-xs text-gray-400 mt-1">Нажмите для выбора</div>
+                </div>
+            `;
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка генерации tooltip:', error);
+            return '<div class="custom-tooltip">Ошибка загрузки</div>';
+        }
+    }
+    
+    /**
+     * Обработчик кликов по точкам графика
+     */
+    async onChartPointClick(config) {
+        try {
+            const { seriesIndex, dataPointIndex } = config;
+            
+            if (seriesIndex === undefined || dataPointIndex === undefined) return;
+            
+            // Получаем данные объекта из конфигурации графика
+            const chartSeries = this.comparativeChart.w.globals.initialSeries[seriesIndex];
+            const pointData = chartSeries?.data?.[dataPointIndex];
+            const objectData = pointData?.objectData;
+            
+            if (objectData && objectData.id) {
+                // Выбираем объект с автоматической прокруткой
+                await this.selectObjectWithScroll(objectData.id);
+                
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: Выбран объект через клик на графике:', objectData.id);
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка обработки клика на графике:', error);
+        }
+    }
+    
+    /**
+     * Прокрутка к выбранному блоку объекта
+     */
+    scrollToSelectedObject(objectId) {
+        try {
+            // Находим блок объекта по data-object-id
+            const objectBlock = document.querySelector(`[data-object-id="${objectId}"]`);
+            if (!objectBlock) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: Блок объекта не найден для прокрутки:', objectId);
+                }
+                return;
+            }
+            
+            // Находим контейнер с прокруткой
+            const objectsContainer = document.getElementById('objectsGrid');
+            if (!objectsContainer) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ComparativeAnalysisManager: Контейнер объектов не найден для прокрутки');
+                }
+                return;
+            }
+            
+            // Получаем родительский контейнер с overflow
+            let scrollContainer = objectsContainer;
+            
+            // Ищем родительский элемент с прокруткой, если сам контейнер не скроллируется
+            while (scrollContainer && scrollContainer !== document.body) {
+                const styles = window.getComputedStyle(scrollContainer);
+                if (styles.overflowY === 'scroll' || styles.overflowY === 'auto' || 
+                    (styles.overflow === 'scroll' || styles.overflow === 'auto')) {
+                    break;
+                }
+                scrollContainer = scrollContainer.parentElement;
+            }
+            
+            // Если не найден скроллируемый контейнер, используем window
+            if (!scrollContainer || scrollContainer === document.body) {
+                // Прокрутка всего окна
+                objectBlock.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'nearest'
+                });
+            } else {
+                // Прокрутка внутри контейнера
+                const containerRect = scrollContainer.getBoundingClientRect();
+                const blockRect = objectBlock.getBoundingClientRect();
+                
+                // Вычисляем позицию для центрирования блока в видимой области
+                const scrollTop = scrollContainer.scrollTop;
+                const targetScrollTop = scrollTop + (blockRect.top - containerRect.top) - 
+                                     (containerRect.height - blockRect.height) / 2;
+                
+                // Плавная прокрутка
+                scrollContainer.scrollTo({
+                    top: Math.max(0, targetScrollTop),
+                    behavior: 'smooth'
+                });
+            }
+            
+            // Добавляем визуальный эффект мерцания для привлечения внимания
+            objectBlock.style.transition = 'box-shadow 0.3s ease';
+            objectBlock.style.boxShadow = '0 0 20px rgba(236, 72, 153, 0.5)';
+            
+            setTimeout(() => {
+                objectBlock.style.boxShadow = '';
+                setTimeout(() => {
+                    objectBlock.style.transition = '';
+                }, 300);
+            }, 1000);
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Выполнена прокрутка к объекту:', objectId);
+            }
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка прокрутки к объекту:', error);
+        }
+    }
+    
+    /**
+     * Безопасное обновление графика при показе/скрытии панели
+     */
+    async safeUpdateChart() {
+        // Используем requestAnimationFrame для обеспечения готовности DOM
+        return new Promise((resolve) => {
+            requestAnimationFrame(async () => {
+                // Дополнительная проверка видимости страницы
+                if (document.hidden) {
+                    if (this.debugEnabled) {
+                        console.log('🔍 ComparativeAnalysisManager: Страница скрыта, пропускаем safeUpdateChart');
+                    }
+                    resolve();
+                    return;
+                }
+                
+                try {
+                    await this.updateChart();
+                    resolve();
+                } catch (error) {
+                    console.error('❌ ComparativeAnalysisManager: Ошибка в safeUpdateChart:', error);
+                    resolve();
+                }
+            });
+        });
+    }
+    
+    /**
+     * Метод для вызова при активации панели сравнительного анализа
+     */
+    async onPanelActivated() {
+        if (this.debugEnabled) {
+            console.log('🔍 ComparativeAnalysisManager: Панель активирована');
+        }
+        
+        // Небольшая задержка, чтобы убедиться что панель видима
+        setTimeout(async () => {
+            await this.safeUpdateChart();
+        }, 200);
+    }
+    
+    /**
+     * Обработчик изменения видимости страницы
+     */
+    handleVisibilityChange() {
+        if (document.hidden) {
+            // Страница скрыта - останавливаем обновления графика
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Страница скрыта, приостанавливаем график');
+            }
+        } else {
+            // Страница снова видна - можем обновить график если нужно
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Страница снова видна');
+            }
+            
+            // Небольшая задержка перед обновлением
+            setTimeout(async () => {
+                const chartContainer = document.getElementById('comparativeChart');
+                if (chartContainer && this.isContainerReady(chartContainer)) {
+                    await this.safeUpdateChart();
+                }
+            }, 300);
+        }
+    }
+    
+    /**
+     * Обработчик глобальных ошибок ApexCharts
+     */
+    handleApexChartsError(event) {
+        // Проверяем, что ошибка связана с ApexCharts и getBoundingClientRect
+        if (event.error && event.filename && 
+            event.filename.includes('apexcharts') && 
+            event.message && event.message.includes('getBoundingClientRect')) {
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Перехвачена ошибка ApexCharts, пытаемся восстановить график');
+            }
+            
+            // Предотвращаем всплытие ошибки
+            event.preventDefault();
+            event.stopPropagation();
+            
+            // Пытаемся безопасно пересоздать график с задержкой
+            setTimeout(async () => {
+                try {
+                    await this.destroyChart();
+                    // Небольшая задержка перед пересозданием
+                    setTimeout(() => {
+                        this.updateChartDebounced(500);
+                    }, 200);
+                } catch (recoveryError) {
+                    console.error('❌ ComparativeAnalysisManager: Ошибка восстановления графика:', recoveryError);
+                }
+            }, 100);
+            
+            return false;
+        }
+    }
+    
+    /**
+     * Очистка ресурсов при удалении менеджера
+     */
+    destroy() {
+        // Удаляем обработчики событий
+        document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+        window.removeEventListener('error', this.handleApexChartsError);
+        
+        // Отменяем таймаут
+        if (this.updateChartTimeout) {
+            clearTimeout(this.updateChartTimeout);
+            this.updateChartTimeout = null;
+        }
+        
+        // Уничтожаем график
+        this.destroyChart();
+        
+        if (this.debugEnabled) {
+            console.log('🔍 ComparativeAnalysisManager: Ресурсы очищены');
+        }
     }
 }

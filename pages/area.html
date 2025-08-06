@@ -257,18 +257,22 @@
 
         .comparative-analysis-container {
             display: flex;
-            height: 600px;
-            gap: 20px;
+            flex-direction: column;
+            gap: 24px;
         }
 
-        .comparison-panel {
-            width: 450px;
+        .management-panel {
             display: flex;
             flex-direction: column;
-            gap: 15px;
-            overflow-y: auto;
-            border-right: 1px solid #e5e7eb;
-            padding-right: 20px;
+            gap: 16px;
+            padding: 20px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #f9fafb;
+        }
+
+        .analysis-results-section {
+            min-height: 500px;
         }
 
         .analysis-header {
@@ -557,33 +561,31 @@
         }
 
         .chart-panel {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .results-panel {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
         }
 
         .corridor-info {
-            background: #f9fafb;
-            border-radius: 8px;
-            padding: 15px;
-            border: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
 
         .corridor-section {
-            margin-bottom: 12px;
-        }
-
-        .corridor-section:last-child {
             margin-bottom: 0;
         }
 
         .corridor-section.optimal {
-            background: #ecfdf5;
-            padding: 12px;
-            border-radius: 6px;
-            border: 1px solid #10b981;
-            margin-top: 10px;
+            margin-top: 8px;
         }
     </style>
 </head>
@@ -1691,10 +1693,10 @@
                                 
                                 <!-- Основной интерфейс сравнительного анализа -->
                                 <div id="comparativeAnalysisContent" class="comparative-analysis-container hidden">
-                                    <!-- Левая панель сравнения -->
-                                    <div class="comparison-panel">
+                                    <!-- Панель управления анализом (на всю ширину) -->
+                                    <div class="management-panel">
                                         <!-- Заголовок и управление анализом -->
-                                        <div class="analysis-header">
+                                        <div class="analysis-header mb-4">
                                             <h5 class="text-base font-medium text-gray-900">Управление анализом</h5>
                                             <div class="analysis-controls">
                                                 <button id="newAnalysisBtn" class="btn btn-sm btn-primary">Новый анализ</button>
@@ -1704,65 +1706,83 @@
                                         </div>
                                         
                                         <!-- Фильтр статусов -->
-                                        <div class="status-filter">
+                                        <div class="status-filter mb-4">
                                             <button class="filter-btn active" data-status="all">Все</button>
                                             <button class="filter-btn" data-status="active">Активные</button>
                                             <button class="filter-btn" data-status="archive">Архивные</button>
                                         </div>
                                         
                                         <!-- Блоки объектов -->
-                                        <div class="objects-grid" id="objectsGrid">
+                                        <div class="objects-grid mb-4" id="objectsGrid">
                                             <!-- Динамически генерируемые блоки объектов -->
                                         </div>
                                         
-                                        <!-- Объявления выбранного объекта -->
-                                        <div class="listings-panel" id="listingsPanel">
-                                            <h6 class="text-sm font-medium text-gray-900 mb-2">Объявления объекта</h6>
-                                            <div class="listings-list" id="listingsList">
-                                                <!-- Блоки объявлений -->
-                                                <div class="text-sm text-gray-500">Выберите объект для просмотра объявлений</div>
+                                        <!-- Секция с объявлениями и деталями -->
+                                        <div class="listings-section mb-4 grid grid-cols-4 gap-4 h-96" id="listingsSection">
+                                            <!-- Объявления выбранного объекта (1/4 ширины) -->
+                                            <div class="listings-panel col-span-1 min-h-96" id="listingsPanel">
+                                                <h6 class="text-sm font-medium text-gray-900 mb-2">Объявления объекта</h6>
+                                                <div class="listings-list" id="listingsList">
+                                                    <!-- Блоки объявлений -->
+                                                    <div class="text-sm text-gray-500">Выберите объект для просмотра объявлений</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        
-                                        <!-- Детали объявления -->
-                                        <div class="listing-details" id="listingDetails">
-                                            <div class="photos-gallery" id="photosGallery">
-                                                <!-- Фотографии -->
-                                            </div>
-                                            <div class="listing-description" id="listingDescription">
-                                                <!-- Описание -->
+                                            
+                                            <!-- Детали объявления (3/4 ширины) -->
+                                            <div class="listing-details col-span-3 min-h-96" id="listingDetails">
+                                                <div class="photos-gallery" id="photosGallery">
+                                                    <!-- Фотографии -->
+                                                </div>
+                                                <div class="listing-description" id="listingDescription">
+                                                    <!-- Описание -->
+                                                </div>
                                             </div>
                                         </div>
                                         
                                         <!-- Кнопки оценки -->
-                                        <div class="evaluation-buttons" id="evaluationButtons">
-                                            <button class="eval-btn exclude" data-evaluation="fake">Фейк</button>
-                                            <button class="eval-btn exclude" data-evaluation="not-competitor">Не конкурент</button>
-                                            <button class="eval-btn exclude" data-evaluation="not-sold">Не продан</button>
-                                            <button class="eval-btn worse" data-evaluation="worse">Хуже</button>
-                                            <button class="eval-btn equal" data-evaluation="equal">Равно</button>
-                                            <button class="eval-btn better" data-evaluation="better">Лучше</button>
+                                        <div class="evaluation-buttons flex justify-between items-center gap-6" id="evaluationButtons">
+                                            <!-- Левая группа - исключающие оценки -->
+                                            <div class="exclude-buttons flex gap-3">
+                                                <button class="eval-btn exclude" data-evaluation="fake">Фейк</button>
+                                                <button class="eval-btn exclude" data-evaluation="not-competitor">Не конкурент</button>
+                                                <button class="eval-btn exclude" data-evaluation="not-sold">Не продан</button>
+                                            </div>
+                                            
+                                            <!-- Правая группа - оценочные кнопки -->
+                                            <div class="evaluation-buttons-right flex gap-3">
+                                                <button class="eval-btn worse" data-evaluation="worse">Хуже</button>
+                                                <button class="eval-btn equal" data-evaluation="equal">Равно</button>
+                                                <button class="eval-btn better" data-evaluation="better">Лучше</button>
+                                            </div>
                                         </div>
                                     </div>
                                     
-                                    <!-- Правая панель с графиком -->
-                                    <div class="chart-panel">
-                                        <div id="comparativeChart" class="h-96">
-                                            <!-- График будет создаваться динамически -->
+                                    <!-- Нижняя секция с графиком и результатами -->
+                                    <div class="analysis-results-section grid grid-cols-3 gap-6">
+                                        <!-- График (2/3 ширины) -->
+                                        <div class="chart-panel col-span-2">
+                                            <h4 class="text-lg font-medium text-gray-800 mb-4">График анализа</h4>
+                                            <div id="comparativeChart" class="h-96">
+                                                <!-- График будет создаваться динамически -->
+                                            </div>
                                         </div>
-                                        <div class="corridor-info" id="corridorInfo">
-                                            <h6 class="text-sm font-medium text-gray-900 mb-3">Коридоры цен</h6>
-                                            <div class="corridor-section">
-                                                <div class="text-xs font-medium text-blue-600">Активные объекты:</div>
-                                                <div id="activeCorridor" class="text-sm text-gray-700">-</div>
-                                            </div>
-                                            <div class="corridor-section">
-                                                <div class="text-xs font-medium text-green-600">Архивные объекты:</div>
-                                                <div id="archiveCorridor" class="text-sm text-gray-700">-</div>
-                                            </div>
-                                            <div class="corridor-section optimal">
-                                                <div class="text-xs font-medium text-emerald-600">Оптимальный диапазон:</div>
-                                                <div id="optimalRange" class="text-sm font-semibold text-emerald-700">-</div>
+                                        
+                                        <!-- Результат анализа (1/3 ширины) -->
+                                        <div class="results-panel col-span-1">
+                                            <h4 class="text-lg font-medium text-gray-800 mb-4">Результат анализа</h4>
+                                            <div class="corridor-info" id="corridorInfo">
+                                                <div class="corridor-section mb-3">
+                                                    <div class="text-xs font-medium text-blue-600 mb-1">Активные объекты:</div>
+                                                    <div id="activeCorridor" class="text-sm text-gray-700 bg-blue-50 p-2 rounded">-</div>
+                                                </div>
+                                                <div class="corridor-section mb-3">
+                                                    <div class="text-xs font-medium text-green-600 mb-1">Архивные объекты:</div>
+                                                    <div id="archiveCorridor" class="text-sm text-gray-700 bg-green-50 p-2 rounded">-</div>
+                                                </div>
+                                                <div class="corridor-section optimal">
+                                                    <div class="text-xs font-medium text-emerald-600 mb-1">Оптимальный диапазон:</div>
+                                                    <div id="optimalRange" class="text-sm font-semibold text-emerald-700 bg-emerald-50 p-3 rounded border-l-4 border-emerald-400">-</div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

@@ -1202,8 +1202,15 @@ class RealEstateObjectModel {
     // История уже должна быть построена методом mergePriceHistory
     if (this.price_history && this.price_history.length > 0) {
       // Сортируем историю по дате (последняя цена сначала) и берем последнюю
-      const sortedHistory = [...this.price_history].sort((a, b) => b.date - a.date);
-      this.current_price = sortedHistory[0].price;
+      const sortedHistory = [...this.price_history].sort((a, b) => {
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        return dateB - dateA; // Новые записи первыми
+      });
+      
+      // Берем цену из самой новой записи (поддерживаем разные форматы)
+      const latestEntry = sortedHistory[0];
+      this.current_price = latestEntry.price || latestEntry.new_price || null;
     } else {
       // Если истории цен пуста, создаем первую запись с датой создания объекта
       // Ищем подходящую цену из активных объявлений

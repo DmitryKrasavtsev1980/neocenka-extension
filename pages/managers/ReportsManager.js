@@ -368,6 +368,8 @@ class ReportsManager {
             // Управление интерфейсом сравнительного анализа
             if (showComparativeAnalysis && this.areaPage.comparativeAnalysisManager) {
                 await this.areaPage.comparativeAnalysisManager.showComparativeAnalysis();
+                // Безопасное обновление графика при активации панели
+                await this.areaPage.comparativeAnalysisManager.onPanelActivated();
             } else if (!showComparativeAnalysis && this.areaPage.comparativeAnalysisManager) {
                 this.areaPage.comparativeAnalysisManager.hideComparativeAnalysis();
             }
