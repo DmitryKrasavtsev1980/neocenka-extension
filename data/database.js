@@ -9,7 +9,7 @@ if (typeof NeocenkaDB === 'undefined') {
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 21; // Версия 21: добавлены поля commercial_spaces, ceiling_height и comment
+    this.version = 22; // Версия 22: добавлена таблица saved_reports для сохранения отчётов
     this.db = null;
   }
 
@@ -111,14 +111,13 @@ class NeocenkaDB {
       addressesStore.createIndex('created_at', 'created_at', { unique: false });
     }
 
-    // Segments store (принудительное пересоздание)
-    if (this.db.objectStoreNames.contains('segments')) {
-      this.db.deleteObjectStore('segments');
+    // Segments store
+    if (!this.db.objectStoreNames.contains('segments')) {
+      const segmentsStore = this.db.createObjectStore('segments', { keyPath: 'id' });
+      segmentsStore.createIndex('name', 'name', { unique: false });
+      segmentsStore.createIndex('map_area_id', 'map_area_id', { unique: false });
+      segmentsStore.createIndex('created_at', 'created_at', { unique: false });
     }
-    const segmentsStore = this.db.createObjectStore('segments', { keyPath: 'id' });
-    segmentsStore.createIndex('name', 'name', { unique: false });
-    segmentsStore.createIndex('map_area_id', 'map_area_id', { unique: false });
-    segmentsStore.createIndex('created_at', 'created_at', { unique: false });
 
     // Subsegments store
     if (!this.db.objectStoreNames.contains('subsegments')) {
@@ -130,10 +129,8 @@ class NeocenkaDB {
     }
 
     // Listings store (версия 14: добавлены индексы для дат объявлений)
-    if (this.db.objectStoreNames.contains('listings')) {
-      this.db.deleteObjectStore('listings');
-    }
-    const listingsStore = this.db.createObjectStore('listings', { keyPath: 'id' });
+    if (!this.db.objectStoreNames.contains('listings')) {
+      const listingsStore = this.db.createObjectStore('listings', { keyPath: 'id' });
     
     // Основные индексы (совместимость с версией 11)
     listingsStore.createIndex('address_id', 'address_id', { unique: false });
@@ -174,6 +171,7 @@ class NeocenkaDB {
     // Составные индексы для анализа по датам
     listingsStore.createIndex('source_created', ['source', 'created'], { unique: false });
     listingsStore.createIndex('source_updated', ['source', 'updated'], { unique: false });
+    }
 
     // Objects store (обновленная структура для объектов недвижимости)
     if (!this.db.objectStoreNames.contains('objects')) {
@@ -267,6 +265,14 @@ class NeocenkaDB {
     // Settings store
     if (!this.db.objectStoreNames.contains('settings')) {
       this.db.createObjectStore('settings', { keyPath: 'key' });
+    }
+
+    // Saved Reports store (версия 22: сохранённые отчёты с фильтрами и сравнительным анализом)
+    if (!this.db.objectStoreNames.contains('saved_reports')) {
+      const savedReportsStore = this.db.createObjectStore('saved_reports', { keyPath: 'id' });
+      savedReportsStore.createIndex('name', 'name', { unique: false });
+      savedReportsStore.createIndex('area_id', 'area_id', { unique: false });
+      savedReportsStore.createIndex('created_at', 'created_at', { unique: false });
     }
 
     // console.log('Database stores created/updated');
@@ -1162,6 +1168,96 @@ class NeocenkaDB {
       result[setting.key] = setting.value;
     });
     return result;
+  }
+
+  // ===== МЕТОДЫ ДЛЯ СОХРАНЁННЫХ ОТЧЁТОВ =====
+
+  /**
+   * Сохранение отчёта
+   */
+  async saveSavedReport(reportData) {
+    const reportWithId = {
+      id: reportData.id || Date.now().toString(),
+      name: reportData.name,
+      area_id: reportData.area_id,
+      filters: reportData.filters || {},
+      comparative_analysis: reportData.comparative_analysis || null,
+      created_at: reportData.created_at || new Date().toISOString()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['saved_reports'], 'readwrite');
+      const store = transaction.objectStore('saved_reports');
+      const request = store.put(reportWithId);
+
+      request.onsuccess = () => {
+        resolve(reportWithId);
+      };
+
+      request.onerror = () => {
+        console.error('Error saving report:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Получение всех сохранённых отчётов для области
+   */
+  async getSavedReportsByArea(areaId) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['saved_reports'], 'readonly');
+      const store = transaction.objectStore('saved_reports');
+      const index = store.index('area_id');
+      const request = index.getAll(areaId);
+
+      request.onsuccess = () => {
+        // Сортируем по дате создания (новые сверху)
+        const reports = request.result.sort((a, b) => 
+          new Date(b.created_at) - new Date(a.created_at)
+        );
+        resolve(reports);
+      };
+
+      request.onerror = () => {
+        console.error('Error getting reports by area:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Получение отчёта по ID
+   */
+  async getSavedReport(reportId) {
+    return this.get('saved_reports', reportId);
+  }
+
+  /**
+   * Удаление отчёта
+   */
+  async deleteSavedReport(reportId) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['saved_reports'], 'readwrite');
+      const store = transaction.objectStore('saved_reports');
+      const request = store.delete(reportId);
+
+      request.onsuccess = () => {
+        resolve();
+      };
+
+      request.onerror = () => {
+        console.error('Error deleting report:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Получение всех сохранённых отчётов
+   */
+  async getAllSavedReports() {
+    return this.getAll('saved_reports');
   }
 
   // ===== СТАТИСТИЧЕСКИЕ МЕТОДЫ =====

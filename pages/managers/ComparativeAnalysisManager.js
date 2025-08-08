@@ -51,6 +51,9 @@ class ComparativeAnalysisManager {
             this.debugEnabled = await this.getDebugSetting();
             this.isInitialized = true;
             
+            // Восстановляем сохраненное состояние сравнений
+            this.restoreComparativeState();
+            
             if (this.debugEnabled) {
                 console.log('🔍 ComparativeAnalysisManager: Менеджер инициализирован');
             }
@@ -83,16 +86,8 @@ class ComparativeAnalysisManager {
         });
         
         // Кнопки управления анализом
-        document.getElementById('newAnalysisBtn')?.addEventListener('click', () => {
-            this.startNewAnalysis();
-        });
-        
-        document.getElementById('saveAnalysisBtn')?.addEventListener('click', () => {
-            this.saveCurrentAnalysis();
-        });
-        
-        document.getElementById('loadAnalysisBtn')?.addEventListener('click', () => {
-            this.showLoadAnalysisModal();
+        document.getElementById('resetComparisonBtn')?.addEventListener('click', () => {
+            this.resetComparison();
         });
         
         // Кнопки оценки
@@ -167,6 +162,46 @@ class ComparativeAnalysisManager {
             
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка запуска анализа:', error);
+        }
+    }
+    
+    /**
+     * Сброс текущих сравнений
+     */
+    resetComparison() {
+        try {
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Сброс сравнений');
+            }
+            
+            // Подтверждение от пользователя
+            if (this.evaluations.size > 0) {
+                if (!confirm('Вы уверены, что хотите сбросить все сравнения? Это действие нельзя отменить.')) {
+                    return;
+                }
+            }
+            
+            // Очищаем все оценки и состояние
+            this.evaluations.clear();
+            this.selectedObjectId = null;
+            this.selectedListingId = null;
+            this.resetCorridors();
+            
+            // Очищаем сохраненное состояние
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (areaId) {
+                const stateKey = `comparative_state_${areaId}`;
+                localStorage.removeItem(stateKey);
+            }
+            
+            // Обновляем отображение
+            this.updateObjectsDisplay();
+            this.updateChartDebounced();
+            this.updateCorridorInfo();
+            this.updateEvaluationButtons();
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка сброса сравнений:', error);
         }
     }
     
@@ -357,6 +392,9 @@ class ComparativeAnalysisManager {
             
             // Обновляем отображение блоков
             this.updateObjectsDisplay();
+            
+            // Сохраняем состояние
+            this.saveComparativeState();
             
             // Обновляем график (выбранный объект станет розовым)
             this.updateChartDebounced();
@@ -628,6 +666,9 @@ class ComparativeAnalysisManager {
             this.updateChartDebounced();
             this.updateCorridorInfo();
             this.updateEvaluationButtons();
+            
+            // Сохраняем состояние
+            this.saveComparativeState();
             
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка оценки объекта:', error);
@@ -1676,6 +1717,75 @@ class ComparativeAnalysisManager {
         }
     }
     
+    /**
+     * Сохранение текущего состояния сравнений в localStorage
+     */
+    saveComparativeState() {
+        try {
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (!areaId) return;
+            
+            const stateKey = `comparative_state_${areaId}`;
+            const state = {
+                evaluations: Object.fromEntries(this.evaluations),
+                selectedObjectId: this.selectedObjectId,
+                selectedListingId: this.selectedListingId,
+                corridors: this.corridors,
+                statusFilter: this.statusFilter,
+                timestamp: Date.now()
+            };
+            
+            localStorage.setItem(stateKey, JSON.stringify(state));
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Состояние сохранено', state);
+            }
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка сохранения состояния:', error);
+        }
+    }
+    
+    /**
+     * Восстановление состояния сравнений из localStorage
+     */
+    restoreComparativeState() {
+        try {
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (!areaId) return;
+            
+            const stateKey = `comparative_state_${areaId}`;
+            const savedState = localStorage.getItem(stateKey);
+            
+            if (!savedState) return;
+            
+            const state = JSON.parse(savedState);
+            
+            // Проверяем возраст состояния (не старше 24 часов)
+            const maxAge = 24 * 60 * 60 * 1000; // 24 часа
+            if (Date.now() - state.timestamp > maxAge) {
+                localStorage.removeItem(stateKey);
+                return;
+            }
+            
+            // Восстанавливаем состояние
+            this.evaluations = new Map(Object.entries(state.evaluations || {}));
+            this.selectedObjectId = state.selectedObjectId;
+            this.selectedListingId = state.selectedListingId;
+            this.corridors = state.corridors || {
+                active: { min: null, max: null },
+                archive: { min: null, max: null },
+                optimal: { min: null, max: null }
+            };
+            this.statusFilter = state.statusFilter || 'all';
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ComparativeAnalysisManager: Состояние восстановлено', state);
+            }
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка восстановления состояния:', error);
+        }
+    }
+
     /**
      * Очистка ресурсов при удалении менеджера
      */

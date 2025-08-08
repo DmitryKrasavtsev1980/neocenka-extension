@@ -71,9 +71,15 @@ class ReportsManager {
             
             // Установка значений по умолчанию для фильтров дат
             this.setDefaultDateFilters();
+            
+            // Установка значений по умолчанию для чекбоксов отчётов
+            this.setDefaultReportsSettings();
 
             // Первоначальное обновление видимости отчётов
             await this.updateReportsVisibility();
+            
+            // Инициализация DataTables для сохранённых отчётов
+            await this.initializeSavedReportsDataTable();
 
             if (this.debugEnabled) {
                 // console.log('✅ ReportsManager: Инициализация завершена');
@@ -199,6 +205,14 @@ class ReportsManager {
         if (this.dateToFilter) {
             this.dateToFilter.addEventListener('change', () => {
                 this.updateReportsVisibility();
+            });
+        }
+
+        // Кнопка сохранения текущего отчёта
+        const saveCurrentReportBtn = document.getElementById('saveCurrentReportBtn');
+        if (saveCurrentReportBtn) {
+            saveCurrentReportBtn.addEventListener('click', () => {
+                this.saveCurrentReport();
             });
         }
 
@@ -616,6 +630,17 @@ class ReportsManager {
         // Установка дат в формате YYYY-MM-DD
         this.dateFromFilter.value = yearAgo.toISOString().split('T')[0];
         this.dateToFilter.value = tomorrow.toISOString().split('T')[0];
+    }
+
+    /**
+     * Установка значений по умолчанию для чекбоксов отчётов
+     */
+    setDefaultReportsSettings() {
+        // Включить сравнительный анализ по умолчанию
+        const comparativeAnalysisCheck = document.getElementById('comparativeAnalysisReportCheck');
+        if (comparativeAnalysisCheck) {
+            comparativeAnalysisCheck.checked = true;
+        }
     }
 
     /**
@@ -1939,6 +1964,281 @@ class ReportsManager {
     }
 
     /**
+     * Инициализация DataTables для сохранённых отчётов
+     */
+    async initializeSavedReportsDataTable() {
+        try {
+            // Глобальная переменная для доступа из HTML
+            window.reportsManager = this;
+            
+            // Инициализация DataTable с пустыми данными
+            this.savedReportsDataTable = $('#savedReportsTable').DataTable({
+                language: {
+                    url: '../libs/datatables/ru.json'
+                },
+                pageLength: 10,
+                responsive: true,
+                order: [[2, 'desc']], // Сортировка по дате создания (новые сверху)
+                columnDefs: [
+                    { orderable: false, targets: [3] }, // Отключаем сортировку для столбца "Действия"
+                    { width: "30%", targets: 0 }, // Название
+                    { width: "35%", targets: 1 }, // Фильтры  
+                    { width: "20%", targets: 2 }, // Дата создания
+                    { width: "15%", targets: 3 }  // Действия
+                ],
+                data: [], // Пустые данные при инициализации
+                columns: [
+                    { title: 'Название' },
+                    { title: 'Фильтры' },
+                    { title: 'Создан' },
+                    { title: 'Действия' }
+                ]
+            });
+            
+            // Загружаем данные
+            await this.loadSavedReportsData();
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка инициализации DataTables для отчётов:', error);
+        }
+    }
+
+    /**
+     * Загрузка данных в DataTable сохранённых отчётов
+     */
+    async loadSavedReportsData() {
+        try {
+            if (!this.savedReportsDataTable) return;
+            
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (!areaId) {
+                // Очищаем таблицу
+                this.savedReportsDataTable.clear().draw();
+                return;
+            }
+            
+            const reports = await window.db.getSavedReportsByArea(areaId);
+            
+            // Преобразуем данные для DataTables
+            const tableData = reports.map(report => {
+                const date = new Date(report.created_at).toLocaleDateString('ru-RU');
+                const time = new Date(report.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                
+                // Формируем описание фильтров
+                const filterParts = [];
+                if (report.filters.segment_name && report.filters.segment_name !== 'Вся область') {
+                    filterParts.push(report.filters.segment_name);
+                }
+                if (report.filters.subsegment_name) {
+                    filterParts.push(report.filters.subsegment_name);
+                }
+                if (report.filters.date_from && report.filters.date_to) {
+                    const dateFrom = new Date(report.filters.date_from).toLocaleDateString('ru-RU');
+                    const dateTo = new Date(report.filters.date_to).toLocaleDateString('ru-RU');
+                    filterParts.push(`${dateFrom} - ${dateTo}`);
+                }
+                
+                const filtersDescription = filterParts.length > 0 ? filterParts.join(', ') : 'Все данные';
+                
+                const actions = `
+                    <div class="flex space-x-1">
+                        <button data-action="load" data-report-id="${report.id}" 
+                                class="report-action-btn text-indigo-600 hover:text-indigo-900 text-xs px-2 py-1 border border-indigo-300 rounded hover:bg-indigo-50"
+                                title="Загрузить отчёт">
+                            Загрузить
+                        </button>
+                        <button data-action="delete" data-report-id="${report.id}" 
+                                class="report-action-btn text-red-600 hover:text-red-900 text-xs px-2 py-1 border border-red-300 rounded hover:bg-red-50"
+                                title="Удалить отчёт">
+                            Удалить
+                        </button>
+                    </div>
+                `;
+                
+                return [
+                    report.name,
+                    filtersDescription,
+                    `${date} ${time}`,
+                    actions
+                ];
+            });
+            
+            // Обновляем данные в таблице
+            this.savedReportsDataTable.clear().rows.add(tableData).draw();
+            
+            // Добавляем обработчики событий для кнопок действий (CSP-совместимо)
+            this.attachReportActionHandlers();
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка загрузки данных отчётов:', error);
+        }
+    }
+
+    /**
+     * Добавление обработчиков для кнопок действий в таблице отчётов (CSP-совместимо)
+     */
+    attachReportActionHandlers() {
+        // Удаляем старые обработчики если есть
+        $(document).off('click', '.report-action-btn');
+        
+        // Добавляем новые обработчики через делегирование событий
+        $(document).on('click', '.report-action-btn', (event) => {
+            event.preventDefault();
+            const button = event.currentTarget;
+            const action = button.getAttribute('data-action');
+            const reportId = button.getAttribute('data-report-id');
+            
+            if (action === 'load') {
+                this.loadSavedReport(reportId);
+            } else if (action === 'delete') {
+                this.deleteSavedReport(reportId);
+            }
+        });
+    }
+
+    /**
+     * Сохранение текущего отчёта
+     */
+    async saveCurrentReport() {
+        try {
+            const reportName = prompt('Введите название отчёта:');
+            if (!reportName) return;
+            
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (!areaId) {
+                alert('Нет выбранной области');
+                return;
+            }
+            
+            // Собираем данные текущих фильтров
+            const reportData = {
+                name: reportName,
+                area_id: areaId,
+                filters: {
+                    segment_id: this.currentSegment?.id || null,
+                    segment_name: this.currentSegment?.name || 'Вся область',
+                    subsegment_id: this.currentSubsegment?.id || null,
+                    subsegment_name: this.currentSubsegment?.name || null,
+                    date_from: this.dateFromFilter?.value || null,
+                    date_to: this.dateToFilter?.value || null
+                },
+                // Сохраняем состояние сравнительного анализа если есть
+                comparative_analysis: null
+            };
+            
+            // Получаем данные сравнительного анализа если панель активна
+            if (this.areaPage.comparativeAnalysisManager && this.areaPage.comparativeAnalysisManager.evaluations) {
+                reportData.comparative_analysis = {
+                    evaluations: Object.fromEntries(this.areaPage.comparativeAnalysisManager.evaluations),
+                    corridors: this.areaPage.comparativeAnalysisManager.corridors,
+                    selected_object_id: this.areaPage.comparativeAnalysisManager.selectedObjectId,
+                    selected_listing_id: this.areaPage.comparativeAnalysisManager.selectedListingId
+                };
+            }
+            
+            // Сохраняем в IndexedDB
+            await window.db.saveSavedReport(reportData);
+            
+            // Обновляем таблицу
+            await this.loadSavedReportsData();
+            
+            alert(`Отчёт "${reportName}" сохранён успешно!`);
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка сохранения отчёта:', error);
+            alert('Ошибка сохранения отчёта');
+        }
+    }
+    
+    /**
+     * Загрузка сохранённого отчёта
+     */
+    async loadSavedReport(reportId) {
+        try {
+            const report = await window.db.getSavedReport(reportId);
+            if (!report) {
+                alert('Отчёт не найден');
+                return;
+            }
+            
+            // Восстанавливаем фильтры
+            if (report.filters.segment_id && this.segments.length > 0) {
+                const segment = this.segments.find(s => s.id === report.filters.segment_id);
+                if (segment && this.segmentSlimSelect) {
+                    this.segmentSlimSelect.setSelected([report.filters.segment_id.toString()]);
+                    await this.handleSegmentChange(report.filters.segment_id);
+                }
+            } else if (this.segmentSlimSelect) {
+                this.segmentSlimSelect.setSelected([]);
+                await this.handleSegmentChange(null);
+            }
+            
+            if (report.filters.subsegment_id && this.subsegments.length > 0) {
+                const subsegment = this.subsegments.find(s => s.id === report.filters.subsegment_id);
+                if (subsegment && this.subsegmentSlimSelect) {
+                    this.subsegmentSlimSelect.setSelected([report.filters.subsegment_id.toString()]);
+                    await this.handleSubsegmentChange(report.filters.subsegment_id);
+                }
+            }
+            
+            if (report.filters.date_from && this.dateFromFilter) {
+                this.dateFromFilter.value = report.filters.date_from;
+            }
+            
+            if (report.filters.date_to && this.dateToFilter) {
+                this.dateToFilter.value = report.filters.date_to;
+            }
+            
+            // Восстанавливаем состояние сравнительного анализа
+            if (report.comparative_analysis && this.areaPage.comparativeAnalysisManager) {
+                const cam = this.areaPage.comparativeAnalysisManager;
+                cam.evaluations = new Map(Object.entries(report.comparative_analysis.evaluations));
+                cam.corridors = report.comparative_analysis.corridors;
+                cam.selectedObjectId = report.comparative_analysis.selected_object_id;
+                cam.selectedListingId = report.comparative_analysis.selected_listing_id;
+                
+                // Сохраняем восстановленное состояние
+                cam.saveComparativeState();
+            }
+            
+            // Обновляем отчёты
+            await this.updateReportsVisibility();
+            
+            alert(`Отчёт "${report.name}" загружен успешно!`);
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка загрузки отчёта:', error);
+            alert('Ошибка загрузки отчёта');
+        }
+    }
+    
+    /**
+     * Удаление сохранённого отчёта
+     */
+    async deleteSavedReport(reportId) {
+        try {
+            const report = await window.db.getSavedReport(reportId);
+            if (!report) {
+                alert('Отчёт не найден');
+                return;
+            }
+            
+            if (!confirm(`Вы уверены, что хотите удалить отчёт "${report.name}"?`)) return;
+            
+            await window.db.deleteSavedReport(reportId);
+            
+            // Обновляем таблицу
+            await this.loadSavedReportsData();
+            
+            alert(`Отчёт "${report.name}" удалён успешно!`);
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка удаления отчёта:', error);
+            alert('Ошибка удаления отчёта');
+        }
+    }
+
+    /**
      * Очистка ресурсов
      */
     destroy() {
@@ -1963,6 +2263,15 @@ class ReportsManager {
             this.subsegmentSlimSelect.destroy();
             this.subsegmentSlimSelect = null;
         }
+        
+        // Удаление DataTable сохранённых отчётов и обработчиков событий
+        if (this.savedReportsDataTable) {
+            this.savedReportsDataTable.destroy();
+            this.savedReportsDataTable = null;
+        }
+        
+        // Удаляем обработчики кнопок действий
+        $(document).off('click', '.report-action-btn');
 
         // Удаление обработчиков событий EventBus
         this.eventBus.off(CONSTANTS.EVENTS.SEGMENTS_UPDATED);
