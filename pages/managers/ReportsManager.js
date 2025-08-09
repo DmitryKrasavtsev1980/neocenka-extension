@@ -42,6 +42,9 @@ class ReportsManager {
         // Режим коридора рынка
         this.marketCorridorMode = 'sales'; // 'sales' или 'history'
         
+        // HTML Export Manager
+        this.htmlExportManager = null;
+        
         this.debugEnabled = false;
     }
 
@@ -56,6 +59,17 @@ class ReportsManager {
 
             // Получение настроек отладки
             await this.loadDebugSettings();
+
+            // Инициализация HTML Export Manager
+            if (typeof HTMLExportManager !== 'undefined') {
+                this.htmlExportManager = new HTMLExportManager();
+                await this.htmlExportManager.init();
+                if (this.debugEnabled) {
+                    console.log('✅ ReportsManager: HTMLExportManager инициализирован');
+                }
+            } else {
+                console.warn('⚠️ ReportsManager: HTMLExportManager не найден');
+            }
 
             // Инициализация элементов интерфейса
             this.initializeElements();
@@ -80,6 +94,9 @@ class ReportsManager {
             
             // Инициализация DataTables для сохранённых отчётов
             await this.initializeSavedReportsDataTable();
+            
+            // Инициализация интерфейса шаблонов фильтров
+            await this.initFilterTemplates();
 
             if (this.debugEnabled) {
                 // console.log('✅ ReportsManager: Инициализация завершена');
@@ -2017,7 +2034,8 @@ class ReportsManager {
                 return;
             }
             
-            const reports = await window.db.getSavedReportsByArea(areaId);
+            // Загружаем только полные отчёты (не шаблоны фильтров)
+            const reports = await window.db.getFullReportsByArea(areaId);
             
             // Преобразуем данные для DataTables
             const tableData = reports.map(report => {
@@ -2026,6 +2044,14 @@ class ReportsManager {
                 
                 // Формируем описание фильтров
                 const filterParts = [];
+                
+                // Добавляем информацию о шаблоне фильтра если есть
+                if (report.filter_template_id) {
+                    const templateName = report.name.includes(' - ') ? 
+                        report.name.split(' - ')[0] : 'Шаблон';
+                    filterParts.push(`📋 ${templateName}`);
+                }
+                
                 if (report.filters.segment_name && report.filters.segment_name !== 'Вся область') {
                     filterParts.push(report.filters.segment_name);
                 }
@@ -2042,15 +2068,15 @@ class ReportsManager {
                 
                 const actions = `
                     <div class="flex space-x-1">
-                        <button data-action="load" data-report-id="${report.id}" 
-                                class="report-action-btn text-indigo-600 hover:text-indigo-900 text-xs px-2 py-1 border border-indigo-300 rounded hover:bg-indigo-50"
-                                title="Загрузить отчёт">
-                            Загрузить
+                        <button data-action="download" data-report-id="${report.id}" 
+                                class="report-action-btn text-blue-600 hover:text-blue-900 text-xs px-2 py-1 border border-blue-300 rounded hover:bg-blue-50"
+                                title="Скачать отчёт в формате JSON">
+                            📥 JSON
                         </button>
-                        <button data-action="delete" data-report-id="${report.id}" 
-                                class="report-action-btn text-red-600 hover:text-red-900 text-xs px-2 py-1 border border-red-300 rounded hover:bg-red-50"
-                                title="Удалить отчёт">
-                            Удалить
+                        <button data-action="download-html" data-report-id="${report.id}" 
+                                class="report-action-btn text-green-600 hover:text-green-900 text-xs px-2 py-1 border border-green-300 rounded hover:bg-green-50"
+                                title="Скачать отчёт в формате HTML">
+                            📄 HTML
                         </button>
                     </div>
                 `;
@@ -2082,38 +2108,62 @@ class ReportsManager {
         $(document).off('click', '.report-action-btn');
         
         // Добавляем новые обработчики через делегирование событий
-        $(document).on('click', '.report-action-btn', (event) => {
+        $(document).on('click', '.report-action-btn', async (event) => {
             event.preventDefault();
             const button = event.currentTarget;
             const action = button.getAttribute('data-action');
             const reportId = button.getAttribute('data-report-id');
             
-            if (action === 'load') {
-                this.loadSavedReport(reportId);
-            } else if (action === 'delete') {
-                this.deleteSavedReport(reportId);
+            if (action === 'download') {
+                await this.downloadReportAsJSON(reportId);
+            } else if (action === 'download-html') {
+                await this.downloadReportAsHTML(reportId);
             }
         });
     }
 
     /**
-     * Сохранение текущего отчёта
+     * Сохранение текущего отчёта на основе выбранного шаблона фильтра
      */
     async saveCurrentReport() {
         try {
-            const reportName = prompt('Введите название отчёта:');
-            if (!reportName) return;
+            // Проверяем что выбран шаблон фильтра
+            const templateId = $('#reportFilterId').val();
+            const templateName = $('#reportFilterName').val()?.trim();
+            
+            if (!templateId || !templateName) {
+                if (this.areaPage && this.areaPage.uiManager) {
+                    this.areaPage.uiManager.showNotification({
+                        type: 'warning',
+                        message: 'Выберите или создайте шаблон фильтра перед сохранением отчёта',
+                        duration: 4000
+                    });
+                }
+                return;
+            }
             
             const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
             if (!areaId) {
-                alert('Нет выбранной области');
+                if (this.areaPage && this.areaPage.uiManager) {
+                    this.areaPage.uiManager.showNotification({
+                        type: 'error',
+                        message: 'Нет выбранной области',
+                        duration: 4000
+                    });
+                }
                 return;
             }
+            
+            // Генерируем автоматическое название отчёта
+            const currentDate = new Date().toLocaleDateString('ru-RU');
+            const reportName = `${templateName} - ${currentDate}`;
             
             // Собираем данные текущих фильтров
             const reportData = {
                 name: reportName,
                 area_id: areaId,
+                type: 'full_report',
+                filter_template_id: templateId,
                 filters: {
                     segment_id: this.currentSegment?.id || null,
                     segment_name: this.currentSegment?.name || 'Вся область',
@@ -2142,11 +2192,23 @@ class ReportsManager {
             // Обновляем таблицу
             await this.loadSavedReportsData();
             
-            alert(`Отчёт "${reportName}" сохранён успешно!`);
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `📊 Отчёт "${reportName}" сохранён`,
+                    duration: 3000
+                });
+            }
             
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка сохранения отчёта:', error);
-            alert('Ошибка сохранения отчёта');
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'error',
+                    message: 'Ошибка сохранения отчёта',
+                    duration: 5000
+                });
+            }
         }
     }
     
@@ -2236,6 +2298,720 @@ class ReportsManager {
             console.error('❌ ReportsManager: Ошибка удаления отчёта:', error);
             alert('Ошибка удаления отчёта');
         }
+    }
+
+    // ===== МЕТОДЫ ДЛЯ УПРАВЛЕНИЯ ШАБЛОНАМИ ФИЛЬТРОВ =====
+
+    /**
+     * Инициализация интерфейса управления шаблонами фильтров
+     */
+    async initFilterTemplates() {
+        try {
+            // Загружаем существующие шаблоны
+            await this.loadFilterTemplates();
+            
+            // Добавляем обработчики событий
+            $('#saveReportFilterBtn').off('click').on('click', () => this.saveCurrentAsFilterTemplate());
+            $('#deleteReportFilterBtn').off('click').on('click', () => this.deleteSelectedFilterTemplate());
+            $('#reportFilterSelect').off('change').on('change', (e) => this.onFilterTemplateSelect(e.target.value));
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Интерфейс шаблонов фильтров инициализирован');
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка инициализации шаблонов фильтров:', error);
+        }
+    }
+
+    /**
+     * Загрузка шаблонов фильтров в выпадающий список
+     */
+    async loadFilterTemplates() {
+        try {
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (!areaId) return;
+
+            const filterTemplates = await window.db.getFilterTemplatesByArea(areaId);
+            
+            const $select = $('#reportFilterSelect');
+            $select.empty();
+            $select.append('<option value="">Создать новый фильтр</option>');
+            
+            filterTemplates.forEach(template => {
+                $select.append(`<option value="${template.id}">${template.name}</option>`);
+            });
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Загружено шаблонов фильтров:', filterTemplates.length);
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка загрузки шаблонов фильтров:', error);
+        }
+    }
+
+    /**
+     * Сохранение текущих параметров как шаблон фильтра
+     */
+    async saveCurrentAsFilterTemplate() {
+        try {
+            const filterName = $('#reportFilterName').val()?.trim();
+            if (!filterName) {
+                alert('Введите название фильтра');
+                return;
+            }
+            
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (!areaId) {
+                alert('Нет выбранной области');
+                return;
+            }
+            
+            // Проверяем, не существует ли уже фильтр с таким названием
+            const existingTemplates = await window.db.getFilterTemplatesByArea(areaId);
+            const existingTemplate = existingTemplates.find(t => t.name === filterName);
+            const filterId = $('#reportFilterId').val();
+            
+            if (existingTemplate && existingTemplate.id !== filterId) {
+                alert('Фильтр с таким названием уже существует');
+                return;
+            }
+            
+            // Собираем данные текущих фильтров
+            const filterData = {
+                id: filterId || undefined,
+                name: filterName,
+                area_id: areaId,
+                type: 'filter_template',
+                filters: {
+                    segment_id: this.currentSegment?.id || null,
+                    subsegment_id: this.currentSubsegment?.id || null,
+                    date_from: $('#reportsDateFrom').val() || null,
+                    date_to: $('#reportsDateTo').val() || null
+                }
+            };
+            
+            const savedFilter = await window.db.saveSavedReport(filterData);
+            
+            // Обновляем список шаблонов
+            await this.loadFilterTemplates();
+            
+            // Выбираем сохранённый шаблон
+            $('#reportFilterSelect').val(savedFilter.id);
+            $('#reportFilterId').val(savedFilter.id);
+            
+            // Включаем кнопку удаления
+            $('#deleteReportFilterBtn').prop('disabled', false);
+            
+            alert(`Шаблон фильтра "${filterName}" сохранён успешно!`);
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Шаблон фильтра сохранён:', savedFilter);
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка сохранения шаблона фильтра:', error);
+            alert('Ошибка сохранения шаблона фильтра');
+        }
+    }
+
+    /**
+     * Обработчик выбора шаблона фильтра
+     */
+    async onFilterTemplateSelect(templateId) {
+        try {
+            const $deleteBtn = $('#deleteReportFilterBtn');
+            const $nameField = $('#reportFilterName');
+            const $idField = $('#reportFilterId');
+            
+            if (!templateId) {
+                // Создание нового фильтра
+                $deleteBtn.prop('disabled', true);
+                $nameField.val('');
+                $idField.val('');
+                return;
+            }
+            
+            // Загрузка выбранного шаблона
+            const template = await window.db.getSavedReport(templateId);
+            if (!template) {
+                alert('Шаблон фильтра не найден');
+                return;
+            }
+            
+            // Заполняем поля
+            $nameField.val(template.name);
+            $idField.val(template.id);
+            $deleteBtn.prop('disabled', false);
+            
+            // Применяем фильтры
+            if (template.filters) {
+                if (template.filters.segment_id) {
+                    await this.loadSegmentById(template.filters.segment_id);
+                }
+                if (template.filters.subsegment_id) {
+                    await this.loadSubsegmentById(template.filters.subsegment_id);
+                }
+                if (template.filters.date_from) {
+                    $('#reportsDateFrom').val(template.filters.date_from);
+                }
+                if (template.filters.date_to) {
+                    $('#reportsDateTo').val(template.filters.date_to);
+                }
+            }
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Шаблон фильтра применён:', template);
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка применения шаблона фильтра:', error);
+            alert('Ошибка применения шаблона фильтра');
+        }
+    }
+
+    /**
+     * Загрузка сегмента по ID (для применения шаблона)
+     */
+    async loadSegmentById(segmentId) {
+        try {
+            const segment = await window.db.getSegment(segmentId);
+            if (segment && this.segmentSlimSelect) {
+                this.segmentSlimSelect.setSelected(segmentId);
+                this.currentSegment = segment;
+                
+                // Загружаем подсегменты для выбранного сегмента
+                await this.loadSubsegmentsData();
+            }
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка загрузки сегмента:', error);
+        }
+    }
+
+    /**
+     * Загрузка подсегмента по ID (для применения шаблона)
+     */
+    async loadSubsegmentById(subsegmentId) {
+        try {
+            const subsegment = await window.db.getSubsegment(subsegmentId);
+            if (subsegment && this.subsegmentSlimSelect) {
+                this.subsegmentSlimSelect.setSelected(subsegmentId);
+                this.currentSubsegment = subsegment;
+            }
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка загрузки подсегмента:', error);
+        }
+    }
+
+    /**
+     * Удаление выбранного шаблона фильтра
+     */
+    async deleteSelectedFilterTemplate() {
+        try {
+            const templateId = $('#reportFilterId').val();
+            if (!templateId) {
+                alert('Не выбран шаблон фильтра для удаления');
+                return;
+            }
+            
+            const template = await window.db.getSavedReport(templateId);
+            if (!template) {
+                alert('Шаблон фильтра не найден');
+                return;
+            }
+            
+            if (!confirm(`Вы уверены, что хотите удалить шаблон фильтра "${template.name}"?`)) return;
+            
+            await window.db.deleteSavedReport(templateId);
+            
+            // Очищаем форму
+            $('#reportFilterSelect').val('');
+            $('#reportFilterName').val('');
+            $('#reportFilterId').val('');
+            $('#deleteReportFilterBtn').prop('disabled', true);
+            
+            // Обновляем список шаблонов
+            await this.loadFilterTemplates();
+            
+            alert(`Шаблон фильтра "${template.name}" удалён успешно!`);
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Шаблон фильтра удалён:', template.name);
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка удаления шаблона фильтра:', error);
+            alert('Ошибка удаления шаблона фильтра');
+        }
+    }
+
+    // ===== ЭКСПОРТ ОТЧЁТОВ В JSON =====
+
+    /**
+     * Скачивание отчёта в формате JSON
+     */
+    async downloadReportAsJSON(reportId) {
+        let button, originalText;
+        try {
+            // Показываем индикатор загрузки
+            button = $(`[data-report-id="${reportId}"]`);
+            originalText = button.html();
+            button.html('⏳ Экспорт...').prop('disabled', true);
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Начинаем экспорт отчёта:', reportId);
+            }
+            
+            // Получаем отчёт
+            const report = await window.db.getSavedReport(reportId);
+            if (!report) {
+                alert('Отчёт не найден');
+                return;
+            }
+            
+            // Собираем полные данные отчёта
+            const exportData = await this.collectReportExportData(report);
+            
+            // Создаём имя файла
+            const fileName = this.generateExportFileName(report.name);
+            
+            // Скачиваем файл
+            this.downloadJSONFile(exportData, fileName);
+            
+            console.log('✅ ReportsManager: Отчёт экспортирован:', fileName);
+            
+            // Показываем уведомление об успешном экспорте
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `📥 Отчёт "${report.name}" экспортирован`,
+                    duration: 3000
+                });
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка экспорта отчёта:', error);
+            
+            // Показываем уведомление об ошибке
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'error',
+                    message: 'Ошибка экспорта отчёта',
+                    duration: 5000
+                });
+            } else {
+                alert('Ошибка экспорта отчёта');
+            }
+        } finally {
+            // Восстанавливаем кнопку
+            if (button && originalText) {
+                button.html(originalText).prop('disabled', false);
+            }
+        }
+    }
+
+    /**
+     * Сбор всех данных отчёта для экспорта
+     */
+    async collectReportExportData(report) {
+        const areaId = report.area_id;
+        
+        // Получаем данные области
+        const area = await window.db.getMapArea(areaId);
+        
+        // Получаем адреса области
+        const allAddresses = await window.db.getAddressesInMapArea(areaId);
+        
+        // Получаем сегменты области
+        const allSegments = await window.db.getSegmentsByMapArea(areaId);
+        
+        // Получаем подсегменты для всех сегментов
+        const allSubsegments = [];
+        for (const segment of allSegments) {
+            const subsegments = await window.db.getSubsegmentsBySegment(segment.id);
+            allSubsegments.push(...subsegments);
+        }
+        
+        // Получаем объекты недвижимости для указанного сегмента/подсегмента
+        let realEstateObjects = [];
+        let listings = [];
+        
+        if (report.filters.segment_id) {
+            try {
+                // Получаем объекты по сегменту
+                const segmentObjects = await window.db.getObjectsBySegment(report.filters.segment_id);
+                
+                // Фильтруем по подсегменту если указан
+                if (report.filters.subsegment_id) {
+                    realEstateObjects = segmentObjects.filter(obj => {
+                        const subsegment = allSubsegments.find(s => s.id === report.filters.subsegment_id);
+                        if (!subsegment) return false;
+                        return this.objectMatchesSubsegment(obj, subsegment);
+                    });
+                } else {
+                    realEstateObjects = segmentObjects;
+                }
+                
+                // Получаем объявления для всех объектов
+                for (const object of realEstateObjects) {
+                    // Получаем объявления по адресу объекта
+                    if (object.address_id) {
+                        try {
+                            const objectListings = await window.db.getListingsByAddress(object.address_id);
+                            if (objectListings && objectListings.length > 0) {
+                                listings.push(...objectListings.map(listing => ({
+                                    ...listing,
+                                    object_id: object.id
+                                })));
+                            }
+                        } catch (listingError) {
+                            console.warn('Не удалось получить объявления для объекта:', object.id, listingError);
+                        }
+                    }
+                }
+            } catch (segmentError) {
+                console.warn('Не удалось получить объекты сегмента:', report.filters.segment_id, segmentError);
+            }
+        }
+        
+        // Формируем полную структуру экспорта
+        const exportData = {
+            // Метаданные экспорта
+            export_info: {
+                export_date: new Date().toISOString(),
+                version: "1.0",
+                area_id: areaId,
+                report_id: report.id,
+                generated_by: "Neocenka Extension"
+            },
+            
+            // Данные отчёта
+            report: {
+                id: report.id,
+                name: report.name,
+                type: report.type,
+                filter_template_id: report.filter_template_id,
+                filters: report.filters,
+                comparative_analysis: report.comparative_analysis,
+                charts_data: report.charts_data,
+                created_at: report.created_at
+            },
+            
+            // Данные области
+            area: area,
+            
+            // Адреса области
+            addresses: allAddresses,
+            
+            // Сегменты и подсегменты
+            segments: allSegments.map(segment => ({
+                ...segment,
+                subsegments: allSubsegments.filter(sub => sub.segment_id === segment.id)
+            })),
+            
+            // Объекты недвижимости с объявлениями
+            real_estate_objects: realEstateObjects.map(object => ({
+                ...object,
+                listings: listings.filter(listing => listing.object_id === object.id)
+            }))
+        };
+        
+        return exportData;
+    }
+
+    /**
+     * Проверка соответствия объекта подсегменту
+     */
+    objectMatchesSubsegment(object, subsegment) {
+        // Проверяем тип недвижимости
+        if (subsegment.property_type && subsegment.property_type.length > 0) {
+            if (!subsegment.property_type.includes(object.property_type)) {
+                return false;
+            }
+        }
+        
+        // Проверяем площадь
+        if (subsegment.area_min && object.area < subsegment.area_min) {
+            return false;
+        }
+        if (subsegment.area_max && object.area > subsegment.area_max) {
+            return false;
+        }
+        
+        // Проверяем этаж
+        if (subsegment.floor_min && object.floor < subsegment.floor_min) {
+            return false;
+        }
+        if (subsegment.floor_max && object.floor > subsegment.floor_max) {
+            return false;
+        }
+        
+        // Проверяем цену
+        if (subsegment.price_min && object.price < subsegment.price_min) {
+            return false;
+        }
+        if (subsegment.price_max && object.price > subsegment.price_max) {
+            return false;
+        }
+        
+        return true;
+    }
+
+    /**
+     * Генерация имени файла для экспорта
+     */
+    generateExportFileName(reportName) {
+        // Очищаем название от недопустимых символов
+        const cleanName = reportName
+            .replace(/[<>:"/\\|?*]/g, '_')
+            .replace(/\s+/g, '_');
+            
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+        return `neocenka_report_${cleanName}_${timestamp}.json`;
+    }
+
+    /**
+     * Скачивание JSON файла
+     */
+    downloadJSONFile(data, fileName) {
+        const jsonString = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.style.display = 'none';
+        
+        document.body.appendChild(a);
+        a.click();
+        
+        // Очищаем ссылку
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Скачивание HTML файла
+     */
+    downloadHTMLFile(htmlContent, fileName) {
+        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.style.display = 'none';
+        
+        document.body.appendChild(a);
+        a.click();
+        
+        // Очищаем ссылку
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // ===== ЭКСПОРТ ОТЧЁТОВ В HTML =====
+
+    /**
+     * Скачивание отчёта в формате HTML
+     */
+    async downloadReportAsHTML(reportId) {
+        let button, originalText;
+        try {
+            // Показываем индикатор загрузки
+            button = $(`[data-report-id="${reportId}"][data-action="download-html"]`);
+            originalText = button.html();
+            button.html('⏳ Генерация...').prop('disabled', true);
+            
+            if (this.debugEnabled) {
+                console.log('🔍 ReportsManager: Начинаем генерацию HTML отчёта:', reportId);
+            }
+            
+            // Получаем отчёт
+            const report = await window.db.getSavedReport(reportId);
+            if (!report) {
+                if (this.areaPage && this.areaPage.uiManager) {
+                    this.areaPage.uiManager.showNotification({
+                        type: 'error',
+                        message: 'Отчёт не найден',
+                        duration: 4000
+                    });
+                }
+                return;
+            }
+            
+            // Собираем данные отчёта
+            const exportData = await this.collectReportExportData(report);
+            
+            // Генерируем HTML через HTMLExportManager
+            let htmlContent;
+            if (this.htmlExportManager) {
+                htmlContent = await this.htmlExportManager.generateHTMLReport(exportData);
+            } else {
+                // Fallback на старый метод
+                htmlContent = await this.generateHTMLReportFallback(exportData);
+            }
+            
+            // Создаём имя файла
+            const fileName = this.generateHTMLFileName(report.name);
+            
+            // Скачиваем файл
+            this.downloadHTMLFile(htmlContent, fileName);
+            
+            console.log('✅ ReportsManager: HTML отчёт сгенерирован:', fileName);
+            
+            // Показываем уведомление об успешном экспорте
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `📄 HTML отчёт "${report.name}" сгенерирован`,
+                    duration: 3000
+                });
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка генерации HTML отчёта:', error);
+            
+            // Показываем уведомление об ошибке
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'error',
+                    message: 'Ошибка генерации HTML отчёта',
+                    duration: 5000
+                });
+            }
+        } finally {
+            // Восстанавливаем кнопку
+            if (button && originalText) {
+                button.html(originalText).prop('disabled', false);
+            }
+        }
+    }
+
+    /**
+     * Генерация имени HTML файла для экспорта
+     */
+    generateHTMLFileName(reportName) {
+        // Очищаем название от недопустимых символов
+        const cleanName = reportName
+            .replace(/[<>:"/\\|?*]/g, '_')
+            .replace(/\s+/g, '_');
+            
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+        return `neocenka_report_${cleanName}_${timestamp}.html`;
+    }
+
+    /**
+     * Генерация HTML отчёта (fallback метод)
+     */
+    async generateHTMLReportFallback(exportData) {
+        const { report, area, addresses, segments, real_estate_objects, export_info } = exportData;
+        
+        // Формируем заголовок отчёта
+        const reportTitle = report.name;
+        const reportDate = new Date(report.created_at).toLocaleDateString('ru-RU');
+        const exportDate = new Date(export_info.export_date).toLocaleDateString('ru-RU');
+        
+        // Подготавливаем данные для графиков (если есть)
+        const chartsData = report.charts_data || {};
+        
+        // Подготавливаем данные объектов для таблицы
+        const objectsTableData = this.prepareObjectsTableData(real_estate_objects);
+        
+        // Подготавливаем данные сравнительного анализа
+        const comparativeAnalysis = report.comparative_analysis || {};
+        
+        // Генерируем HTML контент
+        const htmlContent = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отчёт Neocenka: ${reportTitle}</title>
+    <style>
+        ${this.getEmbeddedCSS()}
+    </style>
+    <!-- Встроенные библиотеки -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+</head>
+<body>
+    <!-- Заголовок отчёта -->
+    <header class="report-header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo-section">
+                    <h1>🏠 Neocenka</h1>
+                    <p class="tagline">Анализ рынка недвижимости</p>
+                </div>
+                <div class="report-info">
+                    <h2>${reportTitle}</h2>
+                    <div class="report-meta">
+                        <span>Создан: ${reportDate}</span>
+                        <span>Экспортирован: ${exportDate}</span>
+                        <span>Область: ${area.name}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Основное содержимое -->
+    <main class="container">
+        <!-- Параметры фильтра -->
+        ${this.generateFilterSummaryHTML(report.filters)}
+        
+        <!-- Графики -->
+        ${this.generateChartsHTML(chartsData)}
+        
+        <!-- Карта области -->
+        ${this.generateMapHTML(area, real_estate_objects)}
+        
+        <!-- Таблица объектов -->
+        ${this.generateObjectsTableHTML(objectsTableData)}
+        
+        <!-- Сравнительный анализ -->
+        ${this.generateComparativeAnalysisHTML(comparativeAnalysis)}
+        
+        <!-- Статистика -->
+        ${this.generateStatisticsHTML(export_info, real_estate_objects)}
+    </main>
+
+    <!-- Футер -->
+    <footer class="report-footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="generated-info">
+                    <p>Отчёт сгенерирован расширением Neocenka Extension</p>
+                    <p class="timestamp">${export_info.export_date}</p>
+                </div>
+                <div class="contact-info">
+                    <p>Для получения актуальных данных используйте расширение Neocenka</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Встроенные данные и скрипты -->
+    <script>
+        // Данные отчёта
+        const reportData = ${JSON.stringify(exportData, null, 2)};
+        
+        // Инициализация интерактивных элементов
+        document.addEventListener('DOMContentLoaded', function() {
+            ${this.generateInitializationScript(chartsData, area, real_estate_objects)}
+        });
+    </script>
+</body>
+</html>`;
+
+        return htmlContent;
     }
 
     /**

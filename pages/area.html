@@ -1541,6 +1541,14 @@
                     <div class="bg-gray-50 p-4 rounded-lg space-y-4">
                         <div class="flex items-center justify-between">
                             <h4 class="text-md font-medium text-gray-900">Фильтр отчётов</h4>
+                            <div class="flex items-center space-x-2">
+                                <button type="button" id="saveReportFilterBtn" class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" title="Сохранить текущие настройки как шаблон для многократного использования">
+                                    💾 Сохранить шаблон
+                                </button>
+                                <button type="button" id="deleteReportFilterBtn" class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled title="Удалить выбранный шаблон">
+                                    🗑️ Удалить шаблон
+                                </button>
+                            </div>
                             <div class="relative">
                                 <button type="button" id="reportsDropdownBtn" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                                     <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1586,6 +1594,27 @@
                             </div>
                         </div>
 
+                        <!-- Управление шаблонами фильтров -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 p-3 bg-blue-50 rounded-md border border-blue-200">
+                            <!-- Выбор сохранённого фильтра -->
+                            <div>
+                                <label for="reportFilterSelect" class="block text-xs font-medium text-gray-700 mb-1">Шаблоны фильтров</label>
+                                <select id="reportFilterSelect" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                    <option value="">Создать новый фильтр</option>
+                                    <!-- Опции будут загружены динамически -->
+                                </select>
+                            </div>
+                            
+                            <!-- Название фильтра -->
+                            <div>
+                                <label for="reportFilterName" class="block text-xs font-medium text-gray-700 mb-1">Название фильтра *</label>
+                                <input type="text" id="reportFilterName" required
+                                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                       placeholder="Введите название фильтра">
+                                <input type="hidden" id="reportFilterId">
+                            </div>
+                        </div>
+
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <!-- Фильтр по сегменту -->
                             <div>
@@ -1621,11 +1650,11 @@
                         <div class="mt-6">
                             <div class="flex items-center justify-between mb-3">
                                 <h5 class="text-sm font-medium text-gray-900">Сохранённые отчёты</h5>
-                                <button id="saveCurrentReportBtn" class="btn btn-xs btn-primary">
+                                <button id="saveCurrentReportBtn" class="btn btn-xs btn-primary" title="Сохранить отчёт на основе выбранного шаблона фильтра">
                                     <svg class="mr-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12"></path>
                                     </svg>
-                                    Сохранить текущий
+                                    📊 Сохранить отчёт
                                 </button>
                             </div>
                             <div class="datatables-container">
@@ -3162,6 +3191,7 @@
     <script src="managers/DuplicatesManager.js"></script>
     <script src="managers/SegmentsManager.js"></script>
     <script src="managers/ReportsManager.js"></script>
+    <script src="managers/HTMLExportManager.js"></script>
     <script src="managers/ComparativeAnalysisManager.js"></script>
     <script src="managers/GeoJsonImportManager.js"></script>
     

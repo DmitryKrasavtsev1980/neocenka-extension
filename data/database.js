@@ -9,7 +9,7 @@ if (typeof NeocenkaDB === 'undefined') {
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 22; // Версия 22: добавлена таблица saved_reports для сохранения отчётов
+    this.version = 25; // Версия 25: добавлено поле filter_template_id в saved_reports для связи отчётов с шаблонами фильтров
     this.db = null;
   }
 
@@ -274,6 +274,7 @@ class NeocenkaDB {
       savedReportsStore.createIndex('area_id', 'area_id', { unique: false });
       savedReportsStore.createIndex('created_at', 'created_at', { unique: false });
     }
+
 
     // console.log('Database stores created/updated');
   }
@@ -1173,15 +1174,18 @@ class NeocenkaDB {
   // ===== МЕТОДЫ ДЛЯ СОХРАНЁННЫХ ОТЧЁТОВ =====
 
   /**
-   * Сохранение отчёта
+   * Сохранение отчёта или шаблона фильтра
    */
   async saveSavedReport(reportData) {
     const reportWithId = {
       id: reportData.id || Date.now().toString(),
       name: reportData.name,
       area_id: reportData.area_id,
+      type: reportData.type || 'full_report', // 'full_report' или 'filter_template'
+      filter_template_id: reportData.filter_template_id || null, // ID связанного шаблона для отчётов
       filters: reportData.filters || {},
       comparative_analysis: reportData.comparative_analysis || null,
+      charts_data: reportData.charts_data || null,
       created_at: reportData.created_at || new Date().toISOString()
     };
 
@@ -1259,6 +1263,57 @@ class NeocenkaDB {
   async getAllSavedReports() {
     return this.getAll('saved_reports');
   }
+
+  /**
+   * Получение шаблонов фильтров для области
+   */
+  async getFilterTemplatesByArea(areaId) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['saved_reports'], 'readonly');
+      const store = transaction.objectStore('saved_reports');
+      const index = store.index('area_id');
+      const request = index.getAll(areaId);
+
+      request.onsuccess = () => {
+        // Фильтруем только шаблоны фильтров и сортируем по дате создания
+        const filterTemplates = request.result
+          .filter(item => item.type === 'filter_template')
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        resolve(filterTemplates);
+      };
+
+      request.onerror = () => {
+        console.error('Error getting filter templates by area:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Получение полных отчётов для области
+   */
+  async getFullReportsByArea(areaId) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['saved_reports'], 'readonly');
+      const store = transaction.objectStore('saved_reports');
+      const index = store.index('area_id');
+      const request = index.getAll(areaId);
+
+      request.onsuccess = () => {
+        // Фильтруем только полные отчёты и сортируем по дате создания
+        const fullReports = request.result
+          .filter(item => item.type === 'full_report' || !item.type) // для совместимости со старыми записями
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        resolve(fullReports);
+      };
+
+      request.onerror = () => {
+        console.error('Error getting full reports by area:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
 
   // ===== СТАТИСТИЧЕСКИЕ МЕТОДЫ =====
 

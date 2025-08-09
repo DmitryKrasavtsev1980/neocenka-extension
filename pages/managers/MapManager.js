@@ -35,6 +35,11 @@ class MapManager {
             defaultZoom: CONSTANTS.MAP_CONFIG.DEFAULT_ZOOM
         };
         
+        // Инициализация пространственного индекса для оптимизации
+        this.spatialIndex = window.geoUtils || new GeoUtils();
+        this.indexedAddresses = new Map(); // Кэш для быстрого доступа к индексированным адресам
+        this.markerCache = new Map(); // Кэш созданных маркеров для повторного использования
+        
         // Активный фильтр для отображения информации на маркерах (синхронизируем с mapState)
         this.activeMapFilter = this.mapState.activeFilter;
         
@@ -183,6 +188,9 @@ class MapManager {
             
             // Добавляем кнопку полноэкранного режима
             await this.initFullscreenControl();
+            
+            // Добавляем обработчики для динамического обновления маркеров
+            await this.initMapViewEventListeners();
             
             // Если у области есть полигон, создаем его слой
             const currentArea = this.dataState.getState('currentArea');
@@ -593,11 +601,11 @@ class MapManager {
     }
     
     /**
-     * Загрузка адресов на карту
+     * Загрузка адресов на карту с оптимизацией производительности
      */
     async loadAddressesOnMap() {
         try {
-            const addresses = this.dataState.getState('addresses') || [];
+            const allAddresses = this.dataState.getState('addresses') || [];
             
             // Очищаем предыдущие маркеры
             this.mapLayers.addresses.clearLayers();
@@ -605,40 +613,80 @@ class MapManager {
                 this.addressesCluster.clearMarkers();
             }
             
-            if (addresses.length === 0) {
+            if (allAddresses.length === 0) {
+                console.log('📍 MapManager: Нет адресов для отображения на карте');
                 await Helpers.debugLog('📍 Нет адресов для отображения на карте');
+                return;
+            }
+            
+            console.log(`📍 MapManager: Загрузка адресов на карту - всего: ${allAddresses.length} адресов, zoom: ${this.map ? this.map.getZoom() : 'н/д'}`);
+            
+            // ОПТИМИЗАЦИЯ 1: Фильтрация по полигону области (сначала стандартная фильтрация)
+            let filteredAddresses = allAddresses;
+            const currentArea = this.dataState.getState('currentArea');
+            if (currentArea && this.hasAreaPolygon(currentArea)) {
+                // Всегда используем проверенную стандартную фильтрацию
+                filteredAddresses = GeometryUtils.getAddressesInMapArea(allAddresses, currentArea);
+                await Helpers.debugLog(`🎯 Фильтрация по полигону: ${allAddresses.length} -> ${filteredAddresses.length} адресов`);
+            }
+            
+            // ОПТИМИЗАЦИЯ 2: Фильтрация по видимой области карты (viewport filtering) - ВРЕМЕННО ОТКЛЮЧЕНА
+            let visibleAddresses = filteredAddresses;
+            // ОТКЛЮЧЕНО: viewport filtering создаёт больше проблем с производительностью чем решает
+            // if (this.map && this.map.getZoom() >= 14 && filteredAddresses.length > 100) {
+            //     const bounds = this.map.getBounds();
+            //     visibleAddresses = this.filterAddressesByViewport(filteredAddresses, bounds);
+            //     console.log(`👁️ MapManager: Viewport фильтрация: ${filteredAddresses.length} -> ${visibleAddresses.length} адресов (zoom: ${this.map.getZoom()})`);
+            // }
+            
+            // ОПТИМИЗАЦИЯ 3: Лимит максимального количества маркеров для производительности  
+            const maxMarkers = 100; // Увеличиваем после успешного теста
+            let addressesToDisplay = visibleAddresses;
+            if (visibleAddresses.length > maxMarkers) {
+                // Отбираем наиболее важные адреса (с объектами недвижимости)
+                addressesToDisplay = await this.prioritizeAddresses(visibleAddresses, maxMarkers);
+                console.log(`⚡ MapManager: Приоритизация: ${visibleAddresses.length} -> ${addressesToDisplay.length} адресов (лимит: ${maxMarkers})`);
+                await Helpers.debugLog(`⚡ Приоритизация: ${visibleAddresses.length} -> ${addressesToDisplay.length} адресов`);
+            }
+            
+            if (addressesToDisplay.length === 0) {
+                await Helpers.debugLog('📍 Нет адресов для отображения после фильтрации');
+                await Helpers.debugLog(`🔍 Диагностика: всего адресов=${allAddresses.length}, после полигона=${filteredAddresses.length}, после viewport=${visibleAddresses.length}, к отображению=${addressesToDisplay.length}`);
                 return;
             }
             
             const markers = [];
             
-            for (const address of addresses) {
+            for (const address of addressesToDisplay) {
                 if (address.coordinates && address.coordinates.lat && address.coordinates.lng) {
-                    const marker = await this.createAddressMarker(address);
+                    // Используем оптимизированные треугольные маркеры с полным функционалом
+                    const marker = await this.createOptimizedTriangleMarker(address);
                     markers.push(marker);
                 }
             }
             
-            // Если адресов много, используем кластеризацию
-            if (addresses.length > 20) {
+            // Включаем кластеризацию с оптимальными настройками
+            if (addressesToDisplay.length > 50) { // Увеличиваем порог для кластеризации
                 // Создаем кластер если его еще нет
                 if (!this.addressesCluster) {
                     this.addressesCluster = new MarkerCluster(this.map, {
-                        maxClusterRadius: 80,
+                        maxClusterRadius: 60, // Уменьшаем радиус кластеризации
                         disableClusteringAtZoom: 16,
                         zoomToBoundsOnClick: true,
-                        spiderfyOnMaxZoom: true,
-                        animate: true
+                        spiderfyOnMaxZoom: false, // Отключаем spiderfy для производительности
+                        animate: false // Отключаем анимацию для производительности
                     });
                 }
                 this.addressesCluster.addMarkers(markers);
-                await Helpers.debugLog(`📍 Загружено ${addresses.length} адресов на карту с кластеризацией`);
+                console.log(`📍 MapManager: Загружено ${addressesToDisplay.length} адресов с кластеризацией (создано ${markers.length} маркеров из ${allAddresses.length} общих)`);
+                await Helpers.debugLog(`📍 Загружено ${addressesToDisplay.length} адресов на карту с кластеризацией (из ${allAddresses.length} общих)`);
             } else {
                 // Для небольшого количества адресов добавляем прямо на карту
                 markers.forEach(marker => {
                     this.mapLayers.addresses.addLayer(marker);
                 });
-                await Helpers.debugLog(`📍 Загружено ${addresses.length} адресов на карту`);
+                console.log(`📍 MapManager: Загружено ${addressesToDisplay.length} адресов без кластеризации (создано ${markers.length} маркеров из ${allAddresses.length} общих)`);
+                await Helpers.debugLog(`📍 Загружено ${addressesToDisplay.length} адресов на карту (из ${allAddresses.length} общих)`);
             }
             
         } catch (error) {
@@ -755,6 +803,188 @@ class MapManager {
         } catch (error) {
             console.error('Error loading listings on map:', error);
         }
+    }
+    
+    /**
+     * Получение или создание маркера адреса с кэшированием
+     * @param {Object} address - Объект адреса
+     * @returns {Object} - Leaflet маркер
+     */
+    async getOrCreateAddressMarker(address) {
+        // Создаем ключ кэша на основе адреса и активного фильтра
+        const cacheKey = `${address.id}_${this.activeMapFilter}_${address.updated_at || ''}`;
+        
+        // Проверяем кэш
+        if (this.markerCache.has(cacheKey)) {
+            const cachedMarker = this.markerCache.get(cacheKey);
+            // Обновляем координаты маркера (могли измениться)
+            cachedMarker.setLatLng([address.coordinates.lat, address.coordinates.lng]);
+            return cachedMarker;
+        }
+        
+        // Создаем новый маркер
+        const marker = await this.createAddressMarker(address);
+        
+        // Сохраняем в кэш (ограничиваем размер кэша)
+        if (this.markerCache.size > 2000) {
+            // Очищаем первые 500 записей для освобождения памяти
+            const keysToDelete = Array.from(this.markerCache.keys()).slice(0, 500);
+            keysToDelete.forEach(key => this.markerCache.delete(key));
+        }
+        
+        this.markerCache.set(cacheKey, marker);
+        return marker;
+    }
+    
+    /**
+     * Создание оптимизированного треугольного маркера с полным функционалом
+     */
+    async createOptimizedTriangleMarker(address) {
+        // Определяем высоту маркера по этажности
+        const floorCount = address.floors_count || 0;
+        let markerHeight;
+        if (floorCount >= 1 && floorCount <= 5) {
+            markerHeight = 10;
+        } else if (floorCount > 5 && floorCount <= 10) {
+            markerHeight = 15;
+        } else if (floorCount > 10 && floorCount <= 20) {
+            markerHeight = 20;
+        } else if (floorCount > 20) {
+            markerHeight = 25;
+        } else {
+            markerHeight = 10;
+        }
+        
+        // Определяем цвет маркера (используем кэшированные данные если возможно)
+        let markerColor = '#3b82f6';
+        if (address.wall_material_color) {
+            markerColor = address.wall_material_color;
+        } else if (address.wall_material_id) {
+            try {
+                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+                if (wallMaterial && wallMaterial.color) {
+                    markerColor = wallMaterial.color;
+                    // Кэшируем цвет в объекте адреса для следующих использований
+                    address.wall_material_color = wallMaterial.color;
+                }
+            } catch (error) {
+                // Игнорируем ошибки получения цвета
+            }
+        }
+        
+        // Определяем текст на маркере в зависимости от активного фильтра
+        let labelText = '';
+        switch (this.activeMapFilter) {
+            case 'year':
+                labelText = address.build_year || '';
+                break;
+            case 'series':
+                if (address.house_series_name) {
+                    labelText = address.house_series_name;
+                } else if (address.house_series_id) {
+                    try {
+                        const houseSeries = await window.db.get('house_series', address.house_series_id);
+                        labelText = houseSeries ? houseSeries.name : '';
+                        // Кэшируем название серии
+                        address.house_series_name = labelText;
+                    } catch (error) {
+                        labelText = '';
+                    }
+                }
+                break;
+            case 'floors':
+                labelText = address.floors_count || '';
+                break;
+            case 'objects':
+                if (address.objects_count !== undefined) {
+                    labelText = address.objects_count.toString();
+                } else {
+                    try {
+                        const objects = await window.db.getObjectsByAddress(address.id);
+                        const count = objects ? objects.length : 0;
+                        labelText = count > 0 ? count.toString() : '';
+                        // Кэшируем количество объектов
+                        address.objects_count = count;
+                    } catch (error) {
+                        labelText = '';
+                    }
+                }
+                break;
+            default:
+                labelText = address.build_year || '';
+        }
+        
+        // Создаём треугольный маркер с упрощённым HTML (без drop-shadow для производительности)
+        const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
+            icon: L.divIcon({
+                className: 'triangle-marker-optimized',
+                html: `
+                    <div style="position: relative;">
+                        <div style="
+                            width: 0; 
+                            height: 0; 
+                            border-left: 7.5px solid transparent; 
+                            border-right: 7.5px solid transparent; 
+                            border-top: ${markerHeight}px solid ${markerColor};
+                        "></div>
+                        ${labelText ? `<span style="
+                            position: absolute; 
+                            left: 15px; 
+                            top: 0px; 
+                            font-size: 11px; 
+                            font-weight: 600; 
+                            color: #374151; 
+                            background: rgba(255,255,255,0.95); 
+                            padding: 1px 4px; 
+                            border-radius: 3px; 
+                            white-space: nowrap;
+                        ">${labelText}</span>` : ''}
+                    </div>
+                `,
+                iconSize: [15, markerHeight],
+                iconAnchor: [7.5, markerHeight]
+            })
+        });
+        
+        // Сохраняем данные адреса в маркере для popup
+        marker.addressData = address;
+        
+        // Создаём popup асинхронно, но более оптимально
+        this.createOptimizedAddressPopup(address).then(popupContent => {
+            marker.bindPopup(popupContent, {
+                maxWidth: 280,
+                className: 'address-popup-container'
+            });
+            
+            // Добавляем обработчики событий для кнопок в popup
+            marker.on('popupopen', () => {
+                this.bindPopupEvents(address);
+            });
+        });
+        
+        return marker;
+    }
+    
+    /**
+     * Создание простого маркера адреса для диагностики производительности
+     */
+    async createSimpleAddressMarker(address) {
+        // Создаём простой круглый маркер без сложного HTML
+        const marker = L.circleMarker([address.coordinates.lat, address.coordinates.lng], {
+            radius: 6,
+            fillColor: '#3b82f6',
+            color: 'white',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.8
+        });
+        
+        // Простой popup без асинхронных вызовов
+        marker.bindPopup(`<div><strong>${address.address || 'Адрес'}</strong></div>`, {
+            maxWidth: 200
+        });
+        
+        return marker;
     }
     
     /**
@@ -991,6 +1221,89 @@ class MapManager {
         if (floors <= 5) return '#3B82F6';
         if (floors <= 10) return '#F59E0B';
         return '#DC2626';
+    }
+    
+    /**
+     * Создание оптимизированного popup для адреса с кэшированием данных
+     */
+    async createOptimizedAddressPopup(address) {
+        // Используем кэшированные данные если они есть, иначе загружаем асинхронно
+        let houseSeriesText = address._cached_house_series || 'Не указана';
+        let houseClassText = address._cached_house_class || 'Не указан';
+        let wallMaterialText = address._cached_wall_material || 'Не указан';
+        let ceilingMaterialText = address._cached_ceiling_material || 'Не указан';
+        
+        // Загружаем справочные данные только если их нет в кэше
+        try {
+            if (!address._cached_house_series && address.house_series_id) {
+                const houseSeries = await window.db.get('house_series', address.house_series_id);
+                if (houseSeries) {
+                    houseSeriesText = houseSeries.name;
+                    address._cached_house_series = houseSeriesText;
+                }
+            }
+            
+            if (!address._cached_house_class && address.house_class_id) {
+                const houseClass = await window.db.get('house_classes', address.house_class_id);
+                if (houseClass) {
+                    houseClassText = houseClass.name;
+                    address._cached_house_class = houseClassText;
+                }
+            }
+            
+            if (!address._cached_wall_material && address.wall_material_id) {
+                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+                if (wallMaterial) {
+                    wallMaterialText = wallMaterial.name;
+                    address._cached_wall_material = wallMaterialText;
+                }
+            }
+            
+            if (!address._cached_ceiling_material && address.ceiling_material_id) {
+                const ceilingMaterial = await window.db.get('ceiling_materials', address.ceiling_material_id);
+                if (ceilingMaterial) {
+                    ceilingMaterialText = ceilingMaterial.name;
+                    address._cached_ceiling_material = ceilingMaterialText;
+                }
+            }
+        } catch (error) {
+            // Игнорируем ошибки получения справочных данных
+        }
+        
+        // Подготавливаем текстовые значения
+        const gasSupplyText = address.gas_supply ? 'Да' : (address.gas_supply === false ? 'Нет' : 'Не указано');
+        const individualHeatingText = address.individual_heating ? 'Да' : (address.individual_heating === false ? 'Нет' : 'Не указано');
+        
+        return `
+            <div class="address-popup" style="width: 260px; max-width: 260px;">
+                <div class="header mb-2">
+                    <div class="font-bold text-gray-900 text-sm">📍 Адрес</div>
+                    <div class="address-title font-medium text-gray-800 text-xs mb-1">${address.address || 'Не указан'}</div>
+                </div>
+                
+                <div class="space-y-0.5 text-xs text-gray-600 mb-2">
+                    <div><strong>Серия дома:</strong> ${houseSeriesText}</div>
+                    <div><strong>Класс дома:</strong> ${houseClassText}</div>
+                    <div><strong>Материал стен:</strong> ${wallMaterialText}</div>
+                    <div><strong>Материал перекрытий:</strong> ${ceilingMaterialText}</div>
+                    <div><strong>Газоснабжение:</strong> ${gasSupplyText}</div>
+                    <div><strong>Индивидуальное отопление:</strong> ${individualHeatingText}</div>
+                    <div><strong>Этажей:</strong> ${address.floors_count || 'Не указано'}</div>
+                    <div><strong>Год постройки:</strong> ${address.build_year || 'Не указан'}</div>
+                </div>
+                
+                <div class="actions flex gap-1">
+                    <button data-action="edit-address" data-address-id="${address.id}" 
+                            class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                        ✏️ Редактировать
+                    </button>
+                    <button data-action="delete-address" data-address-id="${address.id}" 
+                            class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                        🗑️ Удалить
+                    </button>
+                </div>
+            </div>
+        `;
     }
     
     /**
@@ -1316,7 +1629,28 @@ class MapManager {
      * Уничтожение менеджера карты
      */
     destroy() {
+        // Очистка таймеров
+        if (this.viewChangeTimeout) {
+            clearTimeout(this.viewChangeTimeout);
+            this.viewChangeTimeout = null;
+        }
+        
+        // Очистка пространственного индекса и кэшей
+        if (this.spatialIndex) {
+            this.spatialIndex.clearIndex();
+        }
+        if (this.indexedAddresses) {
+            this.indexedAddresses.clear();
+        }
+        if (this.markerCache) {
+            this.markerCache.clear();
+        }
+        
         if (this.map) {
+            // Удаляем обработчики событий карты
+            this.map.off('moveend', this.onMapViewChanged);
+            this.map.off('zoomend', this.onMapViewChanged);
+            
             this.map.remove();
             this.map = null;
         }
@@ -1759,6 +2093,168 @@ class MapManager {
      */
     formatPropertyType(type) {
         return CONSTANTS.PROPERTY_TYPE_NAMES[type] || type;
+    }
+    
+    /**
+     * Фильтрация адресов по видимой области карты (viewport)
+     * @param {Array} addresses - Массив адресов
+     * @param {Object} bounds - Границы карты (Leaflet LatLngBounds)
+     * @returns {Array} - Отфильтрованные адреса
+     */
+    filterAddressesByViewport(addresses, bounds) {
+        if (!bounds || !addresses || addresses.length === 0) {
+            return addresses;
+        }
+        
+        // Расширяем границы для предзагрузки маркеров за пределами экрана (буферная зона)
+        const expandedBounds = bounds.pad(0.5); // Расширяем на 50%
+        
+        return addresses.filter(address => {
+            if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                return false;
+            }
+            
+            const latLng = L.latLng(address.coordinates.lat, address.coordinates.lng);
+            return expandedBounds.contains(latLng);
+        });
+    }
+    
+    /**
+     * Приоритизация адресов для отображения
+     * Отдаем приоритет адресам с объектами недвижимости
+     * @param {Array} addresses - Массив адресов
+     * @param {number} maxCount - Максимальное количество адресов
+     * @returns {Array} - Приоритизированные адреса
+     */
+    async prioritizeAddresses(addresses, maxCount) {
+        if (addresses.length <= maxCount) {
+            return addresses;
+        }
+        
+        try {
+            // Получаем информацию о количестве объектов для каждого адреса
+            const addressesWithPriority = [];
+            
+            for (const address of addresses) {
+                let objectsCount = 0;
+                try {
+                    const objects = await window.db.getObjectsByAddress(address.id);
+                    objectsCount = objects ? objects.length : 0;
+                } catch (error) {
+                    // Игнорируем ошибки для отдельных адресов
+                    objectsCount = 0;
+                }
+                
+                addressesWithPriority.push({
+                    ...address,
+                    _priority: objectsCount
+                });
+            }
+            
+            // Сортируем по приоритету (количество объектов) + добавляем случайность для равных
+            addressesWithPriority.sort((a, b) => {
+                if (a._priority !== b._priority) {
+                    return b._priority - a._priority; // Больше объектов = выше приоритет
+                }
+                return Math.random() - 0.5; // Случайный порядок для равных приоритетов
+            });
+            
+            // Возвращаем топ адресов без свойства _priority
+            return addressesWithPriority.slice(0, maxCount).map(addr => {
+                const { _priority, ...cleanAddress } = addr;
+                return cleanAddress;
+            });
+            
+        } catch (error) {
+            console.warn('MapManager: Ошибка приоритизации адресов, возвращаем первые', maxCount, 'адресов:', error);
+            // При ошибке просто возвращаем первые адреса
+            return addresses.slice(0, maxCount);
+        }
+    }
+    
+    /**
+     * Обновление пространственного индекса адресов
+     * @param {Array} addresses - Массив адресов для индексирования
+     */
+    async updateSpatialIndex(addresses) {
+        try {
+            // Проверяем, нужно ли обновлять индекс
+            const currentAddressesCount = addresses.length;
+            const cachedAddressesCount = this.indexedAddresses.size;
+            
+            if (this.spatialIndex.isIndexBuilt && currentAddressesCount === cachedAddressesCount) {
+                // Индекс актуален, ничего не делаем
+                return;
+            }
+            
+            const startTime = performance.now();
+            
+            // Строим новый индекс
+            this.spatialIndex.buildSpatialIndex(addresses, (address) => {
+                return address.coordinates;
+            });
+            
+            // Обновляем кэш
+            this.indexedAddresses.clear();
+            addresses.forEach(address => {
+                this.indexedAddresses.set(address.id, address);
+            });
+            
+            const buildTime = performance.now() - startTime;
+            await Helpers.debugLog(`🏗️ Пространственный индекс обновлен: ${addresses.length} адресов за ${buildTime.toFixed(2)}ms`);
+            
+        } catch (error) {
+            console.warn('MapManager: Ошибка построения пространственного индекса:', error);
+            // При ошибке продолжаем работу без индекса
+        }
+    }
+    
+    /**
+     * Инициализация обработчиков событий карты для динамического обновления
+     */
+    async initMapViewEventListeners() {
+        if (!this.map) return;
+        
+        // Обработчики изменения области просмотра
+        this.map.on('moveend', () => this.onMapViewChanged());
+        this.map.on('zoomend', () => this.onMapViewChanged());
+        
+        // Таймер для дебаунсинга и throttling
+        this.viewChangeTimeout = null;
+        this.lastUpdateTime = null;
+        
+        await Helpers.debugLog('🎯 Обработчики динамического обновления маркеров инициализированы');
+    }
+    
+    /**
+     * Обработчик изменения области просмотра карты
+     * Обновляет видимые маркеры при перемещении/зуме карты
+     */
+    onMapViewChanged() {
+        if (!this.map) return;
+        
+        // Проверяем, что с последнего обновления прошло достаточно времени (throttling)
+        const now = Date.now();
+        if (this.lastUpdateTime && (now - this.lastUpdateTime) < 1000) {
+            console.log(`⏸️ MapManager: Throttling - игнорируем обновление (прошло ${now - this.lastUpdateTime}ms)`);
+            return; // Игнорируем слишком частые обновления
+        }
+        
+        // Дебаунсинг для предотвращения слишком частых обновлений
+        clearTimeout(this.viewChangeTimeout);
+        this.viewChangeTimeout = setTimeout(async () => {
+            const zoom = this.map.getZoom();
+            
+            // ОТКЛЮЧЕНО: динамические обновления при перемещении создают проблемы с производительностью
+            // Обновляем маркеры только при изменении зума (не при перемещении)
+            // if (zoom >= 14) {
+            //     this.lastUpdateTime = Date.now();
+            //     console.log(`🔄 MapManager: Viewport обновление на zoom ${zoom}`);
+            //     await Helpers.debugLog(`🔄 Viewport обновление на zoom ${zoom}`);
+            //     await this.loadAddressesOnMap();
+            // }
+            console.log(`⏸️ MapManager: Динамические обновления отключены для производительности (zoom: ${zoom})`);
+        }, 500); // Увеличиваем задержку до 500ms для лучшей производительности
     }
 }
 

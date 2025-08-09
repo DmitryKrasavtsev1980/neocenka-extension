@@ -843,8 +843,43 @@ class AddressManager {
         
         // Добавляем маркер
         if (shouldCreateMarker) {
+            // Создаём треугольный маркер как в других частях проекта
+            const markerHeight = 25; // Высота как у стандартного маркера Leaflet
+            const markerColor = '#3b82f6'; // Синий цвет для редактирования
+            
             this.editAddressMarker = L.marker([center[0], center[1]], {
-                draggable: true
+                draggable: true,
+                icon: L.divIcon({
+                    className: 'edit-address-marker',
+                    html: `
+                        <div class="leaflet-marker-icon-wrapper" style="position: relative;">
+                            <div style="
+                                width: 0; 
+                                height: 0; 
+                                border-left: 6px solid transparent; 
+                                border-right: 6px solid transparent; 
+                                border-top: ${markerHeight}px solid ${markerColor};
+                                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+                                opacity: 0.9;
+                            "></div>
+                            <span class="leaflet-marker-iconlabel" style="
+                                position: absolute; 
+                                left: 12px; 
+                                top: 0px; 
+                                font-size: 10px; 
+                                font-weight: 600; 
+                                color: white; 
+                                background: ${markerColor}; 
+                                padding: 2px 4px; 
+                                border-radius: 3px; 
+                                white-space: nowrap;
+                                box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+                            ">📍 РЕДАКТИРОВАНИЕ</span>
+                        </div>
+                    `,
+                    iconSize: [12, markerHeight],
+                    iconAnchor: [6, markerHeight]
+                })
             }).addTo(this.editAddressMap);
             
             // Обработчик перетаскивания маркера
@@ -1176,6 +1211,22 @@ class AddressManager {
     }
     
     /**
+     * Получить или создать справочный SlimSelect с предустановленным значением
+     */
+    async getOrCreateSearchableSelectWithValue(elementId, referenceType, placeholder, preselectedId) {
+        // Сначала проверяем, есть ли уже созданный экземпляр
+        const selectProperty = this.getSelectPropertyName(elementId);
+        if (this.modalSlimSelects[selectProperty]) {
+            return this.modalSlimSelects[selectProperty];
+        }
+        
+        // Если нет, создаем новый с предустановленным значением
+        const select = await this.createSearchableSelect(elementId, referenceType, placeholder, preselectedId);
+        this.modalSlimSelects[selectProperty] = select;
+        return select;
+    }
+    
+    /**
      * Получить имя свойства для селекта по ID элемента
      */
     getSelectPropertyName(elementId) {
@@ -1259,6 +1310,9 @@ class AddressManager {
      * Заполнение формы данными адреса
      */
     async populateAddressForm(address) {
+        console.log('🔍 [AddressManager] Заполнение формы адреса:', address);
+        console.log('🔍 [AddressManager] house_series_id:', address.house_series_id);
+        console.log('🔍 [AddressManager] house_series:', address.house_series);
         // Заполняем основные поля
         const addressInput = document.getElementById('editAddressText');
         if (addressInput) {
@@ -1281,14 +1335,30 @@ class AddressManager {
         }
         
         // Инициализируем все справочные селекты и устанавливаем значения
-        const houseSeriesSelect = await this.getOrCreateSearchableSelect('editHouseSeries', 'houseSeries', 'Выберите серию...');
+        const houseSeriesSelect = await this.getOrCreateSearchableSelectWithValue('editHouseSeries', 'houseSeries', 'Выберите серию...', address.house_series_id);
         if (houseSeriesSelect && address.house_series_id) {
+            // Проверяем, есть ли серия в справочнике
+            try {
+                const seriesInDb = await window.db.get('house_series', address.house_series_id);
+                console.log('🔍 [AddressManager] Серия в БД:', seriesInDb);
+                
+                const allSeries = await window.db.getAll('house_series');
+                console.log('🔍 [AddressManager] Всего серий в БД:', allSeries.length);
+                console.log('🔍 [AddressManager] Первые 3 серии:', allSeries.slice(0, 3));
+            } catch (error) {
+                console.error('🔍 [AddressManager] Ошибка проверки серии:', error);
+            }
+            
+            console.log('🔍 [AddressManager] Устанавливаем серию:', address.house_series_id);
             houseSeriesSelect.setSelected(address.house_series_id);
             // Обновляем кнопку после установки значения
             setTimeout(() => {
                 const selected = houseSeriesSelect.getSelected();
+                console.log('🔍 [AddressManager] Серия установлена:', selected);
                 this.updateReferenceActionButton('houseSeriesActionBtn', selected);
             }, 100);
+        } else {
+            console.log('🔍 [AddressManager] Серия НЕ установлена - houseSeriesSelect:', !!houseSeriesSelect, 'house_series_id:', address.house_series_id);
         }
         
         const houseClassSelect = await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
@@ -1303,12 +1373,16 @@ class AddressManager {
         
         const wallMaterialSelect = await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
         if (wallMaterialSelect && address.wall_material_id) {
+            console.log('🔍 [AddressManager] Устанавливаем материал стен:', address.wall_material_id);
             wallMaterialSelect.setSelected(address.wall_material_id);
             // Обновляем кнопку после установки значения
             setTimeout(() => {
                 const selected = wallMaterialSelect.getSelected();
+                console.log('🔍 [AddressManager] Материал стен установлен:', selected);
                 this.updateReferenceActionButton('wallMaterialActionBtn', selected);
             }, 100);
+        } else {
+            console.log('🔍 [AddressManager] Материал стен НЕ установлен - wallMaterialSelect:', !!wallMaterialSelect, 'wall_material_id:', address.wall_material_id);
         }
         
         const ceilingMaterialSelect = await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
@@ -2618,7 +2692,7 @@ class AddressManager {
     /**
      * Создание SlimSelect с поиском для справочника
      */
-    async createSearchableSelect(elementId, referenceType, placeholder = '') {
+    async createSearchableSelect(elementId, referenceType, placeholder = '', preselectedId = null) {
         const selectElement = document.getElementById(elementId);
         if (!selectElement) return null;
         
@@ -2626,10 +2700,26 @@ class AddressManager {
             // Загружаем первые 20 записей для отображения по умолчанию
             const initialData = await this.searchInReference(referenceType, '', 20);
             
+            // Если есть предустановленное значение, которого нет в первых 20 записях, добавляем его
+            let preselectedItem = null;
+            if (preselectedId && !initialData.find(item => item.id === preselectedId)) {
+                console.log('🔍 [AddressManager] Предустановленное значение не найдено в первых 20, ищем в БД:', preselectedId);
+                const tableName = this.getReferenceTableName(referenceType);
+                try {
+                    preselectedItem = await window.db.get(tableName, preselectedId);
+                    if (preselectedItem) {
+                        console.log('🔍 [AddressManager] Найдено предустановленное значение:', preselectedItem);
+                        initialData.unshift(preselectedItem); // Добавляем в начало
+                    }
+                } catch (error) {
+                    console.warn('Ошибка поиска предустановленного значения:', error);
+                }
+            }
+            
             // Очищаем селект и добавляем пустую опцию
             selectElement.innerHTML = `<option value="">${placeholder}</option>`;
             
-            // Добавляем первые 20 записей
+            // Добавляем записи (включая предустановленную, если была найдена)
             initialData.forEach(item => {
                 const option = document.createElement('option');
                 option.value = item.id.toString();
