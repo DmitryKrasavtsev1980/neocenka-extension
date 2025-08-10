@@ -90,7 +90,6 @@ class SegmentsManager {
             
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESS_UPDATED, async (data) => {
                 // Обновляем карту сегмента после редактирования адреса
-                console.log('🔄 SegmentsManager: Адрес обновлен, перезагружаем карту сегмента');
                 await this.updateSegmentMapAfterAddressEdit();
             });
         }
@@ -210,7 +209,6 @@ class SegmentsManager {
                 }
             });
             
-            console.log('✅ Таблица сегментов инициализирована');
         } catch (error) {
             console.error('❌ Ошибка инициализации таблицы сегментов:', error);
         }
@@ -309,7 +307,6 @@ class SegmentsManager {
         const filterUpdateHandler = async () => {
             // Пропускаем обновления во время заполнения формы
             if (this.isFillingForm) {
-                console.log('🔍 Пропускаем обновление - форма заполняется');
                 return;
             }
             
@@ -327,7 +324,6 @@ class SegmentsManager {
         const addressSelectionHandler = async () => {
             // Пропускаем обновления во время заполнения формы или автообновления
             if (this.isFillingForm || this.isUpdatingAddressSelection) {
-                console.log('🔍 Пропускаем обновление выбора адресов - форма заполняется или идет автообновление');
                 return;
             }
             
@@ -575,8 +571,7 @@ class SegmentsManager {
         
         // Предотвращаем двойную перерисовку
         if (this.isUpdatingMap) {
-            console.log('🔍 Пропускаем обновление карты - уже обновляется');
-            return;
+                return;
         }
         
         try {
@@ -910,9 +905,7 @@ class SegmentsManager {
      * Установка фильтра карты сегмента
      */
     setSegmentMapFilter(filterType) {
-        console.log('🔄 SegmentsManager: Устанавливаем фильтр карты:', filterType);
         this.activeSegmentMapFilter = filterType;
-        console.log('✅ SegmentsManager: Активный фильтр теперь:', this.activeSegmentMapFilter);
         
         // Обновляем стили кнопок
         this.updateSegmentFilterButtons(filterType);
@@ -1488,7 +1481,6 @@ class SegmentsManager {
             setTimeout(async () => {
                 try {
                     // Принудительно загружаем справочные данные
-                    console.log('🔄 Принудительная загрузка справочных данных');
                     await this.loadReferenceData();
                     
                     // Сначала заполняем селекты данными
@@ -1560,7 +1552,6 @@ class SegmentsManager {
             setTimeout(async () => {
                 try {
                     // Принудительно загружаем справочные данные
-                    console.log('🔄 Принудительная загрузка справочных данных для редактирования');
                     await this.loadReferenceData();
                     
                     // Сначала заполняем селекты данными
@@ -1784,8 +1775,6 @@ class SegmentsManager {
      * Сохранение сегмента
      */
     async saveSegment() {
-        console.log('🔍 saveSegment() вызван в', new Date().toISOString());
-        console.log('🔍 editingSegment текущий:', this.segmentsState.editingSegment);
         
         try {
             const formData = this.getSegmentFormData();
@@ -1805,8 +1794,6 @@ class SegmentsManager {
             
             let segment;
             const isEditingMode = this.segmentsState.editingSegment !== null;
-            console.log('🔍 Режим сохранения (до изменений):', isEditingMode ? 'Редактирование' : 'Создание');
-            console.log('🔍 ID редактируемого сегмента:', this.segmentsState.editingSegment?.id || 'нет');
             
             if (isEditingMode) {
                 // Обновляем существующий сегмент
@@ -1856,7 +1843,6 @@ class SegmentsManager {
             } else {
                 // Для новых сегментов переходим в режим редактирования после создания
                 this.segmentsState.editingSegment = segment;
-                console.log('🔍 Переход в режим редактирования для нового сегмента:', segment.id);
             }
             
             // Обновляем состояние кнопок
@@ -1869,8 +1855,6 @@ class SegmentsManager {
             // this.closeSegmentModal();
             
             const isEditing = this.segmentsState.editingSegment !== null;
-            console.log('🔍 Режим сохранения:', isEditing ? 'Редактирование' : 'Создание');
-            console.log('🔍 ID сегмента:', segment.id);
             
             this.progressManager.showSuccess(
                 isEditing ? 'Сегмент обновлен' : 'Сегмент создан'
@@ -2000,7 +1984,6 @@ class SegmentsManager {
         const form = document.getElementById('segmentForm');
         if (!form) return;
         
-        console.log('🔄 Очищаем форму сегмента');
         
         form.reset();
         
@@ -2024,7 +2007,6 @@ class SegmentsManager {
         // Обновляем состояние кнопок
         this.updateSaveButtonState(true); // Новая форма имеет изменения
         
-        console.log('✅ Форма сегмента очищена');
     }
     
     /**
@@ -2036,7 +2018,6 @@ class SegmentsManager {
         
         // Устанавливаем флаг заполнения формы
         this.isFillingForm = true;
-        console.log('🔍 Начинаем заполнение формы сегмента');
         
         // Форма уже очищена при закрытии предыдущего модального окна
         
@@ -2111,7 +2092,6 @@ class SegmentsManager {
         // Сбрасываем флаг заполнения формы через небольшую задержку
         setTimeout(() => {
             this.isFillingForm = false;
-            console.log('🔍 Заполнение формы завершено');
             
             // Теперь можно обновить карту и график с актуальными фильтрами
             this.updateSegmentMapWithFilters();
@@ -2155,12 +2135,10 @@ class SegmentsManager {
             // Заполняем классы домов
             const houseClassSelect = document.getElementById('segmentHouseClass');
             if (houseClassSelect) {
-                console.log('🔍 Данные для классов домов:', this.houseClasses);
                 houseClassSelect.innerHTML = this.houseClasses.map(houseClass => 
                     `<option value="${houseClass.id}">${houseClass.name}</option>`
                 ).join('');
                 console.log(`✅ Заполнен селект классов домов: ${this.houseClasses.length} элементов`);
-                console.log('🔍 HTML классов домов:', houseClassSelect.innerHTML);
             } else {
                 console.error('❌ Элемент #segmentHouseClass не найден');
             }
@@ -2168,12 +2146,10 @@ class SegmentsManager {
             // Заполняем серии домов
             const houseSeriesSelect = document.getElementById('segmentHouseSeries');
             if (houseSeriesSelect) {
-                console.log('🔍 Данные для серий домов:', this.houseSeries);
                 houseSeriesSelect.innerHTML = this.houseSeries.map(series => 
                     `<option value="${series.id}">${series.name}</option>`
                 ).join('');
                 console.log(`✅ Заполнен селект серий домов: ${this.houseSeries.length} элементов`);
-                console.log('🔍 HTML серий домов:', houseSeriesSelect.innerHTML);
             } else {
                 console.error('❌ Элемент #segmentHouseSeries не найден');
             }
@@ -2181,12 +2157,10 @@ class SegmentsManager {
             // Заполняем материалы стен
             const wallMaterialSelect = document.getElementById('segmentWallMaterial');
             if (wallMaterialSelect) {
-                console.log('🔍 Данные для материалов стен:', this.wallMaterials);
                 wallMaterialSelect.innerHTML = this.wallMaterials.map(material => 
                     `<option value="${material.id}">${material.name}</option>`
                 ).join('');
                 console.log(`✅ Заполнен селект материалов стен: ${this.wallMaterials.length} элементов`);
-                console.log('🔍 HTML материалов стен:', wallMaterialSelect.innerHTML);
             } else {
                 console.error('❌ Элемент #segmentWallMaterial не найден');
             }
@@ -2194,12 +2168,10 @@ class SegmentsManager {
             // Заполняем материалы перекрытий
             const ceilingMaterialSelect = document.getElementById('segmentCeilingMaterial');
             if (ceilingMaterialSelect) {
-                console.log('🔍 Данные для материалов перекрытий:', this.ceilingMaterials);
                 ceilingMaterialSelect.innerHTML = this.ceilingMaterials.map(material => 
                     `<option value="${material.id}">${material.name}</option>`
                 ).join('');
                 console.log(`✅ Заполнен селект материалов перекрытий: ${this.ceilingMaterials.length} элементов`);
-                console.log('🔍 HTML материалов перекрытий:', ceilingMaterialSelect.innerHTML);
             } else {
                 console.error('❌ Элемент #segmentCeilingMaterial не найден');
             }
@@ -2222,7 +2194,6 @@ class SegmentsManager {
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea) {
                 console.error('❌ SegmentsManager: Нет текущей области');
-                console.log('🔍 Все состояния dataState:', this.dataState.getAllStates());
                 return;
             }
             
@@ -2233,8 +2204,6 @@ class SegmentsManager {
             );
             
             // console.log(`🔄 SegmentsManager: Загружаем ${addressesInArea.length} адресов в селект`);
-            console.log('🔍 Текущая область:', currentArea.name, 'ID:', currentArea.id);
-            console.log('🔍 Всего адресов:', addresses.length);
             
             const addressesSelect = document.getElementById('segmentAddresses');
             if (addressesSelect) {
@@ -2267,7 +2236,6 @@ class SegmentsManager {
                             }
                         }
                     });
-                    console.log('✅ SlimSelect переинициализирован для segmentAddresses');
                 } catch (error) {
                     console.error('❌ Ошибка переинициализации SlimSelect для segmentAddresses:', error);
                 }
@@ -2294,12 +2262,9 @@ class SegmentsManager {
             }
             
             // console.log('🔄 SegmentsManager: Инициализируем карту сегмента');
-            console.log('🔍 Контейнер карты:', mapContainer);
-            console.log('🔍 Размеры контейнера:', mapContainer.offsetWidth, 'x', mapContainer.offsetHeight);
             
             // Очищаем существующую карту
             if (this.segmentMap) {
-                console.log('🔄 Очищаем существующую карту');
                 this.segmentMap.remove();
                 this.segmentMap = null;
                 this.segmentAreaPolygon = null;
@@ -2308,7 +2273,6 @@ class SegmentsManager {
             
             // Создаем новую карту
             this.segmentMap = L.map('segmentMap').setView([55.7558, 37.6176], 10);
-            console.log('✅ Карта создана:', this.segmentMap);
             
             // Добавляем тайловый слой
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -2316,13 +2280,11 @@ class SegmentsManager {
                 maxZoom: 18,
                 opacity: 1.0
             }).addTo(this.segmentMap);
-            console.log('✅ Тайловый слой добавлен');
             
             // Принудительно обновляем размеры карты
             setTimeout(() => {
                 if (this.segmentMap) {
                     this.segmentMap.invalidateSize();
-                    console.log('✅ Размеры карты обновлены');
                     
                     // Инициализируем активный фильтр по умолчанию
                     this.setSegmentMapFilter('year');
@@ -2357,9 +2319,6 @@ class SegmentsManager {
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea || !this.segmentMap) {
                 console.error('❌ SegmentsManager: Нет текущей области или карты');
-                console.log('🔍 currentArea:', currentArea);
-                console.log('🔍 segmentMap:', this.segmentMap);
-                console.log('🔍 Все состояния dataState:', this.dataState.getAllStates());
                 return;
             }
             
@@ -2452,7 +2411,6 @@ class SegmentsManager {
             // Сбрасываем флаг обновления карты через небольшую задержку
             setTimeout(() => {
                 this.isUpdatingMap = false;
-                console.log('🔍 Флаг isUpdatingMap сброшен');
             }, 100);
         }
     }
@@ -2516,7 +2474,6 @@ class SegmentsManager {
      * Создание оптимизированного маркера для сегментов (быстрый + полный функционал)
      */
     async createOptimizedSegmentMarker(address) {
-        console.log('🔍 Создаем маркер для адреса:', address.id, 'house_class_id:', address.house_class_id, 'house_problem_id:', address.house_problem_id, 'активный фильтр:', this.activeSegmentMapFilter);
         // Определяем высоту маркера по этажности (как в MapManager)
         const floorCount = address.floors_count || 0;
         let markerHeight;
@@ -2647,12 +2604,9 @@ class SegmentsManager {
         
         // Добавляем корону для классов домов
         if (this.activeSegmentMapFilter === 'house_class' && address.house_class_id) {
-            console.log('🔍 Добавляем корону для адреса:', address.id, 'класс:', address.house_class_id, 'фильтр:', this.activeSegmentMapFilter);
             try {
                 const houseClass = await window.db.get('house_classes', address.house_class_id);
-                console.log('🔍 Найден класс дома:', houseClass);
                 if (houseClass && houseClass.color) {
-                    console.log('✅ Добавляем корону с цветом:', houseClass.color);
                     crownHtml = `
                         <div style="
                             position: absolute !important;
@@ -2667,18 +2621,15 @@ class SegmentsManager {
                         "></div>`;
                 }
             } catch (error) {
-                console.warn('SegmentsManager: Не удалось получить класс дома для короны:', address.house_class_id);
+                // Игнорируем ошибки получения класса дома
             }
         }
         
         // Добавляем прямоугольник для проблем домов
         if (this.activeSegmentMapFilter === 'house_problems' && address.house_problem_id) {
-            console.log('🔍 Добавляем прямоугольник для адреса:', address.id, 'проблема:', address.house_problem_id, 'фильтр:', this.activeSegmentMapFilter);
             try {
                 const houseProblem = await window.db.get('house_problems', address.house_problem_id);
-                console.log('🔍 Найдена проблема дома:', houseProblem);
                 if (houseProblem && houseProblem.color) {
-                    console.log('✅ Добавляем прямоугольник с цветом:', houseProblem.color);
                     rectangleHtml = `
                         <div style="
                             position: absolute !important;
@@ -2693,7 +2644,7 @@ class SegmentsManager {
                         "></div>`;
                 }
             } catch (error) {
-                console.warn('SegmentsManager: Не удалось получить проблему дома для прямоугольника:', address.house_problem_id);
+                // Игнорируем ошибки получения проблемы дома
             }
         }
 
@@ -2872,21 +2823,14 @@ class SegmentsManager {
                     filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
                 "></div>`;
         
-        console.log('🎯 Достигли точки создания корон и прямоугольников для адреса:', address.id);
         
         // Добавляем корону для класса дома
-        console.log('🔍 Проверка условий для короны: activeSegmentMapFilter =', this.activeSegmentMapFilter, ', address.house_class_id =', address.house_class_id);
         if (this.activeSegmentMapFilter === 'house_class' && address.house_class_id) {
-            console.log('🔍 Добавляем корону для адреса:', address.id, 'класс:', address.house_class_id, 'фильтр:', this.activeSegmentMapFilter);
             try {
-                console.log('🔍 Выполняем запрос к базе данных: window.db.get("house_classes", "' + address.house_class_id + '")');
                 const houseClass = await window.db.get('house_classes', address.house_class_id);
-                console.log('🔍 Результат запроса класса дома:', houseClass);
                 
                 if (houseClass) {
-                    console.log('🔍 Класс дома найден. Свойство color:', houseClass.color);
                     if (houseClass.color) {
-                        console.log('✅ Добавляем корону с цветом:', houseClass.color);
                         const crownHtml = `
                             <div class="marker-crown" style="
                                 position: absolute !important;
@@ -2901,7 +2845,6 @@ class SegmentsManager {
                                 pointer-events: none !important;
                             "></div>`;
                         markerHtml += crownHtml;
-                        console.log('🔍 HTML короны добавлен:', crownHtml);
                     } else {
                         console.log('❌ У класса дома нет свойства color или оно пустое');
                     }
@@ -2914,18 +2857,12 @@ class SegmentsManager {
         }
         
         // Добавляем прямоугольник для проблем дома
-        console.log('🔍 Проверка условий для прямоугольника: activeSegmentMapFilter =', this.activeSegmentMapFilter, ', address.house_problem_id =', address.house_problem_id);
         if (this.activeSegmentMapFilter === 'house_problems' && address.house_problem_id) {
-            console.log('🔍 Добавляем прямоугольник для адреса:', address.id, 'проблема:', address.house_problem_id, 'фильтр:', this.activeSegmentMapFilter);
             try {
-                console.log('🔍 Выполняем запрос к базе данных: window.db.get("house_problems", "' + address.house_problem_id + '")');
                 const houseProblem = await window.db.get('house_problems', address.house_problem_id);
-                console.log('🔍 Результат запроса проблемы дома:', houseProblem);
                 
                 if (houseProblem) {
-                    console.log('🔍 Проблема дома найдена. Свойство color:', houseProblem.color);
                     if (houseProblem.color) {
-                        console.log('✅ Добавляем прямоугольник с цветом:', houseProblem.color);
                         const rectangleHtml = `
                             <div class="marker-rectangle" style="
                                 position: absolute !important;
@@ -2940,7 +2877,6 @@ class SegmentsManager {
                                 pointer-events: none !important;
                             "></div>`;
                         markerHtml += rectangleHtml;
-                        console.log('🔍 HTML прямоугольника добавлен:', rectangleHtml);
                     } else {
                         console.log('❌ У проблемы дома нет свойства color или оно пустое');
                     }
@@ -2974,7 +2910,6 @@ class SegmentsManager {
         
         // Логируем финальный HTML маркера для отладки
         if (this.activeSegmentMapFilter === 'house_class' || this.activeSegmentMapFilter === 'house_problems') {
-            console.log('🔍 Финальный HTML маркера для адреса', address.id, ':', markerHtml);
         }
         
         const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
@@ -3025,13 +2960,6 @@ class SegmentsManager {
      */
     async createSegmentAddressPopup(address) {
         // Debug: проверяем данные адреса
-        console.log('🔍 SegmentsManager: Создание popup для адреса:', {
-            id: address.id,
-            house_series_id: address.house_series_id,
-            house_class_id: address.house_class_id,
-            wall_material_id: address.wall_material_id,
-            address: address.address
-        });
         
         // Получаем справочные данные
         let houseSeriesText = 'Не указана';
@@ -3262,7 +3190,6 @@ class SegmentsManager {
      * Привязка событий для кнопок в popup сегмента
      */
     bindSegmentPopupEvents(address) {
-        console.log('🔗 Привязываем события для popup адреса:', address.id);
         
         // Кнопка редактирования адреса
         const editBtn = document.querySelector(`[data-action="edit-address"][data-address-id="${address.id}"]`);
@@ -3322,7 +3249,6 @@ class SegmentsManager {
                 e.stopPropagation();
                 this.toggleAddressInFilter(address.id);
             });
-            console.log('✅ Кнопка фильтра привязана для адреса:', address.id);
         } else {
             console.warn('⚠️ Кнопка фильтра не найдена для адреса:', address.id);
         }
@@ -3385,7 +3311,6 @@ class SegmentsManager {
         
         // Отправляем событие на редактирование адреса
         this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_EDIT_REQUESTED, { id: addressId });
-        console.log('📝 SegmentsManager: Запрос на редактирование адреса:', addressId);
     }
     
     /**
@@ -3574,24 +3499,20 @@ class SegmentsManager {
             // Проверяем, что модальное окно сегмента открыто
             const segmentModal = document.getElementById('segmentModal');
             if (!segmentModal || segmentModal.classList.contains('hidden')) {
-                console.log('🔄 SegmentsManager: Модальное окно сегмента закрыто, пропускаем обновление карты');
                 return;
             }
             
             // Проверяем, что карта сегмента инициализирована
             if (!this.segmentMap) {
-                console.log('🔄 SegmentsManager: Карта сегмента не инициализирована, пропускаем обновление');
                 return;
             }
             
-            console.log('🔄 SegmentsManager: Обновляем карту сегмента после редактирования адреса');
             
             // Получаем обновленные адреса из DataState
             const updatedAddresses = this.dataState.getState('addresses') || [];
             
             // Обновляем данные маркеров на карте с новыми данными адресов
             if (this.segmentAddressesLayer) {
-                console.log('🔄 Обновляем данные', this.segmentAddressesLayer.getLayers().length, 'маркеров из', updatedAddresses.length, 'адресов');
                 
                 const markers = this.segmentAddressesLayer.getLayers();
                 let updatedCount = 0;
@@ -3610,7 +3531,6 @@ class SegmentsManager {
                             
                             // Если popup этого маркера открыт, принудительно обновляем его содержимое
                             if (marker.isPopupOpen()) {
-                                console.log('🔄 Обновляем открытый popup для адреса:', addressId);
                                 const popupContent = await this.createSegmentAddressPopup(updatedAddress);
                                 marker.setPopupContent(popupContent);
                                 
@@ -3623,7 +3543,6 @@ class SegmentsManager {
                     }
                 }
                 
-                console.log('✅ Обновлено данных у', updatedCount, 'маркеров');
             }
             
             // Сохраняем текущие фильтры перед обновлением селектов
@@ -3644,7 +3563,6 @@ class SegmentsManager {
             // Обновляем карту с текущими фильтрами (теперь с обновленными данными)
             this.updateSegmentMapWithFilters();
             
-            console.log('✅ SegmentsManager: Карта сегмента обновлена после редактирования адреса');
             
         } catch (error) {
             console.error('❌ SegmentsManager: Ошибка обновления карты сегмента после редактирования адреса:', error);
@@ -4366,7 +4284,6 @@ class SegmentsManager {
             this.areaDistributionChart = new ApexCharts(chartContainer, options);
             this.areaDistributionChart.render();
             
-            console.log('✅ График распределения площадей инициализирован');
             
         } catch (error) {
             console.error('❌ Ошибка инициализации графика:', error);
@@ -4385,32 +4302,20 @@ class SegmentsManager {
                 return [];
             }
             
-            console.log('🔍 Текущий сегмент для графика:', {
-                id: currentSegment.id,
-                name: currentSegment.name,
-                filters: currentSegment.filters,
-                hasFilters: !!currentSegment.filters,
-                filtersKeys: currentSegment.filters ? Object.keys(currentSegment.filters) : 'нет'
-            });
-            
             // Получаем адреса из состояния
             const addresses = this.dataState.getState('addresses') || [];
-            console.log(`🔍 Всего адресов в области: ${addresses.length}`);
             
             // Фильтруем адреса по сегменту
             const segmentAddresses = this.filterAddressesBySegment(addresses, currentSegment);
-            console.log(`📍 Адресов в сегменте "${currentSegment.name}": ${segmentAddresses.length}`);
             
             // Получаем все объявления из состояния
             const allListings = this.dataState.getState('listings') || [];
-            console.log(`📋 Всего объявлений в области: ${allListings.length}`);
             
             // Фильтруем объявления только для адресов сегмента
             // Сегмент определяется адресами, поэтому все объявления этих адресов включаются
             const filteredListings = allListings.filter(listing => {
                 return listing.address_id && segmentAddresses.some(addr => addr.id === listing.address_id);
             });
-            console.log(`🎯 Объявлений в сегменте: ${filteredListings.length}`);
             
             // Группируем данные по типам недвижимости
             const seriesData = {
@@ -4590,10 +4495,8 @@ class SegmentsManager {
         if (!this.areaDistributionChart) return;
         
         try {
-            console.log('🔄 Обновление данных графика');
             const chartData = this.prepareChartData();
             this.areaDistributionChart.updateSeries(chartData);
-            console.log('✅ График обновлен');
         } catch (error) {
             console.error('❌ Ошибка обновления графика:', error);
         }
@@ -4604,7 +4507,6 @@ class SegmentsManager {
      */
     initializeSubsegmentFilter() {
         try {
-            console.log('🔄 Инициализация фильтра подсегментов');
             
             // Привязываем обработчики событий
             this.bindSubsegmentEvents();
@@ -4612,7 +4514,6 @@ class SegmentsManager {
             // Инициализируем SlimSelect для типа недвижимости
             this.initializeSubsegmentSlimSelects();
             
-            console.log('✅ Фильтр подсегментов инициализирован');
             
         } catch (error) {
             console.error('❌ Ошибка инициализации фильтра подсегментов:', error);
@@ -4633,7 +4534,6 @@ class SegmentsManager {
                         closeOnSelect: false
                     }
                 });
-                console.log('✅ SlimSelect для типа недвижимости подсегмента инициализирован');
             }
         } catch (error) {
             console.error('❌ Ошибка инициализации SlimSelect подсегментов:', error);
@@ -4687,7 +4587,6 @@ class SegmentsManager {
         
         // Отмечаем, что события инициализированы
         this.subsegmentEventsInitialized = true;
-        console.log('✅ События подсегментов инициализированы');
     }
     
     /**
@@ -4806,7 +4705,6 @@ class SegmentsManager {
                 };
                 
                 await window.db.update('subsegments', subsegment);
-                console.log('✅ Подсегмент обновлен:', subsegment.id);
                 
             } else {
                 // Создаем новый подсегмент
@@ -4819,7 +4717,6 @@ class SegmentsManager {
                 };
                 
                 await window.db.add('subsegments', subsegment);
-                console.log('✅ Подсегмент создан:', subsegment.id);
             }
             
             // Обновляем состояние
@@ -4876,7 +4773,6 @@ class SegmentsManager {
                 document.getElementById('deleteSubsegmentBtn').disabled = true;
                 
                 this.progressManager.showSuccess('Подсегмент удален');
-                console.log('✅ Подсегмент удален:', subsegment.id);
                 
                 // Уведомляем об удалении подсегмента
                 this.eventBus.emit(CONSTANTS.EVENTS.SUBSEGMENT_DELETED, {

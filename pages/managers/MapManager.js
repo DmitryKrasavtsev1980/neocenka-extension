@@ -215,7 +215,6 @@ class MapManager {
                 timestamp: new Date()
             });
             
-            await Helpers.debugLog('✅ Карта инициализирована');
             
         } catch (error) {
             console.error('Error initializing map:', error);
@@ -248,7 +247,7 @@ class MapManager {
         
         // Добавляем полигон области, если он существует
         if (this.areaPolygonLayer) {
-            overlayMaps["🔷 Полигон области"] = this.areaPolygonLayer;
+            overlayMaps["Полигон области"] = this.areaPolygonLayer;
         }
         
         // Добавляем контроллер на карту
@@ -304,7 +303,7 @@ class MapManager {
         
         // Добавляем полигон области, если он существует
         if (this.areaPolygonLayer) {
-            overlayMaps["🔷 Полигон области"] = this.areaPolygonLayer;
+            overlayMaps["Полигон области"] = this.areaPolygonLayer;
         }
         
         // Добавляем обновленный контроллер на карту
@@ -507,7 +506,6 @@ class MapManager {
                     timestamp: new Date()
                 });
                 
-                await Helpers.debugLog('✅ Полигон сохранен');
             }
             
         } catch (error) {
@@ -527,11 +525,9 @@ class MapManager {
         
         // Если полигон уже существует, не создаем его повторно
         if (this.areaPolygonLayer) {
-            Helpers.debugLog('🔷 Полигон области уже отображен, пропускаем повторное создание');
             return;
         }
         
-        Helpers.debugLog('🔷 Создаем полигон области на карте');
         
         // Конвертируем координаты в формат Leaflet
         const latLngs = currentArea.polygon.map(point => [point.lat, point.lng]);
@@ -565,7 +561,6 @@ class MapManager {
             this.map.fitBounds(this.areaPolygonLayer.getBounds(), CONSTANTS.MAP_CONFIG.FIT_BOUNDS_OPTIONS);
         }
         
-        Helpers.debugLog('✅ Полигон области отображен на карте');
     }
     
     /**
@@ -619,26 +614,18 @@ class MapManager {
             }
             
             if (allAddresses.length === 0) {
-                console.log('📍 MapManager: Нет адресов для отображения на карте');
                 await Helpers.debugLog('📍 Нет адресов для отображения на карте');
                 return;
             }
             
-            console.log(`📍 MapManager: Загрузка адресов на карту - всего: ${allAddresses.length} адресов, zoom: ${this.map ? this.map.getZoom() : 'н/д'}`);
             
             // ОПТИМИЗАЦИЯ 1: Фильтрация по полигону области (сначала стандартная фильтрация)
             let filteredAddresses = allAddresses;
             const currentArea = this.dataState.getState('currentArea');
-            console.log(`🔍 MapManager: Проверка полигона области:`, {
-                hasCurrentArea: !!currentArea,
-                hasPolygon: this.hasAreaPolygon(currentArea),
-                polygonLength: currentArea?.polygon?.length
-            });
             
             if (currentArea && this.hasAreaPolygon(currentArea)) {
                 // Всегда используем проверенную стандартную фильтрацию
                 filteredAddresses = GeometryUtils.getAddressesInMapArea(allAddresses, currentArea);
-                console.log(`🎯 MapManager: Фильтрация по полигону: ${allAddresses.length} -> ${filteredAddresses.length} адресов`);
                 await Helpers.debugLog(`🎯 Фильтрация по полигону: ${allAddresses.length} -> ${filteredAddresses.length} адресов`);
             } else {
                 console.log(`⚠️ MapManager: Фильтрация по полигону пропущена - нет полигона области`);
@@ -655,7 +642,6 @@ class MapManager {
             
             // Показываем все адреса без ограничений
             let addressesToDisplay = visibleAddresses;
-            console.log(`🔄 MapManager: Будет отображено ${addressesToDisplay.length} маркеров (без ограничений)`);
             
             if (addressesToDisplay.length === 0) {
                 await Helpers.debugLog('📍 Нет адресов для отображения после фильтрации');
@@ -686,14 +672,12 @@ class MapManager {
                     });
                 }
                 this.addressesCluster.addMarkers(markers);
-                console.log(`📍 MapManager: Загружено ${addressesToDisplay.length} адресов с кластеризацией (создано ${markers.length} маркеров из ${allAddresses.length} общих)`);
                 await Helpers.debugLog(`📍 Загружено ${addressesToDisplay.length} адресов на карту с кластеризацией (из ${allAddresses.length} общих)`);
             } else {
                 // Для небольшого количества адресов добавляем прямо на карту
                 markers.forEach(marker => {
                     this.mapLayers.addresses.addLayer(marker);
                 });
-                console.log(`📍 MapManager: Загружено ${addressesToDisplay.length} адресов без кластеризации (создано ${markers.length} маркеров из ${allAddresses.length} общих)`);
                 await Helpers.debugLog(`📍 Загружено ${addressesToDisplay.length} адресов на карту (из ${allAddresses.length} общих)`);
             }
             
@@ -1788,7 +1772,6 @@ class MapManager {
                 // Выполняем полную перезагрузку если адрес не найден
                 await this.loadAddressesOnMap();
             } else {
-                console.log('✅ Адрес успешно удален с карты:', address.id);
             }
             
         } catch (error) {
@@ -1989,7 +1972,6 @@ class MapManager {
                 // Выполняем полную перезагрузку если объявление не найдено
                 await this.loadListingsOnMap();
             } else {
-                console.log('✅ Объявление успешно удалено с карты:', listing.id);
             }
             
         } catch (error) {
@@ -2261,7 +2243,6 @@ class MapManager {
             //     await Helpers.debugLog(`🔄 Viewport обновление на zoom ${zoom}`);
             //     await this.loadAddressesOnMap();
             // }
-            console.log(`⏸️ MapManager: Динамические обновления отключены для производительности (zoom: ${zoom})`);
         }, 500); // Увеличиваем задержку до 500ms для лучшей производительности
     }
 }

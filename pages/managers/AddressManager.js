@@ -475,7 +475,6 @@ class AddressManager {
             }
             
             const addresses = await this.getAddressesInArea(currentArea.id);
-            console.log(`📊 AddressManager: Загружено адресов из базы данных: ${addresses.length} для области ${currentArea.id}`);
             await Helpers.debugLog(`📊 Адресов для отображения: ${addresses.length}`);
             
             // Инициализируем ML-алгоритм определения адресов
@@ -509,7 +508,6 @@ class AddressManager {
             }
             
             // Сохраняем адреса в состояние
-            console.log(`💾 AddressManager: Сохраняем в DataState ${addresses.length} адресов`);
             this.dataState.setState('addresses', addresses);
             
             // Сохраняем объявления в состояние для использования другими менеджерами
@@ -528,7 +526,6 @@ class AddressManager {
             }
             
             // Уведомляем о загрузке
-            console.log(`📡 AddressManager: Отправляем событие ADDRESSES_LOADED с ${addresses.length} адресами`);
             this.eventBus.emit(CONSTANTS.EVENTS.ADDRESSES_LOADED, {
                 addresses,
                 count: addresses.length,
@@ -600,7 +597,6 @@ class AddressManager {
             }
 
             const allAddresses = await window.db.getAll('addresses');
-            await Helpers.debugLog(`🔍 Всего адресов в БД: ${allAddresses.length}`);
             await Helpers.debugLog(`🗺️ Полигон области: ${currentArea.polygon.length} точек`);
             
             // Фильтруем адреса по вхождению координат в полигон области
@@ -729,7 +725,6 @@ class AddressManager {
         if (this.modalSlimSelects.commercialSpacesSelect) {
             const commercialSpacesValue = address.commercial_spaces !== undefined ? address.commercial_spaces.toString() : '0';
             // Отладочный вывод
-            await Helpers.debugLog('🔍 Loading commercial_spaces from address: ' + address.commercial_spaces + ' Setting to: ' + commercialSpacesValue);
             this.modalSlimSelects.commercialSpacesSelect.setSelected(commercialSpacesValue);
         }
         
@@ -1321,9 +1316,6 @@ class AddressManager {
      * Заполнение формы данными адреса
      */
     async populateAddressForm(address) {
-        console.log('🔍 [AddressManager] Заполнение формы адреса:', address);
-        console.log('🔍 [AddressManager] house_series_id:', address.house_series_id);
-        console.log('🔍 [AddressManager] house_series:', address.house_series);
         // Заполняем основные поля
         const addressInput = document.getElementById('editAddressText');
         if (addressInput) {
@@ -1351,25 +1343,19 @@ class AddressManager {
             // Проверяем, есть ли серия в справочнике
             try {
                 const seriesInDb = await window.db.get('house_series', address.house_series_id);
-                console.log('🔍 [AddressManager] Серия в БД:', seriesInDb);
                 
                 const allSeries = await window.db.getAll('house_series');
-                console.log('🔍 [AddressManager] Всего серий в БД:', allSeries.length);
-                console.log('🔍 [AddressManager] Первые 3 серии:', allSeries.slice(0, 3));
             } catch (error) {
                 console.error('🔍 [AddressManager] Ошибка проверки серии:', error);
             }
             
-            console.log('🔍 [AddressManager] Устанавливаем серию:', address.house_series_id);
             houseSeriesSelect.setSelected(address.house_series_id);
             // Обновляем кнопку после установки значения
             setTimeout(() => {
                 const selected = houseSeriesSelect.getSelected();
-                console.log('🔍 [AddressManager] Серия установлена:', selected);
                 this.updateReferenceActionButton('houseSeriesActionBtn', selected);
             }, 100);
         } else {
-            console.log('🔍 [AddressManager] Серия НЕ установлена - houseSeriesSelect:', !!houseSeriesSelect, 'house_series_id:', address.house_series_id);
         }
         
         const houseClassSelect = await this.getOrCreateSearchableSelect('editHouseClass', 'houseClasses', 'Выберите класс...');
@@ -1384,16 +1370,13 @@ class AddressManager {
         
         const wallMaterialSelect = await this.getOrCreateSearchableSelect('editWallMaterial', 'wallMaterials', 'Выберите материал...');
         if (wallMaterialSelect && address.wall_material_id) {
-            console.log('🔍 [AddressManager] Устанавливаем материал стен:', address.wall_material_id);
             wallMaterialSelect.setSelected(address.wall_material_id);
             // Обновляем кнопку после установки значения
             setTimeout(() => {
                 const selected = wallMaterialSelect.getSelected();
-                console.log('🔍 [AddressManager] Материал стен установлен:', selected);
                 this.updateReferenceActionButton('wallMaterialActionBtn', selected);
             }, 100);
         } else {
-            console.log('🔍 [AddressManager] Материал стен НЕ установлен - wallMaterialSelect:', !!wallMaterialSelect, 'wall_material_id:', address.wall_material_id);
         }
         
         const ceilingMaterialSelect = await this.getOrCreateSearchableSelect('editCeilingMaterial', 'ceilingMaterials', 'Выберите материал...');
@@ -2718,12 +2701,10 @@ class AddressManager {
             // Если есть предустановленное значение, которого нет в первых 20 записях, добавляем его
             let preselectedItem = null;
             if (preselectedId && !initialData.find(item => item.id === preselectedId)) {
-                console.log('🔍 [AddressManager] Предустановленное значение не найдено в первых 20, ищем в БД:', preselectedId);
                 const tableName = this.getReferenceTableName(referenceType);
                 try {
                     preselectedItem = await window.db.get(tableName, preselectedId);
                     if (preselectedItem) {
-                        console.log('🔍 [AddressManager] Найдено предустановленное значение:', preselectedItem);
                         initialData.unshift(preselectedItem); // Добавляем в начало
                     }
                 } catch (error) {
