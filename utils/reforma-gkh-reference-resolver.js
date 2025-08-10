@@ -93,6 +93,7 @@ class ReformaGKHReferenceResolver {
       ]);
       
       if (debugEnabled) {
+        console.log('🏗️ Кэш справочников загружен:', {
           wall_materials: this.cache.wall_materials.size,
           ceiling_materials: this.cache.ceiling_materials.size,
           house_series: this.cache.house_series.size,

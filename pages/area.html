@@ -3208,18 +3208,44 @@
     <script src="managers/ComparativeAnalysisManager.js"></script>
     <script src="managers/GeoJsonImportManager.js"></script>
     
-    <!-- Сервисная архитектура -->
+    <!-- Сервисная архитектура (существующая) -->
     <script src="../services/base/BaseAPIService.js"></script>
     <script src="../services/base/ServiceManager.js"></script>
     <script src="../services/external/InparsService.js"></script>
     <script src="../services/ui/InparsPanel.js"></script>
     <script src="../services/ServiceConfig.js"></script>
     
-    <!-- Интеграция сервисов -->
+    <!-- Сервисы v0.1 -->
+    <script src="../services/core/ValidationService.js"></script>
+    <script src="../services/core/ConfigService.js"></script>
+    <script src="../services/core/ErrorHandlingService.js"></script>
+    <script src="../services/core/GlobalErrorReporter.js"></script>
+    <script src="../services/core/DIContainer.js"></script>
+    <script src="../services/data/ReferenceDataService.js"></script>
+    <script src="../services/data/SegmentService.js"></script>
+    
+    <!-- UI Компоненты v0.1 -->
+    <script src="../components/ui/SegmentModal.js"></script>
+    <script src="../components/ui/SegmentTable.js"></script>
+    <script src="../components/ui/SegmentChart.js"></script>
+    
+    <!-- Map компоненты v0.1 -->
+    <script src="../components/map/MapRenderer.js"></script>
+    <script src="../components/map/MarkerManager.js"></script>
+    
+    <!-- Контроллеры v0.1 -->
+    <script src="../controllers/SegmentController.js"></script>
+    <script src="../controllers/MapController.js"></script>
+    <script src="../controllers/ApplicationController.js"></script>
+    
+    <!-- Интеграция сервисов (существующая) -->
     <script src="area_services_integration.js"></script>
     
     <!-- Главная страница (модульная версия) -->
     <script src="area.js"></script>
+    
+    <!-- Интеграция архитектуры v0.1 -->
+    <script src="area_v01_integration.js"></script>
 
 </body>
 </html>

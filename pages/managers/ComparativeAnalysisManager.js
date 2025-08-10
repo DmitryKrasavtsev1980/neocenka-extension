@@ -221,6 +221,7 @@ class ComparativeAnalysisManager {
             const dateTo = new Date(this.reportsManager.dateToFilter?.value || new Date().toISOString().split('T')[0]);
             
             if (this.debugEnabled) {
+                console.log('🔍 Параметры сравнительного анализа:', {
                     areaId: currentArea.id,
                     segmentId,
                     subsegmentId,

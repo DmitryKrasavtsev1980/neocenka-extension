@@ -403,6 +403,7 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
+            console.log('📊 Настройки отчёта:', {
                 showLiquidity,
                 showPriceChanges,
                 showMarketCorridor,
@@ -690,6 +691,7 @@ class ReportsManager {
             const dateTo = new Date(this.dateToFilter?.value || new Date().toISOString().split('T')[0]);
 
             if (this.debugEnabled) {
+                console.log('📊 Параметры получения объектов:', {
                     areaId: currentArea.id,
                     segmentId,
                     subsegmentId,
@@ -792,6 +794,7 @@ class ReportsManager {
                 const shouldInclude = createdInPeriod || updatedInPeriod || createdBeforePeriod;
                 
                 if (this.debugEnabled && !shouldInclude) {
+                    console.log('📅 Объект исключён по датам:', {
                         created: createdDate?.toISOString(),
                         updated: updatedDate?.toISOString(),
                         dateFrom: dateFrom.toISOString(),
@@ -1041,6 +1044,7 @@ class ReportsManager {
         });
 
         if (this.debugEnabled) {
+            console.log('📈 Данные отчёта по месяцам:', {
                 months: reportData.datetime,
                 new: reportData.new,
                 close: reportData.close,
@@ -1509,6 +1513,7 @@ class ReportsManager {
             this.marketCorridorChart.render();
 
             if (this.debugEnabled) {
+                console.log('📊 Рендеринг рыночного коридора:', {
                     pointsCount: pointsData.pointsData.length,
                     samplePoint: pointsData.pointsData[0],
                     globalInstance: !!window.reportsManagerInstance
@@ -1848,6 +1853,7 @@ class ReportsManager {
                 this.showObjectDetails(point.objectId);
             } else {
                 if (this.debugEnabled) {
+                    console.log('📊 Клик по точке графика (без объекта):', {
                         dataPointIndex: config?.dataPointIndex,
                         seriesIndex: config?.seriesIndex,
                         mode: this.marketCorridorMode,

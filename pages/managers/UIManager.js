@@ -3109,6 +3109,7 @@ class UIManager {
             });
             
             if (debugEnabled) {
+                console.log('📊 Статистика области:', {
                     areaSize,
                     addresses: addresses?.length || 0,
                     objects: objectsCount,
@@ -3612,6 +3613,7 @@ class UIManager {
             const historyItem = listing.price_history[index];
             const price = historyItem.new_price || historyItem.price;
             
+            console.log('Редактирование цены:', {
                 price: price,
                 date: historyItem.date,
                 historyItem: historyItem
@@ -4640,6 +4642,7 @@ class UIManager {
                     price: price,
                     new_price: price
                 };
+                console.log('Обновлена запись истории цен:', {
                     old: oldItem,
                     new: priceHistory[editingIndex]
                 });
@@ -4948,6 +4951,7 @@ class UIManager {
                 return;
             }
             
+            console.log('🔄 Парсинг объявления:', {
                 id: listing.id,
                 url: listing.url,
                 price: listing.price,

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест интеграции архитектуры v0.1</title>
+    <link rel="stylesheet" href="libs/tailwind/tailwind.min.css">
+    <style>
+        .test-result {
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 6px;
+            border-left: 4px solid;
+        }
+        .test-success {
+            background: #f0f9f4;
+            border-color: #22c55e;
+            color: #15803d;
+        }
+        .test-error {
+            background: #fef2f2;
+            border-color: #ef4444;
+            color: #dc2626;
+        }
+        .test-warning {
+            background: #fffbeb;
+            border-color: #f59e0b;
+            color: #d97706;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-6">🧪 Тест интеграции архитектуры v0.1</h1>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4">Результаты тестирования:</h2>
+            <div id="test-results">
+                <div class="test-result test-warning">
+                    <strong>Ожидание...</strong> Запуск тестов интеграции...
+                </div>
+            </div>
+            
+            <div class="mt-6">
+                <button id="run-tests" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+                    Запустить тесты
+                </button>
+                <button id="clear-results" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded ml-2">
+                    Очистить результаты
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подключаем базовые зависимости -->
+    <script src="libs/jquery/jquery-3.7.1.min.js"></script>
+    <script src="data/database.js"></script>
+    <script src="data/models.js"></script>
+    <script src="utils/debug-logger.js"></script>
+    
+    <!-- Core архитектура -->
+    <script src="pages/core/DataState.js"></script>
+    <script src="pages/core/EventBus.js"></script>
+    <script src="pages/core/ProgressManager.js"></script>
+    
+    <!-- Сервисы v0.1 -->
+    <script src="services/core/ValidationService.js"></script>
+    <script src="services/core/ConfigService.js"></script>
+    <script src="services/core/ErrorHandlingService.js"></script>
+    <script src="services/core/GlobalErrorReporter.js"></script>
+    <script src="services/core/DIContainer.js"></script>
+    <script src="services/data/ReferenceDataService.js"></script>
+    <script src="services/data/SegmentService.js"></script>
+    
+    <!-- UI Компоненты v0.1 -->
+    <script src="components/ui/SegmentModal.js"></script>
+    <script src="components/ui/SegmentTable.js"></script>
+    <script src="components/ui/SegmentChart.js"></script>
+    
+    <!-- Контроллеры v0.1 -->
+    <script src="controllers/SegmentController.js"></script>
+    <script src="controllers/MapController.js"></script>
+    <script src="controllers/ApplicationController.js"></script>
+
+    <script>
+        class V01IntegrationTester {
+            constructor() {
+                this.results = [];
+                this.applicationController = null;
+                this.diContainer = null;
+            }
+            
+            /**
+             * Добавление результата теста
+             */
+            addResult(name, success, message, details = null) {
+                this.results.push({
+                    name,
+                    success,
+                    message,
+                    details,
+                    timestamp: new Date()
+                });
+                this.updateDisplay();
+            }
+            
+            /**
+             * Обновление отображения результатов
+             */
+            updateDisplay() {
+                const container = document.getElementById('test-results');
+                container.innerHTML = '';
+                
+                this.results.forEach(result => {
+                    const div = document.createElement('div');
+                    div.className = `test-result ${result.success ? 'test-success' : 'test-error'}`;
+                    
+                    div.innerHTML = `
+                        <strong>${result.success ? '✅' : '❌'} ${result.name}</strong><br>
+                        ${result.message}
+                        ${result.details ? `<br><small>${result.details}</small>` : ''}
+                    `;
+                    
+                    container.appendChild(div);
+                });
+            }
+            
+            /**
+             * Запуск всех тестов
+             */
+            async runAllTests() {
+                this.results = [];
+                this.updateDisplay();
+                
+                try {
+                    // Тест 1: Инициализация базы данных
+                    await this.testDatabaseInit();
+                    
+                    // Тест 2: Создание ApplicationController
+                    await this.testApplicationController();
+                    
+                    // Тест 3: DI Container
+                    await this.testDIContainer();
+                    
+                    // Тест 4: Сервисы
+                    await this.testServices();
+                    
+                    // Тест 5: Контроллеры
+                    await this.testControllers();
+                    
+                    // Тест 6: UI Компоненты
+                    await this.testUIComponents();
+                    
+                    this.addResult('Общий результат', true, 'Все тесты завершены');
+                    
+                } catch (error) {
+                    this.addResult('Критическая ошибка', false, error.message);
+                }
+            }
+            
+            /**
+             * Тест инициализации базы данных
+             */
+            async testDatabaseInit() {
+                try {
+                    if (typeof NeocenkaDB === 'undefined') {
+                        throw new Error('NeocenkaDB не загружен');
+                    }
+                    
+                    const db = new NeocenkaDB();
+                    await db.init();
+                    
+                    this.addResult('База данных', true, 'NeocenkaDB инициализирована');
+                } catch (error) {
+                    this.addResult('База данных', false, 'Ошибка инициализации: ' + error.message);
+                }
+            }
+            
+            /**
+             * Тест ApplicationController
+             */
+            async testApplicationController() {
+                try {
+                    if (typeof ApplicationController === 'undefined') {
+                        throw new Error('ApplicationController не загружен');
+                    }
+                    
+                    this.applicationController = new ApplicationController();
+                    
+                    // Ждем инициализации
+                    let attempts = 0;
+                    while (!this.applicationController.state.initialized && attempts < 50) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        attempts++;
+                    }
+                    
+                    if (!this.applicationController.state.initialized) {
+                        throw new Error('ApplicationController не инициализировался за 5 секунд');
+                    }
+                    
+                    this.addResult('ApplicationController', true, 'Создан и инициализирован успешно');
+                } catch (error) {
+                    this.addResult('ApplicationController', false, 'Ошибка: ' + error.message);
+                }
+            }
+            
+            /**
+             * Тест DI Container
+             */
+            async testDIContainer() {
+                try {
+                    if (!this.applicationController) {
+                        throw new Error('ApplicationController не готов');
+                    }
+                    
+                    this.diContainer = this.applicationController.container;
+                    
+                    if (!this.diContainer) {
+                        throw new Error('DI Container не найден в ApplicationController');
+                    }
+                    
+                    this.addResult('DI Container', true, 'Получен из ApplicationController');
+                } catch (error) {
+                    this.addResult('DI Container', false, 'Ошибка: ' + error.message);
+                }
+            }
+            
+            /**
+             * Тест сервисов
+             */
+            async testServices() {
+                if (!this.diContainer) {
+                    this.addResult('Сервисы', false, 'DI Container недоступен');
+                    return;
+                }
+                
+                const services = [
+                    'ValidationService',
+                    'ConfigService', 
+                    'ErrorHandlingService',
+                    'Database'
+                ];
+                
+                for (const serviceName of services) {
+                    try {
+                        const service = this.diContainer.get(serviceName);
+                        if (service) {
+                            this.addResult(`Сервис: ${serviceName}`, true, 'Получен через DI Container');
+                        } else {
+                            this.addResult(`Сервис: ${serviceName}`, false, 'Вернул null/undefined');
+                        }
+                    } catch (error) {
+                        this.addResult(`Сервис: ${serviceName}`, false, 'Ошибка: ' + error.message);
+                    }
+                }
+            }
+            
+            /**
+             * Тест контроллеров
+             */
+            async testControllers() {
+                if (!this.applicationController) {
+                    this.addResult('Контроллеры', false, 'ApplicationController недоступен');
+                    return;
+                }
+                
+                const controllers = ['SegmentController', 'MapController'];
+                
+                for (const controllerName of controllers) {
+                    try {
+                        const controller = this.applicationController.controllers.get(controllerName);
+                        if (controller) {
+                            this.addResult(`Контроллер: ${controllerName}`, true, 'Зарегистрирован в ApplicationController');
+                        } else {
+                            this.addResult(`Контроллер: ${controllerName}`, false, 'Не найден в ApplicationController');
+                        }
+                    } catch (error) {
+                        this.addResult(`Контроллер: ${controllerName}`, false, 'Ошибка: ' + error.message);
+                    }
+                }
+            }
+            
+            /**
+             * Тест UI компонентов
+             */
+            async testUIComponents() {
+                const components = [
+                    'SegmentModal',
+                    'SegmentTable', 
+                    'SegmentChart'
+                ];
+                
+                for (const componentName of components) {
+                    try {
+                        if (typeof window[componentName] !== 'undefined') {
+                            this.addResult(`UI: ${componentName}`, true, 'Класс загружен');
+                        } else {
+                            this.addResult(`UI: ${componentName}`, false, 'Класс не найден в window');
+                        }
+                    } catch (error) {
+                        this.addResult(`UI: ${componentName}`, false, 'Ошибка: ' + error.message);
+                    }
+                }
+            }
+            
+            /**
+             * Очистка результатов
+             */
+            clearResults() {
+                this.results = [];
+                this.updateDisplay();
+            }
+        }
+        
+        // Инициализация тестера
+        const tester = new V01IntegrationTester();
+        
+        // Обработчики кнопок
+        document.getElementById('run-tests').addEventListener('click', () => {
+            tester.runAllTests();
+        });
+        
+        document.getElementById('clear-results').addEventListener('click', () => {
+            tester.clearResults();
+        });
+        
+        // Автоматический запуск тестов при загрузке
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                tester.runAllTests();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

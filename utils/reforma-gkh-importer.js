@@ -265,12 +265,14 @@ class ReformaGKHImporter {
       
       // Всегда логируем дубли для анализа (независимо от настроек отладки)
       console.group(`⏭️ Дубль #${this.stats.skipped}: Пропущен строгий дубликат`);
+      console.log('Дублируемый адрес:', {
         id: duplicate.id,
         address: duplicate.address,
         coordinates: duplicate.coordinates,
         created_at: duplicate.created_at,
         source: duplicate.source || 'unknown'
       });
+      console.log('Новый адрес (пропущен):', {
         address: addressModel.address,
         coordinates: addressModel.coordinates,
         properties: feature.properties,

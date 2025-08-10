@@ -573,21 +573,61 @@
     
     <!-- Leaflet Draw JS -->
     <script src="../libs/leaflet/leaflet.draw.js"></script>
+    <!-- Legacy компоненты -->
     <script src="../components/navigation.js"></script>
     <script src="../components/breadcrumbs.js"></script>
     <script src="../components/footer.js"></script>
+    <script src="../components/update-notification.js"></script>
+    
+    <!-- База данных и модели -->
     <script src="../data/database.js"></script>
     <script src="../data/models.js"></script>
+    
+    <!-- Утилиты -->
     <script src="../utils/geometry-utils.js"></script>
     <script src="../utils/debug-logger.js"></script>
     <script src="../utils/update-manager.js"></script>
     <script src="../utils/auto-updater.js"></script>
-    <script src="../components/update-notification.js"></script>
+    <script src="../utils/marker-cluster.js"></script>
+    
+    <!-- Core архитектура v0.1 -->
+    <script src="core/DataState.js"></script>
+    <script src="core/EventBus.js"></script>
+    <script src="core/ProgressManager.js"></script>
+    
+    <!-- Shared утилиты -->
     <script src="shared/constants.js"></script>
     <script src="shared/helpers.js"></script>
     <script src="shared/validators.js"></script>
-    <script src="../utils/marker-cluster.js"></script>
+    
+    <!-- Сервисы v0.1 -->
+    <script src="../services/core/ValidationService.js"></script>
+    <script src="../services/core/ConfigService.js"></script>
+    <script src="../services/core/ErrorHandlingService.js"></script>
+    <script src="../services/core/GlobalErrorReporter.js"></script>
+    <script src="../services/core/DIContainer.js"></script>
+    <script src="../services/data/ReferenceDataService.js"></script>
+    <script src="../services/data/SegmentService.js"></script>
+    
+    <!-- UI Компоненты v0.1 -->
+    <script src="../components/ui/SegmentModal.js"></script>
+    <script src="../components/ui/SegmentTable.js"></script>
+    <script src="../components/ui/SegmentChart.js"></script>
+    
+    <!-- Map компоненты v0.1 -->
+    <script src="../components/map/MapRenderer.js"></script>
+    <script src="../components/map/MarkerManager.js"></script>
+    
+    <!-- Контроллеры v0.1 -->
+    <script src="../controllers/SegmentController.js"></script>
+    <script src="../controllers/MapController.js"></script>
+    <script src="../controllers/ApplicationController.js"></script>
+    
+    <!-- Legacy главная страница -->
     <script src="main.js"></script>
     <script src="main_init.js"></script>
+    
+    <!-- Интеграция архитектуры v0.1 -->
+    <script src="main_v01_integration.js"></script>
 </body>
 </html>

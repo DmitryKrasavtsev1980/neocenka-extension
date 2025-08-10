@@ -297,6 +297,7 @@ class NeocenkaPopup {
                 return null;
             }
 
+            console.log('Popup: checkExistingListing details:', {
                 areaId,
                 externalId,
                 pageSource: this.pageSource,
@@ -309,6 +310,7 @@ class NeocenkaPopup {
                 const sourceMatch = listing.source === this.pageSource;
                 const overallMatch = externalMatch && sourceMatch;
 
+                console.log('Popup: listing comparison:', {
                     listingId: listing.id,
                     listingExternal: listing.external_id,
                     listingSource: listing.source,
@@ -323,18 +325,20 @@ class NeocenkaPopup {
             });
 
             if (existingListing) {
-
+                console.log('Popup: Found existing listing:', existingListing);
+                
                 // ИСПРАВЛЯЕМ area_id если он undefined
                 if (!existingListing.area_id) {
                     existingListing.area_id = areaId;
                     try {
                         await db.updateListing(existingListing);
+                        console.log('Popup: Fixed area_id for existing listing');
                     } catch (error) {
                         console.error('Popup: Error fixing area_id:', error);
                     }
                 }
-
             } else {
+                console.log('Popup: No existing listing found');
             }
 
             return existingListing;
@@ -355,6 +359,7 @@ class NeocenkaPopup {
         const areaSelected = select.value !== '';
         const canParse = this.isValidPage && areaSelected;
 
+        console.log('Popup: updateParseButton status:', {
             isValidPage: this.isValidPage,
             areaSelected,
             canParse,
@@ -366,6 +371,7 @@ class NeocenkaPopup {
         // Проверяем существует ли уже такое объявление  
         if (areaSelected && this.isValidPage) {
             this.existingListing = await this.checkExistingListing(select.value);
+            console.log('Popup: existing listing check result:', {
                 areaId: select.value,
                 currentUrl: this.currentTab?.url,
                 existingListing: this.existingListing
@@ -455,6 +461,7 @@ class NeocenkaPopup {
             const oldArea = existingListing.area_total;
             const newArea = parsedData.area_total;
 
+            console.log('Popup: price and area comparison:', {
                 oldPrice, newPrice, priceChanged: oldPrice !== newPrice,
                 oldArea, newArea, areaChanged: oldArea !== newArea
             });
