@@ -55,7 +55,6 @@ class ComparativeAnalysisManager {
             this.restoreComparativeState();
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Менеджер инициализирован');
             }
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка инициализации:', error);
@@ -143,7 +142,6 @@ class ComparativeAnalysisManager {
     async startNewAnalysis() {
         try {
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Запуск нового анализа');
             }
             
             // Очищаем предыдущие результаты
@@ -171,7 +169,6 @@ class ComparativeAnalysisManager {
     resetComparison() {
         try {
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Сброс сравнений');
             }
             
             // Подтверждение от пользователя
@@ -224,7 +221,6 @@ class ComparativeAnalysisManager {
             const dateTo = new Date(this.reportsManager.dateToFilter?.value || new Date().toISOString().split('T')[0]);
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Загрузка объектов с фильтрами:', {
                     areaId: currentArea.id,
                     segmentId,
                     subsegmentId,
@@ -239,7 +235,6 @@ class ComparativeAnalysisManager {
             );
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Загружено объектов:', this.currentObjects.length);
             }
             
         } catch (error) {
@@ -262,7 +257,6 @@ class ComparativeAnalysisManager {
         this.updateObjectsDisplay();
         
         if (this.debugEnabled) {
-            console.log('🔍 ComparativeAnalysisManager: Установлен фильтр статуса:', status);
         }
     }
     
@@ -387,7 +381,6 @@ class ComparativeAnalysisManager {
             this.selectedObjectId = objectId;
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Выбран объект:', objectId);
             }
             
             // Обновляем отображение блоков
@@ -623,7 +616,6 @@ class ComparativeAnalysisManager {
                         if (galleryElement && window.$ && $.fn.fotorama) {
                             $(galleryElement).fotorama();
                             if (this.debugEnabled) {
-                                console.log('📸 Fotorama инициализирован для объявления:', listingId);
                             }
                         }
                     }, 100);
@@ -655,7 +647,6 @@ class ComparativeAnalysisManager {
             this.evaluations.set(objectId, evaluation);
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Оценка объекта:', objectId, evaluation);
             }
             
             // Обновляем коридоры
@@ -700,7 +691,6 @@ class ComparativeAnalysisManager {
         this.corridors.optimal = this.calculateOptimalRange();
         
         if (this.debugEnabled) {
-            console.log('🔍 ComparativeAnalysisManager: Обновлены коридоры:', this.corridors);
         }
     }
     
@@ -845,7 +835,6 @@ class ComparativeAnalysisManager {
         // Предварительная проверка состояния
         if (this.isUpdatingChart) {
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: График уже обновляется, пропускаем');
             }
             return;
         }
@@ -856,7 +845,6 @@ class ComparativeAnalysisManager {
             const chartContainer = document.getElementById('comparativeChart');
             if (!chartContainer) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: Контейнер графика не найден');
                 }
                 return;
             }
@@ -864,7 +852,6 @@ class ComparativeAnalysisManager {
             // Множественные проверки готовности контейнера
             if (!this.isContainerReady(chartContainer)) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: Контейнер графика не готов');
                 }
                 return;
             }
@@ -881,7 +868,6 @@ class ComparativeAnalysisManager {
             // Повторная проверка после задержки
             if (!this.isContainerReady(chartContainer)) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: Контейнер стал недоступен после задержки');
                 }
                 return;
             }
@@ -947,7 +933,6 @@ class ComparativeAnalysisManager {
                 await this.comparativeChart.render();
                 
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: График успешно создан');
                 }
                 
             } catch (renderError) {
@@ -1016,7 +1001,6 @@ class ComparativeAnalysisManager {
                 await this.comparativeChart.destroy();
                 
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: График успешно уничтожен');
                 }
             } catch (error) {
                 console.error('❌ ComparativeAnalysisManager: Ошибка при уничтожении графика:', error);
@@ -1310,7 +1294,6 @@ class ComparativeAnalysisManager {
         
         try {
             // TODO: Реализовать сохранение в IndexedDB через database.js
-            console.log('Сохранение анализа:', analysisData);
             alert('Анализ сохранен успешно (временная заглушка)');
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка сохранения анализа:', error);
@@ -1408,7 +1391,6 @@ class ComparativeAnalysisManager {
 
             this.addresses = await window.db.getAddressesInMapArea(areaId);
             if (this.debugEnabled) {
-                console.log(`📍 ComparativeAnalysisManager: Загружено ${this.addresses.length} адресов в области ${areaId}`);
             }
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка загрузки адресов:', error);
@@ -1429,7 +1411,6 @@ class ComparativeAnalysisManager {
             }
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Открыто модальное окно объекта:', objectId);
             }
             
         } catch (error) {
@@ -1450,7 +1431,6 @@ class ComparativeAnalysisManager {
             }
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Открыто модальное окно объявления:', listingId);
             }
             
         } catch (error) {
@@ -1527,7 +1507,6 @@ class ComparativeAnalysisManager {
                 await this.selectObjectWithScroll(objectData.id);
                 
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: Выбран объект через клик на графике:', objectData.id);
                 }
             }
             
@@ -1545,7 +1524,6 @@ class ComparativeAnalysisManager {
             const objectBlock = document.querySelector(`[data-object-id="${objectId}"]`);
             if (!objectBlock) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: Блок объекта не найден для прокрутки:', objectId);
                 }
                 return;
             }
@@ -1554,7 +1532,6 @@ class ComparativeAnalysisManager {
             const objectsContainer = document.getElementById('objectsGrid');
             if (!objectsContainer) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ComparativeAnalysisManager: Контейнер объектов не найден для прокрутки');
                 }
                 return;
             }
@@ -1609,7 +1586,6 @@ class ComparativeAnalysisManager {
             }, 1000);
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Выполнена прокрутка к объекту:', objectId);
             }
             
         } catch (error) {
@@ -1627,7 +1603,6 @@ class ComparativeAnalysisManager {
                 // Дополнительная проверка видимости страницы
                 if (document.hidden) {
                     if (this.debugEnabled) {
-                        console.log('🔍 ComparativeAnalysisManager: Страница скрыта, пропускаем safeUpdateChart');
                     }
                     resolve();
                     return;
@@ -1649,7 +1624,6 @@ class ComparativeAnalysisManager {
      */
     async onPanelActivated() {
         if (this.debugEnabled) {
-            console.log('🔍 ComparativeAnalysisManager: Панель активирована');
         }
         
         // Небольшая задержка, чтобы убедиться что панель видима
@@ -1665,12 +1639,10 @@ class ComparativeAnalysisManager {
         if (document.hidden) {
             // Страница скрыта - останавливаем обновления графика
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Страница скрыта, приостанавливаем график');
             }
         } else {
             // Страница снова видна - можем обновить график если нужно
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Страница снова видна');
             }
             
             // Небольшая задержка перед обновлением
@@ -1693,7 +1665,6 @@ class ComparativeAnalysisManager {
             event.message && event.message.includes('getBoundingClientRect')) {
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Перехвачена ошибка ApexCharts, пытаемся восстановить график');
             }
             
             // Предотвращаем всплытие ошибки
@@ -1738,7 +1709,6 @@ class ComparativeAnalysisManager {
             localStorage.setItem(stateKey, JSON.stringify(state));
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Состояние сохранено', state);
             }
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка сохранения состояния:', error);
@@ -1779,7 +1749,6 @@ class ComparativeAnalysisManager {
             this.statusFilter = state.statusFilter || 'all';
             
             if (this.debugEnabled) {
-                console.log('🔍 ComparativeAnalysisManager: Состояние восстановлено', state);
             }
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка восстановления состояния:', error);
@@ -1804,7 +1773,6 @@ class ComparativeAnalysisManager {
         this.destroyChart();
         
         if (this.debugEnabled) {
-            console.log('🔍 ComparativeAnalysisManager: Ресурсы очищены');
         }
     }
 }

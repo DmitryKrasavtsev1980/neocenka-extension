@@ -55,7 +55,6 @@ class EventBus {
         this.events[event].push(listener);
         
         if (this.debug) {
-            console.log(`📡 EventBus: Subscribed to "${event}" (ID: ${listener.id})`);
         }
         
         // Возвращаем ID для возможности отписки
@@ -83,7 +82,6 @@ class EventBus {
         this.onceEvents[event].push(listener);
         
         if (this.debug) {
-            console.log(`📡 EventBus: Subscribed once to "${event}" (ID: ${listener.id})`);
         }
         
         return listener.id;
@@ -140,7 +138,6 @@ class EventBus {
         }
         
         if (this.debug && removed) {
-            console.log(`📡 EventBus: Unsubscribed from "${event}"`);
         }
         
         return removed;
@@ -163,7 +160,6 @@ class EventBus {
         }
         
         if (this.debug && removed) {
-            console.log(`📡 EventBus: Removed all listeners for "${event}"`);
         }
         
         return removed;
@@ -185,7 +181,6 @@ class EventBus {
         this.addToHistory(event, data, timestamp);
         
         if (this.debug) {
-            console.log(`📡 EventBus: Emitting "${event}"`, data);
         }
         
         let listenersCount = 0;
@@ -226,7 +221,6 @@ class EventBus {
         }
         
         if (this.debug) {
-            console.log(`📡 EventBus: "${event}" processed by ${listenersCount} listeners`);
         }
         
         return listenersCount;
@@ -242,7 +236,6 @@ class EventBus {
         this.addToHistory(event, data, timestamp);
         
         if (this.debug) {
-            console.log(`📡 EventBus: Emitting async "${event}"`, data);
         }
         
         const promises = [];
@@ -296,7 +289,6 @@ class EventBus {
             const results = await Promise.all(promises);
             
             if (this.debug) {
-                console.log(`📡 EventBus: Async "${event}" processed by ${promises.length} listeners`);
             }
             
             return results;

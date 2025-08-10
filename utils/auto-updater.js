@@ -13,14 +13,12 @@ class AutoUpdater {
      */
     async performFullAutoUpdate() {
         if (this.isUpdating) {
-            console.log('⏳ Обновление уже выполняется...');
             return;
         }
 
         this.isUpdating = true;
         
         try {
-            console.log('🚀 Запуск полностью автоматического обновления...');
             
             // 1. Показать прогресс
             this.showAutoUpdateProgress();
@@ -167,7 +165,6 @@ class AutoUpdater {
             document.body.removeChild(backupLink);
             URL.revokeObjectURL(backupUrl);
 
-            console.log('✅ Backup создан автоматически');
             
         } catch (error) {
             console.warn('⚠️ Ошибка создания backup:', error);
@@ -192,7 +189,6 @@ class AutoUpdater {
                 downloadLink.click();
                 document.body.removeChild(downloadLink);
                 
-                console.log('✅ ZIP файл скачан автоматически');
             }
             
             // Даем время на скачивание

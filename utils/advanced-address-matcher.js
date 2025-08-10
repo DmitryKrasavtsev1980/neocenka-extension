@@ -71,11 +71,9 @@ class AdvancedAddressMatcher {
         };
         
         const listingAddress = listing.address || '';
-        console.log(`🎯 Продвинутый поиск адреса для: "${listingAddress}" в координатах ${listingCoords.lat}, ${listingCoords.lng}`);
         
         // Предварительный анализ адреса
         const addressAnalysis = this.analyzeAddressStructure(listingAddress);
-        console.log(`📋 Анализ структуры адреса:`, addressAnalysis);
 
         // Этап 1: Очень точное географическое совпадение (20м)
         const exactMatches = this.findAddressesInRadius(addresses, listingCoords, this.config.exactRadius);

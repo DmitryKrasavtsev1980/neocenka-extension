@@ -48,7 +48,6 @@ class MLAddressAnalyzer {
      * Найти все объявления с неточным определением адреса
      */
     async findInaccuratelyMatchedListings() {
-        console.log('🔍 Ищем объявления с неточным определением адреса...');
         
         try {
             const allListings = await this.db.getListings();
@@ -75,17 +74,12 @@ class MLAddressAnalyzer {
                 );
             });
             
-            console.log(`📊 Найдено ${inaccurateListings.length} объявлений с неточным определением адреса из ${allListings.length} общих`);
             
             // Дополнительная статистика по типам проблем
             const noAddress = inaccurateListings.filter(l => !l.address_id).length;
             const lowConfidence = inaccurateListings.filter(l => l.address_match_confidence === 'low' || l.address_match_confidence === 'very_low').length;
             const farFromAddress = inaccurateListings.filter(l => l.address_distance && l.address_distance > 50).length;
             
-            console.log(`📈 Детализация проблем:`);
-            console.log(`   - Без адреса: ${noAddress}`);
-            console.log(`   - Низкая точность: ${lowConfidence}`);
-            console.log(`   - Далеко от адреса (>50м): ${farFromAddress}`);
             
             this.stats.processedListings = inaccurateListings.length;
             
@@ -101,10 +95,8 @@ class MLAddressAnalyzer {
      * Группировать объявления по схожести названий и координат
      */
     async groupSimilarListings(unresolvedListings) {
-        console.log('🧩 Группируем объявления по схожести...');
         
         if (!unresolvedListings || unresolvedListings.length === 0) {
-            console.log('⚠️ Нет объявлений для группировки');
             return [];
         }
         
@@ -131,7 +123,6 @@ class MLAddressAnalyzer {
                     group.push(candidateListing);
                     processed.add(candidateListing.id);
                     
-                    console.log(`✅ Добавлено в группу: "${candidateListing.title}" (схожесть: ${similarity.overall.toFixed(3)})`);
                 }
             }
             
@@ -144,11 +135,9 @@ class MLAddressAnalyzer {
                     characteristics: this.extractGroupCharacteristics(group)
                 });
                 
-                console.log(`🏠 Создана группа из ${group.length} объявлений`);
             }
         }
         
-        console.log(`📋 Создано ${groups.length} групп для анализа`);
         this.stats.foundGroups = groups.length;
         
         return groups;
@@ -414,12 +403,10 @@ class MLAddressAnalyzer {
      * Создать адреса из групп объявлений с предотвращением дублирования
      */
     async createAddressesFromGroups(groups) {
-        console.log('🏗️ Создаем адреса из групп объявлений...');
         
         // Сначала проанализируем группы и объединим близлежащие
         const consolidatedGroups = this.consolidateSimilarGroups(groups);
         
-        console.log(`📊 Объединено ${groups.length} групп в ${consolidatedGroups.length} уникальных адресов`);
         
         const createdAddresses = [];
         
@@ -432,7 +419,6 @@ class MLAddressAnalyzer {
                     // Привязываем объявления к новому адресу
                     await this.linkListingsToAddress(group.listings, newAddress.id);
                     
-                    console.log(`✅ Создан адрес: "${newAddress.address}" для ${group.listings.length} объявлений`);
                 }
             } catch (error) {
                 console.error('❌ Ошибка при создании адреса из группы:', error);
@@ -443,7 +429,6 @@ class MLAddressAnalyzer {
         this.stats.averageGroupSize = consolidatedGroups.length > 0 ? 
             consolidatedGroups.reduce((sum, g) => sum + g.listings.length, 0) / consolidatedGroups.length : 0;
         
-        console.log(`🎉 Создано ${createdAddresses.length} новых адресов`);
         
         return createdAddresses;
     }
@@ -452,7 +437,6 @@ class MLAddressAnalyzer {
      * Объединить похожие группы в один адрес для предотвращения дублирования
      */
     consolidateSimilarGroups(groups) {
-        console.log('🔄 Объединяем похожие группы для предотвращения дублирования...');
         
         const consolidatedGroups = [];
         const processed = new Set();
@@ -475,7 +459,6 @@ class MLAddressAnalyzer {
                 
                 // Проверяем, стоит ли объединять группы
                 if (this.shouldConsolidateGroups(currentGroup, candidateGroup)) {
-                    console.log(`🔗 Объединяем группы ${i + 1} и ${j + 1} (похожие адреса и близкие координаты)`);
                     
                     // Объединяем объявления
                     mergedGroup.listings.push(...candidateGroup.listings);
@@ -490,8 +473,6 @@ class MLAddressAnalyzer {
                 mergedGroup.characteristics = this.extractGroupCharacteristics(mergedGroup.listings);
                 mergedGroup.avgSimilarity = this.calculateAverageGroupSimilarity(mergedGroup.listings);
                 
-                console.log(`📊 Объединенная группа: ${mergedGroup.listings.length} объявлений`);
-                console.log(`📍 Новые координаты: ${mergedGroup.centroid.lat.toFixed(6)}, ${mergedGroup.centroid.lng.toFixed(6)}`);
             }
             
             consolidatedGroups.push(mergedGroup);
@@ -521,11 +502,6 @@ class MLAddressAnalyzer {
         const veryCloseDistance = distance < 50 && this.areFromSameStreet(address1, address2);
         
         if (highAddressSimilarity || veryCloseDistance) {
-            console.log(`🔍 Группы можно объединить:`);
-            console.log(`   Адрес 1: "${address1}"`);
-            console.log(`   Адрес 2: "${address2}"`);
-            console.log(`   Схожесть адресов: ${(addressSimilarity * 100).toFixed(1)}%`);
-            console.log(`   Расстояние: ${distance.toFixed(1)}м`);
             return true;
         }
         
@@ -611,11 +587,7 @@ class MLAddressAnalyzer {
         const savedAddress = await this.db.addAddress(newAddress);
         
         // Логируем создание адреса
-        console.log(`🏗️ Создан адрес: "${savedAddress.address}" (ID: ${savedAddress.id})`);
-        console.log(`📍 Координаты: ${centroid.lat.toFixed(6)}, ${centroid.lng.toFixed(6)}`);
-        console.log(`📊 Объявлений: ${characteristics.totalListings}`);
         if (characteristics.floorCounts) {
-            console.log(`🏢 Этажность: ${characteristics.floorCounts}`);
         }
         
         return savedAddress;
@@ -705,28 +677,24 @@ class MLAddressAnalyzer {
                 
                 await this.db.updateListing(updatedListing);
                 
-                console.log(`🔗 Объявление "${listing.title}" привязано к адресу ID ${addressId}`);
                 
             } catch (error) {
                 console.error(`❌ Ошибка при привязке объявления ${listing.id} к адресу ${addressId}:`, error);
             }
         }
         
-        console.log(`✅ Привязано ${listings.length} объявлений к адресу ID ${addressId}`);
     }
 
     /**
      * Основная функция анализа объявлений с неточным определением адреса
      */
     async analyzeInaccuratelyMatchedAddresses() {
-        console.log('🤖 Запуск ML-анализа объявлений с неточным определением адреса...');
         
         try {
             // 1. Находим объявления с неточным определением адреса
             const inaccurateListings = await this.findInaccuratelyMatchedListings();
             
             if (inaccurateListings.length === 0) {
-                console.log('✅ Все объявления имеют точно определенные адреса');
                 return {
                     success: true,
                     message: 'Нет объявлений с неточным определением адреса для анализа',
@@ -738,7 +706,6 @@ class MLAddressAnalyzer {
             const groups = await this.groupSimilarListings(inaccurateListings);
             
             if (groups.length === 0) {
-                console.log('⚠️ Не найдено групп для создания адресов');
                 return {
                     success: true,
                     message: 'Не найдено подходящих групп для создания адресов',

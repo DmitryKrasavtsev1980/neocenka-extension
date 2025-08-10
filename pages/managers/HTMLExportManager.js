@@ -12,7 +12,6 @@ class HTMLExportManager {
         try {
             this.debugEnabled = await this.isDebugEnabled();
             if (this.debugEnabled) {
-                console.log('🏗️ HTMLExportManager: Инициализирован');
             }
         } catch (error) {
             console.error('❌ Ошибка инициализации HTMLExportManager:', error);
@@ -37,7 +36,6 @@ class HTMLExportManager {
      */
     async debugLog(message, ...args) {
         if (this.debugEnabled) {
-            console.log(`🏗️ HTMLExportManager: ${message}`, ...args);
         }
     }
 
@@ -1430,7 +1428,6 @@ const reportData = ${JSON.stringify(exportData, (key, value) => {
 
 // Инициализация после загрузки DOM
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('🚀 Инициализация HTML-отчёта');
     
     // Инициализация компонентов
     initPanelControls();
@@ -1441,12 +1438,10 @@ document.addEventListener('DOMContentLoaded', function() {
     initMap();
     initModals();
     
-    console.log('✅ HTML-отчёт готов');
 });
 
 // Управление панелями
 function initPanelControls() {
-    console.log('🎛️ Инициализация управления панелями...');
     
     // Панель управления видимостью
     const panelControlsBtn = document.getElementById('panelControlsBtn');
@@ -1508,7 +1503,6 @@ function toggleSectionVisibility(sectionId, visible) {
 
 // Инициализация статистики
 function initStatistics() {
-    console.log('📈 Инициализация статистики...');
     
     try {
         const { area, addresses, segments, real_estate_objects, listings } = reportData;
@@ -1557,7 +1551,6 @@ function initStatistics() {
         updateElementText('export-areaName', area?.name || 'Не указано');
         updateElementText('export-reportDate', new Date().toLocaleDateString('ru-RU'));
         
-        console.log('✅ Статистика заполнена');
         
     } catch (error) {
         console.error('❌ Ошибка инициализации статистики:', error);
@@ -1601,7 +1594,6 @@ function calculatePolygonAreaApprox(coordinates) {
 
 // Заготовки методов инициализации
 function initDataTables() {
-    console.log('📊 Инициализация DataTables...');
     
     try {
         const tableElement = document.getElementById('duplicatesTable');
@@ -1744,7 +1736,6 @@ function initDataTables() {
             }
         });
 
-        console.log('✅ Таблица дублей инициализирована:', tableData.length, 'объектов');
 
     } catch (error) {
         console.error('❌ Ошибка инициализации DataTables:', error);
@@ -1752,7 +1743,6 @@ function initDataTables() {
 }
 
 function initCharts() {
-    console.log('📈 Инициализация графиков...');
     
     try {
         // Инициализируем каждый график
@@ -1760,7 +1750,6 @@ function initCharts() {
         initPriceChart();
         initMarketCorridorChart();
         
-        console.log('✅ Графики инициализированы');
     } catch (error) {
         console.error('❌ Ошибка инициализации графиков:', error);
     }
@@ -2044,7 +2033,6 @@ function renderMarketCorridorChart(mode) {
 
 // Инициализация сравнительного анализа
 function initComparativeAnalysis() {
-    console.log('🔍 Инициализация сравнительного анализа...');
     
     try {
         // Получаем элементы интерфейса
@@ -2196,7 +2184,6 @@ function initComparativeAnalysis() {
                 calculatePriceCorridors();
                 initComparativeChart();
                 
-                console.log('✅ Загружено объектов для анализа:', analysisState.currentObjects.length);
                 
             } catch (error) {
                 console.error('❌ Ошибка загрузки объектов для анализа:', error);
@@ -2666,7 +2653,6 @@ function initComparativeAnalysis() {
             startComparativeAnalysis();
         }
         
-        console.log('✅ Сравнительный анализ инициализирован');
         
     } catch (error) {
         console.error('❌ Ошибка инициализации сравнительного анализа:', error);
@@ -2674,7 +2660,6 @@ function initComparativeAnalysis() {
 }
 
 function initMap() {
-    console.log('🗺️ Инициализация карты...');
     
     try {
         const mapContainer = document.getElementById('reportMap');
@@ -3018,7 +3003,6 @@ function initMap() {
         window.reportMap = map;
         window.reportMapLayers = layerGroups;
         
-        console.log('✅ Карта инициализирована');
         
     } catch (error) {
         console.error('❌ Ошибка инициализации карты:', error);
@@ -3066,7 +3050,6 @@ function calculatePolygonBounds(polygon) {
 }
 
 function initModals() {
-    console.log('🖼️ Инициализация модальных окон...');
     
     // Закрытие модальных окон
     document.querySelectorAll('.close').forEach(closeBtn => {

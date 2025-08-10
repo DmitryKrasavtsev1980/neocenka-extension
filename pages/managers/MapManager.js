@@ -65,7 +65,6 @@ class MapManager {
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.AREA_UPDATED, async (data) => {
-                // console.log('🔄 MapManager: Получено событие AREA_UPDATED, обновляем карту и полигон');
                 const area = data.area || data;
                 await this.onAreaUpdated(area, data);
             });
@@ -81,7 +80,6 @@ class MapManager {
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.LISTINGS_IMPORTED, async (data) => {
-                // console.log('🔄 MapManager: Получено событие LISTINGS_IMPORTED, обновляем карту');
                 await this.loadListingsOnMap();
             });
             
@@ -151,7 +149,6 @@ class MapManager {
         
         // Если обновлен полигон, перерисовываем его и центрируем карту
         if (eventData.polygonImported || eventData.addressesImported || eventData.polygonChanged) {
-            // console.log('🗺️ MapManager: Обновляем полигон и центрируем карту');
             this.displayAreaPolygon();
             this.centerOnArea();
         }
@@ -317,7 +314,6 @@ class MapManager {
             this.areaPolygonLayer.addTo(this.map);
         }
         
-        // console.log('🔄 Контроллер слоев обновлен');
     }
     
     /**
@@ -628,7 +624,6 @@ class MapManager {
                 filteredAddresses = GeometryUtils.getAddressesInMapArea(allAddresses, currentArea);
                 await Helpers.debugLog(`🎯 Фильтрация по полигону: ${allAddresses.length} -> ${filteredAddresses.length} адресов`);
             } else {
-                console.log(`⚠️ MapManager: Фильтрация по полигону пропущена - нет полигона области`);
             }
             
             // ОПТИМИЗАЦИЯ 2: Фильтрация по видимой области карты (viewport filtering) - ВРЕМЕННО ОТКЛЮЧЕНА
@@ -637,7 +632,6 @@ class MapManager {
             // if (this.map && this.map.getZoom() >= 14 && filteredAddresses.length > 100) {
             //     const bounds = this.map.getBounds();
             //     visibleAddresses = this.filterAddressesByViewport(filteredAddresses, bounds);
-            //     console.log(`👁️ MapManager: Viewport фильтрация: ${filteredAddresses.length} -> ${visibleAddresses.length} адресов (zoom: ${this.map.getZoom()})`);
             // }
             
             // Показываем все адреса без ограничений
@@ -717,8 +711,6 @@ class MapManager {
         try {
             const listings = this.dataState.getState('listings') || [];
             
-            // console.log('🗺️ MapManager: Начинаем загрузку объявлений на карту');
-            // console.log('📊 MapManager: Получено объявлений из DataState:', listings.length);
             
             // Очищаем предыдущие маркеры
             this.mapLayers.listings.clearLayers();
@@ -728,28 +720,22 @@ class MapManager {
             
             if (listings.length === 0) {
                 await Helpers.debugLog('📋 Нет объявлений для отображения на карте');
-                // console.log('⚠️ MapManager: Объявления отсутствуют в DataState');
                 return;
             }
             
             const markers = [];
             
             listings.forEach((listing, index) => {
-                //// console.log(`🔍 MapManager: Обрабатываем объявление ${index + 1}:`, listing.title, listing.coordinates);
                 if (listing.coordinates && listing.coordinates.lat && listing.coordinates.lng) {
                     const marker = this.createListingMarker(listing);
                     markers.push(marker);
-                    //// console.log(`✅ MapManager: Создан маркер для объявления:`, listing.title);
                 } else {
-                    // console.log(`⚠️ MapManager: Пропущено объявление без координат:`, listing.title);
                 }
             });
             
-            // console.log('📊 MapManager: Создано маркеров:', markers.length);
             
             // Если объявлений много, используем кластеризацию
             if (listings.length > 20) {
-                // console.log('🔗 MapManager: Используем кластеризацию для', listings.length, 'объявлений');
                 // Создаем кластер если его еще нет
                 if (!this.listingsCluster) {
                     this.listingsCluster = new MarkerCluster(this.map, {
@@ -759,35 +745,27 @@ class MapManager {
                         spiderfyOnMaxZoom: true,
                         animate: true
                     });
-                    // console.log('✅ MapManager: Кластер объявлений создан');
                 }
                 this.listingsCluster.addMarkers(markers);
-                // console.log('✅ MapManager: Маркеры добавлены в кластер');
                 
                 // Проверяем, включен ли слой объявлений
                 const layerEnabled = this.map.hasLayer(this.mapLayers.listings);
-                // console.log('🔍 MapManager: Слой объявлений включен:', layerEnabled);
                 
                 // Скрываем кластер объявлений по умолчанию если слой выключен
                 if (!layerEnabled) {
                     this.map.removeLayer(this.listingsCluster.markerLayer);
                     this.map.removeLayer(this.listingsCluster.clusterLayer);
-                    // console.log('⚠️ MapManager: Кластер скрыт (слой выключен)');
                 } else {
-                    // console.log('✅ MapManager: Кластер отображен (слой включен)');
                 }
                 await Helpers.debugLog(`📋 Загружено ${listings.length} объявлений на карту с кластеризацией`);
             } else {
-                // console.log('📍 MapManager: Добавляем', markers.length, 'маркеров напрямую в слой');
                 // Для небольшого количества объявлений добавляем прямо на карту
                 markers.forEach((marker, index) => {
                     this.mapLayers.listings.addLayer(marker);
-                    // console.log(`✅ MapManager: Маркер ${index + 1} добавлен в слой`);
                 });
                 
                 // Проверяем, добавлен ли слой на карту
                 const layerOnMap = this.map.hasLayer(this.mapLayers.listings);
-                // console.log('🔍 MapManager: Слой объявлений на карте:', layerOnMap);
                 
                 await Helpers.debugLog(`📋 Загружено ${listings.length} объявлений на карту`);
             }
@@ -1677,7 +1655,6 @@ class MapManager {
         // Перерисовываем маркеры с новой информацией
         this.refreshAddressMarkers();
         
-        // console.log(`🗺️ MapManager: Установлен фильтр карты: ${filterType}`);
     }
     
     /**
@@ -1714,7 +1691,6 @@ class MapManager {
             }
         });
         
-        // console.log(`🎯 MapManager: Подсвечена кнопка фильтра: ${activeButtonId} (${activeFilter})`);
     }
     
     /**
@@ -1726,7 +1702,6 @@ class MapManager {
             // TODO: В будущем можно оптимизировать обновление существующих маркеров
             await this.loadAddressesOnMap();
             
-            // console.log(`🔄 MapManager: Маркеры адресов обновлены`);
             
         } catch (error) {
             console.error('MapManager: Ошибка обновления маркеров адресов:', error);
@@ -1751,7 +1726,6 @@ class MapManager {
                             this.addressesCluster.markerLayer.removeLayer(marker);
                         }
                         found = true;
-                        console.log('🗑️ Адрес удален из кластера:', address.id);
                     }
                 });
             }
@@ -1762,7 +1736,6 @@ class MapManager {
                     if (marker.addressData && marker.addressData.id === address.id) {
                         this.mapLayers.addresses.removeLayer(marker);
                         found = true;
-                        console.log('🗑️ Адрес удален из слоя:', address.id);
                     }
                 });
             }
@@ -1824,7 +1797,6 @@ class MapManager {
     editAddress(address) {
         // Отправляем событие для открытия модального окна редактирования адреса
         this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_EDIT_REQUESTED, address);
-        // console.log('🖊️ MapManager: Запрошено редактирование адреса:', address.id);
     }
     
     /**
@@ -1835,7 +1807,6 @@ class MapManager {
             try {
                 await window.db.delete('addresses', address.id);
                 
-                // console.log('🗑️ MapManager: Адрес удален из БД:', address.id);
                 
                 // Простое решение - полная перезагрузка карты и таблицы
                 await this.loadAddressesOnMap();
@@ -1846,7 +1817,6 @@ class MapManager {
                     timestamp: new Date()
                 });
                 
-                // console.log('✅ MapManager: Карта и таблица обновлены после удаления');
                 
             } catch (error) {
                 console.error('MapManager: Ошибка удаления адреса:', error);
@@ -1898,7 +1868,6 @@ class MapManager {
             modalType: CONSTANTS.MODAL_TYPES.LISTING_DETAIL,
             listing: listing
         });
-        // console.log('👁️ MapManager: Запрошен просмотр деталей объявления:', listing.id);
     }
     
     /**
@@ -1907,7 +1876,6 @@ class MapManager {
     openListing(url) {
         if (url) {
             chrome.tabs.create({ url: url });
-            // console.log('🔗 MapManager: Открыто объявление:', url);
         }
     }
     
@@ -1926,7 +1894,6 @@ class MapManager {
                 this.eventBus.emit(CONSTANTS.EVENTS.LISTING_DELETED, { listing });
                 this.progressManager.showSuccess('Объявление удалено');
                 
-                // console.log('🗑️ MapManager: Объявление удалено:', listing.title);
             } catch (error) {
                 console.error('❌ Ошибка удаления объявления:', error);
                 this.progressManager.showError('Ошибка удаления объявления');
@@ -1951,7 +1918,6 @@ class MapManager {
                             this.listingsCluster.markerLayer.removeLayer(marker);
                         }
                         found = true;
-                        console.log('🗑️ Объявление удалено из кластера:', listing.id);
                     }
                 });
             }
@@ -1962,7 +1928,6 @@ class MapManager {
                     if (marker.options.listingData && marker.options.listingData.id === listing.id) {
                         this.mapLayers.listings.removeLayer(marker);
                         found = true;
-                        console.log('🗑️ Объявление удалено из слоя:', listing.id);
                     }
                 });
             }
@@ -2226,7 +2191,6 @@ class MapManager {
         // Проверяем, что с последнего обновления прошло достаточно времени (throttling)
         const now = Date.now();
         if (this.lastUpdateTime && (now - this.lastUpdateTime) < 1000) {
-            console.log(`⏸️ MapManager: Throttling - игнорируем обновление (прошло ${now - this.lastUpdateTime}ms)`);
             return; // Игнорируем слишком частые обновления
         }
         
@@ -2239,7 +2203,6 @@ class MapManager {
             // Обновляем маркеры только при изменении зума (не при перемещении)
             // if (zoom >= 14) {
             //     this.lastUpdateTime = Date.now();
-            //     console.log(`🔄 MapManager: Viewport обновление на zoom ${zoom}`);
             //     await Helpers.debugLog(`🔄 Viewport обновление на zoom ${zoom}`);
             //     await this.loadAddressesOnMap();
             // }

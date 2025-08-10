@@ -22,12 +22,10 @@ class RealEstateObjectManager {
     
     // Проверяем, что база данных инициализирована
     if (!this.databaseManager.db) {
-      console.log('🔄 Инициализация базы данных для RealEstateObjectManager...');
       await this.databaseManager.init();
     }
     
     this.initialized = true;
-    // console.log('🏠 RealEstateObjectManager инициализирован');
   }
 
   /**
@@ -97,9 +95,7 @@ class RealEstateObjectManager {
       );
       await Promise.all(deletePromises);
 
-      console.log(`🏠 Создан объект недвижимости ID: ${savedObject.id} из ${allListings.length} объявлений`);
       if (objectsToDelete.length > 0) {
-        console.log(`🗑️ Удалено ${objectsToDelete.length} старых объектов`);
       }
 
       return savedObject;
@@ -146,8 +142,6 @@ class RealEstateObjectManager {
       );
       await Promise.all(deletePromises);
 
-      console.log(`🔄 Разбито ${objectIds.length} объектов на ${totalListings.length} объявлений`);
-      console.log(`📝 Всем объявлениям установлен статус "duplicate_check_needed"`);
 
       return {
         deletedObjectsCount: objectIds.length,
@@ -198,14 +192,12 @@ class RealEstateObjectManager {
       if (remainingListings.length === 0) {
         // Если объявлений не осталось, удаляем объект
         await this.databaseManager.delete('objects', objectId);
-        console.log(`🏠 Удален объект недвижимости ID: ${objectId} (нет связанных объявлений)`);
         return { objectDeleted: true, remainingListings: 0 };
       } else {
         // Пересчитываем характеристики объекта
         const updatedObject = new RealEstateObjectModel(realEstateObject);
         await updatedObject.recalculateFromListings(remainingListings);
         await this.databaseManager.update('objects', updatedObject);
-        console.log(`🏠 Обновлен объект недвижимости ID: ${objectId}, осталось ${remainingListings.length} объявлений`);
         return { objectDeleted: false, remainingListings: remainingListings.length };
       }
 
@@ -245,7 +237,6 @@ class RealEstateObjectManager {
       if (relatedListings.length === 0) {
         // Если объявлений не осталось, удаляем объект
         await this.databaseManager.delete('objects', objectId);
-        console.log(`🏠 Удален объект недвижимости ID: ${objectId} (нет связанных объявлений)`);
         return;
       }
 
@@ -254,7 +245,6 @@ class RealEstateObjectManager {
       await updatedObject.recalculateFromListings(relatedListings);
       await this.databaseManager.update('objects', updatedObject);
 
-      console.log(`🏠 Обновлен объект недвижимости ID: ${objectId} после изменения объявления ${listingId}`);
 
     } catch (error) {
       console.error('❌ Ошибка обновления объекта недвижимости:', error);

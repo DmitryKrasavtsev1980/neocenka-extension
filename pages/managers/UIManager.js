@@ -118,7 +118,6 @@ class UIManager {
      */
     async debugLog(message, ...args) {
         if (await this.isDebugEnabled()) {
-            console.log(message, ...args);
         }
     }
     
@@ -145,13 +144,11 @@ class UIManager {
             
             
             this.eventBus.on(CONSTANTS.EVENTS.AREA_UPDATED, async (area) => {
-                // console.log('🔄 UIManager: Получено событие AREA_UPDATED, обновляем статистику и графики');
                 await this.updateAreaStatistics();
                 
                 // Принудительно обновляем графики после обновления статистики
                 setTimeout(async () => {
                     try {
-                        // console.log('📊 UIManager: Принудительное обновление графиков после AREA_UPDATED');
                         await this.updateSourcesChart();
                         await this.updateAddressAnalyticsCharts();
                     } catch (error) {
@@ -289,7 +286,6 @@ class UIManager {
             });
         });
         
-        // console.log('✅ UIManager: Привязано обработчиков кнопок закрытия:', closeButtons.length);
     }
 
     /**
@@ -374,7 +370,6 @@ class UIManager {
         const titleElement = document.getElementById('areaTitle');
         if (titleElement) {
             titleElement.textContent = area.name;
-            // console.log('✅ UIManager: Название области обновлено:', area.name);
         } else {
             console.error('❌ UIManager: Элемент areaTitle не найден');
         }
@@ -398,9 +393,6 @@ class UIManager {
         const content = document.getElementById(config.content);
         const chevron = document.getElementById(config.chevron);
         
-        // console.log(`🔍 UIManager: Элементы панели "${panelName}":`); 
-        console.log(`   - content (#${config.content}):`, content ? 'найден' : 'НЕ НАЙДЕН');
-        console.log(`   - chevron (#${config.chevron}):`, chevron ? 'найден' : 'НЕ НАЙДЕН');
         
         if (!content || !chevron) {
             console.error(`❌ UIManager: Не найдены необходимые элементы для панели "${panelName}"`);
@@ -410,8 +402,6 @@ class UIManager {
         const currentState = this.uiState.panels[panelName];
         const isExpanded = currentState.expanded;
         
-        // console.log(`📊 UIManager: Текущее состояние панели "${panelName}":`, currentState);
-        // console.log(`🔄 UIManager: isExpanded = ${isExpanded} -> ${!isExpanded}`);
         
         // Очищаем все inline стили display
         content.style.display = '';
@@ -421,18 +411,15 @@ class UIManager {
             // Сворачиваем панель
             content.classList.add('hidden');
             chevron.style.transform = 'rotate(-90deg)';
-            // console.log(`➡️ UIManager: Сворачиваем панель "${panelName}" - добавили 'hidden'`);
         } else {
             // Разворачиваем панель
             content.classList.remove('hidden');
             chevron.style.transform = 'rotate(0deg)';
-            // console.log(`⬇️ UIManager: Разворачиваем панель "${panelName}" - убрали 'hidden'`);
         }
         
         // Обновляем состояние
         this.uiState.panels[panelName].expanded = !isExpanded;
         
-        // console.log(`💾 UIManager: Новое состояние панели "${panelName}":`, this.uiState.panels[panelName]);
         
         // Сохраняем состояние
         this.savePanelState(panelName);
@@ -444,10 +431,8 @@ class UIManager {
                 expanded: !isExpanded,
                 timestamp: new Date()
             });
-            // console.log(`📡 UIManager: Событие PANEL_TOGGLED отправлено для "${panelName}"`);
         }
         
-        // console.log(`✅ UIManager: Переключение панели "${panelName}" завершено`);
     }
     
     // Новая простая система управления панелями
@@ -456,7 +441,6 @@ class UIManager {
      * Простое переключение панели
      */
     simpleTogglePanel(panelName, contentId, chevronId) {
-        // console.log(`🔵 UIManager: Простое переключение панели "${panelName}"`);
         
         const content = document.getElementById(contentId);
         const chevron = document.getElementById(chevronId);
@@ -467,15 +451,9 @@ class UIManager {
         }
         
         // Диагностика CSS перед изменениями
-        // console.log(`🔍 UIManager: ПЕРЕД изменением панели "${panelName}":`);
-        // console.log(`   - content.classList: ${content.className}`);
-        // console.log(`   - content.style.display: "${content.style.display}"`);
-        // console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
-        // console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
         
         // Очищаем любые inline стили display, которые могут конфликтовать с CSS классами
         if (content.style.display) {
-            // console.log(`⚠️ UIManager: Обнаружен inline стиль display: "${content.style.display}", очищаем`);
             content.style.removeProperty('display');
         }
         
@@ -487,7 +465,6 @@ class UIManager {
             content.classList.remove('hidden');
             chevron.style.transform = 'rotate(0deg)';
             this.saveSimplePanelState(panelName, true);
-            // console.log(`⬇️ UIManager: Панель "${panelName}" развернута`);
             
             // Уведомляем о развертывании панели (для карты и других компонентов)
             if (this.eventBus) {
@@ -502,7 +479,6 @@ class UIManager {
             content.classList.add('hidden');
             chevron.style.transform = 'rotate(-90deg)';
             this.saveSimplePanelState(panelName, false);
-            // console.log(`➡️ UIManager: Панель "${panelName}" свернута`);
             
             // Уведомляем о сворачивании панели
             if (this.eventBus) {
@@ -515,11 +491,6 @@ class UIManager {
         }
         
         // Диагностика CSS после изменений
-        // console.log(`🔍 UIManager: ПОСЛЕ изменения панели "${panelName}":`);
-        // console.log(`   - content.classList: ${content.className}`);
-        // console.log(`   - content.style.display: "${content.style.display}"`);
-        // console.log(`   - computed display: "${window.getComputedStyle(content).display}"`);
-        // console.log(`   - chevron.style.transform: "${chevron.style.transform}"`);
     }
     
     /**
@@ -531,7 +502,6 @@ class UIManager {
         
         const stateKey = `simple_panel_${panelName}_${currentArea.id}`;
         localStorage.setItem(stateKey, isExpanded ? 'expanded' : 'collapsed');
-        // console.log(`💾 UIManager: Простое состояние панели "${panelName}" сохранено: ${isExpanded ? 'expanded' : 'collapsed'}`);
     }
     
     /**
@@ -592,7 +562,6 @@ class UIManager {
      * Инициализация панелей по умолчанию
      */
     initializePanelsDefaults() {
-        console.log('🏁 Инициализация панелей по умолчанию...');
         
         // Все панели на странице (включая addressTable)
         const panelMappings = [
@@ -609,7 +578,6 @@ class UIManager {
             const chevron = document.getElementById(panel.chevron);
             
             if (!content || !chevron) {
-                console.log(`⚠️ Элементы панели ${panel.name} не найдены, пропускаем`);
                 return;
             }
             
@@ -617,10 +585,8 @@ class UIManager {
             content.classList.add('hidden');
             chevron.style.transform = 'rotate(-90deg)';
             
-            console.log(`✅ Панель ${panel.name} инициализирована как скрытая`);
         });
         
-        console.log('✅ Инициализация панелей завершена');
     }
     
     /**
@@ -637,7 +603,6 @@ class UIManager {
         const stateKey = `panel_${panelName}_${currentArea.id}`;
         
         localStorage.setItem(stateKey, JSON.stringify(state));
-        // console.log(`💾 UIManager: Состояние панели "${panelName}" сохранено: ${stateKey} = ${JSON.stringify(state)}`);
     }
     
     /**
@@ -662,7 +627,6 @@ class UIManager {
                 }
             });
             
-            // console.log('✅ UIManager: Переключатели панелей инициализированы');
             
         } catch (error) {
             console.error('❌ UIManager: Ошибка инициализации переключателей панелей:', error);
@@ -703,7 +667,6 @@ class UIManager {
                 state: this.uiState.panels[panelName]
             });
             
-            // console.log(`👁️ UIManager: Панель "${panelName}" ${visible ? 'показана' : 'скрыта'}`);
             
         } catch (error) {
             console.error(`❌ UIManager: Ошибка переключения панели "${panelName}":`, error);
@@ -714,14 +677,12 @@ class UIManager {
      * Открытие модального окна
      */
     async openModal(modalName, options = {}) {
-        // console.log(`🔓 UIManager: Открываем модальное окно "${modalName}"`);
         const modal = document.getElementById(modalName);
         if (!modal) {
             console.error(`❌ UIManager: Модальное окно "${modalName}" не найдено`);
             return;
         }
         
-        // console.log(`✅ UIManager: Модальное окно "${modalName}" найдено, показываем...`);
         
         // Специальная обработка для модального окна объекта - заполняем контент ДО показа
         if (modalName === 'objectModal' && options.objectData) {
@@ -801,7 +762,6 @@ class UIManager {
                 // Инициализируем карту объекта (требует видимого контейнера)
                 if (duplicatesManager && duplicatesManager.renderObjectMap) {
                     duplicatesManager.renderObjectMap(realEstateObject);
-                    // console.log('🗺️ Карта объекта инициализирована...
                 }
                 
                 // Очищаем временные данные
@@ -821,7 +781,6 @@ class UIManager {
      * Закрытие модального окна
      */
     closeModal(modalName) {
-        // console.log(`🔒 UIManager: Закрываем модальное окно "${modalName}"`);
         const modal = document.getElementById(modalName);
         if (!modal) {
             console.error(`❌ UIManager: Модальное окно "${modalName}" не найдено`);
@@ -851,7 +810,6 @@ class UIManager {
      */
     handleModalOpen(data) {
         try {
-            // console.log('🔓 UIManager: Обрабатываем запрос на открытие модального окна:', data);
             
             switch (data.modalType) {
                 case CONSTANTS.MODAL_TYPES.LISTING_DETAIL:
@@ -888,7 +846,6 @@ class UIManager {
      */
     async populateListingModal(modal, listing) {
         try {
-            // console.log('📋 UIManager: Заполняем модальное окно данными объявления:', listing);
             
             // Загружаем свежие данные из базы данных
             const freshListing = await window.db.getListing(listing.id);
@@ -929,7 +886,6 @@ class UIManager {
                 const debugEnabled = await this.isDebugEnabled();
                 
                 if (debugEnabled) {
-                    console.log('🚀 Инициализация компонентов модального окна для объявления:', dataToUse.id);
                 }
                 
                 // Инициализируем галерею Fotorama
@@ -937,7 +893,6 @@ class UIManager {
                 if (galleryElement && window.$ && $.fn.fotorama) {
                     $(galleryElement).fotorama();
                     if (debugEnabled) {
-                        console.log('📸 Fotorama инициализирован для объявления:', dataToUse.id);
                     }
                 }
                 
@@ -1018,7 +973,6 @@ class UIManager {
                 this.initializeImageErrorHandling(modal);
                 
                 if (debugEnabled) {
-                    console.log('✅ Все компоненты модального окна инициализированы для объявления:', dataToUse.id);
                 }
                 
             }, 100);
@@ -1033,7 +987,6 @@ class UIManager {
      */
     async populateObjectModal(modal, objectData) {
         try {
-            // console.log('🏠 UIManager: Заполняем модальное окно данными объекта:', objectData);
             
             const { realEstateObject, objectListings, duplicatesManager } = objectData;
             
@@ -1084,7 +1037,6 @@ class UIManager {
                 realEstateObject
             };
             
-            // console.log('✅ Базовые компоненты модального окна...
             
         } catch (error) {
             console.error('❌ UIManager: Ошибка заполнения модального окна объекта:', error);
@@ -1165,8 +1117,6 @@ class UIManager {
         // Обрабатываем фотографии
         const photos = this.getListingPhotos(listing);
         
-        // console.log(`📸 Объявление ${listing.id}: найдено фотографий: ${photos.length}`);
-        // console.log('📸 Поля с фотографиями в объявлении:', {
         //     photos: listing.photos,
         //     images: listing.images,
         //     photo_urls: listing.photo_urls,
@@ -1731,7 +1681,6 @@ class UIManager {
             const tableData = this.preparePriceHistoryTableData(listing);
             
             if (debugEnabled) {
-                console.log(`🔧 Инициализация таблицы истории цен для объявления ${listingId}:`, tableData.length, 'записей');
             }
 
             // Инициализируем DataTable только если jQuery и DataTable доступны
@@ -1847,7 +1796,6 @@ class UIManager {
             const debugEnabled = await this.isDebugEnabled();
             
             if (debugEnabled) {
-                console.log('💾 Сохранение истории цен для объявления:', listingId);
             }
             
             // Получаем объявление из базы данных
@@ -1881,7 +1829,6 @@ class UIManager {
                 await window.db.updateListing(listing);
                 
                 if (debugEnabled) {
-                    console.log(`💰 Цена объявления обновлена: ${oldPrice} → ${latestPrice}`);
                 }
             }
 
@@ -1895,7 +1842,6 @@ class UIManager {
             if (listing.object_id && window.realEstateObjectManager) {
                 await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, listing);
                 if (debugEnabled) {
-                    console.log('🏠 Объект недвижимости обновлен после изменения истории цен');
                 }
             }
 
@@ -1903,7 +1849,6 @@ class UIManager {
             if (this.eventBus) {
                 this.eventBus.emit('refreshDuplicatesTable');
                 if (debugEnabled) {
-                    console.log('📊 Событие обновления таблицы дублей отправлено');
                 }
             }
             
@@ -1915,7 +1860,6 @@ class UIManager {
             });
             
             if (debugEnabled) {
-                console.log('✅ История цен обновлена для объявления:', listingId);
             }
         } catch (error) {
             console.error('❌ Ошибка сохранения истории цен:', error);
@@ -1938,7 +1882,6 @@ class UIManager {
             let listing = await window.db.getListing(listingId);
             if (!listing) {
                 if (debugEnabled) {
-                    console.log('🗺️ Объявление не найдено в БД для карты:', listingId);
                 }
                 mapContainer.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Объявление не найдено</div>';
                 return;
@@ -2450,7 +2393,6 @@ class UIManager {
      */
     restoreUIState() {
         const currentArea = this.dataState.getState('currentArea');
-        // console.log('🔄 UIManager: Восстановление общего состояния UI для области:', currentArea?.id);
         
         if (!currentArea) {
             console.warn('⚠️ UIManager: Область не найдена в dataState для восстановления UI');
@@ -2459,15 +2401,12 @@ class UIManager {
         
         const stateKey = `ui-state_${currentArea.id}`;
         const savedState = localStorage.getItem(stateKey);
-        // console.log(`🔍 UIManager: Общее состояние UI - ключ: "${stateKey}", значение:`, savedState);
         
         if (savedState) {
             try {
                 const state = JSON.parse(savedState);
-                // console.log('✅ UIManager: Общее состояние UI восстановлено:', state);
                 
                 // Общее состояние UI восстановлено (панели управляются отдельно)
-                // console.log('✅ UIManager: Общее состояние UI применено');
                 
                 // Восстанавливаем тему
                 if (state.theme) {
@@ -2481,7 +2420,6 @@ class UIManager {
                 return null;
             }
         } else {
-            // console.log('💡 UIManager: Общее состояние UI не найдено, используем значения по умолчанию');
             return null;
         }
     }
@@ -2498,7 +2436,6 @@ class UIManager {
             const filteredListings = this.dataState.getState('listings') || [];
             
             if (debugEnabled) {
-                console.log(`📊 UIManager: Получено объявлений из DataState: ${filteredListings.length} (статистика области - без фильтров сегментов)`);
             }
             
             return filteredListings;
@@ -2518,7 +2455,6 @@ class UIManager {
             
             if (!this.dataState.currentArea) {
                 if (debugEnabled) {
-                    // console.log('⚠️ UIManager: Нет данных области для обновления графика источников');
                 }
                 return;
             }
@@ -2527,16 +2463,12 @@ class UIManager {
             const currentArea = this.dataState.currentArea;
             
             if (debugEnabled) {
-                console.log(`📊 updateSourcesChart: currentArea =`, currentArea);
-                console.log(`📊 updateSourcesChart: полигон области:`, currentArea?.polygon);
             }
             
             const listings = await this.getListingsInArea(currentArea);
             
             if (debugEnabled) {
-                console.log(`📊 Обновление графика источников: ${listings.length} объявлений в области`);
                 if (listings.length > 0) {
-                    console.log(`📊 Первые 3 объявления для графика:`, listings.slice(0, 3));
                 }
             }
             
@@ -2589,7 +2521,6 @@ class UIManager {
             });
             
             if (debugEnabled) {
-                console.log('📊 Источники объявлений:', sourceCounts);
             }
             
             // Подготавливаем данные для графика
@@ -2617,16 +2548,12 @@ class UIManager {
             });
             
             if (debugEnabled) {
-                console.log('📊 Данные для графика источников:', chartData);
-                console.log('📊 Данные для таблицы источников:', tableData);
             }
             
             // Создаем/обновляем график
-//             // console.log('🎨 UIManager: Вызываем renderSourcesChart с данными:', chartData.length, 'элементов');
             await this.renderSourcesChart(chartData, colors);
             
             // Обновляем таблицу
-            // console.log('📋 UIManager: Обновляем таблицу источников с данными:', tableData.length, 'элементов');
             this.updateSourcesTable(tableData);
             
         } catch (error) {
@@ -2644,9 +2571,6 @@ class UIManager {
             return;
         }
         
-//         console.log('📊 renderSourcesChart вызван с данными:', data, 'цвета:', colors);
-//         console.log('🔍 renderSourcesChart: Элемент sourcesChart найден:', !!chartElement);
-//         console.log('🔍 renderSourcesChart: Данные для графика:', data.length, 'элементов');
         
         // Если график уже существует, уничтожаем его
         if (this.sourcesChartInstance) {
@@ -2725,7 +2649,6 @@ class UIManager {
         try {
             this.sourcesChartInstance = new ApexCharts(chartElement, options);
             await this.sourcesChartInstance.render();
-            // console.log('✅ UIManager: График источников успешно создан');
         } catch (error) {
             console.error('❌ UIManager: Ошибка создания/рендеринга графика источников:', error);
             chartElement.innerHTML = '<div class="flex items-center justify-center h-full text-red-500">Ошибка создания графика источников</div>';
@@ -2770,7 +2693,6 @@ class UIManager {
             
             if (!this.dataState.currentArea) {
                 if (debugEnabled) {
-                    // console.log('⚠️ UIManager: Нет данных области для обновления графиков адресов');
                 }
                 return;
             }
@@ -2781,7 +2703,6 @@ class UIManager {
             const addresses = await window.db.getAddressesInMapArea(areaId);
             
             if (debugEnabled) {
-                console.log(`📊 UIManager: Обновление графиков адресов: ${addresses.length} адресов в области (статистика области - без фильтров сегментов)`);
             }
             
             // Обновляем график точности определения
@@ -3109,14 +3030,8 @@ class UIManager {
             let totalListingsCount = Math.max(addressLinkedListingsCount, filteredListings.length);
             
             // Всегда выводим отладочную информацию для диагностики
-            // console.log(`🔍 UIManager.updateAreaStatistics: DataState содержит ${filteredListings.length} объявлений`);
-            // console.log(`🔍 UIManager.updateAreaStatistics: Объявлений через адреса: ${addressLinkedListingsCount}`);
-            // console.log(`🔍 UIManager.updateAreaStatistics: Итоговый счетчик: ${totalListingsCount}`);
             
             if (debugEnabled) {
-                // console.log(`📊 UIManager: Объявлений из DataState: ${filteredListings.length}`);
-                // console.log(`📊 UIManager: Объявлений через адреса: ${addressLinkedListingsCount}`);
-                // console.log(`📊 UIManager: Итоговый счетчик: ${totalListingsCount}`);
             }
             
             // Получаем сегменты
@@ -3180,7 +3095,6 @@ class UIManager {
                     objectsCount = objectsArrays.flat().length;
                 } catch (error) {
                     if (debugEnabled) {
-                        // console.log('⚠️ UIManager: Метод getObjectsByAddress недоступен, объекты = 0');
                     }
                     objectsCount = 0;
                 }
@@ -3195,7 +3109,6 @@ class UIManager {
             });
             
             if (debugEnabled) {
-                console.log('✅ UIManager: Статистика области обновлена:', {
                     areaSize,
                     addresses: addresses?.length || 0,
                     objects: objectsCount,
@@ -3268,7 +3181,6 @@ class UIManager {
             // Сохраняем выбранный таб
             localStorage.setItem('dataWorkActiveTab', tabId);
             
-            // console.log(`✅ UIManager: Переключен таб на "${tabId}"`);
         } else {
             console.warn(`UIManager: Не найдены элементы для таба "${tabId}"`);
         }
@@ -3293,7 +3205,6 @@ class UIManager {
         const activeTab = localStorage.getItem('dataWorkActiveTab') || 'import-addresses';
         this.switchDataWorkTab(activeTab);
         
-        // console.log('✅ UIManager: Табы панели работы с данными инициализированы');
     }
     
     /**
@@ -3701,7 +3612,6 @@ class UIManager {
             const historyItem = listing.price_history[index];
             const price = historyItem.new_price || historyItem.price;
             
-            console.log(`🔍 Редактирование записи ${index}:`, {
                 price: price,
                 date: historyItem.date,
                 historyItem: historyItem
@@ -3766,10 +3676,8 @@ class UIManager {
                 // Обновляем объект недвижимости, если объявление связано с объектом
                 if (listing.object_id && window.realEstateObjectManager) {
                     await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, listing);
-                    console.log('🏠 Объект недвижимости обновлен после удаления записи цены');
                 }
                 
-                console.log(`🗑️ Запись цены ${index} удалена для объявления ${listingId}`);
                 
                 // Показываем уведомление
                 this.showNotification({
@@ -3803,7 +3711,6 @@ class UIManager {
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea) {
                 if (debugEnabled) {
-                    console.log('⚠️ Текущая область не найдена для загрузки адресов');
                 }
                 return;
             }
@@ -3845,7 +3752,6 @@ class UIManager {
             this[`addressSlimSelect_${listingId}`] = slimSelect;
             
             if (debugEnabled) {
-                console.log(`📍 Загружено ${addresses.length} адресов в выпадающий список для объявления ${listingId}`);
             }
             
         } catch (error) {
@@ -3880,7 +3786,6 @@ class UIManager {
                 this[`statusSlimSelect_${listingId}`] = statusSlimSelect;
                 
                 if (debugEnabled) {
-                    console.log(`⚙️ SlimSelect для статуса инициализирован для объявления ${listingId}`);
                 }
             }
 
@@ -3920,7 +3825,6 @@ class UIManager {
             const debugEnabled = await this.isDebugEnabled();
             
             if (debugEnabled) {
-                console.log(`🔄 Обновление статуса объявления ${listingId} на:`, newStatus);
             }
             
             // Получаем объявление из базы данных  
@@ -3947,7 +3851,6 @@ class UIManager {
             if (listing.object_id && window.realEstateObjectManager) {
                 await window.realEstateObjectManager.updateObjectOnListingChange(listingId, oldListing, updatedListing);
                 if (debugEnabled) {
-                    console.log(`🏠 Обновлен объект ${listing.object_id} после изменения статуса объявления ${listingId}`);
                 }
             }
             
@@ -3962,7 +3865,6 @@ class UIManager {
             this.eventBus.emit('refreshDuplicatesTable');
             
             if (debugEnabled) {
-                console.log('✅ Статус объявления обновлен:', newStatus);
             }
         } catch (error) {
             console.error('❌ Ошибка обновления статуса объявления:', error);
@@ -3982,7 +3884,6 @@ class UIManager {
             const debugEnabled = await this.isDebugEnabled();
             
             if (debugEnabled) {
-                console.log('🔄 Актуализация объявления:', listingId);
             }
             
             // Получаем объявление из базы данных
@@ -4014,7 +3915,6 @@ class UIManager {
             if (listing.object_id && window.realEstateObjectManager) {
                 await window.realEstateObjectManager.updateObjectOnListingChange(listingId, oldListing, updatedListing);
                 if (debugEnabled) {
-                    console.log(`🏠 Обновлен объект ${listing.object_id} после актуализации объявления ${listingId}`);
                 }
             }
             
@@ -4043,7 +3943,6 @@ class UIManager {
             });
             
             if (debugEnabled) {
-                console.log('✅ Объявление актуализировано:', listingId);
             }
             
         } catch (error) {
@@ -4084,7 +3983,6 @@ class UIManager {
             const debugEnabled = await this.isDebugEnabled();
             
             if (debugEnabled) {
-                console.log('🗑️ Удаление объявления:', listingId);
             }
             
             // Получаем данные объявления перед удалением для пересборки объекта
@@ -4100,7 +3998,6 @@ class UIManager {
                     // Используем существующий метод, передавая пустой новый объект (объявление удалено)
                     await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, null);
                     if (debugEnabled) {
-                        console.log(`🏠 Пересобран объект ${objectId} после удаления объявления ${listingId}`);
                     }
                 } catch (error) {
                     console.error('❌ Ошибка пересборки объекта после удаления объявления:', error);
@@ -4145,7 +4042,6 @@ class UIManager {
             }
 
             const selectedAddressId = select.value;
-            console.log(`🔄 Сохраняем адрес для объявления ${listingId}:`, selectedAddressId);
             
             // Получаем текущее объявление
             const listing = await db.getListing(listingId);
@@ -4175,7 +4071,6 @@ class UIManager {
             // Сохраняем в базе данных
             await db.updateListing(listing);
             
-            console.log(`✅ Адрес обновлен для объявления ${listingId}:`, selectedAddressId);
             
             // Получаем обновленное объявление
             const updatedListing = await db.getListing(listingId);
@@ -4385,7 +4280,6 @@ class UIManager {
                 return distance <= radiusMeters;
             });
 
-            console.log(`🗺️ Найдено ${nearbyAddresses.length} адресов в радиусе ${radiusMeters}м от объявления`);
 
             // Создаем маркеры для близлежащих адресов
             for (const address of nearbyAddresses) {
@@ -4529,7 +4423,6 @@ class UIManager {
                 const addressId = event.target.getAttribute('data-address-id');
                 const addressName = event.target.getAttribute('data-address-name');
                 
-                console.log(`🎯 Выбран адрес ${addressId}: ${addressName}`);
                 
                 // Устанавливаем значение в выпадающий список
                 this.setAddressInSelector(listingId, addressId, addressName);
@@ -4573,16 +4466,13 @@ class UIManager {
                 try {
                     // Используем правильный метод для установки значения в SlimSelect
                     slimSelectInstance.setSelected(addressId);
-                    console.log(`📍 Адрес установлен в SlimSelect: ${addressName}`);
                 } catch (slimError) {
                     console.warn('Ошибка установки в SlimSelect, используем обычный select:', slimError);
                     // Fallback на обычный select
                     selectElement.value = addressId;
                     selectElement.dispatchEvent(new Event('change'));
-                    console.log(`📍 Адрес установлен в обычном select: ${addressName}`);
                 }
             } else {
-                console.log(`📍 Адрес установлен в обычном select: ${addressName}`);
             }
 
             // Показываем уведомление пользователю
@@ -4750,7 +4640,6 @@ class UIManager {
                     price: price,
                     new_price: price
                 };
-                console.log(`✏️ Отредактирована запись истории цен с индексом ${editingIndex}:`, {
                     old: oldItem,
                     new: priceHistory[editingIndex]
                 });
@@ -4761,7 +4650,6 @@ class UIManager {
                     price: price,
                     new_price: price
                 });
-                console.log('➕ Добавлена новая запись в историю цен');
             }
             
             // Обновляем объявление
@@ -4781,7 +4669,6 @@ class UIManager {
             // Обновляем объект недвижимости, если объявление связано с объектом
             if (updatedListing.object_id && window.realEstateObjectManager) {
                 await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, updatedListing);
-                console.log('🏠 Объект недвижимости обновлен после изменения истории цен');
             }
             
         } catch (error) {
@@ -4810,7 +4697,6 @@ class UIManager {
             }
 
             if (debugEnabled) {
-                console.log('🏠 Marking single address as correct for listing:', listingId);
             }
 
             // Добавляем пример для обучения ML-модели (ПОЗИТИВНЫЙ пример)
@@ -4824,7 +4710,6 @@ class UIManager {
                             true // Пользователь подтвердил, что это правильный адрес
                         );
                         if (debugEnabled) {
-                            console.log('📚 ML training example added: POSITIVE');
                         }
                     }
                 } catch (error) {
@@ -4838,7 +4723,6 @@ class UIManager {
             // Обновляем в базе данных
             await db.update('listings', listing);
             if (debugEnabled) {
-                console.log(`✅ Single address marked as correct for listing ${listingId}`);
             }
 
             this.showNotification({
@@ -4886,7 +4770,6 @@ class UIManager {
             }
 
             if (debugEnabled) {
-                console.log('🏠 Marking single address as incorrect for listing:', listingId);
             }
 
             // Добавляем пример для обучения ML-модели (НЕГАТИВНЫЙ пример)
@@ -4900,7 +4783,6 @@ class UIManager {
                             false // Пользователь указал, что это неправильный адрес
                         );
                         if (debugEnabled) {
-                            console.log('📚 ML training example added: NEGATIVE');
                         }
                     }
                 } catch (error) {
@@ -4917,7 +4799,6 @@ class UIManager {
             // Обновляем в базе данных
             await db.update('listings', listing);
             if (debugEnabled) {
-                console.log(`❌ Single address marked as incorrect for listing ${listingId}`);
             }
 
             this.showNotification({
@@ -5037,7 +4918,6 @@ class UIManager {
         try {
             const debugEnabled = await this.isDebugEnabled();
             
-            console.log('🔄 Начинаем обновление данных объявления:', listingId);
             
             // Показываем уведомление о начале процесса
             this.showNotification({
@@ -5068,7 +4948,6 @@ class UIManager {
                 return;
             }
             
-            console.log('📊 Исходные данные объявления:', {
                 id: listing.id,
                 url: listing.url,
                 price: listing.price,
@@ -5088,61 +4967,30 @@ class UIManager {
             let tab = null;
             try {
                 // Создаем вкладку для парсинга
-                console.log('🌐 Создаем вкладку для URL:', listing.url);
                 tab = await this.createTabWithRetry(listing.url, 2);
                 
                 // Ждем загрузки страницы и инжектируем content script
-                console.log('⏳ Ожидаем загрузки страницы...');
                 await this.waitForPageLoad(tab.id);
                 
-                console.log('💉 Инжектируем content script...');
                 await this.injectContentScript(tab.id, listing.url);
                 
                 // Запрашиваем обновленные данные объявления
-                console.log('📋 Запрашиваем парсинг данных...');
                 const response = await this.waitForContentScriptAndParse(tab.id, {
                     action: 'parseCurrentListing',
                     areaId: this.dataState.getState('currentAreaId'),
                     existingListingId: listing.id
                 });
                 
-                console.log('📦 Результат парсинга:', response);
                 
                 if (response && response.success && response.data) {
                     // НЕ СОХРАНЯЕМ в базу данных, только выводим в консоль
-                    console.log('✅ УСПЕШНО СПАРСЕНО - НОВЫЕ ДАННЫЕ:');
-                    console.log('==========================================');
-                    console.log('🆔 ID объявления:', listing.id);
-                    console.log('🔗 URL:', listing.url);
-                    console.log('📅 Дата парсинга:', new Date().toLocaleString('ru-RU'));
-                    console.log('');
-                    console.log('📊 СРАВНЕНИЕ ДАННЫХ:');
-                    console.log('--------------------');
-                    console.log('Цена:');
-                    console.log('  Старая:', listing.price, 'руб.');
-                    console.log('  Новая:', response.data.price, 'руб.');
-                    console.log('  Изменение:', response.data.price - listing.price, 'руб.');
-                    console.log('');
-                    console.log('Статус:');
-                    console.log('  Старый:', listing.status);
-                    console.log('  Новый:', response.data.status || 'active');
-                    console.log('');
-                    console.log('Описание:');
-                    console.log('  Старое:', listing.description?.substring(0, 100) + '...');
-                    console.log('  Новое:', response.data.description?.substring(0, 100) + '...');
-                    console.log('');
-                    console.log('🔍 ПОЛНЫЕ НОВЫЕ ДАННЫЕ:');
-                    console.log(response.data);
-                    console.log('==========================================');
                     
                     // Парсим дату обновления из строки типа "Обновлено: 31 июл, 09:01"
                     let updatedDate = new Date();
                     if (response.data.updated_date) {
                         try {
-                            console.log('📅 Парсим дату:', response.data.updated_date);
                             // Извлекаем дату из строки "Обновлено: 31 июл, 09:01"
                             const dateMatch = response.data.updated_date.match(/(\d{1,2})\s+(янв|фев|мар|апр|мая|май|июн|июл|авг|сен|окт|ноя|дек),?\s+(\d{1,2}):(\d{2})/i);
-                            console.log('📅 Результат регекса:', dateMatch);
                             if (dateMatch) {
                                 const day = parseInt(dateMatch[1]);
                                 const monthName = dateMatch[2];
@@ -5165,10 +5013,8 @@ class UIManager {
                                     // Если получившаяся дата больше текущей - значит это прошлый год
                                     if (updatedDate > currentDate) {
                                         updatedDate = new Date(currentYear - 1, month, day, hours, minutes);
-                                        console.log('📅 Дата скорректирована на прошлый год');
                                     }
                                     
-                                    console.log('✅ Спарсенная дата:', updatedDate);
                                 } else {
                                     console.warn('⚠️ Месяц не найден:', monthName);
                                 }
@@ -5262,8 +5108,6 @@ class UIManager {
                     updatedListing.price_history = priceHistory;
                     
                     // Логируем что сохраняем
-                    console.log('💾 Сохраняем объявление с updated:', updatedListing.updated);
-                    console.log('💾 Полные данные объявления:', updatedListing);
                     
                     // Сохраняем в базу данных
                     await window.db.update('listings', updatedListing);
@@ -5287,13 +5131,6 @@ class UIManager {
                     });
                     
                 } else {
-                    console.log('❌ ОБЪЯВЛЕНИЕ НЕ НАЙДЕНО ИЛИ УДАЛЕНО');
-                    console.log('==========================================');
-                    console.log('🆔 ID объявления:', listing.id);
-                    console.log('🔗 URL:', listing.url);
-                    console.log('📅 Дата проверки:', new Date().toLocaleString('ru-RU'));
-                    console.log('📊 Результат: Объявление удалено с сайта или недоступно');
-                    console.log('==========================================');
                     
                     this.showNotification({
                         type: 'warning',
@@ -5304,13 +5141,6 @@ class UIManager {
                 
             } catch (error) {
                 console.error('❌ ОШИБКА ПАРСИНГА:', error);
-                console.log('==========================================');
-                console.log('🆔 ID объявления:', listing.id);
-                console.log('🔗 URL:', listing.url);
-                console.log('📅 Дата ошибки:', new Date().toLocaleString('ru-RU'));
-                console.log('📊 Ошибка:', error.message);
-                console.log('📊 Stack:', error.stack);
-                console.log('==========================================');
                 
                 this.showNotification({
                     type: 'error',
@@ -5360,7 +5190,6 @@ class UIManager {
                     });
                 });
             } catch (error) {
-                console.log(`Попытка ${attempt}/${maxRetries} создания вкладки неудачна:`, error.message);
                 
                 if (attempt === maxRetries) {
                     throw error;
@@ -5402,13 +5231,11 @@ class UIManager {
      */
     async injectContentScript(tabId, listingUrl) {
         try {
-            console.log('💉 Принудительная инжекция content script для URL:', listingUrl);
             
             // Определяем какой парсер использовать
             const isAvito = listingUrl.includes('avito.ru');
             const isCian = listingUrl.includes('cian.ru');
             
-            console.log('🔍 Тип сайта:', { isAvito, isCian });
             
             // Инжектируем зависимости
             await chrome.scripting.executeScript({
@@ -5422,22 +5249,18 @@ class UIManager {
                     target: { tabId: tabId },
                     files: ['content-scripts/avito-parser.js']
                 });
-                console.log('✅ Avito parser инжектирован');
             } else if (isCian) {
                 await chrome.scripting.executeScript({
                     target: { tabId: tabId },
                     files: ['content-scripts/cian-parser.js']
                 });
-                console.log('✅ Cian parser инжектирован');
             } else {
                 throw new Error(`Неподдерживаемый сайт: ${listingUrl}`);
             }
             
-            console.log('✅ Content script успешно инжектирован');
             
             // Дополнительная задержка для инициализации (больше для Cian)
             const initDelay = isCian ? 5000 : 3000;
-            console.log(`⏳ Ждем ${initDelay}мс для инициализации парсера...`);
             await new Promise(resolve => setTimeout(resolve, initDelay));
             
         } catch (error) {
@@ -5454,18 +5277,14 @@ class UIManager {
         const attemptDelay = 3000; // Увеличиваем задержку
         
         // Сначала проверим готовность content script
-        console.log('🔍 Проверяем готовность content script...');
         
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                console.log(`Попытка ${attempt}/${maxAttempts} связаться с content script...`);
                 
                 // Сначала проверяем готовность простым ping
                 try {
                     await chrome.tabs.sendMessage(tabId, { action: 'ping' });
-                    console.log('📡 Content script отвечает на ping');
                 } catch (pingError) {
-                    console.log('❌ Content script не отвечает на ping:', pingError.message);
                     
                     // Если не отвечает на ping, ждем больше
                     if (attempt < maxAttempts) {
@@ -5484,11 +5303,9 @@ class UIManager {
                 });
                 
                 // Если получили ответ, возвращаем его
-                console.log('✅ Content script ответил:', response);
                 return response;
                 
             } catch (error) {
-                console.log(`Попытка ${attempt} неудачна:`, error.message);
                 
                 if (attempt === maxAttempts) {
                     // Последняя попытка - возвращаем ошибку
@@ -5552,10 +5369,6 @@ class UIManager {
             // Обновляем связанный объект недвижимости
             if (window.realEstateObjectManager && listing.object_id) {
                 try {
-                    console.log('🏠 Обновляем объект недвижимости');
-                    console.log('🏠 Старое объявление - цена:', oldListing.price);
-                    console.log('🏠 Новое объявление - цена:', listing.price);
-                    console.log('🏠 Object ID:', listing.object_id);
                     
                     await window.realEstateObjectManager.updateObjectOnListingChange(
                         listing.id, 

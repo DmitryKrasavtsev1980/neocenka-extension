@@ -41,7 +41,6 @@ class AddressMatcher {
         
         const listingAddress = this.normalizeAddress(listing.address || '');
         
-        console.log(`🔍 Ищем адрес для: "${listing.address}" в координатах ${listingCoords.lat}, ${listingCoords.lng}`);
         
         // Этап 1: Точное географическое совпадение (30м)
         const exactMatches = this.findAddressesInRadius(addresses, listingCoords, this.config.exactRadius);
@@ -288,7 +287,6 @@ class AddressMatcher {
             errors: 0
         };
 
-        console.log(`🚀 Начинаем обработку ${listings.length} объявлений`);
 
         for (let i = 0; i < listings.length; i++) {
             try {
@@ -323,15 +321,12 @@ class AddressMatcher {
                             break;
                     }
                     
-                    console.log(`✅ [${i+1}/${listings.length}] Найден адрес для "${listing.address}" → "${matchResult.address.address}" (${matchResult.confidence}, ${Math.round(matchResult.distance)}м)`);
                 } else {
                     results.noMatch++;
-                    console.log(`❌ [${i+1}/${listings.length}] Адрес не найден для "${listing.address}"`);
                 }
                 
                 // Прогресс каждые 10 объявлений
                 if ((i + 1) % 10 === 0) {
-                    console.log(`📊 Прогресс: ${i + 1}/${listings.length} (${Math.round(((i + 1) / listings.length) * 100)}%)`);
                 }
                 
             } catch (error) {
@@ -340,7 +335,6 @@ class AddressMatcher {
             }
         }
 
-        console.log(`🎯 Обработка завершена:`, results);
         return results;
     }
 }

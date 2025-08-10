@@ -27,7 +27,6 @@ class NeocenkaDB {
 
       request.onsuccess = async () => {
         this.db = request.result;
-        // console.log('Database opened successfully');
         
         // Запускаем миграцию данных к версии 14 (если необходимо)
         try {
@@ -84,7 +83,6 @@ class NeocenkaDB {
       };
 
       request.onupgradeneeded = (event) => {
-        // console.log('Database upgrade needed');
         this.db = event.target.result;
         this.createStores();
       };
@@ -276,7 +274,6 @@ class NeocenkaDB {
     }
 
 
-    // console.log('Database stores created/updated');
   }
 
   /**
@@ -287,7 +284,6 @@ class NeocenkaDB {
       const existingListings = await this.getAll('listings');
       if (existingListings.length === 0) return;
 
-      console.log(`Starting migration of ${existingListings.length} listings to version 14`);
       let migratedCount = 0;
       let skippedCount = 0;
 
@@ -365,7 +361,6 @@ class NeocenkaDB {
         }
       }
 
-      console.log(`Successfully migrated ${migratedCount} listings to version 14 (skipped ${skippedCount} already migrated)`);
       
     } catch (error) {
       console.error('Failed to migrate listings to version 14:', error);
@@ -380,7 +375,6 @@ class NeocenkaDB {
       const existingAddresses = await this.getAll('addresses');
       if (existingAddresses.length === 0) return;
 
-      console.log(`Starting migration of ${existingAddresses.length} addresses to version 19`);
       let migratedCount = 0;
       let skippedCount = 0;
 
@@ -407,7 +401,6 @@ class NeocenkaDB {
         }
       }
 
-      console.log(`Successfully migrated ${migratedCount} addresses to version 19 (skipped ${skippedCount} already migrated)`);
       
     } catch (error) {
       console.error('Failed to migrate addresses to version 19:', error);
@@ -424,7 +417,6 @@ class NeocenkaDB {
       const existingAddresses = await this.getAll('addresses');
       if (existingAddresses.length === 0) return;
 
-      console.log(`Starting migration of ${existingAddresses.length} addresses to version 20`);
       let migratedCount = 0;
       let skippedCount = 0;
 
@@ -469,7 +461,6 @@ class NeocenkaDB {
         }
       }
 
-      console.log(`Successfully migrated ${migratedCount} addresses to version 20 (skipped ${skippedCount} already migrated)`);
       
     } catch (error) {
       console.error('Failed to migrate addresses to version 20:', error);
@@ -484,11 +475,9 @@ class NeocenkaDB {
       const existingAddresses = await this.getAll('addresses');
       
       if (existingAddresses.length === 0) {
-        console.log('No addresses to migrate to version 21');
         return;
       }
 
-      console.log(`Starting migration of ${existingAddresses.length} addresses to version 21`);
 
       let migratedCount = 0;
       let skippedCount = 0;
@@ -513,7 +502,6 @@ class NeocenkaDB {
         migratedCount++;
       }
 
-      console.log(`Successfully migrated ${migratedCount} addresses to version 21 (skipped ${skippedCount} already migrated)`);
       
     } catch (error) {
       console.error('Failed to migrate addresses to version 21:', error);
@@ -568,7 +556,6 @@ class NeocenkaDB {
       const request = store.add(data);
 
       request.onsuccess = () => {
-        // console.log(`Added record to ${storeName}:`, data);
         resolve(data);
       };
 
@@ -592,7 +579,6 @@ class NeocenkaDB {
       const request = store.put(data);
 
       request.onsuccess = () => {
-        // console.log(`Updated record in ${storeName}:`, data);
         resolve(data);
       };
 
@@ -685,7 +671,6 @@ class NeocenkaDB {
       const request = store.delete(id);
 
       request.onsuccess = () => {
-        // console.log(`Deleted record from ${storeName}:`, id);
         resolve();
       };
 
@@ -976,7 +961,6 @@ class NeocenkaDB {
           new_price: newPrice
         });
 
-        // console.log(`Price updated for listing ${listingId}: ${oldPrice} → ${newPrice}`);
       }
 
       return this.update('listings', listing);
@@ -998,7 +982,6 @@ class NeocenkaDB {
     let updated = 0;
     let skipped = 0;
     
-    console.log(`Starting to save ${listings.length} listings...`);
     
     for (const listing of listings) {
       try {
@@ -1089,13 +1072,11 @@ class NeocenkaDB {
           await this.updateListing(existingListing);
           updated++;
           
-          console.log(`Updated listing ${listing.external_id}, price history: ${existingListing.price_history?.length || 0} items`);
         } else {
           // Добавляем новое объявление со всей историей цен
           await this.addListing(listing);
           added++;
           
-          console.log(`Added new listing ${listing.external_id}, price history: ${listing.price_history?.length || 0} items`);
         }
       } catch (error) {
         console.error(`Error saving listing ${listing.external_id}:`, error);
@@ -1104,7 +1085,6 @@ class NeocenkaDB {
     }
     
     const result = { added, updated, skipped };
-    console.log(`Listings save completed:`, result);
     return result;
   }
 
@@ -1151,7 +1131,6 @@ class NeocenkaDB {
       const request = store.put(settingData);
 
       request.onsuccess = () => {
-        // console.log(`Setting updated: ${key} = ${value}`);
         resolve(settingData);
       };
 
@@ -1382,7 +1361,6 @@ class NeocenkaDB {
         const request = store.clear();
 
         request.onsuccess = () => {
-          // console.log(`Cleared store: ${storeName}`);
           resolve();
         };
 
@@ -1393,7 +1371,6 @@ class NeocenkaDB {
       });
     }
 
-    // console.log('All data cleared');
   }
 
   /**
@@ -1407,7 +1384,6 @@ class NeocenkaDB {
         const request = store.clear();
 
         request.onsuccess = () => {
-          console.log(`🗑️ Очищена таблица: ${storeName}`);
           resolve();
         };
 
@@ -1479,7 +1455,6 @@ class NeocenkaDB {
         }
       };
 
-      console.log('📤 Экспорт данных:', data.statistics);
       return JSON.stringify(data, null, 2);
     } catch (error) {
       console.error('Ошибка полного экспорта данных:', error);
@@ -1493,7 +1468,6 @@ class NeocenkaDB {
    */
   async selectiveExportData(options = {}) {
     try {
-      console.log('📤 Начинаем выборочный экспорт с опциями:', options);
       
       const data = {
         timestamp: new Date().toISOString(),
@@ -1508,14 +1482,12 @@ class NeocenkaDB {
       if (options.map_areas) {
         data.map_areas = await this.getMapAreas();
         data.statistics.total_map_areas = data.map_areas.length;
-        console.log(`📍 Экспортировано областей: ${data.statistics.total_map_areas}`);
       }
 
       // Экспортируем адреса, если выбрано
       if (options.addresses) {
         data.addresses = await this.getAddresses();
         data.statistics.total_addresses = data.addresses.length;
-        console.log(`🏠 Экспортировано адресов: ${data.statistics.total_addresses}`);
       }
 
       // Экспортируем сегменты, если выбрано
@@ -1524,7 +1496,6 @@ class NeocenkaDB {
         data.subsegments = await this.getSubsegments();
         data.statistics.total_segments = data.segments.length;
         data.statistics.total_subsegments = data.subsegments.length;
-        console.log(`📋 Экспортировано сегментов: ${data.statistics.total_segments}`);
       }
 
       // Экспортируем объявления и объекты, если выбрано
@@ -1533,14 +1504,12 @@ class NeocenkaDB {
         data.objects = await this.getObjects();
         data.statistics.total_listings = data.listings.length;
         data.statistics.total_objects = data.objects.length;
-        console.log(`📊 Экспортировано объявлений: ${data.statistics.total_listings}, объектов: ${data.statistics.total_objects}`);
       }
 
       // Экспортируем отчёты, если выбрано
       if (options.reports) {
         data.reports = await this.getReports();
         data.statistics.total_reports = data.reports.length;
-        console.log(`📈 Экспортировано отчётов: ${data.statistics.total_reports}`);
       }
 
       // Экспортируем справочники, если выбрано
@@ -1562,17 +1531,14 @@ class NeocenkaDB {
                               data.statistics.total_house_series + 
                               data.statistics.total_house_classes + 
                               data.statistics.total_house_problems;
-        console.log(`📚 Экспортировано справочников: ${totalReferences}`);
       }
 
       // Экспортируем настройки, если выбрано
       if (options.settings) {
         data.settings = await this.getAllSettings();
         data.statistics.total_settings = Object.keys(data.settings).length;
-        console.log(`⚙️ Экспортировано настроек: ${data.statistics.total_settings}`);
       }
 
-      console.log('📤 Выборочный экспорт завершён:', data.statistics);
       return JSON.stringify(data, null, 2);
     } catch (error) {
       console.error('Ошибка выборочного экспорта данных:', error);
@@ -1632,7 +1598,6 @@ class NeocenkaDB {
         }
       }
 
-      // console.log('Data imported successfully');
     } catch (error) {
       console.error('Error importing data:', error);
       throw error;
@@ -1644,7 +1609,6 @@ class NeocenkaDB {
    */
   async fullImportData(jsonString) {
     try {
-      console.log('📥 Начинаем полный импорт данных...');
       
       // Парсим JSON
       let data;
@@ -1673,56 +1637,43 @@ class NeocenkaDB {
         reports: (await this.getReports()).length
       };
 
-      console.log('📊 Данные до импорта:', oldStats);
 
       // Очищаем только те таблицы, которые будут импортированы
       if (data.wall_materials) {
         await this.clear('wall_materials');
-        console.log('🗑️ Очищены материалы стен');
       }
       if (data.ceiling_materials) {
         await this.clear('ceiling_materials');
-        console.log('🗑️ Очищены материалы потолков');
       }
       if (data.house_series) {
         await this.clear('house_series');
-        console.log('🗑️ Очищены серии домов');
       }
       if (data.house_classes) {
         await this.clear('house_classes');
-        console.log('🗑️ Очищены классы домов');
       }
       if (data.house_problems) {
         await this.clear('house_problems');
-        console.log('🗑️ Очищены проблемы домов');
       }
       if (data.map_areas) {
         await this.clear('map_areas');
-        console.log('🗑️ Очищены области карт');
       }
       if (data.addresses) {
         await this.clear('addresses');
-        console.log('🗑️ Очищены адреса');
       }
       if (data.segments) {
         await this.clear('segments');
-        console.log('🗑️ Очищены сегменты');
       }
       if (data.subsegments) {
         await this.clear('subsegments');
-        console.log('🗑️ Очищены подсегменты');
       }
       if (data.listings) {
         await this.clear('listings');
-        console.log('🗑️ Очищены объявления');
       }
       if (data.objects) {
         await this.clear('objects');
-        console.log('🗑️ Очищены объекты');
       }
       if (data.reports) {
         await this.clear('reports');
-        console.log('🗑️ Очищены отчёты');
       }
 
       let importStats = {
@@ -1783,7 +1734,6 @@ class NeocenkaDB {
           await this.put('map_areas', mapArea);
           importStats.map_areas++;
         }
-        console.log(`📍 Импортировано областей: ${importStats.map_areas}`);
       }
 
       // Импортируем адреса
@@ -1792,7 +1742,6 @@ class NeocenkaDB {
           await this.put('addresses', address);
           importStats.addresses++;
         }
-        console.log(`🏠 Импортировано адресов: ${importStats.addresses}`);
       }
 
       // Импортируем сегменты
@@ -1841,8 +1790,6 @@ class NeocenkaDB {
         }
       }
 
-      console.log('✅ Полный импорт завершен успешно');
-      console.log('📊 Импортированные данные:', importStats);
 
       return {
         success: true,
@@ -1894,7 +1841,6 @@ class NeocenkaDB {
     try {
       // Проверяем, что база данных инициализирована и stores созданы
       if (!this.db || !this.db.objectStoreNames.contains('wall_materials') || !this.db.objectStoreNames.contains('house_classes') || !this.db.objectStoreNames.contains('house_problems')) {
-        console.log('Database stores not ready yet, skipping default data initialization');
         return;
       }
 
@@ -1930,7 +1876,6 @@ class NeocenkaDB {
           await this.add('wall_materials', material);
         }
         
-        console.log('Инициализированы материалы стен по умолчанию');
       }
 
       // Проверяем и инициализируем классы домов
@@ -1965,7 +1910,6 @@ class NeocenkaDB {
           await this.add('house_classes', houseClass);
         }
         
-        console.log('Инициализированы классы домов по умолчанию');
       }
 
       // Проверяем и инициализируем материалы перекрытий
@@ -1987,7 +1931,6 @@ class NeocenkaDB {
           await this.add('ceiling_materials', material);
         }
         
-        console.log('Инициализированы материалы перекрытий по умолчанию');
       }
 
       // Проверяем и инициализируем проблемы домов
@@ -2021,7 +1964,6 @@ class NeocenkaDB {
           await this.add('house_problems', problem);
         }
         
-        console.log('Инициализированы проблемы домов по умолчанию');
       }
       
     } catch (error) {
@@ -2202,7 +2144,6 @@ class NeocenkaDB {
       const request = store.clear();
 
       request.onsuccess = () => {
-        console.log('Категории Inpars очищены');
         resolve();
       };
 
@@ -2365,7 +2306,6 @@ class NeocenkaDB {
     if (this.db) {
       this.db.close();
       this.db = null;
-      // console.log('Database connection closed');
     }
   }
 }
@@ -2381,7 +2321,6 @@ if (typeof window !== 'undefined') {
     
     // Инициализируем базу данных при загрузке
     db.init().then(() => {
-      // console.log('Database initialized successfully');
     }).catch(error => {
       console.error('Database initialization failed:', error);
     });

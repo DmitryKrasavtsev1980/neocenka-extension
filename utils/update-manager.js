@@ -39,12 +39,10 @@ class UpdateManager {
      */
     async checkForUpdates() {
         try {
-            console.log('🔍 Проверяем обновления...');
             
             const response = await fetch(this.updateCheckUrl);
             if (!response.ok) {
                 if (response.status === 404) {
-                    console.log('ℹ️ Релизы пока не созданы');
                     return null;
                 }
                 throw new Error(`HTTP ${response.status}`);
@@ -54,7 +52,6 @@ class UpdateManager {
             
             // Находим последний релиз (включая pre-release)
             if (!releases || releases.length === 0) {
-                console.log('ℹ️ Релизы не найдены');
                 return null;
             }
             
@@ -82,12 +79,10 @@ class UpdateManager {
                     [this.storageKey]: updateInfo
                 });
 
-                console.log(`✅ Найдено обновление: v${latestVersion}`);
                 return updateInfo;
             } else {
                 // Очищаем информацию об обновлении если она устарела
                 await chrome.storage.local.remove([this.storageKey]);
-                console.log('✅ Установлена актуальная версия');
                 return null;
             }
 
@@ -401,7 +396,6 @@ class UpdateManager {
      */
     showNotification(message, type = 'info') {
         // Можно интегрировать с существующей системой уведомлений
-        console.log(`${type.toUpperCase()}: ${message}`);
     }
 
     /**

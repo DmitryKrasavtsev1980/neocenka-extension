@@ -179,9 +179,6 @@ class SmartAddressMatcher {
         const listingCoords = this.normalizeCoordinates(listing.coordinates);
         const listingAddress = this.preprocessAddress(listing.address || '');
         
-        // console.log(`🧠 Умный поиск адреса для: "${listing.address}"`);
-        // console.log(`📍 Координаты: ${listingCoords.lat}, ${listingCoords.lng}`);
-        // console.log(`🔧 Предобработанный адрес: "${listingAddress.normalized}"`);
 
         let bestMatch = null;
         let matchMethod = 'no_match';
@@ -191,7 +188,6 @@ class SmartAddressMatcher {
         if (bestMatch) {
             matchMethod = 'obvious_match';
             bestMatch.confidence = 'high';
-            // console.log(`🎯 ОЧЕВИДНОЕ СОВПАДЕНИЕ найдено: "${bestMatch.address.address}" (${bestMatch.score.toFixed(3)})`);
         }
 
         // Этап 1: Точное географическое совпадение
@@ -369,15 +365,12 @@ class SmartAddressMatcher {
      * Поиск очевидных совпадений с агрессивной нормализацией
      */
     async tryObviousMatch(coords, addresses, addressData) {
-        // console.log(`🔍 Ищем очевидные совпадения для: "${addressData.original}"`);
         
         // Агрессивная нормализация для очевидных совпадений
         const aggressiveNormalized = this.aggressiveNormalize(addressData.original);
-        // console.log(`🔧 Агрессивная нормализация: "${aggressiveNormalized}"`);
         
         // Ищем кандидатов в разумном радиусе (200м для очевидных совпадений)
         const candidates = this.getAddressesInRadius(addresses, coords, 200);
-        // console.log(`📍 Найдено ${candidates.length} кандидатов в радиусе 200м`);
         
         let bestMatch = null;
         let bestScore = 0;
@@ -389,7 +382,6 @@ class SmartAddressMatcher {
             const obviousScore = this.calculateObviousScore(aggressiveNormalized, candidateNormalized);
             
             if (obviousScore >= 0.9) { // Очень высокий порог для очевидных совпадений
-                // console.log(`✅ Очевидное совпадение: "${candidate.address}" (скор: ${obviousScore.toFixed(3)})`);
                 
                 if (obviousScore > bestScore) {
                     bestScore = obviousScore;
@@ -649,7 +641,6 @@ class SmartAddressMatcher {
         
         const distance = this.calculateDistance(coords, result.address.coordinates);
         if (distance <= 20) {
-            // console.log(`🎯 Proximity rule applied! Distance: ${distance.toFixed(1)}m - boosting to 90% confidence`);
             return {
                 ...result,
                 distance: distance,
@@ -1009,11 +1000,9 @@ class SmartAddressMatcher {
             if (savedExamples) {
                 const examples = JSON.parse(savedExamples);
                 this.training.examples = examples;
-                // console.log(`🔄 Restored ${examples.length} real training examples from localStorage`);
                 
                 // Проверяем, нужно ли переобучение
                 if (examples.length >= 50) {
-                    // console.log('🎯 Triggering immediate retrain with restored examples');
                     setTimeout(() => this.retrain(), 1000); // Даем время на инициализацию
                 }
             } else {
@@ -1021,7 +1010,6 @@ class SmartAddressMatcher {
                 const savedCount = localStorage.getItem('ml_training_count');
                 if (savedCount) {
                     const count = parseInt(savedCount);
-                    // console.log(`ℹ️ Found legacy count: ${count} examples (data lost, will start fresh)`);
                     // Очищаем старый счетчик
                     localStorage.removeItem('ml_training_count');
                 }
@@ -1041,7 +1029,6 @@ class SmartAddressMatcher {
             if (trainedModel) {
                 const parsedModel = JSON.parse(trainedModel);
                 this.model = { ...this.model, ...parsedModel };
-                // console.log(`🎓 Loaded trained model v${this.model.version} from localStorage (accuracy: ${this.model.accuracy})`);
                 return;
             }
             
@@ -1053,10 +1040,8 @@ class SmartAddressMatcher {
                 // Объединяем с текущей моделью
                 this.model = { ...this.model, ...pretrainedModel };
                 
-                // console.log(`🧠 Loaded pretrained model v${this.model.version} (accuracy: ${this.model.accuracy})`);
             }
         } catch (error) {
-            // console.log('📝 Using default model configuration');
         }
     }
 
@@ -1085,16 +1070,12 @@ class SmartAddressMatcher {
         const negative = this.training.examples.filter(ex => !ex.isCorrect).length;
         const nextRetrainAt = Math.ceil(this.training.examples.length / 50) * 50;
         
-        // console.log(`📚 Added training example: ${isCorrect ? '✅' : '❌'}`);
-        // console.log(`📊 Current stats: ${this.training.examples.length} total (${positive} positive, ${negative} negative)`);
-        // console.log(`🎯 Next retrain at: ${nextRetrainAt} examples (${nextRetrainAt - this.training.examples.length} to go)`);
         
         // Сохраняем все примеры в localStorage (не только счетчик!)
         if (typeof localStorage !== 'undefined') {
             try {
                 localStorage.setItem('ml_training_examples', JSON.stringify(this.training.examples));
                 localStorage.setItem('ml_training_count', this.training.examples.length.toString());
-                // console.log(`💾 Saved ${this.training.examples.length} training examples to localStorage`);
             } catch (error) {
                 console.warn('Failed to save training examples:', error);
             }
@@ -1126,21 +1107,17 @@ class SmartAddressMatcher {
      * Переобучение модели
      */
     retrain() {
-        // console.log('🔄 Retraining model with', this.training.examples.length, 'examples');
 
         const positiveExamples = this.training.examples.filter(ex => ex.isCorrect);
         const negativeExamples = this.training.examples.filter(ex => !ex.isCorrect);
 
-        // console.log(`📊 Training data: ${positiveExamples.length} positive, ${negativeExamples.length} negative examples`);
 
         // Снижаем требования для обучения
         if (positiveExamples.length < 5 || negativeExamples.length < 5) {
-            // console.log('📊 Not enough examples for retraining (need at least 5 positive and 5 negative)');
             return;
         }
 
         if (this.training.examples.length < 20) {
-            // console.log('📊 Not enough total examples for retraining (need at least 20)');
             return;
         }
 
@@ -1154,24 +1131,18 @@ class SmartAddressMatcher {
         this.model.version = this.incrementVersion(this.model.version);
         this.model.lastUpdate = new Date().toISOString().split('T')[0];
         
-        // console.log(`🎯 Model retrained to v${this.model.version}`);
         
         // Показываем обновленные веса для визуального контроля
-        // console.log('📊 Updated model weights:');
         for (const [key, value] of Object.entries(this.model.weights)) {
-            // console.log(`   ${key}: ${value.toFixed(3)}`);
         }
         
-        // console.log('📊 Updated thresholds:');
         for (const [key, value] of Object.entries(this.model.thresholds)) {
-            // console.log(`   ${key}: ${value.toFixed(3)}`);
         }
         
         // Сохраняем обученную модель в localStorage
         if (typeof localStorage !== 'undefined') {
             try {
                 localStorage.setItem('ml_trained_model', JSON.stringify(this.model));
-                // console.log('💾 Saved trained model to localStorage');
             } catch (error) {
                 console.warn('Failed to save trained model:', error);
             }
@@ -1324,8 +1295,6 @@ class SmartAddressMatcher {
         };
 
         // Сохраняем в консоль для копирования в файл
-        // console.log('📁 Export model to pretrained-model.json:');
-        // console.log(JSON.stringify(exportModel, null, 2));
         
         // Дополнительно сохраняем в localStorage для удобства  
         if (typeof localStorage !== 'undefined') {
@@ -1334,7 +1303,6 @@ class SmartAddressMatcher {
             // Сохраняем также счетчик примеров отдельно для быстрого доступа
             localStorage.setItem('ml_training_count', this.training.examples.length.toString());
             
-            // console.log('💾 Model saved to localStorage as "ml_trained_model"');
         }
     }
 
@@ -1343,7 +1311,6 @@ class SmartAddressMatcher {
      */
     correctAddress(listingId, correctAddressId) {
         // Этот метод будет вызываться из UI когда пользователь исправляет адрес
-        // console.log(`🔧 Address corrected for listing ${listingId} -> ${correctAddressId}`);
         
         // Здесь добавить логику поиска исходных данных и добавления примера
         // this.addTrainingExample(listingAddress, correctAddress, true);

@@ -389,12 +389,10 @@ class SegmentPage {
 
     // Если полигон уже существует, не создаем его повторно
     if (this.areaPolygonLayer) {
-      console.log('🔷 Полигон области уже отображен, пропускаем повторное создание');
       return;
     }
 
     try {
-      console.log('🔷 Создаем полигон области на карте');
 
       // Конвертируем координаты в формат Leaflet
       const latLngs = this.mapArea.polygon.map(point => [point.lat, point.lng]);
@@ -549,7 +547,6 @@ class SegmentPage {
     // Загружаем объявления на карту
     await this.loadListingsOnMap();
     
-    console.log(`✅ Обновление карты завершено`);
   }
 
   /**
@@ -741,13 +738,11 @@ class SegmentPage {
           });
         }
         this.addressesCluster.addMarkers(markers);
-        console.log(`📍 Загружено ${this.addresses.length} адресов на карту с кластеризацией`);
       } else {
         // Для небольшого количества адресов добавляем прямо на карту
         markers.forEach(marker => {
           this.mapLayers.addresses.addLayer(marker);
         });
-        console.log(`📍 Загружено ${this.addresses.length} адресов на карту`);
       }
       
     } catch (error) {
@@ -791,13 +786,11 @@ class SegmentPage {
           });
         }
         this.listingsCluster.addMarkers(markers);
-        console.log(`📋 Загружено ${listings.length} объявлений на карту с кластеризацией`);
       } else {
         // Для небольшого количества объявлений добавляем прямо на карту
         markers.forEach(marker => {
           this.mapLayers.listings.addLayer(marker);
         });
-        console.log(`📋 Загружено ${listings.length} объявлений на карту`);
       }
 
     } catch (error) {
@@ -1348,7 +1341,6 @@ class SegmentPage {
     // Если тот же фильтр - отключаем
     if (this.activeMapFilter === filterType) {
       this.activeMapFilter = null;
-      console.log('🔄 Фильтр отключен');
       return;
     }
 
@@ -1361,7 +1353,6 @@ class SegmentPage {
       activeButton.className = 'inline-flex items-center px-3 py-2 border border-sky-300 shadow-sm text-sm leading-4 font-medium rounded-md text-sky-700 bg-sky-100 hover:bg-sky-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500';
     }
 
-    console.log(`🎯 Активирован фильтр: ${filterType}`);
     
     // Здесь можно добавить логику применения фильтра к карте
     this.applyMapFilter(filterType);
@@ -1372,7 +1363,6 @@ class SegmentPage {
    * @param {string} filterType - Тип фильтра
    */
   async applyMapFilter(filterType) {
-    console.log(`📍 Применяем фильтр "${filterType}" к карте`);
     
     // Перерисовываем маркеры адресов с новыми подписями
     await this.loadAddressesOnMap();
@@ -1391,7 +1381,6 @@ class SegmentPage {
       yearButton.className = 'inline-flex items-center px-3 py-2 border border-sky-300 shadow-sm text-sm leading-4 font-medium rounded-md text-sky-700 bg-sky-100 hover:bg-sky-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500';
     }
     
-    console.log('🎯 Фильтр "Год" активирован по умолчанию');
   }
 
   /**

@@ -138,7 +138,6 @@ class GeoJsonImportManager {
       const options = this.getImportOptions();
       
       if (debugEnabled) {
-        console.log('🚀 Начинаем импорт GeoJSON с настройками:', options);
       }
       
       // Блокируем UI и показываем кнопку остановки
@@ -162,7 +161,6 @@ class GeoJsonImportManager {
         this.showResults(result.stats);
         
         if (debugEnabled) {
-          console.log('✅ Импорт завершен успешно:', result.stats);
         }
         
         // Отправляем событие для обновления UI

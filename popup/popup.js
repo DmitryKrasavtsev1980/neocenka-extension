@@ -30,7 +30,6 @@ class NeocenkaPopup {
 
     async init() {
         try {
-            console.log('Popup: Initializing Neocenka popup...');
 
             await this.initializeDatabase();
             await this.getCurrentTab();
@@ -39,7 +38,6 @@ class NeocenkaPopup {
             this.setupUI();
             this.setupEventListeners();
 
-            console.log('Popup: Popup initialized successfully');
 
         } catch (error) {
             console.error('Popup: Error initializing popup:', error);
@@ -49,20 +47,12 @@ class NeocenkaPopup {
 
     async initializeDatabase() {
         try {
-            console.log('Popup: Initializing database...');
-            console.log('Popup: typeof db:', typeof db);
-            console.log('Popup: db object:', db);
 
             if (typeof db !== 'undefined' && db && typeof db.init === 'function') {
-                console.log('Popup: Found real database, initializing...');
                 await db.init();
-                console.log('Popup: Real database initialized');
 
                 // Проверяем доступные методы
                 const keys = Object.keys(db);
-                console.log('Popup: Database keys:', keys);
-                console.log('Popup: db.getMapAreas available:', typeof db.getMapAreas === 'function');
-                console.log('Popup: db.getAll available:', typeof db.getAll === 'function');
 
             } else {
                 console.warn('Popup: Real database not found');
@@ -78,7 +68,6 @@ class NeocenkaPopup {
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 if (tabs && tabs[0]) {
                     this.currentTab = tabs[0];
-                    console.log('Popup: Current tab:', this.currentTab.url);
                 }
                 resolve();
             });
@@ -92,7 +81,6 @@ class NeocenkaPopup {
         }
 
         const url = this.currentTab.url;
-        console.log('Popup: Checking page type for URL:', url);
 
         // Проверяем Avito
         if (url.includes('avito.ru') && url.includes('/kvartiry/')) {
@@ -100,7 +88,6 @@ class NeocenkaPopup {
                 this.pageSource = 'avito';
                 this.isValidPage = true;
                 this.updatePageStatus('Страница объявления Avito ✓', true);
-                console.log('Popup: Valid Avito page detected');
                 return;
             }
         }
@@ -111,7 +98,6 @@ class NeocenkaPopup {
                 this.pageSource = 'cian';
                 this.isValidPage = true;
                 this.updatePageStatus('Страница объявления Cian ✓', true);
-                console.log('Popup: Valid Cian page detected');
                 return;
             }
         }
@@ -120,7 +106,6 @@ class NeocenkaPopup {
         this.pageSource = null;
         this.isValidPage = false;
         this.updatePageStatus('Откройте страницу объявления на Avito или Cian', false);
-        console.log('Popup: Page not suitable for parsing');
     }
 
     updatePageStatus(message, isValid) {
@@ -133,19 +118,15 @@ class NeocenkaPopup {
 
     async loadData() {
         try {
-            console.log('Popup: Loading data...');
 
             if (typeof db !== 'undefined' && db && typeof db.getMapAreas === 'function') {
-                console.log('Popup: Using real database with correct methods');
                 try {
                     // Загружаем области
                     this.areas = await db.getMapAreas();
-                    console.log('Popup: Loaded areas:', this.areas.length);
 
                     // Загружаем объявления для проверки дублей
                     if (typeof db.getAll === 'function') {
                         this.listings = await db.getAll('listings');
-                        console.log('Popup: Loaded listings for duplicate check:', this.listings.length);
                     }
 
                     // Обновляем статистику
@@ -189,7 +170,6 @@ class NeocenkaPopup {
                     needsProcessing: needsProcessing.length
                 };
 
-                console.log('Popup: Statistics updated:', stats);
 
                 // Обновляем элементы интерфейса
                 this.updateStatsElements(stats);
@@ -232,7 +212,6 @@ class NeocenkaPopup {
                 select.appendChild(option);
             });
 
-            console.log(`Popup: Loaded ${this.areas.length} areas into select`);
         }
 
         // Обновляем кнопку парсинга
@@ -244,7 +223,6 @@ class NeocenkaPopup {
         const areaSelect = document.getElementById('areaSelect');
         if (areaSelect) {
             areaSelect.addEventListener('change', async () => {
-                console.log('Popup: Area changed, updating button...');
                 await this.updateParseButton();
             });
         }
@@ -272,7 +250,6 @@ class NeocenkaPopup {
     // ИСПРАВЛЕННЫЙ МЕТОД extractExternalIdFromUrl
     extractExternalIdFromUrl(url) {
         if (url.includes('avito.ru')) {
-            console.log('Popup: Extracting external ID from URL:', url);
 
             // Используем те же паттерны что и в avito-parser.js
             const patterns = [
@@ -285,7 +262,6 @@ class NeocenkaPopup {
             for (const pattern of patterns) {
                 const match = url.match(pattern);
                 if (match && match[1]) {
-                    console.log(`Popup: External ID extracted using pattern ${pattern.source}: ${match[1]}`);
                     return match[1];
                 }
             }
@@ -310,21 +286,17 @@ class NeocenkaPopup {
    */
     async checkExistingListing(areaId) {
         if (!this.currentTab || !areaId) {
-            console.log('Popup: No tab or area for duplicate check');
             return null;
         }
 
         try {
             // Извлекаем ID объявления из URL
             const externalId = this.extractExternalIdFromUrl(this.currentTab.url);
-            console.log('Popup: Extracted external ID:', externalId);
 
             if (!externalId) {
-                console.log('Popup: No external ID found in URL');
                 return null;
             }
 
-            console.log('Popup: Checking for duplicates:', {
                 areaId,
                 externalId,
                 pageSource: this.pageSource,
@@ -337,7 +309,6 @@ class NeocenkaPopup {
                 const sourceMatch = listing.source === this.pageSource;
                 const overallMatch = externalMatch && sourceMatch;
 
-                console.log('Popup: Checking listing:', {
                     listingId: listing.id,
                     listingExternal: listing.external_id,
                     listingSource: listing.source,
@@ -352,22 +323,18 @@ class NeocenkaPopup {
             });
 
             if (existingListing) {
-                console.log('Popup: Found existing listing (by external_id + source):', existingListing);
 
                 // ИСПРАВЛЯЕМ area_id если он undefined
                 if (!existingListing.area_id) {
-                    console.log('Popup: Fixing undefined area_id');
                     existingListing.area_id = areaId;
                     try {
                         await db.updateListing(existingListing);
-                        console.log('Popup: area_id fixed and saved');
                     } catch (error) {
                         console.error('Popup: Error fixing area_id:', error);
                     }
                 }
 
             } else {
-                console.log('Popup: No existing listing found');
             }
 
             return existingListing;
@@ -382,14 +349,12 @@ class NeocenkaPopup {
         const select = document.getElementById('areaSelect');
 
         if (!button || !select) {
-            console.log('Popup: Parse button or select not found');
             return;
         }
 
         const areaSelected = select.value !== '';
         const canParse = this.isValidPage && areaSelected;
 
-        console.log('Popup: updateParseButton called:', {
             isValidPage: this.isValidPage,
             areaSelected,
             canParse,
@@ -401,7 +366,6 @@ class NeocenkaPopup {
         // Проверяем существует ли уже такое объявление  
         if (areaSelected && this.isValidPage) {
             this.existingListing = await this.checkExistingListing(select.value);
-            console.log('Popup: updateParseButton - checking for existing listing:', {
                 areaId: select.value,
                 currentUrl: this.currentTab?.url,
                 existingListing: this.existingListing
@@ -419,19 +383,15 @@ class NeocenkaPopup {
                 buttonText.textContent = 'Выберите область';
             } else if (this.existingListing) {
                 buttonText.textContent = 'Обновить объявление';
-                console.log('Popup: Found existing listing, showing update button');
             } else {
                 buttonText.textContent = 'Добавить объявление';
-                console.log('Popup: No existing listing found, showing add button');
             }
         }
 
-        console.log(`Popup: Parse button state - canParse=${canParse}, isValidPage=${this.isValidPage}, areaSelected=${areaSelected}, existing=${!!this.existingListing}`);
     }
 
     async handleParseClick() {
         if (this.isProcessing) {
-            console.log('Popup: Parsing already in progress, ignoring click');
             return;
         }
 
@@ -446,14 +406,12 @@ class NeocenkaPopup {
         try {
             this.isProcessing = true;
             const source = this.pageSource === 'avito' ? 'avito' : 'cian';
-            console.log(`Popup: Parsing listing from ${source} for area ${areaId}`);
 
             this.setLoadingState(true);
             this.showDetailedNotification('🔄 Анализируем объявление...', 'info');
 
             // ВАЖНО: Проверяем существующее объявление ПЕРЕД парсингом
             const existingListing = await this.checkExistingListing(areaId);
-            console.log('Popup: Pre-parse check - existing listing:', existingListing);
 
             // Отправляем запрос на парсинг
             const response = await this.sendMessageToContentScript({
@@ -462,17 +420,13 @@ class NeocenkaPopup {
             });
 
             if (response && response.success) {
-                console.log('Popup: Parsed data received:', response.data);
-                console.log('Popup: External ID in parsed data:', response.data.external_id);
 
                 if (existingListing) {
                     // ОБНОВЛЯЕМ существующее объявление
-                    console.log('Popup: Updating existing listing:', existingListing.id);
                     await this.updateExistingListingWithNotification(response.data, existingListing);
 
                 } else {
                     // СОЗДАЕМ новое объявление
-                    console.log('Popup: Saving new listing...');
                     await this.saveNewListingWithNotification(response.data);
                 }
 
@@ -501,7 +455,6 @@ class NeocenkaPopup {
             const oldArea = existingListing.area_total;
             const newArea = parsedData.area_total;
 
-            console.log('Popup: Updating existing listing, comparison:', {
                 oldPrice, newPrice, priceChanged: oldPrice !== newPrice,
                 oldArea, newArea, areaChanged: oldArea !== newArea
             });
@@ -510,14 +463,12 @@ class NeocenkaPopup {
             let updatedListing;
             if (parsedData.source === 'avito') {
                 updatedListing = ListingModel.fromAvitoParser(parsedData);
-                console.log('Popup: Updated listing using fromAvitoParser:', updatedListing);
             } else {
                 // Для других источников используем прямое объединение данных
                 updatedListing = new ListingModel({
                     ...existingListing,
                     ...parsedData
                 });
-                console.log('Popup: Updated listing using legacy method:', updatedListing);
             }
 
             // Сохраняем важные системные поля из существующего объявления
@@ -536,7 +487,6 @@ class NeocenkaPopup {
 
             // Изменение цены
             if (newPrice && oldPrice !== newPrice) {
-                console.log(`Popup: Price changed: ${oldPrice} → ${newPrice}`);
 
                 if (!updatedData.price_history) {
                     updatedData.price_history = existingListing.price_history || [];
@@ -578,13 +528,10 @@ class NeocenkaPopup {
             });
 
             // Сохраняем в базу данных
-            console.log('Popup: Saving updated listing to database...');
             if (typeof db !== 'undefined' && db && typeof db.update === 'function') {
                 await db.update('listings', updatedListing);
-                console.log('Popup: Listing updated via db.update');
             } else if (typeof db !== 'undefined' && db && typeof db.updateListing === 'function') {
                 await db.updateListing(updatedListing);
-                console.log('Popup: Listing updated via db.updateListing');
             }
 
             // Показываем уведомление
@@ -603,13 +550,11 @@ class NeocenkaPopup {
 
     async saveNewListingWithNotification(parsedData) {
         try {
-            console.log('Popup: Saving new listing:', parsedData);
 
             // Используем новый метод fromAvitoParser для создания унифицированного объявления
             let listing;
             if (parsedData.source === 'avito') {
                 listing = ListingModel.fromAvitoParser(parsedData);
-                console.log('Popup: Created listing using fromAvitoParser:', listing);
             } else {
                 // Для других источников используем старый метод с добавлением системных полей
                 listing = new ListingModel({
@@ -618,7 +563,6 @@ class NeocenkaPopup {
                     updated_at: new Date(),
                     last_seen: new Date()
                 });
-                console.log('Popup: Created listing using legacy method:', listing);
             }
 
             // Добавляем системные поля
@@ -629,7 +573,6 @@ class NeocenkaPopup {
 
             // Сохраняем в базу
             const savedListing = await db.addListing(listing);
-            console.log('Popup: New listing saved:', savedListing);
 
             // Формируем детальное уведомление
             const details = [];
@@ -770,8 +713,6 @@ class NeocenkaPopup {
                 return;
             }
 
-            console.log('Popup: Sending message to content script:', message);
-            console.log('Popup: Target tab ID:', this.currentTab.id);
 
             chrome.tabs.sendMessage(this.currentTab.id, message, (response) => {
                 if (chrome.runtime.lastError) {
@@ -781,7 +722,6 @@ class NeocenkaPopup {
                         error: 'Не удалось подключиться к странице. Обновите страницу и попробуйте снова.'
                     });
                 } else {
-                    console.log('Popup: Response from content script:', response);
                     resolve(response || { success: false, error: 'Нет ответа от content script' });
                 }
             });
@@ -845,7 +785,6 @@ let neocenkaPopup;
 
 // Инициализация при загрузке DOM
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Popup: DOM loaded, initializing popup...');
     neocenkaPopup = new NeocenkaPopup();
     initializeUpdateChecker();
 });

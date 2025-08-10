@@ -564,7 +564,6 @@ class DuplicateDetector {
         }
 
         this.initialized = true;
-        console.log('🔍 DuplicateDetector инициализирован');
     }
 
     /**
@@ -691,7 +690,6 @@ class DuplicateDetector {
         if (!this.initialized) await this.init();
 
         try {
-            console.log('🚀 Начинаем поиск дублей...');
 
             if (!currentArea || !currentArea.polygon || currentArea.polygon.length < 3) {
                 throw new Error('Не передана область или область не содержит валидный полигон');
@@ -719,9 +717,6 @@ class DuplicateDetector {
                 listing.processing_status === 'duplicate_check_needed'
             );
 
-            console.log(`📋 Всего объявлений в базе: ${allListings.length}`);
-            console.log(`🗺️ Объявлений в области: ${listingsInArea.length}`);
-            console.log(`🎯 Объявлений для обработки на дубли: ${targetListings.length}`);
 
             // Дополнительная отладочная информация по статусам в области
             const statusCounts = {};
@@ -730,18 +725,14 @@ class DuplicateDetector {
                 statusCounts[status] = (statusCounts[status] || 0) + 1;
             });
             
-            console.log(`📈 Распределение по статусам в области:`, statusCounts);
 
             if (targetListings.length === 0) {
-                console.log('📭 Нет объявлений для обработки на дубли в области');
                 return { processed: 0, merged: 0, groups: 0, errors: 0 };
             }
 
-            console.log(`📊 Найдено ${targetListings.length} объявлений для обработки`);
 
             // Группируем по адресам
             const addressGroups = await this.groupListingsByAddress(targetListings);
-            console.log(`🏘️ Сгруппировано по ${addressGroups.size} адресам`);
 
             const results = {
                 processed: 0,
@@ -758,14 +749,12 @@ class DuplicateDetector {
                 if (listings.length < 2) {
                     // Если в группе только одно объявление, создаем объект из одного объявления
                     try {
-                        console.log(`🏠 Создаем объект из единственного объявления в адресе ${addressId}`);
                         await window.realEstateObjectManager.mergeIntoObject(
                             [{ type: 'listing', id: listings[0].id }], 
                             addressId
                         );
                         totalProcessed++;
                         results.merged++;
-                        console.log(`✅ Создан объект из единственного объявления ${listings[0].id} в адресе ${addressId}`);
                     } catch (error) {
                         console.error(`❌ Ошибка создания объекта из единственного объявления ${listings[0].id}:`, error);
                         results.errors++;
@@ -773,7 +762,6 @@ class DuplicateDetector {
                     continue;
                 }
 
-                console.log(`🏠 Обрабатываем адрес ${addressId}: ${listings.length} объявлений`);
 
                 // Сортируем по дате создания (самые ранние первыми)
                 listings.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -789,7 +777,6 @@ class DuplicateDetector {
                     if (candidates.length === 0) {
                         // Объявление не имеет дублей, создаем объект из одного объявления
                         try {
-                            console.log(`🏠 Создаем объект из объявления ${targetListing.id} - дублей не найдено`);
                             await window.realEstateObjectManager.mergeIntoObject(
                                 [{ type: 'listing', id: targetListing.id }], 
                                 addressId
@@ -797,7 +784,6 @@ class DuplicateDetector {
                             processed.add(targetListing.id);
                             totalProcessed++;
                             results.merged++;
-                            console.log(`✅ Создан объект из единственного объявления ${targetListing.id}`);
                         } catch (error) {
                             console.error(`❌ Ошибка создания объекта из объявления ${targetListing.id}:`, error);
                             results.errors++;
@@ -808,12 +794,10 @@ class DuplicateDetector {
                     // Ищем дубли
                     const duplicates = await this.findDuplicatesForListing(targetListing, candidates);
                     
-                    console.log(`🔍 Для объявления ${targetListing.id} найдено ${duplicates.length} потенциальных дублей`);
                     
                     if (duplicates.length > 0) {
                         // Выводим информацию о найденных дублях
                         duplicates.forEach(dup => {
-                            console.log(`   - Объявление ${dup.listing.id}: скор ${dup.score.final.toFixed(3)}, уверенность ${dup.score.confidence}`);
                         });
 
                         // Объединяем найденные дубли с высокой уверенностью
@@ -827,7 +811,6 @@ class DuplicateDetector {
                             ];
 
                             try {
-                                console.log(`🔄 Объединяем ${itemsToMerge.length} объявлений в объект недвижимости...`);
                                 await window.realEstateObjectManager.mergeIntoObject(
                                     itemsToMerge, 
                                     addressId
@@ -838,32 +821,26 @@ class DuplicateDetector {
                                 [targetListing.id, ...duplicateIds].forEach(id => processed.add(id));
                                 results.merged += itemsToMerge.length;
                                 
-                                console.log(`✅ Успешно объединено ${itemsToMerge.length} объявлений в объект`);
                             } catch (error) {
                                 console.error('❌ Ошибка объединения:', error);
                                 results.errors++;
                                 
                                 // Если объединение не удалось, НЕ помечаем как обработанное
                                 // Оставляем статус 'duplicate_check_needed' для повторной попытки
-                                console.log(`⚠️ Объявление ${targetListing.id} остается в статусе 'duplicate_check_needed' из-за ошибки объединения`);
                             }
                         } else {
                             // Есть дубли, но уверенность недостаточна для автоматического объединения
-                            console.log(`⚠️ Найдены дубли для объявления ${targetListing.id}, но уверенность недостаточна для автоматического объединения`);
-                            console.log(`📋 Объявление ${targetListing.id} остается в статусе 'duplicate_check_needed' для ручной проверки`);
                             // НЕ помечаем как обработанное - требует ручной проверки
                         }
                     } else {
                         // Дубли не найдены, создаем объект из одного объявления
                         try {
-                            console.log(`🏠 Создаем объект из объявления ${targetListing.id} - дублей не найдено`);
                             await window.realEstateObjectManager.mergeIntoObject(
                                 [{ type: 'listing', id: targetListing.id }], 
                                 addressId
                             );
                             processed.add(targetListing.id);
                             results.merged++;
-                            console.log(`✅ Создан объект из единственного объявления ${targetListing.id}`);
                         } catch (error) {
                             console.error(`❌ Ошибка создания объекта из объявления ${targetListing.id}:`, error);
                             results.errors++;
@@ -887,7 +864,6 @@ class DuplicateDetector {
 
             results.processed = totalProcessed;
 
-            console.log('🎯 Обработка дублей завершена:', results);
             return results;
 
         } catch (error) {

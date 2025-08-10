@@ -28,7 +28,6 @@ class Helpers {
      */
     static async debugLog(message, ...args) {
         if (await this.isDebugEnabled()) {
-            console.log(message, ...args);
         }
     }
     

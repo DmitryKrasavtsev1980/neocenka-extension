@@ -54,7 +54,6 @@ class ReportsManager {
     async initialize() {
         try {
             if (this.debugEnabled) {
-                // console.log('🔍 ReportsManager: Инициализация...');
             }
 
             // Получение настроек отладки
@@ -65,7 +64,6 @@ class ReportsManager {
                 this.htmlExportManager = new HTMLExportManager();
                 await this.htmlExportManager.init();
                 if (this.debugEnabled) {
-                    console.log('✅ ReportsManager: HTMLExportManager инициализирован');
                 }
             } else {
                 console.warn('⚠️ ReportsManager: HTMLExportManager не найден');
@@ -99,7 +97,6 @@ class ReportsManager {
             await this.initFilterTemplates();
 
             if (this.debugEnabled) {
-                // console.log('✅ ReportsManager: Инициализация завершена');
             }
 
         } catch (error) {
@@ -148,7 +145,6 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            // console.log('🔍 ReportsManager: Элементы интерфейса инициализированы');
         }
     }
 
@@ -251,7 +247,6 @@ class ReportsManager {
         });
 
         if (this.debugEnabled) {
-            // console.log('🔍 ReportsManager: Обработчики событий установлены');
         }
     }
 
@@ -281,7 +276,6 @@ class ReportsManager {
                 });
                 
                 if (this.debugEnabled) {
-                    // console.log('🔍 ReportsManager: SlimSelect для подсегментов инициализирован (отключен)');
                 }
             }
 
@@ -303,12 +297,10 @@ class ReportsManager {
                 });
                 
                 if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: SlimSelect для режимов коридора рынка инициализирован');
                 }
             }
             
             if (this.debugEnabled) {
-                // console.log('🔍 ReportsManager: SlimSelect инициализация завершена');
             }
 
         } catch (error) {
@@ -333,7 +325,6 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            // console.log('🔍 ReportsManager: Панель', isHidden ? 'развернута' : 'свернута');
         }
     }
 
@@ -346,7 +337,6 @@ class ReportsManager {
         this.reportsDropdown.classList.toggle('hidden');
 
         if (this.debugEnabled) {
-            // console.log('🔍 ReportsManager: Выпадающий список отчётов переключен');
         }
     }
 
@@ -413,7 +403,6 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Видимость отчётов обновлена', {
                 showLiquidity,
                 showPriceChanges,
                 showMarketCorridor,
@@ -447,14 +436,12 @@ class ReportsManager {
             const currentArea = this.areaPage.dataState?.getState('currentArea');
             if (!currentArea) {
                 if (this.debugEnabled) {
-                    console.log('⚠️ ReportsManager: Нет текущей области для загрузки сегментов');
                 }
                 return;
             }
 
             if (!this.database) {
                 if (this.debugEnabled) {
-                    console.log('⚠️ ReportsManager: База данных недоступна');
                 }
                 return;
             }
@@ -466,7 +453,6 @@ class ReportsManager {
             this.updateSegmentFilter();
 
             if (this.debugEnabled) {
-                console.log('✅ ReportsManager: Загружено сегментов:', this.segments.length, 'для области:', currentArea.name);
             }
 
         } catch (error) {
@@ -519,7 +505,6 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            // console.log('🔍 ReportsManager: Фильтр сегментов обновлен, сегментов:', this.segments.length);
         }
     }
 
@@ -532,7 +517,6 @@ class ReportsManager {
             this.currentSubsegment = null;
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Выбран сегмент:', this.currentSegment?.name || 'Не выбран');
             }
             
             if (!segmentId) {
@@ -610,7 +594,6 @@ class ReportsManager {
         }
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Изменен режим коридора рынка:', mode);
         }
     }
 
@@ -666,7 +649,6 @@ class ReportsManager {
     async generateReports() {
         try {
             if (this.debugEnabled) {
-                // console.log('🔍 ReportsManager: Генерация отчётов...');
             }
 
             // Получение данных для отчётов
@@ -682,7 +664,6 @@ class ReportsManager {
             await this.createMarketCorridorChart(reportData);
 
             if (this.debugEnabled) {
-                // console.log('✅ ReportsManager: Отчёты сгенерированы');
             }
 
         } catch (error) {
@@ -699,7 +680,6 @@ class ReportsManager {
             const currentArea = this.areaPage.dataState?.getState('currentArea');
             if (!currentArea) {
                 if (this.debugEnabled) {
-                    // console.log('🔍 ReportsManager: Нет текущей области');
                 }
                 return this.getEmptyReportData();
             }
@@ -710,7 +690,6 @@ class ReportsManager {
             const dateTo = new Date(this.dateToFilter?.value || new Date().toISOString().split('T')[0]);
 
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Параметры фильтра:', {
                     areaId: currentArea.id,
                     segmentId,
                     subsegmentId,
@@ -724,7 +703,6 @@ class ReportsManager {
             const objects = await this.getFilteredRealEstateObjects(currentArea.id, segmentId, subsegmentId, dateFrom, dateTo);
             
             if (this.debugEnabled) {
-                // console.log('🔍 ReportsManager: Загружено объектов:', objects.length);
             }
 
             // Группируем данные по месяцам и подготавливаем для отчётов
@@ -750,7 +728,6 @@ class ReportsManager {
                 const segment = await this.database.getSegment(segmentId);
                 if (!segment) {
                     if (this.debugEnabled) {
-                        console.log('⚠️ ReportsManager: Сегмент не найден:', segmentId);
                     }
                     return [];
                 }
@@ -782,7 +759,6 @@ class ReportsManager {
                 }
                 
                 if (this.debugEnabled) {
-                    console.log(`🔍 ReportsManager: Сегмент ${segment.name}: ${filteredAddresses.length} адресов → ${objects.length} объектов`);
                 }
             } else {
                 // Получаем все объекты в области
@@ -793,7 +769,6 @@ class ReportsManager {
                 }
                 
                 if (this.debugEnabled) {
-                    console.log(`🔍 ReportsManager: Вся область: ${addresses.length} адресов → ${objects.length} объектов`);
                 }
             }
 
@@ -817,7 +792,6 @@ class ReportsManager {
                 const shouldInclude = createdInPeriod || updatedInPeriod || createdBeforePeriod;
                 
                 if (this.debugEnabled && !shouldInclude) {
-                    console.log('🔍 ReportsManager: Объект исключен - нет активности в период:', {
                         created: createdDate?.toISOString(),
                         updated: updatedDate?.toISOString(),
                         dateFrom: dateFrom.toISOString(),
@@ -1067,7 +1041,6 @@ class ReportsManager {
         });
 
         if (this.debugEnabled) {
-            console.log('🔍 ReportsManager: Данные отчета по месяцам:', {
                 months: reportData.datetime,
                 new: reportData.new,
                 close: reportData.close,
@@ -1228,7 +1201,6 @@ class ReportsManager {
             this.liquidityChart.render();
 
             if (this.debugEnabled) {
-                // console.log('✅ ReportsManager: График ликвидности создан');
             }
 
         } catch (error) {
@@ -1345,7 +1317,6 @@ class ReportsManager {
             this.priceChangesChart.render();
 
             if (this.debugEnabled) {
-                // console.log('✅ ReportsManager: График изменения цен создан');
             }
 
         } catch (error) {
@@ -1538,7 +1509,6 @@ class ReportsManager {
             this.marketCorridorChart.render();
 
             if (this.debugEnabled) {
-                console.log('✅ ReportsManager: График коридора рынка создан', {
                     pointsCount: pointsData.pointsData.length,
                     samplePoint: pointsData.pointsData[0],
                     globalInstance: !!window.reportsManagerInstance
@@ -1846,7 +1816,6 @@ class ReportsManager {
     handleMarketCorridorPointClick(event, chartContext, config) {
         try {
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Клик по графику коридора рынка:', { event, chartContext, config });
             }
 
             let point = null;
@@ -1873,14 +1842,12 @@ class ReportsManager {
             
             if (point) {
                 if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: Найдена точка:', point);
                 }
                 
                 // Открываем существующее модальное окно просмотра объекта
                 this.showObjectDetails(point.objectId);
             } else {
                 if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: Не удалось найти данные точки:', {
                         dataPointIndex: config?.dataPointIndex,
                         seriesIndex: config?.seriesIndex,
                         mode: this.marketCorridorMode,
@@ -2316,7 +2283,6 @@ class ReportsManager {
             $('#reportFilterSelect').off('change').on('change', (e) => this.onFilterTemplateSelect(e.target.value));
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Интерфейс шаблонов фильтров инициализирован');
             }
             
         } catch (error) {
@@ -2343,7 +2309,6 @@ class ReportsManager {
             });
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Загружено шаблонов фильтров:', filterTemplates.length);
             }
             
         } catch (error) {
@@ -2407,7 +2372,6 @@ class ReportsManager {
             alert(`Шаблон фильтра "${filterName}" сохранён успешно!`);
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Шаблон фильтра сохранён:', savedFilter);
             }
             
         } catch (error) {
@@ -2462,7 +2426,6 @@ class ReportsManager {
             }
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Шаблон фильтра применён:', template);
             }
             
         } catch (error) {
@@ -2537,7 +2500,6 @@ class ReportsManager {
             alert(`Шаблон фильтра "${template.name}" удалён успешно!`);
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Шаблон фильтра удалён:', template.name);
             }
             
         } catch (error) {
@@ -2560,7 +2522,6 @@ class ReportsManager {
             button.html('⏳ Экспорт...').prop('disabled', true);
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Начинаем экспорт отчёта:', reportId);
             }
             
             // Получаем отчёт
@@ -2579,7 +2540,6 @@ class ReportsManager {
             // Скачиваем файл
             this.downloadJSONFile(exportData, fileName);
             
-            console.log('✅ ReportsManager: Отчёт экспортирован:', fileName);
             
             // Показываем уведомление об успешном экспорте
             if (this.areaPage && this.areaPage.uiManager) {
@@ -2826,7 +2786,6 @@ class ReportsManager {
             button.html('⏳ Генерация...').prop('disabled', true);
             
             if (this.debugEnabled) {
-                console.log('🔍 ReportsManager: Начинаем генерацию HTML отчёта:', reportId);
             }
             
             // Получаем отчёт
@@ -2860,7 +2819,6 @@ class ReportsManager {
             // Скачиваем файл
             this.downloadHTMLFile(htmlContent, fileName);
             
-            console.log('✅ ReportsManager: HTML отчёт сгенерирован:', fileName);
             
             // Показываем уведомление об успешном экспорте
             if (this.areaPage && this.areaPage.uiManager) {
@@ -3056,7 +3014,6 @@ class ReportsManager {
         this.eventBus.off(CONSTANTS.EVENTS.SUBSEGMENT_DELETED);
 
         if (this.debugEnabled) {
-            // console.log('🔍 ReportsManager: Ресурсы очищены');
         }
     }
 }

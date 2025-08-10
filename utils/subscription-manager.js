@@ -25,7 +25,6 @@ class SubscriptionManager {
         console.warn('API недоступен, подписки работают в автономном режиме');
       }
 
-      console.log('Менеджер подписок инициализирован');
     } catch (error) {
       console.error('Ошибка инициализации менеджера подписок:', error);
     }
@@ -236,7 +235,6 @@ class SubscriptionManager {
       this.checkAllSubscriptions();
     }, this.checkInterval);
 
-    console.log('Автоматическая проверка подписок запущена');
   }
 
   /**
@@ -253,7 +251,6 @@ class SubscriptionManager {
       this.intervalId = null;
     }
 
-    console.log('Автоматическая проверка подписок остановлена');
   }
 
   /**
@@ -474,7 +471,6 @@ class SubscriptionManager {
       // Сохраняем уведомление в локальной истории
       await this.saveNotificationToHistory(subscription, changes, message);
 
-      console.log(`Уведомление отправлено для подписки ${subscription.id}:`, message);
 
     } catch (error) {
       console.error('Ошибка отправки уведомления:', error);

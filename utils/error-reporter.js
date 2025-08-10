@@ -90,7 +90,6 @@ function SendMessageTelegram(text) {
         }
     })
     .catch(error => {
-        console.log('Error send message telegram bot:', error);
         // Повторная отправка через минуту
         setTimeout(function() {
             SendMessageTelegram(text);

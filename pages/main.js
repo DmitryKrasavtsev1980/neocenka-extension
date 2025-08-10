@@ -1049,10 +1049,8 @@ class MainPage {
   async loadAddressesOnMap() {
     try {
       const addresses = await db.getAll('addresses');
-      console.log(`🏠 MainPage: Загружаем ${addresses.length} адресов на карту`);
       
       if (addresses.length === 0) {
-        console.log('📍 MainPage: Нет адресов для отображения');
         return;
       }
 
@@ -1067,7 +1065,6 @@ class MainPage {
         }
       }
 
-      console.log(`📍 MainPage: Создано ${markers.length} маркеров адресов`);
 
       if (markers.length === 0) return;
 
@@ -1085,13 +1082,11 @@ class MainPage {
         }
         
         this.addressesCluster.addMarkers(markers);
-        console.log(`🔗 MainPage: Адреса добавлены в кластер`);
       } else {
         // Добавляем маркеры напрямую в слой
         markers.forEach(marker => {
           this.mapLayers.addresses.addLayer(marker);
         });
-        console.log(`📍 MainPage: Адреса добавлены как отдельные маркеры`);
       }
 
     } catch (error) {
@@ -1264,7 +1259,6 @@ class MainPage {
     // Перерисовываем маркеры с новой информацией
     this.refreshAddressMarkers();
     
-    console.log(`🗺️ MainPage: Установлен фильтр карты: ${filterType}`);
   }
 
   /**
@@ -1301,7 +1295,6 @@ class MainPage {
       }
     });
     
-    console.log(`🎯 MainPage: Подсвечена кнопка фильтра: ${activeButtonId} (${activeFilter})`);
   }
 
   /**
@@ -1312,7 +1305,6 @@ class MainPage {
       // Для оптимизации производительности просто перезагружаем адреса
       await this.loadAddressesOnMap();
       
-      console.log(`🔄 MainPage: Маркеры адресов обновлены`);
       
     } catch (error) {
       console.error('MainPage: Ошибка обновления маркеров адресов:', error);

@@ -43,11 +43,9 @@ class DebugLogger {
 
     /**
      * Выводит обычное сообщение в консоль (если отладка включена)
-     * @param {...any} args - аргументы для console.log
      */
     log(...args) {
         if (this.isDebugEnabled) {
-            console.log('[DEBUG]', ...args);
         }
     }
 

@@ -19,8 +19,6 @@ class OSMOverpassAPI {
         // Конвертируем полигон в формат для Overpass API
         const coords = polygon.map(point => `${point.lat} ${point.lng}`).join(' ');
         
-        console.log(`🗺️ Создаем Overpass запрос для жилых домов в полигоне:`, polygon);
-        console.log(`📍 Координаты для запроса: ${coords}`);
         
         const query = `
 [out:json][timeout:25];
@@ -37,7 +35,6 @@ class OSMOverpassAPI {
 out geom;
         `.trim();
         
-        console.log(`📝 Overpass запрос для жилых домов:`, query);
         return query;
     }
 
@@ -192,15 +189,12 @@ out geom;
         const addresses = [];
         const processedElements = new Set();
 
-        console.log(`🔍 OSM Data received:`, osmData);
-        console.log(`📊 Elements count: ${osmData.elements ? osmData.elements.length : 0}`);
 
         if (!osmData.elements || !Array.isArray(osmData.elements)) {
             console.warn(`⚠️ No elements in OSM data`);
             return addresses;
         }
 
-        console.log(`🏠 Processing ${osmData.elements.length} OSM elements...`);
 
         let skippedDuplicates = 0;
         let skippedNoCoords = 0;
@@ -211,7 +205,6 @@ out geom;
 
         osmData.elements.forEach((element, index) => {
             if (index < 5) {
-                console.log(`🔍 Элемент ${index}:`, element);
             }
 
             // Избегаем дублирования
@@ -226,8 +219,6 @@ out geom;
             const coordinates = this.getElementCenter(element);
 
             if (index < 5) {
-                console.log(`📍 Координаты элемента ${index}:`, coordinates);
-                console.log(`🏠 Адресная информация ${index}:`, addressInfo);
             }
 
             // Пропускаем элементы без координат или адресной информации
@@ -245,7 +236,6 @@ out geom;
             if (!this.isResidentialBuilding(addressInfo, element.tags || {})) {
                 skippedNotResidential++;
                 if (index < 5) {
-                    console.log(`🏢 Элемент ${index} не является жилым домом:`, addressInfo.building);
                 }
                 return;
             }
@@ -255,14 +245,12 @@ out geom;
             if (!isInsidePolygon) {
                 skippedOutsidePolygon++;
                 if (index < 5) {
-                    console.log(`❌ Элемент ${index} вне полигона: ${coordinates.lat}, ${coordinates.lng}`);
                 }
                 return;
             }
 
             processed++;
             if (index < 5) {
-                console.log(`✅ Элемент ${index} принят для обработки`);
             }
 
             // Формируем полный адрес
@@ -318,16 +306,6 @@ out geom;
             addresses.push(addressObject);
         });
 
-        console.log(`📊 === СТАТИСТИКА ОБРАБОТКИ OSM (ТОЛЬКО ЖИЛЫЕ ДОМА) ===`);
-        console.log(`🔍 Всего элементов: ${osmData.elements.length}`);
-        console.log(`🔄 Обработано уникальных: ${osmData.elements.length - skippedDuplicates}`);
-        console.log(`❌ Пропущено дублей: ${skippedDuplicates}`);
-        console.log(`❌ Без координат: ${skippedNoCoords}`);
-        console.log(`❌ Без адресной информации: ${skippedNoAddress}`);
-        console.log(`🏢 Не жилые здания: ${skippedNotResidential}`);
-        console.log(`❌ Вне полигона: ${skippedOutsidePolygon}`);
-        console.log(`✅ Принято для создания адресов: ${processed}`);
-        console.log(`🏠 Итоговое количество жилых домов: ${addresses.length}`);
 
         return addresses;
     }
@@ -410,12 +388,10 @@ out geom;
 out geom;
             `.trim();
 
-            console.log(`🔍 Reverse geocoding для координат ${lat}, ${lng}`);
             
             const data = await this.executeQuery(query);
             
             if (data.elements && data.elements.length > 0) {
-                console.log(`📊 Найдено ${data.elements.length} адресов в радиусе 100м`);
                 
                 // Находим ближайший адрес
                 let closestElement = null;
@@ -428,7 +404,6 @@ out geom;
                     // Вычисляем расстояние до элемента
                     const distance = this.calculateDistance(lat, lng, elementCoords.lat, elementCoords.lng);
                     
-                    console.log(`📍 Элемент: ${element.tags?.['addr:street']} ${element.tags?.['addr:housenumber']}, расстояние: ${Math.round(distance)}м`);
                     
                     if (distance < minDistance) {
                         minDistance = distance;
@@ -451,12 +426,10 @@ out geom;
                         address += ', ' + tags['addr:city'];
                     }
                     
-                    console.log(`✅ Ближайший адрес (${Math.round(minDistance)}м): ${address}`);
                     return address;
                 }
             }
             
-            console.log(`❌ Адрес не найден для координат ${lat}, ${lng}`);
             return '';
             
         } catch (error) {

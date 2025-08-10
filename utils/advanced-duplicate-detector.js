@@ -675,26 +675,22 @@ class AdvancedDuplicateDetector {
         }
 
         this.initialized = true;
-        console.log('🔍 AdvancedDuplicateDetector инициализирован');
     }
 
     /**
      * Усовершенствованное сравнение двух объявлений
      */
     async compareListingsAdvanced(listing1, listing2) {
-        console.log(`🔍 Продвинутое сравнение объявлений ${listing1.id} и ${listing2.id}`);
 
         // 1. Анализ уникальных характеристик
         const features1 = this.uniqueFeatureDetector.extractUniqueFeatures(listing1.description);
         const features2 = this.uniqueFeatureDetector.extractUniqueFeatures(listing2.description);
         const uniqueFeatures = this.uniqueFeatureDetector.compareFeatures(features1, features2);
 
-        console.log(`   🏠 Уникальные характеристики: ${uniqueFeatures.similarity.toFixed(3)} (${uniqueFeatures.confidence})`);
 
         // 2. Анализ технических характеристик
         const specifications = this.specAnalyzer.compareSpecifications(listing1, listing2);
         
-        console.log(`   📐 Технические характеристики: ${specifications.similarity.toFixed(3)} (точное совпадение: ${specifications.exactMatch})`);
 
         // 3. Семантический анализ описания
         const semanticSimilarity = this.textAnalyzer.analyze(
@@ -702,7 +698,6 @@ class AdvancedDuplicateDetector {
             listing2.description || ''
         );
 
-        console.log(`   📝 Семантическое сходство: ${semanticSimilarity.combined.toFixed(3)} (${semanticSimilarity.confidence})`);
 
         // 4. Анализ связи продавцов
         const contacts1 = this.contactAnalyzer.analyzeContacts(listing1);
@@ -714,17 +709,14 @@ class AdvancedDuplicateDetector {
             contacts2
         );
 
-        console.log(`   👤 Связь продавцов: ${sellerRelation.confidence.toFixed(3)} (${sellerRelation.reason})`);
 
         // 5. Анализ ценовой динамики
         const priceHistory = this.priceAnalyzer.analyzePriceRelation(listing1, listing2);
 
-        console.log(`   💰 Ценовая динамика: ${priceHistory.confidence.toFixed(3)} (${priceHistory.reason})`);
 
         // 6. Геолокация (простая проверка)
         const location = this.compareLocation(listing1.coordinates, listing2.coordinates);
 
-        console.log(`   📍 Геолокация: ${location.similarity.toFixed(3)}`);
 
         // 7. Расчет итогового скора
         const finalScore = this.scoreCalculator.calculateAdvancedScore({
@@ -736,7 +728,6 @@ class AdvancedDuplicateDetector {
             location: { similarity: location.similarity }
         });
 
-        console.log(`   🎯 Итоговый скор: ${finalScore.final.toFixed(3)} (${finalScore.confidence}), автообъединение: ${finalScore.shouldAutoMerge}`);
 
         return {
             compatible: true,
@@ -818,7 +809,6 @@ class AdvancedDuplicateDetector {
         if (!this.initialized) await this.init();
 
         try {
-            console.log('🚀 Начинаем продвинутый поиск дублей...');
 
             if (!currentArea || !currentArea.polygon || currentArea.polygon.length < 3) {
                 throw new Error('Не передана область или область не содержит валидный полигон');
@@ -843,18 +833,13 @@ class AdvancedDuplicateDetector {
                 listing.processing_status === 'duplicate_check_needed'
             );
 
-            console.log(`📋 Всего объявлений в базе: ${allListings.length}`);
-            console.log(`🗺️ Объявлений в области: ${listingsInArea.length}`);
-            console.log(`🎯 Объявлений для обработки на дубли: ${targetListings.length}`);
 
             if (targetListings.length === 0) {
-                console.log('📭 Нет объявлений для обработки на дубли в области');
                 return { processed: 0, merged: 0, groups: 0, errors: 0 };
             }
 
             // Группируем по адресам
             const addressGroups = this.groupListingsByAddress(targetListings);
-            console.log(`🏘️ Сгруппировано по ${addressGroups.size} адресам`);
 
             const results = {
                 processed: 0,
@@ -868,19 +853,16 @@ class AdvancedDuplicateDetector {
 
             // Обрабатываем каждую группу адресов
             for (const [addressId, listings] of addressGroups) {
-                console.log(`🏠 Обрабатываем адрес ${addressId}: ${listings.length} объявлений`);
 
                 if (listings.length < 2) {
                     // Создаем объект из одного объявления
                     try {
-                        console.log(`🏠 Создаем объект из единственного объявления в адресе ${addressId}`);
                         await window.realEstateObjectManager.mergeIntoObject(
                             [{ type: 'listing', id: listings[0].id }], 
                             addressId
                         );
                         totalProcessed++;
                         results.merged++;
-                        console.log(`✅ Создан объект из единственного объявления ${listings[0].id}`);
                     } catch (error) {
                         console.error(`❌ Ошибка создания объекта из единственного объявления ${listings[0].id}:`, error);
                         results.errors++;
@@ -893,7 +875,6 @@ class AdvancedDuplicateDetector {
                 
                 for (const cluster of clusters) {
                     try {
-                        console.log(`🔄 Объединяем кластер из ${cluster.length} объявлений...`);
                         
                         const itemsToMerge = cluster.map(listing => ({ type: 'listing', id: listing.id }));
                         await window.realEstateObjectManager.mergeIntoObject(itemsToMerge, addressId);
@@ -901,7 +882,6 @@ class AdvancedDuplicateDetector {
                         results.merged += cluster.length;
                         totalProcessed += cluster.length;
                         
-                        console.log(`✅ Успешно объединен кластер из ${cluster.length} объявлений`);
                     } catch (error) {
                         console.error('❌ Ошибка объединения кластера:', error);
                         results.errors++;
@@ -922,7 +902,6 @@ class AdvancedDuplicateDetector {
 
             results.processed = totalProcessed;
 
-            console.log('🎯 Продвинутая обработка дублей завершена:', results);
             return results;
 
         } catch (error) {
@@ -935,7 +914,6 @@ class AdvancedDuplicateDetector {
      * Продвинутая кластеризация объявлений
      */
     async clusterListingsAdvanced(listings) {
-        console.log(`🧩 Начинаем продвинутую кластеризацию ${listings.length} объявлений`);
 
         const clusters = [];
         const processed = new Set();
@@ -980,11 +958,9 @@ class AdvancedDuplicateDetector {
 
             if (cluster.length > 0) {
                 clusters.push(cluster);
-                console.log(`   🧩 Создан кластер из ${cluster.length} объявлений`);
             }
         }
 
-        console.log(`✅ Кластеризация завершена: ${clusters.length} кластеров`);
         return clusters;
     }
 

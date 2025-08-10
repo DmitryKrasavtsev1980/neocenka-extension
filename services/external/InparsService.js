@@ -41,7 +41,6 @@ class InparsService extends BaseAPIService {
      */
     async onInitialize() {
         if (!this.token) {
-            // console.log('⚠️ Inpars API token not configured. Service will be available in limited mode.');
             this.status = 'no_token';
             return;
         }
@@ -278,23 +277,12 @@ class InparsService extends BaseAPIService {
             }
             
             // Отладка: проверяем параметры запроса
-            // console.log('🔍 Request params sent to Inpars API:', params);
             
             // Отладка: проверяем первые 3 объявления на наличие истории
-            // console.log('🔍 Full raw data from Inpars API (first 3 listings):');
             for (let i = 0; i < Math.min(3, response.data.length); i++) {
                 const rawListing = response.data[i];
-                // console.log(`=== Listing ${i + 1} (ID: ${rawListing.id}) ===`);
-                // console.log('Full object:', rawListing);
-                // console.log('History field:', rawListing.history);
-                // console.log('History type:', typeof rawListing.history);
-                // console.log('History isArray:', Array.isArray(rawListing.history));
                 if (rawListing.history) {
-                    // console.log('History length:', rawListing.history.length);
-                    // console.log('History content:', JSON.stringify(rawListing.history, null, 2));
                 }
-                // console.log('All object keys:', Object.keys(rawListing));
-                // console.log('=====================================');
             }
 
             const listings = response.data.map(listing => 
@@ -302,12 +290,9 @@ class InparsService extends BaseAPIService {
             );
             
             // Отладка: проверяем результат преобразования
-            // console.log('🔍 Debugging transformed listings:');
             for (let i = 0; i < Math.min(3, listings.length); i++) {
                 const transformedListing = listings[i];
-                // console.log(`Transformed ${i + 1}: ID=${transformedListing.external_id}, price_history=${transformedListing.price_history ? transformedListing.price_history.length : 'undefined'} items`);
                 if (transformedListing.price_history) {
-                    // console.log('Transformed history:', transformedListing.price_history);
                 }
             }
             
@@ -471,7 +456,6 @@ class InparsService extends BaseAPIService {
                     });
                 }
                 
-                // console.log(`📄 Загружаем страницу ${pageNumber}, timeStart: ${timeStart ? new Date(timeStart * 1000).toISOString() : 'null'}`);
                 
                 const result = await this.getListingsByPolygon(polygon, {
                     categoryIds: categories,
@@ -481,7 +465,6 @@ class InparsService extends BaseAPIService {
                 });
                 
                 if (!result.listings || result.listings.length === 0) {
-                    // console.log(`📄 Страница ${pageNumber}: нет объявлений, завершаем`);
                     break;
                 }
                 
@@ -515,15 +498,10 @@ class InparsService extends BaseAPIService {
                             timeStart = nextTimeStart;
                         }
                         
-                        // console.log(`📄 Страница ${pageNumber}: получено ${result.listings.length} объявлений, всего: ${allListings.length}`);
-                        // console.log(`📅 Следующий timeStart: ${new Date(timeStart * 1000).toISOString()}`);
                     } else {
-                        // console.log(`⚠️ Не удалось найти поле updated в последнем объявлении, завершаем пагинацию`);
-                        // console.log(`🔍 Доступные поля в последнем объявлении:`, Object.keys(lastRawListing));
                         hasMore = false;
                     }
                 } else {
-                    // console.log(`📄 Страница ${pageNumber}: получено ${result.listings.length} объявлений (последняя страница), всего: ${allListings.length}`);
                 }
                 
                 pageNumber++;
@@ -541,7 +519,6 @@ class InparsService extends BaseAPIService {
             
             if (onProgress) onProgress({ message: `Загрузка завершена! Получено ${allListings.length} объявлений за ${pageNumber - 1} страниц`, percentage: 100 });
             
-            // console.log(`🎉 Полная загрузка завершена! Получено ${allListings.length} объявлений за ${pageNumber - 1} страниц`);
             
             return {
                 success: true,

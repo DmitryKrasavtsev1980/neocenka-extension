@@ -84,7 +84,6 @@ class AddressManager {
             this.eventBus.on(CONSTANTS.EVENTS.AREA_UPDATED, async (data) => {
                 // Если изменился полигон, перезагружаем адреса
                 if (data.polygonChanged || data.polygonImported) {
-                    console.log('🔄 AddressManager: Полигон изменился, перезагружаем адреса');
                     await this.loadAddresses();
                 }
             });
@@ -92,13 +91,11 @@ class AddressManager {
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESS_DELETED, async (data) => {
                 // Обновляем таблицу после удаления адреса
                 await this.loadAddresses();
-                // console.log('✅ AddressManager: Таблица обновлена после удаления адреса');
             });
             
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESS_EDIT_REQUESTED, async (address) => {
                 // Обрабатываем запрос на редактирование адреса
                 await this.editAddress(address.id);
-                // console.log('✅ AddressManager: Обработан запрос на редактирование адреса:', address.id);
             });
         }
         
@@ -295,7 +292,6 @@ class AddressManager {
                 return;
             }
             
-            // console.log('🔄 AddressManager: Инициализация таблицы адресов');
             
             if (this.addressesTable) {
                 this.addressesTable.destroy();
@@ -353,7 +349,6 @@ class AddressManager {
             }
             });
             
-            // console.log('✅ AddressManager: Таблица адресов инициализирована');
             
             // Инициализируем фильтр по источнику
             this.initSourceFilter();
@@ -481,7 +476,6 @@ class AddressManager {
             await this.initializeSmartMatcher();
             
             // ОПТИМИЗАЦИЯ: Загружаем все объявления один раз вместо множественных запросов
-            // console.log('⚡ Оптимизированная загрузка счетчиков объявлений...');
             const allListings = await window.db.getAll('listings');
             
             // Группируем объявления по address_id для быстрого подсчета
@@ -513,7 +507,6 @@ class AddressManager {
             // Сохраняем объявления в состояние для использования другими менеджерами
             // Это избежит повторной загрузки в loadListings()
             this.dataState.setState('allListingsCache', allListings);
-            // console.log('💾 Кешированы объявления для оптимизации:', allListings.length);
             
             // Обновляем таблицу
             if (this.addressesTable) {
@@ -1264,7 +1257,6 @@ class AddressManager {
         if (modal) {
             // Проверяем, не открыто ли уже модальное окно
             if (!modal.classList.contains('hidden')) {
-                console.log('🔄 Модальное окно редактирования адреса уже открыто, пропускаем');
                 return;
             }
             
@@ -2208,7 +2200,6 @@ class AddressManager {
             
             if (actualArea.polygon && Array.isArray(actualArea.polygon) && actualArea.polygon.length >= 3) {
                 // У области есть полигон - фильтруем адреса по нему
-                console.log('🔍 Фильтруем адреса по существующему полигону области');
                 areaAddresses = addresses.filter(address => {
                     if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
                         return false;
@@ -2220,13 +2211,11 @@ class AddressManager {
                 });
             } else if (polygonImported) {
                 // Полигон был импортирован из файла - импортируем все адреса из файла
-                console.log('📥 Полигон импортирован - импортируем все адреса из файла');
                 areaAddresses = addresses.filter(address => {
                     return address.coordinates && address.coordinates.lat && address.coordinates.lng;
                 });
             } else {
                 // Нет полигона ни в области, ни в файле - не можем определить принадлежность
-                console.log('❌ Нет полигона для фильтрации адресов');
                 areaAddresses = [];
             }
             
@@ -2321,7 +2310,6 @@ class AddressManager {
         
         // Всегда перезаписываем полигон области данными из файла
         const hasExistingPolygon = currentArea.polygon && Array.isArray(currentArea.polygon) && currentArea.polygon.length >= 3;
-        console.log(`📥 Импортируем полигон из файла (${hasExistingPolygon ? 'перезаписываем существующий' : 'создаем новый'})`);
         
         try {
             // Импортируем полигон
@@ -2334,7 +2322,6 @@ class AddressManager {
             await window.db.update('map_areas', updatedArea);
             this.dataState.setState('currentArea', updatedArea);
             
-            console.log('✅ Полигон успешно импортирован в область:', updatedArea.polygon.length, 'точек');
             
             // Уведомляем об обновлении
             this.eventBus.emit(CONSTANTS.EVENTS.AREA_UPDATED, {
@@ -2405,15 +2392,12 @@ class AddressManager {
         let importedCount = 0;
         let skippedCount = 0;
         
-        console.log('📥 Начинаем импорт адресов:', addresses.length, 'адресов для обработки');
         
         // Получаем существующие адреса для проверки дубликатов
         const existingAddresses = await window.db.getAll('addresses');
-        console.log('📊 Существующих адресов в базе:', existingAddresses.length);
         
         for (const address of addresses) {
             try {
-                console.log('🔍 Обработка адреса:', address.address);
                 
                 // Проверяем дубликаты
                 const duplicate = existingAddresses.find(existing => 
@@ -2424,7 +2408,6 @@ class AddressManager {
                 );
                 
                 if (duplicate) {
-                    console.log('⚠️ Пропускаем дубликат:', address.address);
                     skippedCount++;
                     continue;
                 }
@@ -2485,14 +2468,12 @@ class AddressManager {
                 // Валидируем
                 const validation = Validators.validateAddress(newAddress);
                 if (!validation.isValid) {
-                    console.log('❌ Адрес не прошел валидацию:', address.address, validation.errors);
                     skippedCount++;
                     continue;
                 }
                 
                 await window.db.add('addresses', newAddress);
                 importedCount++;
-                console.log('✅ Адрес успешно импортирован:', address.address);
                 
                 // Уведомляем о добавлении
                 this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_ADDED, {
@@ -2515,26 +2496,20 @@ class AddressManager {
      */
     async loadListings() {
         try {
-            // console.log('🚀 AddressManager.loadListings: Начинаем загрузку объявлений для области');
-            // console.log('🔍 AddressManager.loadListings: DataState экземпляр:', this.dataState);
             await Helpers.debugLog('📋 Загрузка объявлений для области...');
             
             const currentArea = this.dataState.getState('currentArea');
             if (!currentArea) {
-                // console.log('❌ AddressManager.loadListings: Область не выбрана');
                 await Helpers.debugLog('❌ Область не выбрана для загрузки объявлений');
                 return;
             }
             
-            // console.log('📍 AddressManager.loadListings: Область:', currentArea.name, 'ID:', currentArea.id);
             
             // ОПТИМИЗАЦИЯ: Используем кешированные объявления если доступны
             let allListings = this.dataState.getState('allListingsCache');
             if (!allListings) {
-                console.log('📦 Загружаем объявления из БД (кеш недоступен)');
                 allListings = await window.db.getAll('listings');
             } else {
-                // console.log('⚡ Используем кешированные объявления:', allListings.length);
             }
             let areaListings = [];
             
@@ -2551,7 +2526,6 @@ class AddressManager {
                     // Используем метод проверки точки в полигоне из базы данных
                     const isInside = window.db.isPointInPolygon(listing.coordinates, currentArea.polygon);
                     if (isInside) {
-                        //console.log('🎯 Объявление в области:', listing.title, listing.coordinates);
                     }
                     return isInside;
                 });
@@ -2563,7 +2537,6 @@ class AddressManager {
                 for (const listing of debugListings) {
                     if (listing.coordinates) {
                         const isInside = window.db.isPointInPolygon(listing.coordinates, currentArea.polygon);
-                        // console.log(`🔍 Отладка: ${listing.title} (${listing.coordinates.lat}, ${listing.coordinates.lng}) -> ${isInside ? 'ВНУТРИ' : 'ВНЕ'} области`);
                     }
                 }
             } else {
@@ -2578,9 +2551,7 @@ class AddressManager {
             await Helpers.debugLog(`📊 Объявлений для области найдено: ${areaListings.length}`);
             
             // Сохраняем объявления в состояние
-            // console.log(`🔧 AddressManager.loadListings: Сохраняем ${areaListings.length} объявлений в DataState`);
             this.dataState.setState('listings', areaListings);
-            // console.log(`✅ AddressManager.loadListings: Объявления сохранены. Проверка:`, this.dataState.getState('listings')?.length);
             
             // Уведомляем о загрузке объявлений
             this.eventBus.emit(CONSTANTS.EVENTS.LISTINGS_LOADED, {
@@ -3175,20 +3146,16 @@ class AddressManager {
         
         if (houseSeriesSelect) {
             const selectedValue = houseSeriesSelect.getSelected();
-            console.log('🏠 Выбранное значение серии:', selectedValue);
             
             if (selectedValue && selectedValue.length > 0 && selectedValue[0].trim() !== '') {
                 // Редактирование существующей серии
-                console.log('🏠 Редактирование серии с ID:', selectedValue[0]);
                 this.showEditHouseSeriesModal(selectedValue[0]);
             } else {
                 // Добавление новой серии
-                console.log('🏠 Добавление новой серии');
                 this.showHouseSeriesModal();
             }
         } else {
             // Если SlimSelect не удалось создать, добавляем новую серию
-            console.log('🏠 SlimSelect не создан, добавление новой серии');
             this.showHouseSeriesModal();
         }
         
@@ -3983,7 +3950,6 @@ class AddressManager {
             
             sourceFilterContainer.appendChild(select);
 
-            // console.log('🔍 Найдено источников для фильтра:', uniqueSources);
 
             // Инициализируем SlimSelect
             this.sourceFilterSlimSelect = new SlimSelect({
@@ -3998,12 +3964,10 @@ class AddressManager {
                         const searchVal = val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '';
                         column.search(searchVal, true, false).draw();
                         
-                        // console.log('🔍 Фильтр по источнику изменен:', val || 'Все источники');
                     }
                 }
             });
             
-            // console.log('✅ Фильтр по источнику инициализирован');
 
         } catch (error) {
             console.error('❌ Ошибка инициализации фильтра по источнику:', error);
@@ -4073,13 +4037,11 @@ class AddressManager {
      */
     async processAddressesSmart() {
         if (this.isLoading) {
-            console.log('⚠️ Обработка адресов уже выполняется');
             return;
         }
 
         try {
             this.isLoading = true;
-            console.log('🧠 Начинаем умное определение адресов с ML');
             this.progressManager.updateProgressBar('addresses', 0, 'Инициализация умного алгоритма...');
 
             // Загружаем объявления для обработки умным алгоритмом
@@ -4171,7 +4133,6 @@ class AddressManager {
                         results.processed++;
                         results.totalProcessingTime += matchResult.processingTime || 0;
 
-                        console.log(`🧠 ML-результат для ${listing.id}: ${matchResult.confidence} (${matchResult.method}), скор: ${matchResult.score?.toFixed(3)}, время: ${matchResult.processingTime}ms`);
 
                         if (matchResult.address) {
                             results.matched++;
@@ -4188,9 +4149,7 @@ class AddressManager {
                                 if (newLevel > oldLevel + 1 || matchResult.score > oldScore + 0.2) {
                                     significantImprovements++;
                                     results.significantlyImproved++;
-                                    console.log(`🎯 Значительное улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
                                 } else {
-                                    console.log(`✅ Улучшение для ${listing.id}: ${oldConfidence}(${oldScore.toFixed(3)}) → ${matchResult.confidence}(${matchResult.score.toFixed(3)})`);
                                 }
                             }
 
@@ -4372,7 +4331,6 @@ ${methodStatsText}
                 modal.style.height = '100%';
                 modal.style.zIndex = '9999';
                 
-                console.log('📺 Модальное окно перемещено в полноэкранный контейнер');
             }
         } else {
             // Возвращаем модальное окно в исходное место если оно было перемещено
@@ -4394,7 +4352,6 @@ ${methodStatsText}
                     
                     delete modal.dataset.originalParent;
                     
-                    console.log('📺 Модальное окно возвращено в исходное место');
                 }
             }
         }

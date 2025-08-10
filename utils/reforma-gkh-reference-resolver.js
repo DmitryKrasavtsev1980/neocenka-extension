@@ -83,7 +83,6 @@ class ReformaGKHReferenceResolver {
     
     try {
       if (debugEnabled) {
-        console.log('🔍 Инициализация resolver для справочников...');
       }
       
       await Promise.all([
@@ -94,7 +93,6 @@ class ReformaGKHReferenceResolver {
       ]);
       
       if (debugEnabled) {
-        console.log('✅ Справочники загружены в кэш:', {
           wall_materials: this.cache.wall_materials.size,
           ceiling_materials: this.cache.ceiling_materials.size,
           house_series: this.cache.house_series.size,
@@ -202,7 +200,6 @@ class ReformaGKHReferenceResolver {
     
     const debugEnabled = await this.getDebugSetting();
     if (debugEnabled) {
-      console.log(`➕ Создана новая запись в справочнике ${referenceType}:`, name);
     }
     
     return saved;
@@ -227,7 +224,6 @@ class ReformaGKHReferenceResolver {
           if (cached) {
             const debugEnabled = this.getDebugSettingSync();
             if (debugEnabled) {
-              console.log(`🔍 Найдено соответствие: "${originalName}" → "${rule.canonical}" (ID: ${cached.id})`);
             }
             return cached;
           }

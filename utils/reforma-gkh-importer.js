@@ -45,7 +45,6 @@ class ReformaGKHImporter {
     
     try {
       if (debugEnabled) {
-        console.log('🚀 Начало импорта из файла:', file.name);
       }
       
       // Инициализируем resolver
@@ -79,21 +78,14 @@ class ReformaGKHImporter {
       
       if (debugEnabled) {
         console.group('✅ Импорт завершен');
-        console.log('📊 Общая статистика:', this.stats);
-        console.log('📚 Статистика справочников:', resolverStats);
         
         // Анализ результатов
         const successRate = ((this.stats.added / this.stats.total) * 100).toFixed(1);
         const duplicateRate = ((this.stats.skipped / this.stats.total) * 100).toFixed(1);
         const errorRate = ((this.stats.errors / this.stats.total) * 100).toFixed(1);
         
-        console.log('📈 Анализ результатов:');
-        console.log(`   ✅ Успешно добавлено: ${this.stats.added} (${successRate}%)`);
-        console.log(`   ⏭️ Пропущено дублей: ${this.stats.skipped} (${duplicateRate}%)`);
-        console.log(`   ❌ Ошибок: ${this.stats.errors} (${errorRate}%)`);
         
         if (this.stats.skipped > 0) {
-          console.log('💡 Подсказка: Все пропущенные дубли показаны выше с деталями сравнения');
         }
         
         console.groupEnd();
@@ -218,7 +210,6 @@ class ReformaGKHImporter {
     const debugEnabled = await this.getDebugSetting();
     
     if (debugEnabled) {
-      console.log(`📦 Обработка пакета ${batchNumber}/${totalBatches} (${features.length} записей)`);
     }
     
     for (const feature of features) {
@@ -274,14 +265,12 @@ class ReformaGKHImporter {
       
       // Всегда логируем дубли для анализа (независимо от настроек отладки)
       console.group(`⏭️ Дубль #${this.stats.skipped}: Пропущен строгий дубликат`);
-      console.log('🏠 Текущий адрес (из базы):', {
         id: duplicate.id,
         address: duplicate.address,
         coordinates: duplicate.coordinates,
         created_at: duplicate.created_at,
         source: duplicate.source || 'unknown'
       });
-      console.log('🆕 Дубль (из GeoJSON):', {
         address: addressModel.address,
         coordinates: addressModel.coordinates,
         properties: feature.properties,
@@ -295,7 +284,6 @@ class ReformaGKHImporter {
         duplicate.coordinates.lat,
         duplicate.coordinates.lng
       );
-      console.log(`📏 Расстояние между координатами: ${distance.toFixed(2)} метров`);
       console.groupEnd();
       return;
     }
@@ -307,9 +295,6 @@ class ReformaGKHImporter {
     
     if (debugEnabled) {
       console.group('✅ Добавлен новый адрес');
-      console.log('📍 Адрес:', addressModel.address);
-      console.log('🆔 ID:', addressModel.id);
-      console.log('📍 Координаты:', addressModel.coordinates);
       console.groupEnd();
     }
   }
@@ -350,7 +335,6 @@ class ReformaGKHImporter {
     
     if (!addressModel.address || !addressModel.coordinates?.lat || !addressModel.coordinates?.lng) {
       if (debugEnabled) {
-        console.log('🔍 Пропуск проверки дублей: нет адреса или координат');
       }
       return null;
     }
@@ -360,7 +344,6 @@ class ReformaGKHImporter {
     
     if (addressMatches.length === 0) {
       if (debugEnabled) {
-        console.log('🔍 Дублей по адресу не найдено:', addressModel.address);
       }
       return null;
     }
@@ -378,21 +361,14 @@ class ReformaGKHImporter {
         if (distance < 10) { // Очень строгий радиус - 10 метров
           // Всегда логируем найденные дубли
           console.group(`🎯 Найден точный дубль`);
-          console.log(`📍 Адрес: "${addressModel.address}"`);
-          console.log(`📏 Расстояние: ${distance.toFixed(2)} метров (< 10м)`);
-          console.log(`🆔 ID существующего: ${existing.id}`);
-          console.log(`📍 Координаты нового: [${addressModel.coordinates.lat}, ${addressModel.coordinates.lng}]`);
-          console.log(`📍 Координаты существующего: [${existing.coordinates.lat}, ${existing.coordinates.lng}]`);
           console.groupEnd();
           return existing;
         } else if (debugEnabled) {
-          console.log(`📏 Адрес "${addressModel.address}" совпадает, но координаты далеко: ${distance.toFixed(2)}м (> 10м)`);
         }
       }
     }
     
     if (debugEnabled) {
-      console.log(`✅ Не дубль: адрес "${addressModel.address}" найден ${addressMatches.length} раз(а), но координаты не совпадают`);
     }
     
     return null;
