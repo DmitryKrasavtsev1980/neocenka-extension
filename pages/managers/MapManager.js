@@ -150,7 +150,7 @@ class MapManager {
         }
         
         // Если обновлен полигон, перерисовываем его и центрируем карту
-        if (eventData.polygonImported || eventData.addressesImported) {
+        if (eventData.polygonImported || eventData.addressesImported || eventData.polygonChanged) {
             // console.log('🗺️ MapManager: Обновляем полигон и центрируем карту');
             this.displayAreaPolygon();
             this.centerOnArea();
@@ -177,7 +177,9 @@ class MapManager {
             
             // Добавляем слой карты
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18,
+                opacity: 1.0
             }).addTo(this.map);
             
             // Инициализируем слои карты
@@ -495,6 +497,9 @@ class MapManager {
                 // Сохраняем в базу данных
                 await window.db.update('map_areas', currentArea);
                 
+                // Небольшая задержка для обеспечения синхронизации данных
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
                 // Уведомляем о изменении
                 this.eventBus.emit(CONSTANTS.EVENTS.AREA_UPDATED, {
                     area: currentArea,
@@ -624,10 +629,19 @@ class MapManager {
             // ОПТИМИЗАЦИЯ 1: Фильтрация по полигону области (сначала стандартная фильтрация)
             let filteredAddresses = allAddresses;
             const currentArea = this.dataState.getState('currentArea');
+            console.log(`🔍 MapManager: Проверка полигона области:`, {
+                hasCurrentArea: !!currentArea,
+                hasPolygon: this.hasAreaPolygon(currentArea),
+                polygonLength: currentArea?.polygon?.length
+            });
+            
             if (currentArea && this.hasAreaPolygon(currentArea)) {
                 // Всегда используем проверенную стандартную фильтрацию
                 filteredAddresses = GeometryUtils.getAddressesInMapArea(allAddresses, currentArea);
+                console.log(`🎯 MapManager: Фильтрация по полигону: ${allAddresses.length} -> ${filteredAddresses.length} адресов`);
                 await Helpers.debugLog(`🎯 Фильтрация по полигону: ${allAddresses.length} -> ${filteredAddresses.length} адресов`);
+            } else {
+                console.log(`⚠️ MapManager: Фильтрация по полигону пропущена - нет полигона области`);
             }
             
             // ОПТИМИЗАЦИЯ 2: Фильтрация по видимой области карты (viewport filtering) - ВРЕМЕННО ОТКЛЮЧЕНА
@@ -639,15 +653,9 @@ class MapManager {
             //     console.log(`👁️ MapManager: Viewport фильтрация: ${filteredAddresses.length} -> ${visibleAddresses.length} адресов (zoom: ${this.map.getZoom()})`);
             // }
             
-            // ОПТИМИЗАЦИЯ 3: Лимит максимального количества маркеров для производительности  
-            const maxMarkers = 100; // Увеличиваем после успешного теста
+            // Показываем все адреса без ограничений
             let addressesToDisplay = visibleAddresses;
-            if (visibleAddresses.length > maxMarkers) {
-                // Отбираем наиболее важные адреса (с объектами недвижимости)
-                addressesToDisplay = await this.prioritizeAddresses(visibleAddresses, maxMarkers);
-                console.log(`⚡ MapManager: Приоритизация: ${visibleAddresses.length} -> ${addressesToDisplay.length} адресов (лимит: ${maxMarkers})`);
-                await Helpers.debugLog(`⚡ Приоритизация: ${visibleAddresses.length} -> ${addressesToDisplay.length} адресов`);
-            }
+            console.log(`🔄 MapManager: Будет отображено ${addressesToDisplay.length} маркеров (без ограничений)`);
             
             if (addressesToDisplay.length === 0) {
                 await Helpers.debugLog('📍 Нет адресов для отображения после фильтрации');

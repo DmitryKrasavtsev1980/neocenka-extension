@@ -23,6 +23,12 @@
             background: transparent !important;
         }
         
+        /* Специальные стили для корон и прямоугольников */
+        .address-marker .marker-crown,
+        .address-marker .marker-rectangle {
+            background: inherit !important; /* Позволяем элементам иметь свой собственный background */
+        }
+        
         /* Стили для контроллера слоев */
         .leaflet-control-layers {
             background: rgba(255, 255, 255, 0.95) !important;
@@ -2099,7 +2105,7 @@
     </div>
 
     <!-- Модальное окно редактирования адреса -->
-    <div id="editAddressModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="address-modal-title" role="dialog" aria-modal="true">
+    <div id="editAddressModal" class="fixed inset-0 z-60 hidden overflow-y-auto" aria-labelledby="address-modal-title" role="dialog" aria-modal="true">
         <div class="mx-auto flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
             <!-- Overlay -->
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
@@ -2402,7 +2408,7 @@
     <script src="../utils/osm-overpass.js"></script>
     
     <!-- Модальное окно добавления материала стен -->
-    <div id="wallMaterialModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="wall-material-modal-title" role="dialog" aria-modal="true">
+    <div id="wallMaterialModal" class="fixed inset-0 z-70 hidden overflow-y-auto" aria-labelledby="wall-material-modal-title" role="dialog" aria-modal="true">
         <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
             <!-- Overlay -->
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
@@ -2455,7 +2461,7 @@
     </div>
 
     <!-- Модальное окно добавления серии дома -->
-    <div id="houseSeriesModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="house-series-modal-title" role="dialog" aria-modal="true">
+    <div id="houseSeriesModal" class="fixed inset-0 z-70 hidden overflow-y-auto" aria-labelledby="house-series-modal-title" role="dialog" aria-modal="true">
         <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
             <!-- Overlay -->
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
@@ -2497,7 +2503,7 @@
     </div>
 
     <!-- Модальное окно добавления материала перекрытий -->
-    <div id="ceilingMaterialModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="ceiling-material-modal-title" role="dialog" aria-modal="true">
+    <div id="ceilingMaterialModal" class="fixed inset-0 z-70 hidden overflow-y-auto" aria-labelledby="ceiling-material-modal-title" role="dialog" aria-modal="true">
         <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
             <!-- Overlay -->
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
@@ -2539,7 +2545,7 @@
     </div>
 
     <!-- Модальное окно добавления класса дома -->
-    <div id="houseClassModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="house-class-modal-title" role="dialog" aria-modal="true">
+    <div id="houseClassModal" class="fixed inset-0 z-70 hidden overflow-y-auto" aria-labelledby="house-class-modal-title" role="dialog" aria-modal="true">
         <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
             <!-- Overlay -->
             <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
@@ -2884,13 +2890,13 @@
                                                 <div>
                                                     <label for="segmentFloorsFrom" class="block text-sm font-medium text-gray-700">Этажей от</label>
                                                     <input type="number" name="floors_from" id="segmentFloorsFrom" min="1" max="100"
-                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="1">
                                                 </div>
                                                 <div>
                                                     <label for="segmentFloorsTo" class="block text-sm font-medium text-gray-700">Этажей до</label>
                                                     <input type="number" name="floors_to" id="segmentFloorsTo" min="1" max="100"
-                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="100">
                                                 </div>
                                             </div>
@@ -2900,13 +2906,13 @@
                                                 <div>
                                                     <label for="segmentBuildYearFrom" class="block text-sm font-medium text-gray-700">Год от</label>
                                                     <input type="number" name="build_year_from" id="segmentBuildYearFrom" min="1800" max="2100"
-                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="1800">
                                                 </div>
                                                 <div>
                                                     <label for="segmentBuildYearTo" class="block text-sm font-medium text-gray-700">Год до</label>
                                                     <input type="number" name="build_year_to" id="segmentBuildYearTo" min="1800" max="2100"
-                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="2024">
                                                 </div>
                                             </div>
@@ -2914,15 +2920,15 @@
                                             <!-- Высота потолков -->
                                             <div class="grid grid-cols-2 gap-2">
                                                 <div>
-                                                    <label for="segmentCeilingHeightFrom" class="block text-sm font-medium text-gray-700">Высота потолков от</label>
+                                                    <label for="segmentCeilingHeightFrom" class="block text-sm font-medium text-gray-700">Высота потолка от</label>
                                                     <input type="number" name="ceiling_height_from" id="segmentCeilingHeightFrom" min="1" max="10" step="0.1"
-                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="2.0">
                                                 </div>
                                                 <div>
-                                                    <label for="segmentCeilingHeightTo" class="block text-sm font-medium text-gray-700">Высота потолков до</label>
+                                                    <label for="segmentCeilingHeightTo" class="block text-sm font-medium text-gray-700">Высота потолка до</label>
                                                     <input type="number" name="ceiling_height_to" id="segmentCeilingHeightTo" min="1" max="10" step="0.1"
-                                                           class="mt-1 block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                           class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                            placeholder="4.0">
                                                 </div>
                                             </div>
@@ -2934,14 +2940,21 @@
                                                     <!-- Опции будут загружены динамически -->
                                                 </select>
                                                 <p class="mt-1 text-sm text-gray-500">
-                                                    Выберите адреса, которые должны входить в сегмент
+                                                    Выберите адреса, которые должны входить в сегмент (повторное нажатие для отмены выбора)
                                                 </p>
                                             </div>
 
-                                            <!-- Кнопка сохранения сегмента -->
-                                            <div class="flex flex-col items-end">
+                                            <!-- Кнопки управления сегментом -->
+                                            <div class="flex flex-col items-end space-y-2">
                                                 <button type="submit" id="saveSegmentBtn" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:text-sm disabled:bg-gray-400 disabled:cursor-not-allowed">
                                                     Сохранить сегмент
+                                                </button>
+                                                
+                                                <button type="button" id="clearFiltersBtn" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 sm:text-sm">
+                                                    <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H9a1 1 0 00-1 1v1M4 7h16"></path>
+                                                    </svg>
+                                                    Очистить фильтры
                                                 </button>
                                                 
                                                 <!-- Индикатор несохраненных изменений -->

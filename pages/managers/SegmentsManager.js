@@ -34,6 +34,10 @@ class SegmentsManager {
         // Флаг для предотвращения двойной перерисовки карты
         this.isUpdatingMap = false;
         
+        // Флаги для новой логики фильтрации адресов
+        this.isUpdatingAddressSelection = false; // Флаг автообновления выбора адресов
+        this.manualAddressSelection = false; // Флаг ручного выбора адресов
+        
         // Флаг для отключения обработчиков событий во время заполнения формы
         this.isFillingForm = false;
         
@@ -82,6 +86,12 @@ class SegmentsManager {
             
             this.eventBus.on(CONSTANTS.EVENTS.AREA_CHANGED, async (area) => {
                 await this.onAreaChanged(area);
+            });
+            
+            this.eventBus.on(CONSTANTS.EVENTS.ADDRESS_UPDATED, async (data) => {
+                // Обновляем карту сегмента после редактирования адреса
+                console.log('🔄 SegmentsManager: Адрес обновлен, перезагружаем карту сегмента');
+                await this.updateSegmentMapAfterAddressEdit();
             });
         }
         
@@ -295,21 +305,43 @@ class SegmentsManager {
         const form = document.getElementById('segmentForm');
         if (!form) return;
         
-        // Обработчик для всех элементов формы
-        const updateHandler = async () => {
+        // Обработчик для фильтров (кроме выбора адресов)
+        const filterUpdateHandler = async () => {
             // Пропускаем обновления во время заполнения формы
             if (this.isFillingForm) {
                 console.log('🔍 Пропускаем обновление - форма заполняется');
                 return;
             }
             
+            // Сначала обновляем выбор адресов на основе фильтров
+            await this.updateAddressSelectionFromFilters();
+            
+            // Затем обновляем остальное
+            await this.updateSegmentNameFromFilters();
+            this.updateSegmentMapWithFilters();
+            this.updateAreaDistributionChart();
+            // checkForChanges вызывается внутри updateSegmentNameFromFilters
+        };
+
+        // Обработчик только для изменений выбора адресов (без автообновления)
+        const addressSelectionHandler = async () => {
+            // Пропускаем обновления во время заполнения формы или автообновления
+            if (this.isFillingForm || this.isUpdatingAddressSelection) {
+                console.log('🔍 Пропускаем обновление выбора адресов - форма заполняется или идет автообновление');
+                return;
+            }
+            
+            // Помечаем, что это ручной выбор адресов
+            this.manualAddressSelection = true;
+            
+            // Обновляем только карту и график
             await this.updateSegmentNameFromFilters();
             this.updateSegmentMapWithFilters();
             this.updateAreaDistributionChart();
             // checkForChanges вызывается внутри updateSegmentNameFromFilters
         };
         
-        // Привязываем к изменениям всех полей фильтров
+        // Привязываем к изменениям полей фильтров (кроме адресов)
         const filterSelectors = [
             'select[name="type"]',
             'select[name="house_class_id"]', 
@@ -326,27 +358,48 @@ class SegmentsManager {
             'input[name="build_year_from"]',
             'input[name="build_year_to"]',
             'input[name="ceiling_height_from"]',
-            'input[name="ceiling_height_to"]',
-            'select[name="addresses"]'
+            'input[name="ceiling_height_to"]'
         ];
         
+        // Привязка обработчиков для фильтров
         filterSelectors.forEach(selector => {
             const elements = form.querySelectorAll(selector);
             elements.forEach(element => {
                 if (element.tagName === 'SELECT') {
-                    element.addEventListener('change', updateHandler);
+                    element.addEventListener('change', filterUpdateHandler);
                     
                     // Для SlimSelect нужно добавить обработчик на объект слимселекта
                     setTimeout(() => {
                         if (element.slimSelect) {
-                            element.slimSelect.onChange = updateHandler;
+                            element.slimSelect.onChange = filterUpdateHandler;
                         }
                     }, 100);
                 } else if (element.tagName === 'INPUT') {
-                    element.addEventListener('input', updateHandler);
+                    element.addEventListener('input', filterUpdateHandler);
                 }
             });
         });
+
+        // Отдельная привязка для выбора адресов
+        const addressesSelect = form.querySelector('select[name="addresses"]');
+        if (addressesSelect) {
+            addressesSelect.addEventListener('change', addressSelectionHandler);
+            
+            // Для SlimSelect нужно добавить обработчик на объект слимселекта
+            setTimeout(() => {
+                if (addressesSelect.slimSelect) {
+                    addressesSelect.slimSelect.onChange = addressSelectionHandler;
+                }
+            }, 100);
+        }
+
+        // Привязка кнопки очистки фильтров
+        const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', async () => {
+                await this.clearAllFilters();
+            });
+        }
     }
     
     /**
@@ -551,6 +604,199 @@ class SegmentsManager {
     }
     
     /**
+     * Автоматическое обновление выбора адресов на основе фильтров
+     */
+    async updateAddressSelectionFromFilters() {
+        try {
+            // Пропускаем, если обновление идет из изменения выбора адресов (избегаем циклов)
+            if (this.isUpdatingAddressSelection) {
+                return;
+            }
+
+            const addresses = this.dataState.getState('addresses') || [];
+            const filters = this.getSegmentFormData().filters;
+            
+            // Создаем фильтры без поля addresses для определения подходящих адресов
+            const filtersWithoutAddresses = { ...filters };
+            delete filtersWithoutAddresses.addresses;
+            
+            // Найти адреса, которые соответствуют всем фильтрам кроме выбора адресов
+            const matchingAddresses = addresses.filter(address => 
+                this.addressMatchesFiltersExceptAddresses(address, filtersWithoutAddresses)
+            );
+            
+            // Получить ID подходящих адресов
+            const matchingAddressIds = matchingAddresses.map(addr => addr.id);
+            
+            // Проверить, есть ли ручной выбор, который будет перезаписан
+            const currentAddressSelection = filters.addresses || [];
+            const hasManualSelection = currentAddressSelection.length > 0;
+            
+            // Обновить SlimSelect для адресов, только если выбор изменился
+            if (JSON.stringify(matchingAddressIds.sort()) !== JSON.stringify(currentAddressSelection.sort())) {
+                this.isUpdatingAddressSelection = true;
+                
+                const addressesSelect = document.querySelector('select[name="addresses"]');
+                if (addressesSelect && addressesSelect.slimSelect) {
+                    // Сначала сбрасываем все выборы
+                    addressesSelect.slimSelect.setSelected([]);
+                    
+                    // Затем устанавливаем новые
+                    if (matchingAddressIds.length > 0) {
+                        addressesSelect.slimSelect.setSelected(matchingAddressIds);
+                    }
+                    
+                    // Показать уведомление о том, что фильтры изменили выбор
+                    if (hasManualSelection) {
+                        if (this.progressManager) {
+                            this.progressManager.showInfo(`Фильтры применены: выбрано ${matchingAddressIds.length} адресов`);
+                        }
+                    } else if (matchingAddressIds.length > 0) {
+                        console.log(`🎯 Автофильтр: выбрано ${matchingAddressIds.length} адресов`);
+                    }
+                }
+                
+                this.isUpdatingAddressSelection = false;
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка обновления выбора адресов:', error);
+            this.isUpdatingAddressSelection = false;
+        }
+    }
+
+    /**
+     * Проверка соответствия адреса фильтрам (исключая поле addresses)
+     */
+    addressMatchesFiltersExceptAddresses(address, filters) {
+        // Проверка типа недвижимости
+        if (filters.type && filters.type.length > 0) {
+            if (!filters.type.includes(address.type)) {
+                return false;
+            }
+        }
+        
+        // Проверка этажности
+        if (filters.floors_from && address.floors_count < filters.floors_from) {
+            return false;
+        }
+        if (filters.floors_to && address.floors_count > filters.floors_to) {
+            return false;
+        }
+        
+        // Проверка года постройки
+        if (filters.build_year_from && address.build_year < filters.build_year_from) {
+            return false;
+        }
+        if (filters.build_year_to && address.build_year > filters.build_year_to) {
+            return false;
+        }
+        
+        // Проверка высоты потолков
+        if (filters.ceiling_height_from && address.ceiling_height && 
+            parseFloat(address.ceiling_height) < filters.ceiling_height_from) {
+            return false;
+        }
+        if (filters.ceiling_height_to && address.ceiling_height &&
+            parseFloat(address.ceiling_height) > filters.ceiling_height_to) {
+            return false;
+        }
+        
+        // Проверка булевых полей
+        const booleanFields = [
+            'gas_supply', 'individual_heating', 'closed_territory', 
+            'underground_parking', 'commercial_spaces'
+        ];
+        
+        for (const field of booleanFields) {
+            if (filters[field] && filters[field].length > 0) {
+                const addressValue = address[field];
+                let addressValueStr;
+                
+                if (addressValue === undefined || addressValue === null) {
+                    addressValueStr = '';
+                } else {
+                    addressValueStr = addressValue.toString();
+                }
+                
+                if (!filters[field].includes(addressValueStr)) {
+                    return false;
+                }
+            }
+        }
+        
+        // Проверка справочных полей (серии, классы, материалы)
+        const referenceFields = [
+            'house_series_id', 'house_class_id', 'wall_material_id', 'ceiling_material_id'
+        ];
+        
+        for (const field of referenceFields) {
+            if (filters[field] && filters[field].length > 0) {
+                if (!address[field] || !filters[field].includes(address[field])) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
+    }
+
+    /**
+     * Очистка всех фильтров
+     */
+    async clearAllFilters() {
+        try {
+            if (this.progressManager) {
+                this.progressManager.showInfo('Очистка фильтров...');
+            }
+
+            this.isFillingForm = true; // Блокируем автообновления
+
+            const form = document.getElementById('segmentForm');
+            if (!form) return;
+
+            // Очищаем все селекты
+            const selects = form.querySelectorAll('select');
+            selects.forEach(select => {
+                if (select.slimSelect) {
+                    select.slimSelect.setSelected([]);
+                } else {
+                    select.selectedIndex = -1;
+                }
+            });
+
+            // Очищаем все поля ввода
+            const inputs = form.querySelectorAll('input[type="text"], input[type="number"]');
+            inputs.forEach(input => {
+                input.value = '';
+            });
+
+            // Сбрасываем флаги состояния
+            this.manualAddressSelection = false;
+
+            setTimeout(async () => {
+                this.isFillingForm = false; // Разблокируем автообновления
+                
+                // Обновляем карту и график
+                this.updateSegmentMapWithFilters();
+                this.updateAreaDistributionChart();
+                await this.updateSegmentNameFromFilters();
+
+                if (this.progressManager) {
+                    this.progressManager.showSuccess('Фильтры очищены');
+                }
+            }, 200);
+
+        } catch (error) {
+            console.error('❌ Ошибка очистки фильтров:', error);
+            this.isFillingForm = false;
+            if (this.progressManager) {
+                this.progressManager.showError('Ошибка очистки фильтров');
+            }
+        }
+    }
+
+    /**
      * Проверка соответствия адреса фильтрам сегмента
      */
     addressMatchesFilters(address, filters) {
@@ -664,7 +910,9 @@ class SegmentsManager {
      * Установка фильтра карты сегмента
      */
     setSegmentMapFilter(filterType) {
+        console.log('🔄 SegmentsManager: Устанавливаем фильтр карты:', filterType);
         this.activeSegmentMapFilter = filterType;
+        console.log('✅ SegmentsManager: Активный фильтр теперь:', this.activeSegmentMapFilter);
         
         // Обновляем стили кнопок
         this.updateSegmentFilterButtons(filterType);
@@ -700,13 +948,25 @@ class SegmentsManager {
             // Удаляем существующие маркеры
             this.segmentMap.removeLayer(this.segmentAddressesLayer);
             
-            // Получаем адреса
+            // Получаем адреса и текущую область
+            const currentArea = this.dataState.getState('currentArea');
             const addresses = this.dataState.getState('addresses') || [];
-            const addressesWithCoords = addresses.filter(addr => 
+            let addressesWithCoords = addresses.filter(addr => 
                 addr.coordinates && 
                 addr.coordinates.lat && 
                 addr.coordinates.lng
             );
+            
+            // Если есть область с полигоном, фильтруем по ней
+            if (currentArea && this.hasAreaPolygon(currentArea)) {
+                const originalCount = addressesWithCoords.length;
+                addressesWithCoords = GeometryUtils.getAddressesInMapArea(addressesWithCoords, currentArea);
+                
+                const debugEnabled = await Helpers.isDebugEnabled();
+                if (debugEnabled) {
+                    console.log(`🔄 SegmentsManager (redraw): Фильтрация по полигону: ${originalCount} -> ${addressesWithCoords.length} адресов`);
+                }
+            }
             
             // Получаем текущие фильтры сегмента (если форма инициализирована)
             let filters = {};
@@ -720,9 +980,13 @@ class SegmentsManager {
             // Создаем новую группу маркеров
             this.segmentAddressesLayer = L.layerGroup();
             
+            // Для сегментов показываем все адреса в полигоне без ограничений
+            let addressesToDisplay = addressesWithCoords;
+            console.log(`🔄 SegmentsManager (redraw): Будет отображено ${addressesToDisplay.length} маркеров (без ограничений)`);
+            
             // Добавляем маркеры с новым стилем
-            for (const address of addressesWithCoords) {
-                const marker = await this.createTriangularAddressMarker(address);
+            for (const address of addressesToDisplay) {
+                const marker = await this.createOptimizedSegmentMarker(address);
                 this.segmentAddressesLayer.addLayer(marker);
             }
             
@@ -1453,17 +1717,39 @@ class SegmentsManager {
             const element = document.getElementById(selectorId);
             if (element && !element.slimSelect) {
                 try {
-                    element.slimSelect = new SlimSelect({
-                        select: element,
-                        settings: {
-                            searchPlaceholder: 'Поиск...',
-                            searchText: 'Нет результатов',
-                            searchHighlight: true,
-                            closeOnSelect: false,
-                            showSearch: true,
-                            placeholderText: 'Выберите значения...'
-                        }
-                    });
+                    // Специальные настройки для селекта адресов
+                    if (selectorId === 'segmentAddresses') {
+                        element.slimSelect = new SlimSelect({
+                            select: element,
+                            settings: {
+                                maxValuesShown: 1,
+                                maxValuesMessage: '{number} адресов выбрано',
+                                allowDeselect: true,
+                                placeholderText: 'Выберите адреса...'
+                            },
+                            events: {
+                                afterChange: (newVal) => {
+                                    // Обновляем карту после изменения выбора адресов
+                                    this.updateMapMarkersStyle();
+                                    // Отмечаем что есть изменения в форме
+                                    this.updateSaveButtonState(true);
+                                }
+                            }
+                        });
+                    } else {
+                        // Обычные настройки для остальных селектов
+                        element.slimSelect = new SlimSelect({
+                            select: element,
+                            settings: {
+                                searchPlaceholder: 'Поиск...',
+                                searchText: 'Нет результатов',
+                                searchHighlight: true,
+                                closeOnSelect: false,
+                                showSearch: true,
+                                placeholderText: 'Выберите значения...'
+                            }
+                        });
+                    }
                     
                     console.log(`✅ SlimSelect инициализирован для ${selectorId}`);
                 } catch (error) {
@@ -1952,9 +2238,39 @@ class SegmentsManager {
             
             const addressesSelect = document.getElementById('segmentAddresses');
             if (addressesSelect) {
+                // Уничтожаем существующий SlimSelect если есть
+                if (addressesSelect.slimSelect) {
+                    addressesSelect.slimSelect.destroy();
+                    addressesSelect.slimSelect = null;
+                }
+                
                 addressesSelect.innerHTML = addressesInArea.map(address => 
                     `<option value="${address.id}">${address.address}</option>`
                 ).join('');
+                
+                // Переинициализируем SlimSelect с нашими настройками
+                try {
+                    addressesSelect.slimSelect = new SlimSelect({
+                        select: addressesSelect,
+                        settings: {
+                            maxValuesShown: 1,
+                            maxValuesMessage: '{number} адресов выбрано',
+                            allowDeselect: true,
+                            placeholderText: 'Выберите адреса...'
+                        },
+                        events: {
+                            afterChange: (newVal) => {
+                                // Обновляем карту после изменения выбора адресов
+                                this.updateMapMarkersStyle();
+                                // Отмечаем что есть изменения в форме
+                                this.updateSaveButtonState(true);
+                            }
+                        }
+                    });
+                    console.log('✅ SlimSelect переинициализирован для segmentAddresses');
+                } catch (error) {
+                    console.error('❌ Ошибка переинициализации SlimSelect для segmentAddresses:', error);
+                }
                 
                 // console.log('✅ SegmentsManager: Список адресов заполнен');
             } else {
@@ -1996,7 +2312,9 @@ class SegmentsManager {
             
             // Добавляем тайловый слой
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18,
+                opacity: 1.0
             }).addTo(this.segmentMap);
             console.log('✅ Тайловый слой добавлен');
             
@@ -2052,12 +2370,21 @@ class SegmentsManager {
             this.displayAreaPolygon(currentArea);
             
             const addresses = this.dataState.getState('addresses') || [];
-            // Все адреса с координатами - фильтрация по полигону делается в основном приложении
-            const addressesWithCoords = addresses.filter(addr => 
+            // Фильтруем адреса с координатами
+            let addressesWithCoords = addresses.filter(addr => 
                 addr.coordinates && 
                 addr.coordinates.lat && 
                 addr.coordinates.lng
             );
+            
+            // Если есть область с полигоном, фильтруем по ней
+            if (this.hasAreaPolygon(currentArea)) {
+                const originalCount = addressesWithCoords.length;
+                addressesWithCoords = GeometryUtils.getAddressesInMapArea(addressesWithCoords, currentArea);
+                console.log(`🔄 SegmentsManager: Фильтрация по полигону: ${originalCount} -> ${addressesWithCoords.length} адресов`);
+            } else {
+                console.warn('⚠️ SegmentsManager: Область не имеет полигона, показываем все адреса');
+            }
             
             // console.log(`🔄 SegmentsManager: Загружаем ${addressesWithCoords.length} адресов на карту`);
             
@@ -2078,9 +2405,13 @@ class SegmentsManager {
                 filters = {};
             }
             
-            // Добавляем маркеры для каждого адреса
-            for (const address of addressesWithCoords) {
-                const marker = await this.createTriangularAddressMarker(address);
+            // Для сегментов показываем все адреса в полигоне без ограничений
+            let addressesToDisplay = addressesWithCoords;
+            console.log(`🔄 SegmentsManager: Будет отображено ${addressesToDisplay.length} маркеров (без ограничений)`);
+            
+            // Добавляем маркеры для отображаемых адресов
+            for (const address of addressesToDisplay) {
+                const marker = await this.createOptimizedSegmentMarker(address);
                 this.segmentAddressesLayer.addLayer(marker);
             }
             
@@ -2106,9 +2437,9 @@ class SegmentsManager {
             // Подгоняем масштаб карты под область или адреса
             if (this.segmentAreaPolygon) {
                 this.segmentMap.fitBounds(this.segmentAreaPolygon.getBounds(), { padding: [20, 20] });
-            } else if (addressesWithCoords.length > 0) {
+            } else if (addressesToDisplay.length > 0) {
                 const bounds = L.latLngBounds(
-                    addressesWithCoords.map(addr => [addr.coordinates.lat, addr.coordinates.lng])
+                    addressesToDisplay.map(addr => [addr.coordinates.lat, addr.coordinates.lng])
                 );
                 this.segmentMap.fitBounds(bounds, { padding: [20, 20] });
             }
@@ -2182,7 +2513,254 @@ class SegmentsManager {
     }
     
     /**
-     * Создание треугольного маркера адреса (как в MapManager)
+     * Создание оптимизированного маркера для сегментов (быстрый + полный функционал)
+     */
+    async createOptimizedSegmentMarker(address) {
+        console.log('🔍 Создаем маркер для адреса:', address.id, 'house_class_id:', address.house_class_id, 'house_problem_id:', address.house_problem_id, 'активный фильтр:', this.activeSegmentMapFilter);
+        // Определяем высоту маркера по этажности (как в MapManager)
+        const floorCount = address.floors_count || 0;
+        let markerHeight;
+        if (floorCount >= 1 && floorCount <= 5) {
+            markerHeight = 10;
+        } else if (floorCount > 5 && floorCount <= 10) {
+            markerHeight = 15;
+        } else if (floorCount > 10 && floorCount <= 20) {
+            markerHeight = 20;
+        } else if (floorCount > 20) {
+            markerHeight = 25;
+        } else {
+            markerHeight = 10;
+        }
+        
+        // Определяем цвет маркера (используем кэшированные данные если возможно)
+        let markerColor = '#3b82f6';
+        if (address.wall_material_color) {
+            markerColor = address.wall_material_color;
+        } else if (address.wall_material_id) {
+            try {
+                const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+                if (wallMaterial && wallMaterial.color) {
+                    markerColor = wallMaterial.color;
+                    // Кэшируем цвет в объекте адреса для следующих использований
+                    address.wall_material_color = wallMaterial.color;
+                }
+            } catch (error) {
+                // Игнорируем ошибки получения цвета
+            }
+        }
+        
+        // Определяем текст на маркере в зависимости от активного фильтра
+        let labelText = '';
+        switch (this.activeSegmentMapFilter) {
+            case 'year':
+                labelText = address.build_year || '';
+                break;
+            case 'series':
+                if (address.house_series_name) {
+                    labelText = address.house_series_name;
+                } else if (address.house_series_id) {
+                    try {
+                        const houseSeries = await window.db.get('house_series', address.house_series_id);
+                        labelText = houseSeries ? houseSeries.name : '';
+                        // Кэшируем название серии
+                        address.house_series_name = labelText;
+                    } catch (error) {
+                        labelText = '';
+                    }
+                }
+                break;
+            case 'floors':
+                labelText = address.floors_count || '';
+                break;
+            case 'objects':
+                if (address.objects_count !== undefined) {
+                    labelText = address.objects_count.toString();
+                } else {
+                    try {
+                        const objects = await window.db.getObjectsByAddress(address.id);
+                        const count = objects ? objects.length : 0;
+                        labelText = count > 0 ? count.toString() : '';
+                        // Кэшируем количество объектов
+                        address.objects_count = count;
+                    } catch (error) {
+                        labelText = '';
+                    }
+                }
+                break;
+            case 'listings':
+                if (address.listings_count !== undefined) {
+                    labelText = address.listings_count.toString();
+                } else {
+                    try {
+                        const listings = await window.db.getListingsByAddress(address.id);
+                        const count = listings ? listings.length : 0;
+                        labelText = count > 0 ? count.toString() : '';
+                        // Кэшируем количество объявлений
+                        address.listings_count = count;
+                    } catch (error) {
+                        labelText = '';
+                    }
+                }
+                break;
+            case 'house_class':
+                if (address.house_class_name) {
+                    labelText = address.house_class_name;
+                } else if (address.house_class_id) {
+                    try {
+                        const houseClass = await window.db.get('house_classes', address.house_class_id);
+                        labelText = houseClass ? houseClass.name : '';
+                        address.house_class_name = labelText;
+                    } catch (error) {
+                        labelText = '';
+                    }
+                }
+                break;
+            case 'house_problems':
+                if (address.house_problem_name) {
+                    labelText = address.house_problem_name;
+                } else if (address.house_problem_id) {
+                    try {
+                        const houseProblem = await window.db.get('house_problems', address.house_problem_id);
+                        labelText = houseProblem ? houseProblem.name : '';
+                        address.house_problem_name = labelText;
+                    } catch (error) {
+                        labelText = '';
+                    }
+                }
+                break;
+            case 'commercial_spaces':
+                if (address.commercial_spaces !== undefined) {
+                    const commercialSpacesOptions = ['Не указано', 'Да', 'Нет'];
+                    labelText = commercialSpacesOptions[address.commercial_spaces] || 'Не указано';
+                }
+                break;
+            case 'comment':
+                labelText = address.comment && address.comment.trim() ? 'Есть комментарий' : '';
+                break;
+            default:
+                labelText = address.build_year || '';
+        }
+        
+        // Создаём дополнительные элементы для корон и прямоугольников
+        let crownHtml = '';
+        let rectangleHtml = '';
+        
+        // Добавляем корону для классов домов
+        if (this.activeSegmentMapFilter === 'house_class' && address.house_class_id) {
+            console.log('🔍 Добавляем корону для адреса:', address.id, 'класс:', address.house_class_id, 'фильтр:', this.activeSegmentMapFilter);
+            try {
+                const houseClass = await window.db.get('house_classes', address.house_class_id);
+                console.log('🔍 Найден класс дома:', houseClass);
+                if (houseClass && houseClass.color) {
+                    console.log('✅ Добавляем корону с цветом:', houseClass.color);
+                    crownHtml = `
+                        <div style="
+                            position: absolute !important;
+                            top: -12px !important;
+                            left: 0px !important;
+                            width: 15px !important;
+                            height: 12px !important;
+                            background: ${houseClass.color} !important;
+                            clip-path: polygon(0% 100%, 20% 0%, 40% 70%, 60% 0%, 80% 70%, 100% 0%, 100% 100%) !important;
+                            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)) !important;
+                            z-index: 1000 !important;
+                        "></div>`;
+                }
+            } catch (error) {
+                console.warn('SegmentsManager: Не удалось получить класс дома для короны:', address.house_class_id);
+            }
+        }
+        
+        // Добавляем прямоугольник для проблем домов
+        if (this.activeSegmentMapFilter === 'house_problems' && address.house_problem_id) {
+            console.log('🔍 Добавляем прямоугольник для адреса:', address.id, 'проблема:', address.house_problem_id, 'фильтр:', this.activeSegmentMapFilter);
+            try {
+                const houseProblem = await window.db.get('house_problems', address.house_problem_id);
+                console.log('🔍 Найдена проблема дома:', houseProblem);
+                if (houseProblem && houseProblem.color) {
+                    console.log('✅ Добавляем прямоугольник с цветом:', houseProblem.color);
+                    rectangleHtml = `
+                        <div style="
+                            position: absolute !important;
+                            top: -4px !important;
+                            right: -8px !important;
+                            width: 8px !important;
+                            height: 6px !important;
+                            background: ${houseProblem.color} !important;
+                            border: 1px solid rgba(0,0,0,0.2) !important;
+                            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)) !important;
+                            z-index: 1000 !important;
+                        "></div>`;
+                }
+            } catch (error) {
+                console.warn('SegmentsManager: Не удалось получить проблему дома для прямоугольника:', address.house_problem_id);
+            }
+        }
+
+        // Создаём треугольный маркер с упрощённым HTML (как в MapManager)
+        const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
+            addressId: address.id,
+            icon: L.divIcon({
+                className: 'triangle-marker-optimized',
+                html: `
+                    <div style="position: relative;">
+                        <div style="
+                            width: 0; 
+                            height: 0; 
+                            border-left: 7.5px solid transparent; 
+                            border-right: 7.5px solid transparent; 
+                            border-top: ${markerHeight}px solid ${markerColor};
+                        "></div>
+                        ${crownHtml}
+                        ${rectangleHtml}
+                        ${labelText ? `<span style="
+                            position: absolute; 
+                            left: 15px; 
+                            top: 0px; 
+                            font-size: 11px; 
+                            font-weight: 600; 
+                            color: #374151; 
+                            background: rgba(255,255,255,0.95); 
+                            padding: 1px 4px; 
+                            border-radius: 3px; 
+                            white-space: nowrap;
+                        ">${labelText}</span>` : ''}
+                    </div>
+                `,
+                iconSize: [15, markerHeight],
+                iconAnchor: [7.5, markerHeight]
+            })
+        });
+        
+        // Создаём popup асинхронно только при открытии (как в оригинале)
+        marker.bindPopup('Загрузка...', {
+            maxWidth: 400,
+            className: 'segment-address-popup-container'
+        });
+        
+        // Добавляем обработчики событий для кнопок в popup (сохраняем функционал)
+        marker.on('popupopen', async () => {
+            // Используем обновленные данные из маркера, если они есть
+            const currentAddress = marker.addressData || address;
+            
+            // Обновляем содержимое popup с актуальными данными
+            const popupContent = await this.createSegmentAddressPopup(currentAddress);
+            marker.setPopupContent(popupContent);
+            
+            // Добавляем небольшую задержку чтобы popup успел отрендериться
+            setTimeout(() => {
+                this.bindSegmentPopupEvents(currentAddress);
+            }, 10);
+        });
+        
+        // Сохраняем данные адреса в маркере для фильтрации
+        marker.addressData = address;
+        
+        return marker;
+    }
+
+    /**
+     * Создание треугольного маркера адреса (оригинальный метод)
      */
     async createTriangularAddressMarker(address) {
         // Определяем высоту маркера по этажности
@@ -2294,47 +2872,83 @@ class SegmentsManager {
                     filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
                 "></div>`;
         
+        console.log('🎯 Достигли точки создания корон и прямоугольников для адреса:', address.id);
+        
         // Добавляем корону для класса дома
+        console.log('🔍 Проверка условий для короны: activeSegmentMapFilter =', this.activeSegmentMapFilter, ', address.house_class_id =', address.house_class_id);
         if (this.activeSegmentMapFilter === 'house_class' && address.house_class_id) {
+            console.log('🔍 Добавляем корону для адреса:', address.id, 'класс:', address.house_class_id, 'фильтр:', this.activeSegmentMapFilter);
             try {
+                console.log('🔍 Выполняем запрос к базе данных: window.db.get("house_classes", "' + address.house_class_id + '")');
                 const houseClass = await window.db.get('house_classes', address.house_class_id);
-                if (houseClass && houseClass.color) {
-                    markerHtml += `
-                        <div style="
-                            position: absolute;
-                            top: -12px;
-                            left: 0px;
-                            width: 15px;
-                            height: 12px;
-                            background: ${houseClass.color};
-                            clip-path: polygon(0% 100%, 20% 0%, 40% 70%, 60% 0%, 80% 70%, 100% 0%, 100% 100%);
-                            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
-                        "></div>`;
+                console.log('🔍 Результат запроса класса дома:', houseClass);
+                
+                if (houseClass) {
+                    console.log('🔍 Класс дома найден. Свойство color:', houseClass.color);
+                    if (houseClass.color) {
+                        console.log('✅ Добавляем корону с цветом:', houseClass.color);
+                        const crownHtml = `
+                            <div class="marker-crown" style="
+                                position: absolute !important;
+                                top: -12px !important;
+                                left: 0px !important;
+                                width: 15px !important;
+                                height: 12px !important;
+                                background: ${houseClass.color} !important;
+                                clip-path: polygon(0% 100%, 20% 0%, 40% 70%, 60% 0%, 80% 70%, 100% 0%, 100% 100%) !important;
+                                filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)) !important;
+                                z-index: 10 !important;
+                                pointer-events: none !important;
+                            "></div>`;
+                        markerHtml += crownHtml;
+                        console.log('🔍 HTML короны добавлен:', crownHtml);
+                    } else {
+                        console.log('❌ У класса дома нет свойства color или оно пустое');
+                    }
+                } else {
+                    console.log('❌ Класс дома не найден в базе данных');
                 }
             } catch (error) {
-                console.warn('SegmentsManager: Не удалось получить класс дома для короны:', address.house_class_id);
+                console.error('SegmentsManager: Ошибка получения класса дома для короны:', address.house_class_id, error);
             }
         }
         
         // Добавляем прямоугольник для проблем дома
+        console.log('🔍 Проверка условий для прямоугольника: activeSegmentMapFilter =', this.activeSegmentMapFilter, ', address.house_problem_id =', address.house_problem_id);
         if (this.activeSegmentMapFilter === 'house_problems' && address.house_problem_id) {
+            console.log('🔍 Добавляем прямоугольник для адреса:', address.id, 'проблема:', address.house_problem_id, 'фильтр:', this.activeSegmentMapFilter);
             try {
+                console.log('🔍 Выполняем запрос к базе данных: window.db.get("house_problems", "' + address.house_problem_id + '")');
                 const houseProblem = await window.db.get('house_problems', address.house_problem_id);
-                if (houseProblem && houseProblem.color) {
-                    markerHtml += `
-                        <div style="
-                            position: absolute;
-                            top: -12px;
-                            left: 0px;
-                            width: 15px;
-                            height: 12px;
-                            background: ${houseProblem.color};
-                            border-radius: 1px;
-                            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
-                        "></div>`;
+                console.log('🔍 Результат запроса проблемы дома:', houseProblem);
+                
+                if (houseProblem) {
+                    console.log('🔍 Проблема дома найдена. Свойство color:', houseProblem.color);
+                    if (houseProblem.color) {
+                        console.log('✅ Добавляем прямоугольник с цветом:', houseProblem.color);
+                        const rectangleHtml = `
+                            <div class="marker-rectangle" style="
+                                position: absolute !important;
+                                top: -12px !important;
+                                left: 0px !important;
+                                width: 15px !important;
+                                height: 12px !important;
+                                background: ${houseProblem.color} !important;
+                                border-radius: 1px !important;
+                                filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)) !important;
+                                z-index: 10 !important;
+                                pointer-events: none !important;
+                            "></div>`;
+                        markerHtml += rectangleHtml;
+                        console.log('🔍 HTML прямоугольника добавлен:', rectangleHtml);
+                    } else {
+                        console.log('❌ У проблемы дома нет свойства color или оно пустое');
+                    }
+                } else {
+                    console.log('❌ Проблема дома не найдена в базе данных');
                 }
             } catch (error) {
-                console.warn('SegmentsManager: Не удалось получить проблему дома для прямоугольника:', address.house_problem_id);
+                console.error('SegmentsManager: Ошибка получения проблемы дома для прямоугольника:', address.house_problem_id, error);
             }
         }
         
@@ -2358,6 +2972,11 @@ class SegmentsManager {
         
         markerHtml += '</div>';
         
+        // Логируем финальный HTML маркера для отладки
+        if (this.activeSegmentMapFilter === 'house_class' || this.activeSegmentMapFilter === 'house_problems') {
+            console.log('🔍 Финальный HTML маркера для адреса', address.id, ':', markerHtml);
+        }
+        
         const marker = L.marker([address.coordinates.lat, address.coordinates.lng], {
             addressId: address.id,
             icon: L.divIcon({
@@ -2370,19 +2989,22 @@ class SegmentsManager {
         
         // Создаем пустой popup, содержимое будет обновляться динамически
         marker.bindPopup('Загрузка...', {
-            maxWidth: 300,
+            maxWidth: 400,
             className: 'segment-address-popup-container'
         });
         
         // Добавляем обработчики событий для кнопок в popup
         marker.on('popupopen', async () => {
+            // Используем обновленные данные из маркера, если они есть
+            const currentAddress = marker.addressData || address;
+            
             // Обновляем содержимое popup с актуальными данными
-            const popupContent = await this.createSegmentAddressPopup(address);
+            const popupContent = await this.createSegmentAddressPopup(currentAddress);
             marker.setPopupContent(popupContent);
             
             // Добавляем небольшую задержку чтобы popup успел отрендериться
             setTimeout(() => {
-                this.bindSegmentPopupEvents(address);
+                this.bindSegmentPopupEvents(currentAddress);
             }, 10);
         });
         
@@ -2402,6 +3024,15 @@ class SegmentsManager {
      * Создание popup для адреса в сегменте
      */
     async createSegmentAddressPopup(address) {
+        // Debug: проверяем данные адреса
+        console.log('🔍 SegmentsManager: Создание popup для адреса:', {
+            id: address.id,
+            house_series_id: address.house_series_id,
+            house_class_id: address.house_class_id,
+            wall_material_id: address.wall_material_id,
+            address: address.address
+        });
+        
         // Получаем справочные данные
         let houseSeriesText = 'Не указана';
         let houseClassText = 'Не указан';
@@ -2458,12 +3089,26 @@ class SegmentsManager {
         const entrancesText = address.entrances_count || 'Не указано';
         
         return `
-            <div class="segment-address-popup" style="width: 320px; max-width: 320px; max-height: 400px; display: flex; flex-direction: column;">
+            <div class="segment-address-popup" style="max-height: 400px; display: flex; flex-direction: column; min-width: 280px;">
                 <!-- Хедер -->
                 <div class="popup-header bg-gray-50 p-3 border-b border-gray-200 rounded-t-lg flex-shrink-0">
-                    <div class="flex items-center text-gray-900 text-sm font-semibold mb-1">
-                        <span class="text-blue-600 mr-2">📍</span>
-                        Информация об адресе
+                    <div class="flex items-center justify-between text-gray-900 text-sm font-semibold mb-1">
+                        <div class="flex items-center">
+                            <span class="text-blue-600 mr-2">📍</span>
+                            Информация об адресе
+                        </div>
+                        <div class="flex items-center space-x-1">
+                            <button data-action="edit-address" data-address-id="${address.id}" 
+                                    class="p-1 text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                    title="Редактировать адрес">
+                                ✏️
+                            </button>
+                            <button data-action="delete-address" data-address-id="${address.id}" 
+                                    class="p-1 text-xs text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    title="Удалить адрес">
+                                🗑️
+                            </button>
+                        </div>
                     </div>
                     <div class="address-title font-medium text-gray-800 text-sm leading-tight">
                         ${address.address || 'Адрес не указан'}
@@ -2585,11 +3230,27 @@ class SegmentsManager {
                 </div>
                 
                 <!-- Футер с кнопками -->
-                <div class="popup-footer p-3 border-t border-gray-200 bg-gray-50 rounded-b-lg flex-shrink-0">
-                    <div class="flex justify-center">
+                <div class="popup-footer p-2 border-t border-gray-200 bg-gray-50 rounded-b-lg flex-shrink-0">
+                    <!-- Все кнопки в одном ряду -->
+                    <div class="grid grid-cols-4 gap-1">
+                        <button data-action="add-series" data-address-id="${address.id}" 
+                                class="px-1 py-1 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded transition-colors font-medium"
+                                ${!address.house_series_id ? 'disabled title="Серия не указана"' : ''}>
+                            +Серия
+                        </button>
+                        <button data-action="add-class" data-address-id="${address.id}" 
+                                class="px-1 py-1 text-xs bg-orange-600 hover:bg-orange-700 text-white rounded transition-colors font-medium"
+                                ${!address.house_class_id ? 'disabled title="Класс не указан"' : ''}>
+                            +Класс
+                        </button>
+                        <button data-action="add-material" data-address-id="${address.id}" 
+                                class="px-1 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors font-medium"
+                                ${!address.wall_material_id ? 'disabled title="Материал не указан"' : ''}>
+                            +Материал
+                        </button>
                         <button data-action="toggle-filter" data-address-id="${address.id}" 
-                                class="px-4 py-2 text-sm ${filterButtonClass} text-white rounded-md transition-colors font-medium shadow-sm hover:shadow-md">
-                            ${filterButtonText}
+                                class="px-1 py-1 text-xs ${filterButtonClass} text-white rounded transition-colors font-medium">
+                            ${isInFilter ? '- Адрес' : '+ Адрес'}
                         </button>
                     </div>
                 </div>
@@ -2603,7 +3264,57 @@ class SegmentsManager {
     bindSegmentPopupEvents(address) {
         console.log('🔗 Привязываем события для popup адреса:', address.id);
         
-        // Только кнопка добавления/удаления из фильтра (кнопки редактирования и удаления убраны)
+        // Кнопка редактирования адреса
+        const editBtn = document.querySelector(`[data-action="edit-address"][data-address-id="${address.id}"]`);
+        if (editBtn) {
+            editBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.editAddressFromPopup(address.id);
+            });
+        }
+        
+        // Кнопка удаления адреса
+        const deleteBtn = document.querySelector(`[data-action="delete-address"][data-address-id="${address.id}"]`);
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.deleteAddressFromPopup(address.id);
+            });
+        }
+        
+        // Кнопка добавления серии в фильтр
+        const addSeriesBtn = document.querySelector(`[data-action="add-series"][data-address-id="${address.id}"]`);
+        if (addSeriesBtn && !addSeriesBtn.disabled) {
+            addSeriesBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.addSeriesFilterFromPopup(address);
+            });
+        }
+        
+        // Кнопка добавления класса в фильтр
+        const addClassBtn = document.querySelector(`[data-action="add-class"][data-address-id="${address.id}"]`);
+        if (addClassBtn && !addClassBtn.disabled) {
+            addClassBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.addClassFilterFromPopup(address);
+            });
+        }
+        
+        // Кнопка добавления материала в фильтр
+        const addMaterialBtn = document.querySelector(`[data-action="add-material"][data-address-id="${address.id}"]`);
+        if (addMaterialBtn && !addMaterialBtn.disabled) {
+            addMaterialBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.addMaterialFilterFromPopup(address);
+            });
+        }
+        
+        // Кнопка добавления/удаления адреса из фильтра
         const toggleBtn = document.querySelector(`[data-action="toggle-filter"][data-address-id="${address.id}"]`);
         if (toggleBtn) {
             toggleBtn.addEventListener('click', (e) => {
@@ -2661,6 +3372,283 @@ class SegmentsManager {
         // Обновляем карту и состояние кнопок
         this.updateSegmentMapWithFilters();
         this.checkForChanges();
+    }
+    
+    /**
+     * Редактирование адреса из popup
+     */
+    editAddressFromPopup(addressId) {
+        // Закрываем popup
+        if (this.segmentMap) {
+            this.segmentMap.closePopup();
+        }
+        
+        // Отправляем событие на редактирование адреса
+        this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_EDIT_REQUESTED, { id: addressId });
+        console.log('📝 SegmentsManager: Запрос на редактирование адреса:', addressId);
+    }
+    
+    /**
+     * Удаление адреса из popup с подтверждением
+     */
+    async deleteAddressFromPopup(addressId) {
+        const confirmed = confirm('Вы уверены, что хотите удалить этот адрес? Это действие нельзя отменить.');
+        if (!confirmed) {
+            return;
+        }
+        
+        try {
+            // Закрываем popup
+            if (this.segmentMap) {
+                this.segmentMap.closePopup();
+            }
+            
+            // Удаляем адрес из базы данных
+            await window.db.delete('addresses', addressId);
+            
+            // Отправляем событие об удалении
+            this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_DELETED, { id: addressId });
+            
+            if (this.progressManager) {
+                this.progressManager.showSuccess('Адрес удален');
+            }
+            
+            console.log('🗑️ SegmentsManager: Адрес удален:', addressId);
+        } catch (error) {
+            console.error('❌ Ошибка удаления адреса:', error);
+            if (this.progressManager) {
+                this.progressManager.showError('Ошибка удаления адреса');
+            }
+        }
+    }
+    
+    /**
+     * Добавление серии дома в фильтр сегмента
+     */
+    async addSeriesFilterFromPopup(address) {
+        if (!address.house_series_id) return;
+        
+        try {
+            // Получаем серию дома
+            const houseSeries = await window.db.get('house_series', address.house_series_id);
+            if (!houseSeries) return;
+            
+            // Получаем селект серий
+            const seriesSelect = document.getElementById('segmentHouseSeries');
+            if (!seriesSelect || !seriesSelect.slimSelect) {
+                console.warn('Селект серий домов не найден или не инициализирован');
+                return;
+            }
+            
+            // Добавляем серию в фильтр
+            const currentSelected = seriesSelect.slimSelect.getSelected();
+            if (!currentSelected.includes(address.house_series_id)) {
+                const newSelected = [...currentSelected, address.house_series_id];
+                seriesSelect.slimSelect.setSelected(newSelected);
+                
+                if (this.progressManager) {
+                    this.progressManager.showSuccess(`Серия "${houseSeries.name}" добавлена в фильтр`);
+                }
+            } else {
+                if (this.progressManager) {
+                    this.progressManager.showInfo('Серия уже есть в фильтре');
+                }
+            }
+            
+            // Закрываем popup и обновляем карту
+            if (this.segmentMap) {
+                this.segmentMap.closePopup();
+            }
+            this.updateSegmentMapWithFilters();
+            this.checkForChanges();
+            
+        } catch (error) {
+            console.error('❌ Ошибка добавления серии в фильтр:', error);
+            if (this.progressManager) {
+                this.progressManager.showError('Ошибка добавления серии в фильтр');
+            }
+        }
+    }
+    
+    /**
+     * Добавление класса дома в фильтр сегмента
+     */
+    async addClassFilterFromPopup(address) {
+        if (!address.house_class_id) return;
+        
+        try {
+            // Получаем класс дома
+            const houseClass = await window.db.get('house_classes', address.house_class_id);
+            if (!houseClass) return;
+            
+            // Получаем селект классов
+            const classSelect = document.getElementById('segmentHouseClass');
+            if (!classSelect || !classSelect.slimSelect) {
+                console.warn('Селект классов домов не найден или не инициализирован');
+                return;
+            }
+            
+            // Добавляем класс в фильтр
+            const currentSelected = classSelect.slimSelect.getSelected();
+            if (!currentSelected.includes(address.house_class_id)) {
+                const newSelected = [...currentSelected, address.house_class_id];
+                classSelect.slimSelect.setSelected(newSelected);
+                
+                if (this.progressManager) {
+                    this.progressManager.showSuccess(`Класс "${houseClass.name}" добавлен в фильтр`);
+                }
+            } else {
+                if (this.progressManager) {
+                    this.progressManager.showInfo('Класс уже есть в фильтре');
+                }
+            }
+            
+            // Закрываем popup и обновляем карту
+            if (this.segmentMap) {
+                this.segmentMap.closePopup();
+            }
+            this.updateSegmentMapWithFilters();
+            this.checkForChanges();
+            
+        } catch (error) {
+            console.error('❌ Ошибка добавления класса в фильтр:', error);
+            if (this.progressManager) {
+                this.progressManager.showError('Ошибка добавления класса в фильтр');
+            }
+        }
+    }
+    
+    /**
+     * Добавление материала стен в фильтр сегмента
+     */
+    async addMaterialFilterFromPopup(address) {
+        if (!address.wall_material_id) return;
+        
+        try {
+            // Получаем материал стен
+            const wallMaterial = await window.db.get('wall_materials', address.wall_material_id);
+            if (!wallMaterial) return;
+            
+            // Получаем селект материалов
+            const materialSelect = document.getElementById('segmentWallMaterial');
+            if (!materialSelect || !materialSelect.slimSelect) {
+                console.warn('Селект материалов стен не найден или не инициализирован');
+                return;
+            }
+            
+            // Добавляем материал в фильтр
+            const currentSelected = materialSelect.slimSelect.getSelected();
+            if (!currentSelected.includes(address.wall_material_id)) {
+                const newSelected = [...currentSelected, address.wall_material_id];
+                materialSelect.slimSelect.setSelected(newSelected);
+                
+                if (this.progressManager) {
+                    this.progressManager.showSuccess(`Материал "${wallMaterial.name}" добавлен в фильтр`);
+                }
+            } else {
+                if (this.progressManager) {
+                    this.progressManager.showInfo('Материал уже есть в фильтре');
+                }
+            }
+            
+            // Закрываем popup и обновляем карту
+            if (this.segmentMap) {
+                this.segmentMap.closePopup();
+            }
+            this.updateSegmentMapWithFilters();
+            this.checkForChanges();
+            
+        } catch (error) {
+            console.error('❌ Ошибка добавления материала в фильтр:', error);
+            if (this.progressManager) {
+                this.progressManager.showError('Ошибка добавления материала в фильтр');
+            }
+        }
+    }
+    
+    /**
+     * Обновление карты сегмента после редактирования адреса
+     */
+    async updateSegmentMapAfterAddressEdit() {
+        try {
+            // Проверяем, что модальное окно сегмента открыто
+            const segmentModal = document.getElementById('segmentModal');
+            if (!segmentModal || segmentModal.classList.contains('hidden')) {
+                console.log('🔄 SegmentsManager: Модальное окно сегмента закрыто, пропускаем обновление карты');
+                return;
+            }
+            
+            // Проверяем, что карта сегмента инициализирована
+            if (!this.segmentMap) {
+                console.log('🔄 SegmentsManager: Карта сегмента не инициализирована, пропускаем обновление');
+                return;
+            }
+            
+            console.log('🔄 SegmentsManager: Обновляем карту сегмента после редактирования адреса');
+            
+            // Получаем обновленные адреса из DataState
+            const updatedAddresses = this.dataState.getState('addresses') || [];
+            
+            // Обновляем данные маркеров на карте с новыми данными адресов
+            if (this.segmentAddressesLayer) {
+                console.log('🔄 Обновляем данные', this.segmentAddressesLayer.getLayers().length, 'маркеров из', updatedAddresses.length, 'адресов');
+                
+                const markers = this.segmentAddressesLayer.getLayers();
+                let updatedCount = 0;
+                
+                for (const marker of markers) {
+                    const addressId = marker.options.addressId;
+                    
+                    if (addressId) {
+                        // Находим обновленные данные адреса
+                        const updatedAddress = updatedAddresses.find(addr => addr.id === addressId);
+                        
+                        if (updatedAddress) {
+                            // Обновляем данные маркера
+                            marker.addressData = updatedAddress;
+                            updatedCount++;
+                            
+                            // Если popup этого маркера открыт, принудительно обновляем его содержимое
+                            if (marker.isPopupOpen()) {
+                                console.log('🔄 Обновляем открытый popup для адреса:', addressId);
+                                const popupContent = await this.createSegmentAddressPopup(updatedAddress);
+                                marker.setPopupContent(popupContent);
+                                
+                                // Привязываем события к обновленному popup
+                                setTimeout(() => {
+                                    this.bindSegmentPopupEvents(updatedAddress);
+                                }, 10);
+                            }
+                        }
+                    }
+                }
+                
+                console.log('✅ Обновлено данных у', updatedCount, 'маркеров');
+            }
+            
+            // Сохраняем текущие фильтры перед обновлением селектов
+            const currentFilters = this.getSegmentFormData().filters;
+            
+            // Обновляем селекты (могли добавиться новые значения при редактировании адреса)
+            await this.populateSegmentFormSelects();
+            
+            // Восстанавливаем сохраненные фильтры
+            if (currentFilters) {
+                // Создаем объект сегмента с текущими фильтрами для восстановления
+                const segmentData = {
+                    filters: currentFilters
+                };
+                await this.fillSegmentForm(segmentData);
+            }
+            
+            // Обновляем карту с текущими фильтрами (теперь с обновленными данными)
+            this.updateSegmentMapWithFilters();
+            
+            console.log('✅ SegmentsManager: Карта сегмента обновлена после редактирования адреса');
+            
+        } catch (error) {
+            console.error('❌ SegmentsManager: Ошибка обновления карты сегмента после редактирования адреса:', error);
+        }
     }
     
     /**
@@ -2744,21 +3732,17 @@ class SegmentsManager {
     updateMapMarkersStyle() {
         if (!this.segmentAddressesLayer || !this.segmentMap) return;
         
-        const addressSelect = document.getElementById('segmentAddresses');
-        const selectedAddresses = addressSelect?.slimSelect?.getSelected() || [];
+        const currentFilters = this.getSegmentFormData().filters;
         
         // Обновляем стили всех маркеров
         this.segmentAddressesLayer.eachLayer(layer => {
-            if (layer.options && layer.options.addressId) {
-                const isSelected = selectedAddresses.includes(layer.options.addressId);
-                layer.setOpacity(isSelected ? 1.0 : 0.5);
+            if (layer.addressData) {
+                const address = layer.addressData;
+                const matchesFilters = this.addressMatchesFilters(address, currentFilters);
                 
-                // Можно добавить изменение иконки для выбранных адресов
-                if (isSelected) {
-                    layer.getElement()?.style.setProperty('filter', 'hue-rotate(120deg)');
-                } else {
-                    layer.getElement()?.style.removeProperty('filter');
-                }
+                // Определяем прозрачность: 1.0 если подходит фильтрам, 0.6 если не подходит
+                const opacity = matchesFilters ? 1.0 : 0.6;
+                layer.setOpacity(opacity);
             }
         });
     }

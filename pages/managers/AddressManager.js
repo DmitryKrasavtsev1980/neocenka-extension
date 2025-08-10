@@ -81,6 +81,14 @@ class AddressManager {
                 await this.onAreaChanged(area);
             });
             
+            this.eventBus.on(CONSTANTS.EVENTS.AREA_UPDATED, async (data) => {
+                // Если изменился полигон, перезагружаем адреса
+                if (data.polygonChanged || data.polygonImported) {
+                    console.log('🔄 AddressManager: Полигон изменился, перезагружаем адреса');
+                    await this.loadAddresses();
+                }
+            });
+            
             this.eventBus.on(CONSTANTS.EVENTS.ADDRESS_DELETED, async (data) => {
                 // Обновляем таблицу после удаления адреса
                 await this.loadAddresses();
@@ -467,6 +475,7 @@ class AddressManager {
             }
             
             const addresses = await this.getAddressesInArea(currentArea.id);
+            console.log(`📊 AddressManager: Загружено адресов из базы данных: ${addresses.length} для области ${currentArea.id}`);
             await Helpers.debugLog(`📊 Адресов для отображения: ${addresses.length}`);
             
             // Инициализируем ML-алгоритм определения адресов
@@ -500,6 +509,7 @@ class AddressManager {
             }
             
             // Сохраняем адреса в состояние
+            console.log(`💾 AddressManager: Сохраняем в DataState ${addresses.length} адресов`);
             this.dataState.setState('addresses', addresses);
             
             // Сохраняем объявления в состояние для использования другими менеджерами
@@ -518,6 +528,7 @@ class AddressManager {
             }
             
             // Уведомляем о загрузке
+            console.log(`📡 AddressManager: Отправляем событие ADDRESSES_LOADED с ${addresses.length} адресами`);
             this.eventBus.emit(CONSTANTS.EVENTS.ADDRESSES_LOADED, {
                 addresses,
                 count: addresses.length,
@@ -1693,30 +1704,34 @@ class AddressManager {
             }
             
             // Сохраняем в базу данных
-            if (this.currentEditingAddress?.id) {
+            const isUpdate = this.currentEditingAddress?.id;
+            const oldAddress = this.currentEditingAddress;
+            
+            if (isUpdate) {
                 await window.db.update('addresses', addressData);
-                
-                // Уведомляем об обновлении
-                this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_UPDATED, {
-                    address: addressData,
-                    oldAddress: this.currentEditingAddress,
-                    timestamp: new Date()
-                });
             } else {
                 await window.db.add('addresses', addressData);
-                
-                // Уведомляем о добавлении
-                this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_ADDED, {
-                    address: addressData,
-                    timestamp: new Date()
-                });
             }
             
             // Закрываем модальное окно
             this.closeEditAddressModal();
             
-            // Обновляем данные
+            // Обновляем данные СНАЧАЛА
             await this.refreshAddressData();
+            
+            // ЗАТЕМ уведомляем о изменениях (когда DataState уже обновлен)
+            if (isUpdate) {
+                this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_UPDATED, {
+                    address: addressData,
+                    oldAddress: oldAddress,
+                    timestamp: new Date()
+                });
+            } else {
+                this.eventBus.emit(CONSTANTS.EVENTS.ADDRESS_ADDED, {
+                    address: addressData,
+                    timestamp: new Date()
+                });
+            }
             
             this.progressManager.showSuccess('Адрес успешно сохранен');
             
