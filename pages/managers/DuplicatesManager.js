@@ -3693,7 +3693,6 @@ class DuplicatesManager {
                                 <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Адрес</th>
                                 <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
                                 <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Контакт</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Источник</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
@@ -3836,7 +3835,7 @@ class DuplicatesManager {
             </div>`;
         }
         
-        // 7. Контакт
+        // 7. Контакт с источником
         const sellerType = listing.seller_type === 'private' ? 'Собственник' : 
                           listing.seller_type === 'agency' ? 'Агент' : 
                           listing.seller_type === 'agent' ? 'Агент' :
@@ -3845,12 +3844,7 @@ class DuplicatesManager {
         
         const sellerName = listing.seller_name || 'Не указано';
         
-        const contactHtml = `<div class="text-xs max-w-xs">
-            <div class="text-gray-900 truncate" title="${sellerType}">${sellerType}</div>
-            <div class="text-gray-500 truncate" title="${sellerName}">${sellerName}</div>
-        </div>`;
-        
-        // 8. Источник (новая колонка)
+        // Получаем источник для первой строки контакта
         const sourceUrl = listing.url || '#';
         let sourceName = 'Неизвестно';
         
@@ -3862,8 +3856,12 @@ class DuplicatesManager {
             sourceName = listing.source === 'avito' ? 'avito.ru' : listing.source === 'cian' ? 'cian.ru' : listing.source;
         }
         
-        const sourceHtml = `<div class="text-xs">
-            <a href="${sourceUrl}" target="_blank" class="text-blue-600 hover:text-blue-800">${sourceName}</a>
+        const contactHtml = `<div class="text-xs max-w-xs">
+            <div class="text-blue-600 hover:text-blue-800 truncate" title="${sourceName}">
+                <a href="${sourceUrl}" target="_blank">${sourceName}</a>
+            </div>
+            <div class="text-gray-900 truncate" title="${sellerType}">${sellerType}</div>
+            <div class="text-gray-500 truncate" title="${sellerName}">${sellerName}</div>
         </div>`;
         
         return `
@@ -3875,7 +3873,6 @@ class DuplicatesManager {
                 <td class="px-3 py-2 whitespace-nowrap text-xs">${addressHtml}</td>
                 <td class="px-3 py-2 whitespace-nowrap text-xs">${priceHtml}</td>
                 <td class="px-3 py-2 whitespace-nowrap text-xs">${contactHtml}</td>
-                <td class="px-3 py-2 whitespace-nowrap text-xs">${sourceHtml}</td>
             </tr>
         `;
     }
@@ -4122,7 +4119,6 @@ class DuplicatesManager {
                                 <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Адрес</th>
                                 <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
                                 <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Контакт</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Источник</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">

@@ -46,6 +46,7 @@ const EVENTS = {
     SEGMENTS_LOADED: 'segments:loaded',
     SEGMENTS_UPDATED: 'segments:updated',
     SEGMENT_ADDED: 'segment:added',
+    SEGMENT_CREATED: 'segment:created',
     SEGMENT_UPDATED: 'segment:updated',
     SEGMENT_DELETED: 'segment:deleted',
     

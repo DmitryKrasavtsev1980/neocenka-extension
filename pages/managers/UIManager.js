@@ -851,6 +851,20 @@ class UIManager {
             const freshListing = await window.db.getListing(listing.id);
             const dataToUse = freshListing || listing;
             
+            // Проверяем и исправляем пустую историю цен
+            if (!dataToUse.price_history || !Array.isArray(dataToUse.price_history) || dataToUse.price_history.length === 0) {
+                // Создаем базовую запись истории цен
+                dataToUse.price_history = [{
+                    date: dataToUse.created ? (dataToUse.created instanceof Date ? dataToUse.created.toISOString() : new Date(dataToUse.created).toISOString()) : new Date().toISOString(),
+                    price: dataToUse.price || 0
+                }];
+                
+                // Сохраняем исправленную историю в базу данных
+                if (freshListing) {
+                    await window.db.update('listings', dataToUse);
+                }
+            }
+            
             const modalContent = modal.querySelector('#modalContent');
             if (!modalContent) {
                 console.error('❌ UIManager: Контейнер modalContent не найден');
@@ -1051,8 +1065,14 @@ class UIManager {
     generateManagementPanelHtml(listing) {
         return `
             <div class="flex items-center justify-between w-full">
-                <!-- Левая сторона: Статус и актуализация -->
+                <!-- Левая сторона: Актуализация и статус -->
                 <div class="flex items-center space-x-4">
+                    <!-- Кнопка актуализации -->
+                    <button id="actualizeBtn-${listing.id}" 
+                            class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors">
+                        🔄 Актуализировать
+                    </button>
+                    
                     <!-- Переключатель статуса -->
                     <div class="flex items-center">
                         <label class="text-sm font-medium text-gray-700 mr-2">Статус:</label>
@@ -1061,12 +1081,6 @@ class UIManager {
                             <option value="archived" ${listing.status === 'archived' ? 'selected' : ''}>Архив</option>
                         </select>
                     </div>
-                    
-                    <!-- Кнопка актуализации -->
-                    <button id="actualizeBtn-${listing.id}" 
-                            class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors">
-                        🔄 Актуализировать
-                    </button>
                 </div>
 
                 <!-- Центр: Кнопки управления объявлением -->
@@ -5050,11 +5064,16 @@ class UIManager {
                     const isArchived = response.data.status === 'archived';
                     if (isArchived) {
                         updatedListing.status = 'archived';
-                        // Устанавливаем дату закрытия только если она пришла с сайта
+                        // Для архивных объявлений устанавливаем дату закрытия с сайта (только если есть)
                         if (response.data.updated_date) {
                             updatedListing.updated = updatedDate; // Дата закрытия с сайта
+                            updatedListing.last_seen = updatedDate;
                         }
-                        updatedListing.last_seen = updatedDate;
+                        // Если дата с сайта недоступна - просто меняем статус на архив, дату не трогаем
+                    } else {
+                        // Для активных объявлений ВСЕГДА ставим текущую дату парсинга
+                        updatedListing.updated = new Date();
+                        updatedListing.status = 'active';
                     }
                     
                     // Проверяем изменение цены в любом случае

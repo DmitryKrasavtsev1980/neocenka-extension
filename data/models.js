@@ -708,6 +708,12 @@ class ListingModel {
     // Обработка истории цен из Inpars с нормализацией
     if (Array.isArray(inparsData.history) && inparsData.history.length > 0) {
       listing.price_history = ListingModel.normalizeInparsPriceHistory(inparsData.history);
+    } else {
+      // Если история цен пустая, создаем базовую запись с текущей ценой в дату создания
+      listing.price_history = [{
+        date: listing.created ? listing.created.toISOString() : new Date().toISOString(),
+        price: listing.price || 0
+      }];
     }
 
     // Вычисляем цену за м2

@@ -1441,7 +1441,11 @@ class SegmentsManager {
                 const mapAreaIdField = document.getElementById('segmentMapAreaId');
                 if (mapAreaIdField) {
                     mapAreaIdField.value = currentArea.id;
+                } else {
+                    console.warn('⚠️ SegmentsManager: Поле #segmentMapAreaId не найдено');
                 }
+            } else {
+                console.warn('⚠️ SegmentsManager: Текущая область не загружена в DataState');
             }
         } catch (error) {
             console.error('❌ SegmentsManager: Ошибка установки ID области:', error);
@@ -1466,6 +1470,15 @@ class SegmentsManager {
             // Инициализируем содержимое модального окна после показа
             setTimeout(async () => {
                 try {
+                    // Убеждаемся что ID области установлен
+                    const currentArea = this.dataState.getState('currentArea');
+                    if (currentArea) {
+                        const mapAreaIdField = document.getElementById('segmentMapAreaId');
+                        if (mapAreaIdField && !mapAreaIdField.value) {
+                            mapAreaIdField.value = currentArea.id;
+                        }
+                    }
+                    
                     // Принудительно загружаем справочные данные
                     await this.loadReferenceData();
                     
@@ -1761,6 +1774,17 @@ class SegmentsManager {
         try {
             const formData = this.getSegmentFormData();
             
+            // Проверяем и исправляем map_area_id, если он отсутствует
+            const currentArea = this.dataState.getState('currentArea');
+            if (!formData.map_area_id && currentArea) {
+                formData.map_area_id = currentArea.id;
+                // Также обновляем скрытое поле в форме
+                const mapAreaIdField = document.getElementById('segmentMapAreaId');
+                if (mapAreaIdField) {
+                    mapAreaIdField.value = currentArea.id;
+                }
+            }
+            
             // Валидация
             const validation = Validators.validateSegment(formData);
             if (!validation.isValid) {
@@ -1768,7 +1792,6 @@ class SegmentsManager {
                 return;
             }
             
-            const currentArea = this.dataState.getState('currentArea');
             if (!currentArea) {
                 this.progressManager.showError('Область не выбрана');
                 return;
@@ -1831,7 +1854,10 @@ class SegmentsManager {
             this.updateSaveButtonState();
             
             // Обновляем график распределения площадей (данные сегмента могли измениться)
-            this.updateAreaDistributionChart();
+            // Добавляем небольшую задержку чтобы убедиться что все состояния обновились
+            setTimeout(() => {
+                this.updateAreaDistributionChart();
+            }, 100);
             
             // НЕ закрываем модальное окно после сохранения
             // this.closeSegmentModal();
@@ -4262,6 +4288,8 @@ class SegmentsManager {
                 return [];
             }
             
+            console.log('📊 Подготавливаем данные для графика, сегмент:', currentSegment.name || currentSegment.id);
+            
             // Получаем адреса из состояния
             const addresses = this.dataState.getState('addresses') || [];
             
@@ -4452,11 +4480,19 @@ class SegmentsManager {
      * Обновление данных графика при изменении фильтров
      */
     updateAreaDistributionChart() {
-        if (!this.areaDistributionChart) return;
+        if (!this.areaDistributionChart) {
+            console.warn('⚠️ График распределения площадей не инициализирован');
+            return;
+        }
         
         try {
             const chartData = this.prepareChartData();
-            this.areaDistributionChart.updateSeries(chartData);
+            if (chartData && chartData.length > 0) {
+                this.areaDistributionChart.updateSeries(chartData);
+                console.log('📊 График обновлен, данных:', chartData.length);
+            } else {
+                console.warn('⚠️ Нет данных для обновления графика');
+            }
         } catch (error) {
             console.error('❌ Ошибка обновления графика:', error);
         }
@@ -4560,7 +4596,7 @@ class SegmentsManager {
                 this.subsegmentsState.editingSubsegment = null;
                 document.getElementById('deleteSubsegmentBtn').disabled = true;
                 // Обновляем график без выделения подсегмента
-                this.updateChartForSubsegment(null);
+                this.highlightSubsegmentOnChart(null);
                 return;
             }
             
@@ -4571,7 +4607,7 @@ class SegmentsManager {
                 this.subsegmentsState.editingSubsegment = subsegment;
                 document.getElementById('deleteSubsegmentBtn').disabled = false;
                 // Обновляем график с выделением выбранного подсегмента
-                this.updateChartForSubsegment(subsegmentId);
+                this.highlightSubsegmentOnChart(subsegmentId);
             }
             
         } catch (error) {
