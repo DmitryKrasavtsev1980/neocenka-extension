@@ -8,12 +8,34 @@ example/
 
 # Individual test files
 test_*.js
+test-*.js
 debug_*.html
+debug-*.html
 debug-toggle.js
+analyze_coordinate_duplicates.js
+check_training.js
+demo_training.js
+find_nametkin_addresses.js
+find_real_proximity_violations.js
+test-merge-functionality.js
+test-price-history-debug.js
+test_consolidation.js
+test_final_solution.js
+test_improved_ml_analyzer.js
+test_v01_integration.html
+trigger_retrain.js
+safelist.html
 
 # Development files
 TODO.md
 safelist.html
+
+# Documentation and markdown files
+docs/
+*.md
+README.md
+CHANGELOG.md
+HISTORY.md
 
 # Build files
 dist/
@@ -29,6 +51,7 @@ dist/
 # Claude Code files
 .claude/
 CLAUDE.md
+CLAUDE.local.md
 
 # OS files
 .DS_Store
