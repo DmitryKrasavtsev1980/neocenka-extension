@@ -222,7 +222,7 @@ class AddressModel {
         lat: parseFloat(props.LAT) || null,
         lng: parseFloat(props.LON) || null
       },
-      type: 'house', // Всегда "house" согласно справочнику типов
+      type: 'building', // Всегда "building" согласно справочнику типов
       
       // Год постройки - приоритет YEAR_EXPL, потом YEAR_BLD
       build_year: null,
