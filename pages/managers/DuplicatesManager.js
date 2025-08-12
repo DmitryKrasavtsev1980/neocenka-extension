@@ -201,6 +201,8 @@ class DuplicatesManager {
      */
     bindTableEvents() {
         // Делегированные обработчики для динамически создаваемых элементов (используем jQuery как в старой версии)
+        // Отвязываем старые обработчики чтобы избежать дублирования
+        $(document).off('change', '.duplicate-checkbox');
         $(document).on('change', '.duplicate-checkbox', (e) => {
             this.handleDuplicateSelection(e.target);
         });
@@ -227,6 +229,7 @@ class DuplicatesManager {
         });
         
         // jQuery обработчик для кликов по адресам объектов (точная копия из старой версии)
+        $(document).off('click', '.clickable-object-address');
         $(document).on('click', '.clickable-object-address', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -263,27 +266,42 @@ class DuplicatesManager {
         });
         
         // jQuery обработчик для кнопки "Объявления" (точная копия из старой версии)
-        $(document).on('click', '.expand-object-listings', (e) => {
+        // Отвязываем старые обработчики чтобы избежать дублирования
+        $(document).off('click', '.expand-object-listings');
+        $('#duplicatesTable').off('click', '.expand-object-listings');
+        const self = this; // Сохраняем контекст this
+        
+        // Привязываем к таблице вместо document
+        $('#duplicatesTable').on('click', '.expand-object-listings', function(e) {
             e.preventDefault();
             e.stopPropagation();
             
             const objectId = e.currentTarget.dataset.objectId;
-            const tr = $(e.currentTarget).closest('tr');
-            const row = this.duplicatesTable.row(tr);
             
+            if (!self.duplicatesTable) {
+                return;
+            }
             
-            if (row.child.isShown()) {
-                // Скрываем child row
-                row.child.hide();
-                tr.removeClass('shown');
-                $(e.currentTarget).find('svg').css('transform', 'rotate(0deg)');
-            } else {
-                // Показываем child row
-                this.showObjectListings(row, objectId);
-                tr.addClass('shown');
-                $(e.currentTarget).find('svg').css('transform', 'rotate(180deg)');
+            try {
+                const tr = $(e.currentTarget).closest('tr');
+                const row = self.duplicatesTable.row(tr);
+                
+                if (row.child.isShown()) {
+                    // Скрываем child row
+                    row.child.hide();
+                    tr.removeClass('shown');
+                    $(e.currentTarget).find('svg').css('transform', 'rotate(0deg)');
+                } else {
+                    // Показываем child row
+                    self.showObjectListings(row, objectId);
+                    tr.addClass('shown');
+                    $(e.currentTarget).find('svg').css('transform', 'rotate(180deg)');
+                }
+            } catch (error) {
+                // console.error('❌ Ошибка в expand-object-listings:', error);
             }
         });
+        
     }
     
     /**
@@ -386,7 +404,7 @@ class DuplicatesManager {
             
             // Инициализируем таблицу если нужно
             if (!this.duplicatesTable) {
-                this.initializeDuplicatesTable();
+                await this.initializeDuplicatesTable();
             }
             
             // Обновляем данные в DataTable
@@ -394,6 +412,7 @@ class DuplicatesManager {
                 this.duplicatesTable.clear();
                 this.duplicatesTable.rows.add(tableData);
                 this.duplicatesTable.draw();
+                
                 
                 
                 // Применяем текущие фильтры (включая статус и фильтры обработки)
@@ -447,7 +466,6 @@ class DuplicatesManager {
     initializeDuplicatesTable() {
         const tableElement = document.getElementById('duplicatesTable');
         if (!tableElement) {
-            // console.error('❌ Таблица дублей не найдена');
             return;
         }
         
@@ -4588,8 +4606,8 @@ class DuplicatesManager {
                 // Для активных объектов - текущая дата
                 endPriceDate = new Date();
             } else {
-                // Для архивных объектов - дата последнего обновления
-                endPriceDate = new Date(realEstateObject.updated_at || realEstateObject.created_at || Date.now());
+                // Для архивных объектов - дата последнего логического обновления
+                endPriceDate = new Date(realEstateObject.updated);
             }
             
             // Добавляем конечную точку только если она отличается от уже существующих

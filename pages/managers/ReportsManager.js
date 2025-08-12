@@ -69,6 +69,17 @@ class ReportsManager {
                 console.warn('⚠️ ReportsManager: HTMLExportManager не найден');
             }
 
+            // Инициализация FlippingProfitabilityManager
+            if (typeof FlippingProfitabilityManager !== 'undefined') {
+                this.flippingProfitabilityManager = new FlippingProfitabilityManager(this);
+                await this.flippingProfitabilityManager.initialize();
+                if (this.debugEnabled) {
+                    console.log('📊 ReportsManager: FlippingProfitabilityManager инициализирован');
+                }
+            } else {
+                console.warn('⚠️ ReportsManager: FlippingProfitabilityManager не найден');
+            }
+
             // Инициализация элементов интерфейса
             this.initializeElements();
             
@@ -181,6 +192,7 @@ class ReportsManager {
         const priceChangesCheck = document.getElementById('priceChangesReportCheck');
         const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
         const comparativeAnalysisCheck = document.getElementById('comparativeAnalysisReportCheck');
+        const flippingProfitabilityCheck = document.getElementById('flippingProfitabilityReportCheck');
         
         if (liquidityCheck) {
             liquidityCheck.addEventListener('change', () => {
@@ -202,6 +214,12 @@ class ReportsManager {
 
         if (comparativeAnalysisCheck) {
             comparativeAnalysisCheck.addEventListener('change', () => {
+                this.updateReportsVisibility();
+            });
+        }
+        
+        if (flippingProfitabilityCheck) {
+            flippingProfitabilityCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
             });
         }
@@ -350,14 +368,16 @@ class ReportsManager {
         const priceChangesCheck = document.getElementById('priceChangesReportCheck');
         const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
         const comparativeAnalysisCheck = document.getElementById('comparativeAnalysisReportCheck');
+        const flippingProfitabilityCheck = document.getElementById('flippingProfitabilityReportCheck');
         
         const showLiquidity = liquidityCheck?.checked || false;
         const showPriceChanges = priceChangesCheck?.checked || false;
         const showMarketCorridor = marketCorridorCheck?.checked || false;
         const showComparativeAnalysis = comparativeAnalysisCheck?.checked || false;
+        const showFlippingProfitability = flippingProfitabilityCheck?.checked || false;
 
         // Показать контейнер отчётов если выбран хотя бы один отчёт
-        if (showLiquidity || showPriceChanges || showMarketCorridor || showComparativeAnalysis) {
+        if (showLiquidity || showPriceChanges || showMarketCorridor || showComparativeAnalysis || showFlippingProfitability) {
             this.reportsContent.classList.remove('hidden');
             
             // Генерация отчётов
@@ -649,8 +669,7 @@ class ReportsManager {
      */
     async generateReports() {
         try {
-            if (this.debugEnabled) {
-            }
+            // console.log('🔍 ReportsManager: generateReports() вызван');
 
             // Получение данных для отчётов
             const reportData = await this.getReportData();
@@ -664,7 +683,18 @@ class ReportsManager {
             // Создание графика коридора рынка недвижимости
             await this.createMarketCorridorChart(reportData);
 
-            if (this.debugEnabled) {
+            // Показ отчёта флиппинг доходности
+            const flippingProfitabilityCheck = document.getElementById('flippingProfitabilityReportCheck');
+            // console.log('🔍 ReportsManager: flippingProfitabilityCheck найден:', !!flippingProfitabilityCheck);
+            // console.log('🔍 ReportsManager: flippingProfitabilityCheck.checked:', flippingProfitabilityCheck?.checked);
+            // console.log('🔍 ReportsManager: flippingProfitabilityManager доступен:', !!this.flippingProfitabilityManager);
+            
+            if (flippingProfitabilityCheck?.checked && this.flippingProfitabilityManager) {
+                // console.log('🔍 ReportsManager: Вызываем flippingProfitabilityManager.show()');
+                await this.flippingProfitabilityManager.show();
+                // console.log('🔍 ReportsManager: flippingProfitabilityManager.show() завершён');
+            } else {
+                // console.log('🔍 ReportsManager: Условие для показа флиппинг-отчёта НЕ выполнено');
             }
 
         } catch (error) {
@@ -1433,8 +1463,24 @@ class ReportsManager {
                                     );
                                 }
                             } else {
-                                // В режиме коридора продаж используем старую логику
-                                point = reportsManager.currentPointsData[dataPointIndex];
+                                // В режиме коридора продаж используем серии-маппинг
+                                if (reportsManager.currentSeriesDataMapping && 
+                                    reportsManager.currentSeriesDataMapping[seriesIndex] && 
+                                    reportsManager.currentSeriesDataMapping[seriesIndex][dataPointIndex]) {
+                                    
+                                    point = reportsManager.currentSeriesDataMapping[seriesIndex][dataPointIndex];
+                                    
+                                } else {
+                                    // Fallback - ищем по координатам
+                                    const seriesData = w.config.series[seriesIndex];
+                                    if (seriesData && seriesData.data && seriesData.data[dataPointIndex]) {
+                                        const [timestamp, price] = seriesData.data[dataPointIndex];
+                                        
+                                        point = reportsManager.currentPointsData.find(p => 
+                                            Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                                        );
+                                    }
+                                }
                             }
                         }
                         
@@ -1506,6 +1552,9 @@ class ReportsManager {
             
             // Сохраняем данные точек для использования в обработчиках
             this.currentPointsData = pointsData.pointsData;
+            
+            // Сохраняем маппинг серий к данным для корректной обработки кликов
+            this.currentSeriesDataMapping = pointsData.seriesDataMapping;
             
             // Создаем глобальную ссылку для tooltip
             window.reportsManagerInstance = this;
@@ -1631,6 +1680,7 @@ class ReportsManager {
             // Формируем серии данных с разными цветами
             const series = [];
             const colors = [];
+            const seriesDataMapping = []; // Маппинг серий к данным
             
             if (this.marketCorridorMode === 'history') {
                 // В режиме истории группируем активные объекты по ID для создания отдельных линий
@@ -1668,19 +1718,23 @@ class ReportsManager {
             } else {
                 // В режиме коридора продаж - обычные scatter точки
                 if (activePointsData.length > 0) {
+                    const seriesIndex = series.length;
                     series.push({
                         name: 'Активные объекты',
                         data: activePointsData.map(point => [point.x, point.y])
                     });
                     colors.push('#56c2d6'); // Синий цвет для активных
+                    seriesDataMapping[seriesIndex] = activePointsData; // Прямой маппинг
                 }
                 
                 if (archivePointsData.length > 0) {
+                    const seriesIndex = series.length;
                     series.push({
                         name: 'Архивные объекты',
                         data: archivePointsData.map(point => [point.x, point.y])
                     });
                     colors.push('#dc2626'); // Красный цвет для архивных
+                    seriesDataMapping[seriesIndex] = archivePointsData; // Прямой маппинг
                 }
             }
 
@@ -1689,7 +1743,8 @@ class ReportsManager {
                 colors: colors,
                 minPrice: Math.max(0, minPrice - padding),
                 maxPrice: maxPrice + padding,
-                pointsData: [...activePointsData, ...archivePointsData] // Сохраняем все данные для tooltip и кликов
+                pointsData: [...activePointsData, ...archivePointsData].sort((a, b) => a.x - b.x), // Сортируем ВСЕ данные по времени
+                seriesDataMapping: seriesDataMapping // Прямой маппинг серий к данным
             };
 
         } catch (error) {
@@ -1724,8 +1779,8 @@ class ReportsManager {
                 // Для активных объектов - текущая дата
                 endPriceDate = new Date();
             } else {
-                // Для архивных объектов - дата последнего обновления
-                endPriceDate = new Date(realEstateObject.updated_at || realEstateObject.created_at || Date.now());
+                // Для архивных объектов - дата последнего логического обновления
+                endPriceDate = new Date(realEstateObject.updated);
             }
             
             // Добавляем конечную точку только если она отличается от уже существующих
@@ -1820,15 +1875,12 @@ class ReportsManager {
      */
     handleMarketCorridorPointClick(event, chartContext, config) {
         try {
-            if (this.debugEnabled) {
-            }
-
             let point = null;
             
-            if (config && config.dataPointIndex >= 0 && this.currentPointsData) {
+            if (config && config.dataPointIndex >= 0 && config.seriesIndex >= 0) {
                 if (this.marketCorridorMode === 'history') {
                     // В режиме истории нужно найти соответствующую точку по координатам
-                    if (config.seriesIndex >= 0 && this.marketCorridorChart) {
+                    if (this.marketCorridorChart) {
                         const seriesData = this.marketCorridorChart.w.config.series[config.seriesIndex];
                         if (seriesData && seriesData.data && seriesData.data[config.dataPointIndex]) {
                             const [timestamp, price] = seriesData.data[config.dataPointIndex];
@@ -1840,26 +1892,32 @@ class ReportsManager {
                         }
                     }
                 } else {
-                    // В режиме коридора продаж используем старую логику
-                    point = this.currentPointsData[config.dataPointIndex];
+                    // В режиме коридора продаж используем серии-маппинг
+                    if (this.currentSeriesDataMapping && 
+                        this.currentSeriesDataMapping[config.seriesIndex] && 
+                        this.currentSeriesDataMapping[config.seriesIndex][config.dataPointIndex]) {
+                        
+                        point = this.currentSeriesDataMapping[config.seriesIndex][config.dataPointIndex];
+                        
+                    } else {
+                        // Fallback - ищем по координатам
+                        if (this.marketCorridorChart) {
+                            const seriesData = this.marketCorridorChart.w.config.series[config.seriesIndex];
+                            if (seriesData && seriesData.data && seriesData.data[config.dataPointIndex]) {
+                                const [timestamp, price] = seriesData.data[config.dataPointIndex];
+                                
+                                point = this.currentPointsData.find(p => 
+                                    Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                                );
+                            }
+                        }
+                    }
                 }
             }
             
             if (point) {
-                if (this.debugEnabled) {
-                }
-                
                 // Открываем существующее модальное окно просмотра объекта
                 this.showObjectDetails(point.objectId);
-            } else {
-                if (this.debugEnabled) {
-                    console.log('📊 Клик по точке графика (без объекта):', {
-                        dataPointIndex: config?.dataPointIndex,
-                        seriesIndex: config?.seriesIndex,
-                        mode: this.marketCorridorMode,
-                        currentPointsDataLength: this.currentPointsData?.length
-                    });
-                }
             }
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка обработки клика по точке:', error);

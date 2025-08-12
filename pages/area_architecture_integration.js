@@ -1,9 +1,9 @@
 /**
- * Интеграционный слой v0.1 для страницы area.js
- * Расширяет существующую интеграцию сервисов полным функционалом v0.1
+ * Интеграционный слой современной архитектуры для страницы area.js
+ * Расширяет существующую интеграцию сервисов полным функционалом модульной архитектуры
  */
 
-class AreaPageV01Integration {
+class AreaArchitectureIntegration {
     constructor() {
         this.applicationController = null;
         this.diContainer = null;
@@ -20,12 +20,15 @@ class AreaPageV01Integration {
      */
     async initialize() {
         try {
-            await this.debugLog('🏗️ Area: Начинаем инициализацию архитектуры v0.1...');
+            await this.debugLog('🏗️ Area: Начинаем инициализацию модульной архитектуры...');
             
             // 1. Инициализируем ApplicationController
             await this.initializeApplicationController();
             
-            // 2. Получаем контроллеры
+            // 2. Регистрируем новые сервисы для флиппинг-отчёта
+            await this.registerFlippingServices();
+            
+            // 3. Получаем контроллеры
             await this.initializeControllers();
             
             // 3. Настраиваем интеграцию с legacy кодом
@@ -35,10 +38,10 @@ class AreaPageV01Integration {
             this.setupEventListeners();
             
             this.initialized = true;
-            await this.debugLog('✅ Area: Архитектура v0.1 инициализирована успешно');
+            await this.debugLog('✅ Area: Модульная архитектура инициализирована успешно');
             
         } catch (error) {
-            console.error('❌ Area: Ошибка инициализации архитектуры v0.1:', error);
+            console.error('❌ Area: Ошибка инициализации модульной архитектуры:', error);
         }
     }
     
@@ -68,6 +71,21 @@ class AreaPageV01Integration {
     }
     
     /**
+     * Регистрация сервисов для флиппинг-отчёта
+     */
+    async registerFlippingServices() {
+        try {
+            // FlippingController и RealEstateObjectService теперь регистрируются в ApplicationController
+            // Этот метод оставлен для совместимости, но не выполняет никаких действий
+            
+            await this.debugLog('✅ Area: Сервисы флиппинг-отчёта регистрируются в ApplicationController');
+
+        } catch (error) {
+            console.error('❌ Area: Ошибка регистрации сервисов флиппинг:', error);
+        }
+    }
+
+    /**
      * Инициализация контроллеров
      */
     async initializeControllers() {
@@ -85,6 +103,19 @@ class AreaPageV01Integration {
             await this.debugLog('⚠️ Area: MapController не найден в ApplicationController');
         } else {
             await this.debugLog('✅ Area: MapController готов');
+        }
+
+        // FlippingController - должен быть доступен через ApplicationController
+        try {
+            this.flippingController = await this.diContainer.get('FlippingController');
+            await this.debugLog('✅ Area: FlippingController получен через ApplicationController');
+            
+            // Делаем FlippingController доступным глобально для интеграции
+            window.flippingController = this.flippingController;
+        } catch (error) {
+            await this.debugLog('⚠️ Area: FlippingController не найден в ApplicationController:', error.message);
+            this.flippingController = null;
+            window.flippingController = null;
         }
     }
     
@@ -292,7 +323,7 @@ class AreaPageV01Integration {
 window.addEventListener('DOMContentLoaded', () => {
     // Небольшая задержка, чтобы дать время legacy коду инициализироваться
     setTimeout(() => {
-        window.areaPageV01Integration = new AreaPageV01Integration();
+        window.areaArchitectureIntegration = new AreaArchitectureIntegration();
     }, 1000);
 });
 

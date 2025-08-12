@@ -3864,8 +3864,8 @@ class AreaPage {
                 // Для активных объектов - текущая дата
                 endPriceDate = new Date();
             } else {
-                // Для архивных объектов - дата последнего обновления
-                endPriceDate = new Date(realEstateObject.updated_at || realEstateObject.created_at || Date.now());
+                // Для архивных объектов - дата последнего логического обновления
+                endPriceDate = new Date(realEstateObject.updated);
             }
             
             // Добавляем конечную точку только если она отличается от уже существующих
@@ -5161,11 +5161,18 @@ class AreaPage {
                         if (!updatedListing.price_history) {
                             updatedListing.price_history = listing.price_history || [];
                         }
+                        const priceChangeDate = new Date();
                         updatedListing.price_history.push({
-                            date: new Date(),
+                            date: priceChangeDate,
                             old_price: listing.price,
                             new_price: response.data.price
                         });
+                        
+                        // Обновляем логическую дату если это новое изменение цены
+                        const currentUpdated = listing.updated ? new Date(listing.updated) : null;
+                        if (!currentUpdated || priceChangeDate > currentUpdated) {
+                            updatedListing.updated = priceChangeDate; // Обновляем логическую дату
+                        }
                     }
 
                     await db.update('listings', updatedListing);
@@ -11098,11 +11105,11 @@ ${methodStatsText}${mlResultsText}
                     new_price: price
                 });
                 
-                // Обновляем текущую цену если новая дата позже
-                const currentDate = new Date(listing.updated_at || listing.created_at);
-                if (date > currentDate) {
+                // Обновляем текущую цену и логическую дату если новая дата позже
+                const currentUpdated = listing.updated ? new Date(listing.updated) : (listing.created ? new Date(listing.created) : null);
+                if (!currentUpdated || date > currentUpdated) {
                     listing.price = price;
-                    listing.updated_at = date;
+                    listing.updated = date; // Обновляем логическую дату
                 }
             }
 

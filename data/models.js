@@ -1076,13 +1076,13 @@ class RealEstateObjectModel {
       // 5. Определяем количество комнат из типа недвижимости
       this.rooms = this.getRoomsFromPropertyType(this.property_type);
       
-      // 6. Обновляем временные метки
+      // 6. Обновляем временные метки (created = самая ранняя, updated = самая поздняя)
       this.updateTimestamps(listings);
       
-      // 7. Объединяем историю цен (сначала строим историю)
+      // 7. Объединяем историю цен из всех объявлений (включая текущие цены)
       this.mergePriceHistory(listings);
       
-      // 8. Пересчитываем цены (потом вычисляем current_price из истории)
+      // 8. Устанавливаем последнюю цену как current_price объекта
       this.updatePrices(listings);
       
       // 9. Обновляем счетчики
@@ -1182,13 +1182,13 @@ class RealEstateObjectModel {
    */
   updateTimestamps(listings) {
     const createdDates = listings
-      .map(listing => listing.created || listing.created_at)
+      .map(listing => listing.created) // ТОЛЬКО логические даты
       .filter(date => date)
       .map(date => new Date(date))
       .sort((a, b) => a - b);
     
     const updatedDates = listings
-      .map(listing => listing.updated || listing.updated_at)
+      .map(listing => listing.updated) // ТОЛЬКО логические даты
       .filter(date => date)
       .map(date => new Date(date))
       .sort((a, b) => b - a);
@@ -1202,48 +1202,28 @@ class RealEstateObjectModel {
 
   /**
    * Обновляет ценовую информацию
+   * История уже должна быть построена методом mergePriceHistory
    */
   updatePrices(listings) {
     // current_price должна быть последней ценой из объединенной истории
-    // История уже должна быть построена методом mergePriceHistory
     if (this.price_history && this.price_history.length > 0) {
-      // Сортируем историю по дате (последняя цена сначала) и берем последнюю
-      const sortedHistory = [...this.price_history].sort((a, b) => {
-        const dateA = new Date(a.date);
-        const dateB = new Date(b.date);
-        return dateB - dateA; // Новые записи первыми
-      });
-      
-      // Берем цену из самой новой записи (поддерживаем разные форматы)
-      const latestEntry = sortedHistory[0];
-      this.current_price = latestEntry.price || latestEntry.new_price || null;
+      // История уже отсортирована по дате в mergePriceHistory, берем последний элемент
+      const latestEntry = this.price_history[this.price_history.length - 1];
+      this.current_price = latestEntry.price;
     } else {
-      // Если истории цен пуста, создаем первую запись с датой создания объекта
-      // Ищем подходящую цену из активных объявлений
+      // Fallback: если истории цен нет, берем любую доступную цену
       const activeListings = listings.filter(l => l.status === 'active');
       const listingsWithPrice = activeListings.length > 0 ? activeListings : listings;
       
-      let initialPrice = null;
+      let fallbackPrice = null;
       for (const listing of listingsWithPrice) {
         if (listing.price && listing.price > 0) {
-          initialPrice = listing.price;
+          fallbackPrice = listing.price;
           break;
         }
       }
       
-      if (initialPrice && this.created) {
-        // Создаем первую запись в истории цен
-        this.price_history = [{
-          date: this.created,
-          price: initialPrice,
-          listing_id: listingsWithPrice[0]?.id || null,
-          listing_external_id: listingsWithPrice[0]?.external_id || null,
-          listing_source: listingsWithPrice[0]?.source || null,
-          change_type: 'initial'
-        }];
-      }
-      
-      this.current_price = initialPrice;
+      this.current_price = fallbackPrice;
     }
     
     // Пересчитываем цену за м²
@@ -1254,14 +1234,15 @@ class RealEstateObjectModel {
 
   /**
    * Объединяет историю цен из всех объявлений
+   * Алгоритм: берем историю изменения цен всех объявлений, объединяем её, 
+   * удаляем дубли, устанавливаем последнюю цену ценой объекта
    */
   mergePriceHistory(listings) {
     const allPriceHistory = [];
     
-    // При пересборке объекта строим историю только из текущих объявлений
+    // Шаг 1: Собираем ВСЮ ценовую информацию
     listings.forEach(listing => {
-      // Добавляем только реальную историю цен из объявлений
-      // НЕ добавляем текущие цены объявлений как исторические записи
+      // 1.1. Добавляем реальную историю цен из объявлений
       if (listing.price_history && listing.price_history.length > 0) {
         listing.price_history.forEach(priceEntry => {
           allPriceHistory.push({
@@ -1274,21 +1255,45 @@ class RealEstateObjectModel {
           });
         });
       }
+      
+      // 1.2. Добавляем текущие цены как исторические записи
+      if (listing.price && listing.price > 0) {
+        // Используем ТОЛЬКО логические даты (updated или created), НЕ технические (_at)
+        const priceDate = listing.updated || listing.created;
+        
+        if (priceDate) {
+          allPriceHistory.push({
+            date: new Date(priceDate),
+            price: listing.price,
+            listing_id: listing.id,
+            listing_external_id: listing.external_id,
+            listing_source: listing.source,
+            change_type: 'current'
+          });
+        }
+      }
     });
     
-    // Сортируем по дате и удаляем дубликаты
+    // Шаг 2: Сортируем по дате
+    allPriceHistory.sort((a, b) => a.date - b.date);
+    
+    // Шаг 3: Удаляем дубликаты (одинаковая цена в тот же день от того же объявления)
     const uniqueHistory = [];
     const seenEntries = new Set();
     
-    allPriceHistory
-      .sort((a, b) => a.date - b.date)
-      .forEach(entry => {
-        const key = `${entry.date.getTime()}-${entry.price}-${entry.listing_id}`;
-        if (!seenEntries.has(key)) {
-          seenEntries.add(key);
-          uniqueHistory.push(entry);
-        }
-      });
+    allPriceHistory.forEach(entry => {
+      // Создаем ключ для дедупликации: дата (до дня) + цена + listing_id
+      const dateKey = entry.date.toISOString().split('T')[0]; // Только дата без времени
+      const key = `${dateKey}-${entry.price}-${entry.listing_id}`;
+      
+      if (!seenEntries.has(key)) {
+        seenEntries.add(key);
+        uniqueHistory.push(entry);
+      }
+    });
+    
+    // Шаг 4: Финальная сортировка по дате
+    uniqueHistory.sort((a, b) => a.date - b.date);
     
     this.price_history = uniqueHistory;
   }

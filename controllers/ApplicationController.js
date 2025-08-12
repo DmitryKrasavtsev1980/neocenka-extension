@@ -93,7 +93,7 @@ class ApplicationController {
             this.state.loading = false;
             
             this.emit('app:initialized');
-            console.log('🚀 ApplicationController инициализирован (SegmentTable используется из legacy кода)');
+            // console.log('🚀 ApplicationController инициализирован (SegmentTable используется из legacy кода)');
 
         } catch (error) {
             this.state.loading = false;
@@ -185,6 +185,22 @@ class ApplicationController {
                 container.get('ConfigService')
             );
         }, { singleton: true, dependencies: ['ErrorHandlingService', 'ConfigService'] });
+
+        // Регистрируем компоненты для флиппинг-отчёта
+        this.container.registerFactory('RealEstateObjectService', (container) => {
+            const database = window.db;
+            const validationService = container.get('ValidationService');
+            const errorHandlingService = container.get('ErrorHandlingService');
+            const configService = container.get('ConfigService');
+            
+            return new RealEstateObjectService(database, validationService, errorHandlingService, configService);
+        }, { singleton: true, dependencies: ['ValidationService', 'ErrorHandlingService', 'ConfigService'] });
+
+        this.container.registerFactory('FlippingController', async (container) => {
+            const flippingController = new FlippingController(container);
+            await flippingController.initialize();
+            return flippingController;
+        }, { singleton: true, dependencies: ['RealEstateObjectService'] });
     }
 
     /**

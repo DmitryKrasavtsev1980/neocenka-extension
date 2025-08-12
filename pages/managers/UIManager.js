@@ -1837,7 +1837,22 @@ class UIManager {
             const oldPrice = listing.price;
             if (latestPrice !== oldPrice) {
                 listing.price = latestPrice;
-                listing.updated = new Date().toISOString();
+                
+                // Получаем дату последней записи из истории цен
+                if (listing.price_history && listing.price_history.length > 0) {
+                    const sortedHistory = [...listing.price_history].sort((a, b) => new Date(b.date) - new Date(a.date));
+                    const latestHistoryDate = new Date(sortedHistory[0].date);
+                    const currentUpdated = listing.updated ? new Date(listing.updated) : null;
+                    
+                    // Сравниваем даты и берем более позднюю
+                    if (!currentUpdated || latestHistoryDate > currentUpdated) {
+                        listing.updated = latestHistoryDate.toISOString(); // Дата из истории
+                    }
+                    // Если currentUpdated позже - оставляем его без изменений
+                } else {
+                    // Если истории нет, но цена изменилась (редкий случай)
+                    listing.updated = new Date().toISOString(); // Текущая дата как fallback
+                }
                 
                 // Сохраняем обновленное объявление в базе данных
                 await window.db.updateListing(listing);
