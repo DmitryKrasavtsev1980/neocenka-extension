@@ -88,7 +88,10 @@ class SegmentModal {
         const missingElements = requiredElements.filter(name => !this.formElements[name]);
         
         if (missingElements.length > 0) {
-            console.warn('⚠️ Отсутствуют элементы формы сегмента:', missingElements, '(нормально для страниц без модального окна)');
+            const debugEnabled = this.configService?.get('debug.enabled') || false;
+            if (debugEnabled) {
+                console.warn('⚠️ Отсутствуют элементы формы сегмента:', missingElements, '(нормально для страниц без модального окна)');
+            }
         }
     }
 

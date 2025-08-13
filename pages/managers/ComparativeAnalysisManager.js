@@ -245,6 +245,66 @@ class ComparativeAnalysisManager {
     }
     
     /**
+     * Получение текущих настроек для сохранения в шаблон
+     */
+    getCurrentSettings() {
+        return {
+            status_filter: this.statusFilter,
+            selected_object_id: this.selectedObjectId,
+            evaluations: Array.from(this.evaluations.entries()).map(([objectId, evaluation]) => ({
+                object_id: parseInt(objectId),
+                evaluation: evaluation
+            })),
+            corridors: this.corridors
+        };
+    }
+
+    /**
+     * Применение настроек из шаблона
+     */
+    async applySettings(settings) {
+        try {
+            if (!settings) return;
+
+            // Применяем фильтр статуса
+            if (settings.status_filter) {
+                this.setStatusFilter(settings.status_filter);
+            }
+
+            // Применяем оценки объектов
+            if (settings.evaluations && Array.isArray(settings.evaluations)) {
+                this.evaluations.clear();
+                settings.evaluations.forEach(item => {
+                    this.evaluations.set(item.object_id.toString(), item.evaluation);
+                });
+            }
+
+            // Применяем выбранный объект
+            if (settings.selected_object_id) {
+                this.selectedObjectId = settings.selected_object_id;
+            }
+
+            // Применяем коридоры цен
+            if (settings.corridors) {
+                this.corridors = { ...this.corridors, ...settings.corridors };
+            }
+
+            // Обновляем интерфейс
+            this.updateObjectsDisplay();
+            if (this.comparativeChart) {
+                this.updateChart();
+            }
+
+            if (this.debugEnabled) {
+                console.log('🔄 ComparativeAnalysisManager: Настройки применены из шаблона:', settings);
+            }
+
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка применения настроек:', error);
+        }
+    }
+
+    /**
      * Установка фильтра по статусу
      */
     setStatusFilter(status) {

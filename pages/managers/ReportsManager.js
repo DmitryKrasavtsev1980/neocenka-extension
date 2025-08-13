@@ -27,6 +27,7 @@ class ReportsManager {
         this.segmentSlimSelect = null;
         this.subsegmentSlimSelect = null;
         this.marketCorridorModeSlimSelect = null;
+        this.reportFilterSlimSelect = null;
         
         // Графики
         this.liquidityChart = null;
@@ -44,6 +45,10 @@ class ReportsManager {
         
         // HTML Export Manager
         this.htmlExportManager = null;
+
+        // DataTables
+        this.savedReportsDataTable = null;
+        this.filterTemplatesDataTable = null;
         
         this.debugEnabled = false;
     }
@@ -103,6 +108,9 @@ class ReportsManager {
             
             // Инициализация DataTables для сохранённых отчётов
             await this.initializeSavedReportsDataTable();
+            
+            // Инициализация DataTables для шаблонов фильтров
+            await this.initializeFilterTemplatesDataTable();
             
             // Инициализация интерфейса шаблонов фильтров
             await this.initFilterTemplates();
@@ -317,8 +325,35 @@ class ReportsManager {
                 if (this.debugEnabled) {
                 }
             }
+
+            // Создаем SlimSelect для выбора шаблонов фильтров отчётов
+            const reportFilterSelect = document.getElementById('reportFilterSelect');
+            if (reportFilterSelect && typeof SlimSelect !== 'undefined') {
+                this.reportFilterSlimSelect = new SlimSelect({
+                    select: reportFilterSelect,
+                    settings: {
+                        allowDeselect: true,
+                        showSearch: true,
+                        searchText: 'Поиск шаблонов...',
+                        searchPlaceholder: 'Введите название шаблона',
+                        placeholderText: 'Создать новый фильтр'
+                    },
+                    events: {
+                        afterChange: (newVal) => {
+                            const templateId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
+                                             (newVal && newVal.value !== undefined ? newVal.value : newVal);
+                            this.onFilterTemplateSelect(templateId);
+                        }
+                    }
+                });
+                
+                if (this.debugEnabled) {
+                    console.log('🎯 ReportsManager: SlimSelect для reportFilterSelect инициализирован');
+                }
+            }
             
             if (this.debugEnabled) {
+                console.log('✅ ReportsManager: Все SlimSelect инициализированы');
             }
 
         } catch (error) {
@@ -2045,16 +2080,86 @@ class ReportsManager {
             
             // Загружаем данные
             await this.loadSavedReportsData();
+
+            // Скрываем лоадер и показываем таблицу
+            $('#savedReportsLoader').hide();
+            $('#savedReportsTable').show();
             
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка инициализации DataTables для отчётов:', error);
+            // В случае ошибки тоже скрываем лоадер
+            $('#savedReportsLoader').hide();
+        }
+    }
+
+    /**
+     * Инициализация DataTable для шаблонов фильтров
+     */
+    async initializeFilterTemplatesDataTable() {
+        try {
+            // Проверяем существование элемента таблицы
+            if (!document.getElementById('filterTemplatesTable')) {
+                if (this.debugEnabled) {
+                    console.warn('⚠️ ReportsManager: Элемент filterTemplatesTable не найден');
+                }
+                return;
+            }
+            
+            // Инициализация DataTable с пустыми данными
+            this.filterTemplatesDataTable = $('#filterTemplatesTable').DataTable({
+                language: {
+                    url: '../libs/datatables/ru.json'
+                },
+                pageLength: 5,
+                responsive: true,
+                order: [[5, 'desc']], // Сортировка по дате создания (новые сверху)
+                columnDefs: [
+                    { orderable: false, targets: [6] }, // Отключаем сортировку для столбца "Действия"
+                    { orderable: false, targets: [4] }, // Отключаем сортировку для столбца "Отчёты"
+                    { width: "20%", targets: 0 }, // Название
+                    { width: "15%", targets: 1 }, // Сегмент
+                    { width: "15%", targets: 2 }, // Подсегмент  
+                    { width: "12%", targets: 3 }, // Период
+                    { width: "15%", targets: 4 }, // Отчёты
+                    { width: "13%", targets: 5 }, // Дата создания
+                    { width: "10%", targets: 6 }  // Действия
+                ],
+                searching: true, // Включаем поиск
+                data: [], // Пустые данные при инициализации
+                columns: [
+                    { title: 'Название' },
+                    { title: 'Сегмент' },
+                    { title: 'Подсегмент' },
+                    { title: 'Период' },
+                    { title: 'Отчёты' },
+                    { title: 'Создан' },
+                    { title: 'Действия' }
+                ]
+            });
+            
+            // Загружаем данные
+            await this.loadFilterTemplatesData();
+
+            // Скрываем лоадер и показываем таблицу
+            $('#filterTemplatesLoader').hide();
+            $('#filterTemplatesTable').show();
+
+            if (this.debugEnabled) {
+                console.log('✅ ReportsManager: DataTable для шаблонов фильтров инициализирована');
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка инициализации DataTable для шаблонов фильтров:', error);
+            // В случае ошибки тоже скрываем лоадер
+            $('#filterTemplatesLoader').hide();
         }
     }
 
     /**
      * Загрузка данных в DataTable сохранённых отчётов
+     * @param {number|null} filterByTemplateId - ID шаблона для фильтрации (null для всех отчётов)
      */
-    async loadSavedReportsData() {
+    async loadSavedReportsData(filterByTemplateId = null) {
         try {
             if (!this.savedReportsDataTable) return;
             
@@ -2066,7 +2171,14 @@ class ReportsManager {
             }
             
             // Загружаем только полные отчёты (не шаблоны фильтров)
-            const reports = await window.db.getFullReportsByArea(areaId);
+            let reports = await window.db.getFullReportsByArea(areaId);
+            
+            // Фильтруем отчёты по шаблону, если указан filterByTemplateId
+            if (filterByTemplateId !== null) {
+                reports = reports.filter(report => {
+                    return report.filter_template_id && report.filter_template_id == filterByTemplateId;
+                });
+            }
             
             // Преобразуем данные для DataTables
             const tableData = reports.map(report => {
@@ -2123,6 +2235,9 @@ class ReportsManager {
             // Обновляем данные в таблице
             this.savedReportsDataTable.clear().rows.add(tableData).draw();
             
+            // Обновляем индикацию фильтрации в интерфейсе
+            await this.updateReportsFilterIndicator(filterByTemplateId, reports.length);
+            
             // Добавляем обработчики событий для кнопок действий (CSP-совместимо)
             this.attachReportActionHandlers();
             
@@ -2151,6 +2266,367 @@ class ReportsManager {
                 await this.downloadReportAsHTML(reportId);
             }
         });
+    }
+
+    /**
+     * Форматирование информации об отчётах для таблицы
+     */
+    formatReportsInfo(reportsConfig) {
+        if (!reportsConfig) {
+            return '<span class="text-gray-400 text-xs">Не указаны</span>';
+        }
+
+        const reportLabels = {
+            liquidity: { icon: '📊', label: 'Ликвидность' },
+            price_changes: { icon: '📈', label: 'Изменение цен' },
+            market_corridor: { icon: '🏠', label: 'Коридор рынка' },
+            comparative_analysis: { icon: '⚖️', label: 'Сравнительный анализ' },
+            flipping_profitability: { icon: '💰', label: 'Флиппинг' }
+        };
+
+        const enabledReports = Object.entries(reportsConfig)
+            .filter(([key, enabled]) => enabled && reportLabels[key])
+            .map(([key, enabled]) => reportLabels[key]);
+
+        if (enabledReports.length === 0) {
+            return '<span class="text-gray-400 text-xs">Нет активных</span>';
+        }
+
+        // Показываем иконки с тултипом
+        return enabledReports.map(report => 
+            `<span class="inline-block mx-1 text-sm" title="${report.label}">${report.icon}</span>`
+        ).join('');
+    }
+
+    /**
+     * Загрузка данных в DataTable шаблонов фильтров
+     */
+    async loadFilterTemplatesData() {
+        try {
+            if (!this.filterTemplatesDataTable) return;
+            
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (!areaId) {
+                // Очищаем таблицу
+                this.filterTemplatesDataTable.clear().draw();
+                return;
+            }
+            
+            // Загружаем шаблоны фильтров
+            const filterTemplates = await window.db.getFilterTemplatesByArea(areaId);
+            
+            // Преобразуем данные для DataTables
+            const tableData = filterTemplates.map(template => {
+                const date = new Date(template.created_at).toLocaleDateString('ru-RU');
+                const time = new Date(template.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                
+                // Извлекаем информацию о сегменте и подсегменте
+                const segmentName = template.filters.segment_name || 'Вся область';
+                const subsegmentName = template.filters.subsegment_name || 'Весь сегмент';
+                
+                // Формируем описание периода
+                let period = 'Весь период';
+                if (template.filters.date_from && template.filters.date_to) {
+                    const dateFrom = new Date(template.filters.date_from).toLocaleDateString('ru-RU');
+                    const dateTo = new Date(template.filters.date_to).toLocaleDateString('ru-RU');
+                    period = `${dateFrom} - ${dateTo}`;
+                }
+
+                // Формируем список включённых отчётов
+                let reportsInfo = this.formatReportsInfo(template.filters.reports_config);
+                
+                const actions = `
+                    <div class="flex space-x-1">
+                        <button data-action="select" data-template-id="${template.id}" 
+                                class="template-action-btn text-blue-600 hover:text-blue-900 text-xs px-2 py-1 border border-blue-300 rounded hover:bg-blue-50"
+                                title="Выбрать шаблон для анализа">
+                            📋 Выбрать
+                        </button>
+                        <button data-action="delete" data-template-id="${template.id}" 
+                                class="template-action-btn text-red-600 hover:text-red-900 text-xs px-2 py-1 border border-red-300 rounded hover:bg-red-50"
+                                title="Удалить шаблон">
+                            🗑️
+                        </button>
+                    </div>
+                `;
+                
+                return [
+                    template.name,
+                    segmentName,
+                    subsegmentName,
+                    period,
+                    reportsInfo,
+                    `${date} ${time}`,
+                    actions
+                ];
+            });
+            
+            // Обновляем данные в таблице
+            this.filterTemplatesDataTable.clear().rows.add(tableData).draw();
+            
+            // Добавляем обработчики событий для кнопок действий
+            this.attachTemplateActionHandlers();
+
+            if (this.debugEnabled) {
+                console.log('🔄 ReportsManager: Данные шаблонов фильтров загружены:', filterTemplates.length);
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка загрузки данных шаблонов фильтров:', error);
+        }
+    }
+
+    /**
+     * Добавление обработчиков для кнопок действий в таблице шаблонов
+     */
+    attachTemplateActionHandlers() {
+        // Удаляем старые обработчики если есть
+        $(document).off('click', '.template-action-btn');
+        
+        // Добавляем новые обработчики через делегирование событий
+        $(document).on('click', '.template-action-btn', async (event) => {
+            event.preventDefault();
+            const button = event.currentTarget;
+            const action = button.getAttribute('data-action');
+            const templateId = parseInt(button.getAttribute('data-template-id'));
+            
+            if (action === 'select') {
+                await this.selectFilterTemplate(templateId);
+            } else if (action === 'delete') {
+                await this.deleteFilterTemplate(templateId);
+            }
+        });
+    }
+
+    /**
+     * Выбор шаблона фильтра из таблицы
+     */
+    async selectFilterTemplate(templateId) {
+        try {
+            // Устанавливаем значение в SlimSelect
+            if (this.reportFilterSlimSelect) {
+                this.reportFilterSlimSelect.setSelected(templateId.toString());
+            } else {
+                $('#reportFilterSelect').val(templateId);
+            }
+            
+            // Вызываем обработчик выбора шаблона
+            await this.onFilterTemplateSelect(templateId.toString());
+
+            if (this.debugEnabled) {
+                console.log('📋 ReportsManager: Шаблон выбран из таблицы:', templateId);
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка выбора шаблона из таблицы:', error);
+        }
+    }
+
+    /**
+     * Удаление шаблона фильтра из таблицы
+     */
+    async deleteFilterTemplate(templateId) {
+        try {
+            const template = await window.db.getSavedReport(templateId);
+            if (!template) {
+                alert('Шаблон не найден');
+                return;
+            }
+            
+            if (!confirm(`Вы уверены, что хотите удалить шаблон "${template.name}"?`)) {
+                return;
+            }
+            
+            await window.db.deleteSavedReport(templateId);
+            
+            // Обновляем данные в таблице
+            await this.loadFilterTemplatesData();
+            
+            // Обновляем SlimSelect
+            await this.loadFilterTemplates();
+            
+            // Если удаляемый шаблон был выбран, очищаем форму
+            const currentTemplateId = $('#reportFilterId').val();
+            if (currentTemplateId == templateId) {
+                this.clearFilterForm();
+            }
+            
+            alert(`Шаблон "${template.name}" удалён успешно!`);
+
+            if (this.debugEnabled) {
+                console.log('🗑️ ReportsManager: Шаблон удалён из таблицы:', templateId);
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка удаления шаблона из таблицы:', error);
+            alert('Ошибка удаления шаблона');
+        }
+    }
+
+    /**
+     * Очистка формы фильтров
+     */
+    clearFilterForm() {
+        // Очищаем SlimSelect
+        if (this.reportFilterSlimSelect) {
+            this.reportFilterSlimSelect.setSelected('');
+        } else {
+            $('#reportFilterSelect').val('');
+        }
+        
+        $('#reportFilterName').val('');
+        $('#reportFilterId').val('');
+        $('#deleteReportFilterBtn').prop('disabled', true);
+
+        // Убираем подсветку из таблицы
+        this.clearTableHighlight();
+
+        // Удаляем индикаторы фильтрации
+        $('.filter-indicator').remove();
+
+        // Показываем все отчёты (без фильтрации по шаблону)
+        this.loadSavedReportsData(null);
+    }
+
+    /**
+     * Подсветка строки в таблице шаблонов
+     */
+    highlightTemplateInTable(templateId) {
+        if (!this.filterTemplatesDataTable || !templateId) return;
+        
+        try {
+            // Убираем предыдущую подсветку
+            this.clearTableHighlight();
+            
+            // Находим строку с нужным templateId
+            const tableData = this.filterTemplatesDataTable.data();
+            let rowIndex = -1;
+            
+            tableData.each((rowData, index) => {
+                // Ищем кнопку с data-template-id
+                const actionsHtml = rowData[5]; // Колонка "Действия" - индекс 5
+                if (actionsHtml.includes(`data-template-id="${templateId}"`)) {
+                    rowIndex = index;
+                    return false; // break из each
+                }
+            });
+            
+            if (rowIndex >= 0) {
+                // Подсвечиваем найденную строку
+                const row = this.filterTemplatesDataTable.row(rowIndex);
+                const $rowElement = $(row.node());
+                $rowElement.addClass('bg-blue-100 border-l-4 border-l-blue-500');
+                
+                if (this.debugEnabled) {
+                    console.log('🎯 ReportsManager: Строка в таблице шаблонов подсвечена:', templateId);
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка подсветки строки в таблице:', error);
+        }
+    }
+
+    /**
+     * Убрать подсветку из таблицы шаблонов
+     */
+    clearTableHighlight() {
+        if (!this.filterTemplatesDataTable) return;
+        
+        try {
+            // Убираем подсветку со всех строк
+            const $table = $('#filterTemplatesTable');
+            $table.find('tr').removeClass('bg-blue-100 border-l-4 border-l-blue-500');
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка очистки подсветки таблицы:', error);
+        }
+    }
+
+    /**
+     * Обновление индикатора фильтрации отчётов
+     */
+    async updateReportsFilterIndicator(filterByTemplateId, reportsCount) {
+        try {
+            // Находим контейнер таблицы сохранённых отчётов
+            const $tableContainer = $('#savedReportsTable').closest('.datatables-container');
+            
+            // Удаляем ВСЕ существующие индикаторы фильтрации
+            $('.filter-indicator').remove();
+            
+            if (filterByTemplateId) {
+                // Получаем название шаблона
+                const template = await window.db.getSavedReport(filterByTemplateId);
+                if (!template) {
+                    // Если шаблон не найден, не показываем индикатор
+                    if (this.debugEnabled) {
+                        console.warn('⚠️ ReportsManager: Шаблон не найден для индикатора:', filterByTemplateId);
+                    }
+                    return;
+                }
+                const templateName = template.name;
+                
+                // Создаём новый индикатор
+                const $indicator = $(`
+                    <div class="filter-indicator bg-blue-50 border border-blue-200 rounded-md p-2 mb-3 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <svg class="h-4 w-4 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.414A1 1 0 013 6.707V4z"></path>
+                            </svg>
+                            <span class="text-sm text-blue-700">
+                                <strong>Фильтр по шаблону:</strong> "${templateName}" 
+                                <span class="text-blue-600">(найдено отчётов: ${reportsCount})</span>
+                            </span>
+                        </div>
+                        <button id="clearReportsFilter" class="text-blue-600 hover:text-blue-800 text-sm underline">
+                            Показать все отчёты
+                        </button>
+                    </div>
+                `);
+                
+                // Вставляем перед таблицей
+                $tableContainer.before($indicator);
+                
+                // Добавляем обработчик для кнопки "Показать все отчёты"
+                $('#clearReportsFilter').off('click').on('click', () => {
+                    this.clearFilterForm();
+                });
+
+                if (this.debugEnabled) {
+                    console.log(`🔍 ReportsManager: Индикатор фильтрации установлен: "${templateName}" (${reportsCount} отчётов)`);
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка обновления индикатора фильтрации:', error);
+        }
+    }
+
+    /**
+     * Показать индикатор загрузки для операций с шаблонами
+     */
+    showTemplateLoadingIndicator(message = 'Применение шаблона фильтра...') {
+        // Создаём или обновляем индикатор
+        let $indicator = $('#templateLoadingIndicator');
+        if ($indicator.length === 0) {
+            $indicator = $(`
+                <div id="templateLoadingIndicator" class="fixed top-4 right-4 bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center space-x-3">
+                    <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span class="text-sm font-medium"></span>
+                </div>
+            `);
+            $('body').append($indicator);
+        }
+        
+        $indicator.find('span').text(message);
+        $indicator.show();
+    }
+
+    /**
+     * Скрыть индикатор загрузки для операций с шаблонами
+     */
+    hideTemplateLoadingIndicator() {
+        $('#templateLoadingIndicator').fadeOut(300);
     }
 
     /**
@@ -2344,7 +2820,7 @@ class ReportsManager {
             // Добавляем обработчики событий
             $('#saveReportFilterBtn').off('click').on('click', () => this.saveCurrentAsFilterTemplate());
             $('#deleteReportFilterBtn').off('click').on('click', () => this.deleteSelectedFilterTemplate());
-            $('#reportFilterSelect').off('change').on('change', (e) => this.onFilterTemplateSelect(e.target.value));
+            // Обработчик события для reportFilterSelect теперь в SlimSelect (initializeSlimSelects)
             
             if (this.debugEnabled) {
             }
@@ -2364,19 +2840,129 @@ class ReportsManager {
 
             const filterTemplates = await window.db.getFilterTemplatesByArea(areaId);
             
-            const $select = $('#reportFilterSelect');
-            $select.empty();
-            $select.append('<option value="">Создать новый фильтр</option>');
-            
-            filterTemplates.forEach(template => {
-                $select.append(`<option value="${template.id}">${template.name}</option>`);
-            });
-            
-            if (this.debugEnabled) {
+            // Обновляем данные через SlimSelect API
+            if (this.reportFilterSlimSelect) {
+                const options = [
+                    { text: 'Создать новый фильтр', value: '' }
+                ];
+                
+                filterTemplates.forEach(template => {
+                    options.push({ 
+                        text: template.name, 
+                        value: template.id.toString() 
+                    });
+                });
+
+                this.reportFilterSlimSelect.setData(options);
+                
+                if (this.debugEnabled) {
+                    console.log('🔄 ReportsManager: Шаблоны фильтров загружены в SlimSelect:', filterTemplates.length);
+                }
+            } else {
+                // Fallback для случая, когда SlimSelect не инициализирован
+                const $select = $('#reportFilterSelect');
+                $select.empty();
+                $select.append('<option value="">Создать новый фильтр</option>');
+                
+                filterTemplates.forEach(template => {
+                    $select.append(`<option value="${template.id}">${template.name}</option>`);
+                });
+
+                if (this.debugEnabled) {
+                    console.log('⚠️ ReportsManager: Использован fallback для загрузки шаблонов (SlimSelect не найден)');
+                }
             }
             
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка загрузки шаблонов фильтров:', error);
+        }
+    }
+
+    /**
+     * Получение текущей конфигурации отчётов
+     */
+    getReportsConfig() {
+        return {
+            liquidity: document.getElementById('liquidityReportCheck')?.checked || false,
+            price_changes: document.getElementById('priceChangesReportCheck')?.checked || false,
+            market_corridor: document.getElementById('marketCorridorReportCheck')?.checked || false,
+            comparative_analysis: document.getElementById('comparativeAnalysisReportCheck')?.checked || false,
+            flipping_profitability: document.getElementById('flippingProfitabilityReportCheck')?.checked || false
+        };
+    }
+
+    /**
+     * Получение настроек сравнительного анализа
+     */
+    getComparativeAnalysisConfig() {
+        try {
+            // Получаем менеджер сравнительного анализа через areaPage
+            const comparativeManager = this.areaPage?.comparativeAnalysisManager;
+            if (comparativeManager && typeof comparativeManager.getCurrentSettings === 'function') {
+                return comparativeManager.getCurrentSettings();
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения настроек сравнительного анализа:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Применение конфигурации отчётов из шаблона
+     */
+    async applyReportsConfig(reportsConfig) {
+        try {
+            if (!reportsConfig) return;
+
+            // Применяем настройки чекбоксов отчётов
+            const checkboxes = {
+                'liquidityReportCheck': reportsConfig.liquidity,
+                'priceChangesReportCheck': reportsConfig.price_changes,
+                'marketCorridorReportCheck': reportsConfig.market_corridor,
+                'comparativeAnalysisReportCheck': reportsConfig.comparative_analysis,
+                'flippingProfitabilityReportCheck': reportsConfig.flipping_profitability
+            };
+
+            Object.entries(checkboxes).forEach(([checkboxId, checked]) => {
+                const checkbox = document.getElementById(checkboxId);
+                if (checkbox) {
+                    checkbox.checked = checked;
+                }
+            });
+
+            // Обновляем видимость отчётов после применения настроек
+            await this.updateReportsVisibility();
+
+            if (this.debugEnabled) {
+                console.log('📋 ReportsManager: Конфигурация отчётов применена:', reportsConfig);
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка применения конфигурации отчётов:', error);
+        }
+    }
+
+    /**
+     * Применение настроек сравнительного анализа из шаблона
+     */
+    async applyComparativeAnalysisConfig(comparativeConfig) {
+        try {
+            if (!comparativeConfig) return;
+
+            // Получаем менеджер сравнительного анализа
+            const comparativeManager = this.areaPage?.comparativeAnalysisManager;
+            if (comparativeManager && typeof comparativeManager.applySettings === 'function') {
+                await comparativeManager.applySettings(comparativeConfig);
+                
+                if (this.debugEnabled) {
+                    console.log('📊 ReportsManager: Настройки сравнительного анализа применены:', comparativeConfig);
+                }
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка применения настроек сравнительного анализа:', error);
         }
     }
 
@@ -2414,10 +3000,17 @@ class ReportsManager {
                 area_id: areaId,
                 type: 'filter_template',
                 filters: {
+                    // Базовые фильтры
                     segment_id: this.currentSegment?.id || null,
                     subsegment_id: this.currentSubsegment?.id || null,
                     date_from: $('#reportsDateFrom').val() || null,
-                    date_to: $('#reportsDateTo').val() || null
+                    date_to: $('#reportsDateTo').val() || null,
+                    
+                    // Настройки отчётов
+                    reports_config: this.getReportsConfig(),
+                    
+                    // Настройки сравнительного анализа
+                    comparative_analysis_config: this.getComparativeAnalysisConfig()
                 }
             };
             
@@ -2425,9 +3018,14 @@ class ReportsManager {
             
             // Обновляем список шаблонов
             await this.loadFilterTemplates();
+            await this.loadFilterTemplatesData();
             
             // Выбираем сохранённый шаблон
-            $('#reportFilterSelect').val(savedFilter.id);
+            if (this.reportFilterSlimSelect) {
+                this.reportFilterSlimSelect.setSelected(savedFilter.id.toString());
+            } else {
+                $('#reportFilterSelect').val(savedFilter.id);
+            }
             $('#reportFilterId').val(savedFilter.id);
             
             // Включаем кнопку удаления
@@ -2458,12 +3056,18 @@ class ReportsManager {
                 $deleteBtn.prop('disabled', true);
                 $nameField.val('');
                 $idField.val('');
+                // Показываем все отчёты без фильтрации
+                await this.loadSavedReportsData(null);
                 return;
             }
+
+            // Показываем индикатор загрузки
+            this.showTemplateLoadingIndicator('Применение шаблона фильтра...');
             
             // Загрузка выбранного шаблона
             const template = await window.db.getSavedReport(templateId);
             if (!template) {
+                this.hideTemplateLoadingIndicator();
                 alert('Шаблон фильтра не найден');
                 return;
             }
@@ -2475,10 +3079,13 @@ class ReportsManager {
             
             // Применяем фильтры
             if (template.filters) {
+                // Базовые фильтры
                 if (template.filters.segment_id) {
+                    this.showTemplateLoadingIndicator('Загрузка сегмента...');
                     await this.loadSegmentById(template.filters.segment_id);
                 }
                 if (template.filters.subsegment_id) {
+                    this.showTemplateLoadingIndicator('Загрузка подсегмента...');
                     await this.loadSubsegmentById(template.filters.subsegment_id);
                 }
                 if (template.filters.date_from) {
@@ -2487,12 +3094,37 @@ class ReportsManager {
                 if (template.filters.date_to) {
                     $('#reportsDateTo').val(template.filters.date_to);
                 }
+
+                // Применяем настройки отчётов
+                if (template.filters.reports_config) {
+                    this.showTemplateLoadingIndicator('Применение настроек отчётов...');
+                    await this.applyReportsConfig(template.filters.reports_config);
+                }
+
+                // Применяем настройки сравнительного анализа
+                if (template.filters.comparative_analysis_config) {
+                    this.showTemplateLoadingIndicator('Применение настроек сравнительного анализа...');
+                    await this.applyComparativeAnalysisConfig(template.filters.comparative_analysis_config);
+                }
             }
+
+            // Подсвечиваем соответствующую строку в таблице шаблонов
+            this.highlightTemplateInTable(templateId);
+
+            // Обновляем таблицу сохранённых отчётов с фильтрацией по шаблону
+            this.showTemplateLoadingIndicator('Обновление списка отчётов...');
+            await this.loadSavedReportsData(templateId ? parseInt(templateId) : null);
+
+            // Скрываем индикатор загрузки
+            this.hideTemplateLoadingIndicator();
             
             if (this.debugEnabled) {
+                console.log('📋 ReportsManager: Шаблон фильтра применён:', template ? template.name : 'Новый фильтр');
             }
             
         } catch (error) {
+            // Скрываем индикатор загрузки в случае ошибки
+            this.hideTemplateLoadingIndicator();
             console.error('❌ ReportsManager: Ошибка применения шаблона фильтра:', error);
             alert('Ошибка применения шаблона фильтра');
         }
@@ -2508,11 +3140,63 @@ class ReportsManager {
                 this.segmentSlimSelect.setSelected(segmentId);
                 this.currentSegment = segment;
                 
-                // Загружаем подсегменты для выбранного сегмента
-                await this.loadSubsegmentsData();
+                // Загружаем подсегменты для выбранного сегмента (без обновления отчётов)
+                await this.handleSegmentChangeForTemplate(segmentId);
             }
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка загрузки сегмента:', error);
+        }
+    }
+
+    /**
+     * Обработка изменения сегмента для шаблонов (без обновления отчётов)
+     */
+    async handleSegmentChangeForTemplate(segmentId) {
+        try {
+            this.currentSegment = segmentId ? this.segments.find(s => s.id === segmentId || s.id === parseInt(segmentId)) : null;
+            this.currentSubsegment = null;
+            
+            if (!segmentId) {
+                // Если сегмент не выбран, отключаем подсегменты и очищаем данные
+                if (this.subsegmentSlimSelect) {
+                    this.subsegmentSlimSelect.setData([{ text: 'Все подсегменты', value: '' }]);
+                    this.subsegmentSlimSelect.enable(false);
+                    this.subsegmentSlimSelect.setSelected([]);
+                }
+                this.subsegments = [];
+            } else {
+                // Загружаем подсегменты для выбранного сегмента
+                const subsegments = await this.database.getSubsegmentsBySegment(segmentId);
+                
+                // Очищаем и заполняем опции подсегментов
+                this.subsegmentFilter.innerHTML = '<option value="">Все подсегменты</option>';
+                subsegments.forEach(subsegment => {
+                    const option = document.createElement('option');
+                    option.value = subsegment.id;
+                    option.textContent = subsegment.name;
+                    this.subsegmentFilter.appendChild(option);
+                });
+                
+                // Обновляем существующий SlimSelect
+                if (this.subsegmentSlimSelect) {
+                    this.subsegmentSlimSelect.setData([
+                        { text: 'Все подсегменты', value: '' },
+                        ...subsegments.map(subsegment => ({ 
+                            text: subsegment.name, 
+                            value: subsegment.id.toString() 
+                        }))
+                    ]);
+                    this.subsegmentSlimSelect.enable(true);
+                }
+                
+                // Сохраняем подсегменты
+                this.subsegments = subsegments;
+            }
+
+            // НЕ вызываем updateReportsVisibility() для ускорения работы с шаблонами
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка обработки изменения сегмента для шаблона:', error);
         }
     }
 
@@ -2553,13 +3237,18 @@ class ReportsManager {
             await window.db.deleteSavedReport(templateId);
             
             // Очищаем форму
-            $('#reportFilterSelect').val('');
+            if (this.reportFilterSlimSelect) {
+                this.reportFilterSlimSelect.setSelected('');
+            } else {
+                $('#reportFilterSelect').val('');
+            }
             $('#reportFilterName').val('');
             $('#reportFilterId').val('');
             $('#deleteReportFilterBtn').prop('disabled', true);
             
             // Обновляем список шаблонов
             await this.loadFilterTemplates();
+            await this.loadFilterTemplatesData();
             
             alert(`Шаблон фильтра "${template.name}" удалён успешно!`);
             
@@ -3061,15 +3750,30 @@ class ReportsManager {
             this.subsegmentSlimSelect.destroy();
             this.subsegmentSlimSelect = null;
         }
+
+        if (this.reportFilterSlimSelect) {
+            this.reportFilterSlimSelect.destroy();
+            this.reportFilterSlimSelect = null;
+        }
         
         // Удаление DataTable сохранённых отчётов и обработчиков событий
         if (this.savedReportsDataTable) {
             this.savedReportsDataTable.destroy();
             this.savedReportsDataTable = null;
         }
+
+        if (this.filterTemplatesDataTable) {
+            this.filterTemplatesDataTable.destroy();
+            this.filterTemplatesDataTable = null;
+        }
         
         // Удаляем обработчики кнопок действий
         $(document).off('click', '.report-action-btn');
+        $(document).off('click', '.template-action-btn');
+
+        // Удаляем индикаторы загрузки и фильтрации
+        $('#templateLoadingIndicator').remove();
+        $('.filter-indicator').remove();
 
         // Удаление обработчиков событий EventBus
         this.eventBus.off(CONSTANTS.EVENTS.SEGMENTS_UPDATED);
