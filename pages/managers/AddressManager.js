@@ -30,6 +30,10 @@ class AddressManager {
             houseProblems: false
         };
         
+        // Флаг блокировки импорта/экспорта адресов
+        this.addressOperationInProgress = false;
+        this.currentOperationType = null; // 'osm-import', 'file-export', 'file-import', 'geojson-import'
+        
         // Состояние
         this.isLoading = false;
         this.currentEditingAddress = null;
@@ -949,10 +953,14 @@ class AddressManager {
             // Показываем индикатор загрузки в поле адреса
             const addressInput = document.getElementById('editAddressText');
             let originalPlaceholder = '';
+            let originalValue = '';
             if (addressInput) {
                 originalPlaceholder = addressInput.placeholder;
-                addressInput.placeholder = 'Поиск адреса...';
+                originalValue = addressInput.value;
+                addressInput.value = '🔍 Поиск адреса...';
                 addressInput.disabled = true;
+                addressInput.style.backgroundColor = '#f3f4f6';
+                addressInput.style.color = '#6b7280';
             }
             
             // Выполняем обратное геокодирование для получения адреса
@@ -983,6 +991,13 @@ class AddressManager {
                 if (addressInput) {
                     addressInput.disabled = false;
                     addressInput.placeholder = originalPlaceholder;
+                    addressInput.style.backgroundColor = '';
+                    addressInput.style.color = '';
+                    
+                    // Если адрес не был найден, возвращаем исходное значение
+                    if (addressInput.value === '🔍 Поиск адреса...') {
+                        addressInput.value = originalValue;
+                    }
                 }
             }
             
@@ -1952,10 +1967,117 @@ class AddressManager {
     }
     
     /**
+     * Проверка, можно ли запустить операцию с адресами
+     */
+    canStartAddressOperation(operationType) {
+        if (this.addressOperationInProgress) {
+            const operationNames = {
+                'osm-import': 'Импорт из OSM',
+                'file-export': 'Экспорт в файл',
+                'file-import': 'Импорт из файла',
+                'geojson-import': 'Импорт из GeoJSON'
+            };
+            
+            const currentName = operationNames[this.currentOperationType] || 'Неизвестная операция';
+            const requestedName = operationNames[operationType] || 'Неизвестная операция';
+            
+            this.progressManager.showWarning(`Невозможно запустить "${requestedName}". В данный момент выполняется: "${currentName}"`);
+            return false;
+        }
+        return true;
+    }
+    
+    /**
+     * Блокировка операций с адресами
+     */
+    lockAddressOperations(operationType) {
+        this.addressOperationInProgress = true;
+        this.currentOperationType = operationType;
+        this.updateAddressButtonsState(true);
+    }
+    
+    /**
+     * Разблокировка операций с адресами
+     */
+    unlockAddressOperations() {
+        this.addressOperationInProgress = false;
+        this.currentOperationType = null;
+        this.updateAddressButtonsState(false);
+    }
+    
+    /**
+     * Обновление состояния кнопок импорта/экспорта
+     */
+    updateAddressButtonsState(disabled) {
+        const buttonIds = [
+            'loadAddressesBtn',     // OSM импорт
+            'exportAddressesBtn',   // Экспорт в файл
+            'importAddressesBtn',   // Импорт из файла
+            'importGeoJsonBtn'      // GeoJSON импорт
+        ];
+        
+        buttonIds.forEach(id => {
+            const button = document.getElementById(id);
+            if (button) {
+                button.disabled = disabled;
+                if (disabled) {
+                    button.classList.add('opacity-50', 'cursor-not-allowed');
+                    button.classList.remove('hover:bg-blue-700', 'hover:bg-green-700', 'hover:bg-indigo-700');
+                } else {
+                    button.classList.remove('opacity-50', 'cursor-not-allowed');
+                    // Восстанавливаем hover эффекты в зависимости от типа кнопки
+                    if (id.includes('export')) {
+                        button.classList.add('hover:bg-green-700');
+                    } else if (id.includes('GeoJson')) {
+                        button.classList.add('hover:bg-indigo-700');
+                    } else {
+                        button.classList.add('hover:bg-blue-700');
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * Обновление прогресса операций с адресами
+     */
+    updateAddressProgress(percentage, message = '') {
+        const progressElement = document.getElementById('import-addressesProgress');
+        const progressBar = document.getElementById('import-addressesProgressBar');
+        const statusElement = document.getElementById('import-addressesStatus');
+        
+        if (progressElement) {
+            progressElement.textContent = `${Math.round(percentage)}%`;
+        }
+        
+        if (progressBar) {
+            progressBar.style.width = `${percentage}%`;
+        }
+        
+        if (statusElement && message) {
+            statusElement.textContent = message;
+            statusElement.classList.remove('hidden');
+        }
+        
+        // Скрываем статус когда завершено
+        if (percentage >= 100 && statusElement) {
+            setTimeout(() => {
+                statusElement.classList.add('hidden');
+                this.unlockAddressOperations(); // Разблокируем операции
+            }, 3000);
+        }
+    }
+    
+    /**
      * Загрузка адресов из API
      */
     async loadAddressesFromAPI() {
         await Helpers.debugLog('🚀 === НАЧАЛО ЗАГРУЗКИ АДРЕСОВ ИЗ OSM ===');
+        
+        // Проверяем возможность запуска операции
+        if (!this.canStartAddressOperation('osm-import')) {
+            return;
+        }
         
         const currentArea = this.dataState.getState('currentArea');
         if (!currentArea || !currentArea.polygon) {
@@ -1965,6 +2087,8 @@ class AddressManager {
         }
         
         try {
+            // Блокируем операции
+            this.lockAddressOperations('osm-import');
             // Создаем экземпляр OSM API
             if (!this.config.osmAPI) {
                 this.config.osmAPI = new OSMOverpassAPI();
@@ -1983,22 +2107,23 @@ class AddressManager {
             if (!apiStatus.available) {
                 await Helpers.debugLog('❌ Overpass API недоступен:', apiStatus);
                 this.progressManager.showError('Overpass API недоступен. Попробуйте позже.');
+                this.unlockAddressOperations();
                 return;
             }
             
             // Показываем прогресс
-            this.progressManager.createProgressBar('import-addresses', 'import-addressesProgress');
+            this.updateAddressProgress(0, 'Инициализация...');
             
             // Колбэк для отслеживания прогресса
             const progressCallback = (message, percent) => {
-                this.progressManager.updateProgressBar('import-addresses', percent, message);
+                this.updateAddressProgress(percent, message);
             };
             
             // Загружаем адреса
             const osmAddresses = await this.config.osmAPI.loadAddressesForArea(currentArea, progressCallback);
             
             if (osmAddresses.length === 0) {
-                this.progressManager.updateProgressBar('import-addresses', 100, 'Завершено');
+                this.updateAddressProgress(100, 'Завершено');
                 this.progressManager.showInfo('В указанной области не найдено адресов OSM');
                 return;
             }
@@ -2036,7 +2161,7 @@ class AddressManager {
                 });
             }
             
-            this.progressManager.updateProgressBar('import-addresses', 100, 'Завершено');
+            this.updateAddressProgress(100, 'Завершено');
             
             // Обновляем данные
             await this.refreshAddressData();
@@ -2047,6 +2172,7 @@ class AddressManager {
         } catch (error) {
             console.error('Error loading addresses from API:', error);
             this.progressManager.showError('Ошибка загрузки адресов: ' + error.message);
+            this.unlockAddressOperations(); // Разблокируем при ошибке
         }
     }
     
@@ -2055,6 +2181,14 @@ class AddressManager {
      * Версия 1.3: добавлены поля commercial_spaces, ceiling_height, comment
      */
     async exportAddressesToFile() {
+        // Проверяем возможность запуска операции
+        if (!this.canStartAddressOperation('file-export')) {
+            return;
+        }
+        
+        // Блокируем операции
+        this.lockAddressOperations('file-export');
+        
         const currentArea = this.dataState.getState('currentArea');
         if (!currentArea) {
             this.progressManager.showError('Область не выбрана');
@@ -2116,11 +2250,8 @@ class AddressManager {
             console.error('Ошибка экспорта адресов:', error);
             this.progressManager.showError('Ошибка при экспорте адресов');
         } finally {
-            const button = document.getElementById('exportAddressesBtn');
-            if (button) {
-                button.disabled = false;
-                button.innerHTML = '📤 Экспорт адресов';
-            }
+            // Разблокируем операции
+            this.unlockAddressOperations();
         }
     }
     
@@ -2153,11 +2284,19 @@ class AddressManager {
         const file = event.target.files[0];
         if (!file) return;
         
+        // Проверяем возможность запуска операции
+        if (!this.canStartAddressOperation('file-import')) {
+            return;
+        }
+        
         const currentArea = this.dataState.getState('currentArea');
         if (!currentArea) {
             this.progressManager.showError('Область не выбрана');
             return;
         }
+        
+        // Блокируем операции
+        this.lockAddressOperations('file-import');
         
         try {
             const button = document.getElementById('importAddressesBtn');
@@ -2251,6 +2390,9 @@ class AddressManager {
                 button.disabled = false;
                 button.innerHTML = '📥 Импорт адресов';
             }
+            
+            // Разблокируем операции
+            this.unlockAddressOperations();
             
             // Очищаем input
             event.target.value = '';

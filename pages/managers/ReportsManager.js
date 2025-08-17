@@ -50,6 +50,9 @@ class ReportsManager {
         this.savedReportsDataTable = null;
         this.filterTemplatesDataTable = null;
         
+        // Флаги состояния
+        this.isRestoringTemplate = false; // Предотвращает ненужные обработчики при восстановлении шаблона
+        
         this.debugEnabled = false;
     }
 
@@ -171,12 +174,8 @@ class ReportsManager {
      * Установка обработчиков событий
      */
     setupEventHandlers() {
-        // Сворачивание/разворачивание панели
-        if (this.panelHeader) {
-            this.panelHeader.addEventListener('click', () => {
-                this.togglePanel();
-            });
-        }
+        // Сворачивание/разворачивание панели теперь управляется UIManager
+        // Старый обработчик удален для избежания конфликтов
 
         // Показать/скрыть выпадающий список отчётов
         if (this.reportsDropdownBtn) {
@@ -205,30 +204,40 @@ class ReportsManager {
         if (liquidityCheck) {
             liquidityCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
+                this.checkForUnsavedChanges();
+                this.saveReportsCheckboxState();
             });
         }
         
         if (priceChangesCheck) {
             priceChangesCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
+                this.checkForUnsavedChanges();
+                this.saveReportsCheckboxState();
             });
         }
 
         if (marketCorridorCheck) {
             marketCorridorCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
+                this.checkForUnsavedChanges();
+                this.saveReportsCheckboxState();
             });
         }
 
         if (comparativeAnalysisCheck) {
             comparativeAnalysisCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
+                this.checkForUnsavedChanges();
+                this.saveReportsCheckboxState();
             });
         }
         
         if (flippingProfitabilityCheck) {
             flippingProfitabilityCheck.addEventListener('change', () => {
                 this.updateReportsVisibility();
+                this.checkForUnsavedChanges();
+                this.saveReportsCheckboxState();
             });
         }
 
@@ -238,12 +247,14 @@ class ReportsManager {
         if (this.dateFromFilter) {
             this.dateFromFilter.addEventListener('change', () => {
                 this.updateReportsVisibility();
+                this.checkForUnsavedChanges();
             });
         }
 
         if (this.dateToFilter) {
             this.dateToFilter.addEventListener('change', () => {
                 this.updateReportsVisibility();
+                this.checkForUnsavedChanges();
             });
         }
 
@@ -256,6 +267,13 @@ class ReportsManager {
         }
 
         // События EventBus
+        this.eventBus.on(CONSTANTS.EVENTS.AREA_LOADED, (area) => {
+            // Восстанавливаем состояние чекбоксов при загрузке области
+            setTimeout(() => {
+                this.restoreReportsCheckboxState();
+            }, 100); // Небольшая задержка для инициализации элементов
+        });
+
         this.eventBus.on(CONSTANTS.EVENTS.SEGMENTS_UPDATED, () => {
             this.loadSegmentsData();
         });
@@ -294,6 +312,9 @@ class ReportsManager {
                     },
                     events: {
                         afterChange: (newVal) => {
+                            // Пропускаем обработку если восстанавливается шаблон
+                            if (this.isRestoringTemplate) return;
+                            
                             const subsegmentId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
                                                (newVal && newVal.value !== undefined ? newVal.value : newVal);
                                             this.handleSubsegmentChange(subsegmentId);
@@ -340,6 +361,9 @@ class ReportsManager {
                     },
                     events: {
                         afterChange: (newVal) => {
+                            // Пропускаем обработку если восстанавливается шаблон
+                            if (this.isRestoringTemplate) return;
+                            
                             const templateId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
                                              (newVal && newVal.value !== undefined ? newVal.value : newVal);
                             this.onFilterTemplateSelect(templateId);
@@ -358,26 +382,6 @@ class ReportsManager {
 
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка инициализации SlimSelect:', error);
-        }
-    }
-
-    /**
-     * Сворачивание/разворачивание панели
-     */
-    togglePanel() {
-        if (!this.panelContent || !this.panelChevron) return;
-
-        const isHidden = this.panelContent.classList.contains('hidden');
-        
-        if (isHidden) {
-            this.panelContent.classList.remove('hidden');
-            this.panelChevron.style.transform = 'rotate(0deg)';
-        } else {
-            this.panelContent.classList.add('hidden');
-            this.panelChevron.style.transform = 'rotate(-90deg)';
-        }
-
-        if (this.debugEnabled) {
         }
     }
 
@@ -548,6 +552,9 @@ class ReportsManager {
                 },
                 events: {
                     afterChange: (newVal) => {
+                        // Пропускаем обработку если восстанавливается шаблон
+                        if (this.isRestoringTemplate) return;
+                        
                         // newVal может быть массивом или объектом, извлекаем значение
                         const segmentId = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value : 
                                          (newVal && newVal.value !== undefined ? newVal.value : newVal);
@@ -618,6 +625,9 @@ class ReportsManager {
             // Обновляем отчёты при изменении сегмента
             await this.updateReportsVisibility();
             
+            // Проверяем несохранённые изменения
+            this.checkForUnsavedChanges();
+            
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка при изменении сегмента:', error);
         }
@@ -632,6 +642,9 @@ class ReportsManager {
 
         // Обновляем отчёты при изменении подсегмента
         await this.updateReportsVisibility();
+        
+        // Проверяем несохранённые изменения
+        this.checkForUnsavedChanges();
 
     }
 
@@ -692,10 +705,71 @@ class ReportsManager {
      * Установка значений по умолчанию для чекбоксов отчётов
      */
     setDefaultReportsSettings() {
-        // Включить сравнительный анализ по умолчанию
-        const comparativeAnalysisCheck = document.getElementById('comparativeAnalysisReportCheck');
-        if (comparativeAnalysisCheck) {
-            comparativeAnalysisCheck.checked = true;
+        // Восстанавливаем сохранённые состояния чекбоксов отчётов
+        this.restoreReportsCheckboxState();
+    }
+    
+    /**
+     * Сохранение состояния чекбоксов отчётов
+     */
+    saveReportsCheckboxState() {
+        const currentArea = this.areaPage.dataState?.getState('currentArea');
+        if (!currentArea) return;
+        
+        const checkboxStates = {
+            liquidity: document.getElementById('liquidityReportCheck')?.checked || false,
+            priceChanges: document.getElementById('priceChangesReportCheck')?.checked || false,
+            marketCorridor: document.getElementById('marketCorridorReportCheck')?.checked || false,
+            comparativeAnalysis: document.getElementById('comparativeAnalysisReportCheck')?.checked || false,
+            flippingProfitability: document.getElementById('flippingProfitabilityReportCheck')?.checked || false
+        };
+        
+        const stateKey = `reports_checkboxes_${currentArea.id}`;
+        localStorage.setItem(stateKey, JSON.stringify(checkboxStates));
+        
+        if (this.debugEnabled) {
+            console.log('💾 ReportsManager: Состояние чекбоксов сохранено:', checkboxStates);
+        }
+    }
+    
+    /**
+     * Восстановление состояния чекбоксов отчётов
+     */
+    restoreReportsCheckboxState() {
+        const currentArea = this.areaPage.dataState?.getState('currentArea');
+        if (!currentArea) return;
+        
+        const stateKey = `reports_checkboxes_${currentArea.id}`;
+        const savedState = localStorage.getItem(stateKey);
+        
+        if (savedState) {
+            try {
+                const checkboxStates = JSON.parse(savedState);
+                
+                // Восстанавливаем состояния чекбоксов
+                const liquidityCheck = document.getElementById('liquidityReportCheck');
+                const priceChangesCheck = document.getElementById('priceChangesReportCheck');
+                const marketCorridorCheck = document.getElementById('marketCorridorReportCheck');
+                const comparativeAnalysisCheck = document.getElementById('comparativeAnalysisReportCheck');
+                const flippingProfitabilityCheck = document.getElementById('flippingProfitabilityReportCheck');
+                
+                if (liquidityCheck) liquidityCheck.checked = checkboxStates.liquidity;
+                if (priceChangesCheck) priceChangesCheck.checked = checkboxStates.priceChanges;
+                if (marketCorridorCheck) marketCorridorCheck.checked = checkboxStates.marketCorridor;
+                if (comparativeAnalysisCheck) comparativeAnalysisCheck.checked = checkboxStates.comparativeAnalysis;
+                if (flippingProfitabilityCheck) flippingProfitabilityCheck.checked = checkboxStates.flippingProfitability;
+                
+                if (this.debugEnabled) {
+                    console.log('🔄 ReportsManager: Состояние чекбоксов восстановлено:', checkboxStates);
+                }
+            } catch (error) {
+                console.error('❌ ReportsManager: Ошибка восстановления состояния чекбоксов:', error);
+            }
+        } else {
+            if (this.debugEnabled) {
+                console.log('💡 ReportsManager: Нет сохранённого состояния чекбоксов, используем настройки по умолчанию');
+            }
+            // По умолчанию все чекбоксы выключены (уже установлено в HTML)
         }
     }
 
@@ -2078,8 +2152,8 @@ class ReportsManager {
                 ]
             });
             
-            // Загружаем данные
-            await this.loadSavedReportsData();
+            // Изначально таблица пустая - отчёты загружаются только при выборе шаблона
+            // await this.loadSavedReportsData(); // Убираем начальную загрузку всех отчётов
 
             // Скрываем лоадер и показываем таблицу
             $('#savedReportsLoader').hide();
@@ -2176,7 +2250,7 @@ class ReportsManager {
             // Фильтруем отчёты по шаблону, если указан filterByTemplateId
             if (filterByTemplateId !== null) {
                 reports = reports.filter(report => {
-                    return report.filter_template_id && report.filter_template_id == filterByTemplateId;
+                    return report.filter_template_id && report.filter_template_id === filterByTemplateId;
                 });
             }
             
@@ -2221,6 +2295,11 @@ class ReportsManager {
                                 title="Скачать отчёт в формате HTML">
                             📄 HTML
                         </button>
+                        <button data-action="delete" data-report-id="${report.id}" 
+                                class="report-action-btn text-red-600 hover:text-red-900 text-xs px-2 py-1 border border-red-300 rounded hover:bg-red-50"
+                                title="Удалить отчёт">
+                            🗑️
+                        </button>
                     </div>
                 `;
                 
@@ -2264,6 +2343,8 @@ class ReportsManager {
                 await this.downloadReportAsJSON(reportId);
             } else if (action === 'download-html') {
                 await this.downloadReportAsHTML(reportId);
+            } else if (action === 'delete') {
+                await this.deleteReportWithConfirmation(reportId);
             }
         });
     }
@@ -2312,17 +2393,39 @@ class ReportsManager {
                 return;
             }
             
+            // Убеждаемся, что сегменты и подсегменты загружены
+            await this.loadSegmentsData();
+            
             // Загружаем шаблоны фильтров
             const filterTemplates = await window.db.getFilterTemplatesByArea(areaId);
             
             // Преобразуем данные для DataTables
-            const tableData = filterTemplates.map(template => {
+            const tableData = [];
+            for (const template of filterTemplates) {
                 const date = new Date(template.created_at).toLocaleDateString('ru-RU');
                 const time = new Date(template.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
                 
                 // Извлекаем информацию о сегменте и подсегменте
-                const segmentName = template.filters.segment_name || 'Вся область';
-                const subsegmentName = template.filters.subsegment_name || 'Весь сегмент';
+                let segmentName = 'Вся область';
+                let subsegmentName = 'Весь сегмент';
+                
+                // Получаем имя сегмента по ID
+                if (template.filters.segment_id) {
+                    const segment = this.segments.find(s => s.id === template.filters.segment_id);
+                    if (segment) {
+                        segmentName = segment.name;
+                    }
+                }
+                
+                // Получаем имя подсегмента по ID
+                if (template.filters.subsegment_id && template.filters.segment_id) {
+                    // Загружаем подсегменты для сегмента этого шаблона
+                    const templateSubsegments = await this.database.getSubsegmentsBySegment(template.filters.segment_id);
+                    const subsegment = templateSubsegments.find(s => s.id === template.filters.subsegment_id);
+                    if (subsegment) {
+                        subsegmentName = subsegment.name;
+                    }
+                }
                 
                 // Формируем описание периода
                 let period = 'Весь период';
@@ -2350,7 +2453,7 @@ class ReportsManager {
                     </div>
                 `;
                 
-                return [
+                tableData.push([
                     template.name,
                     segmentName,
                     subsegmentName,
@@ -2358,8 +2461,8 @@ class ReportsManager {
                     reportsInfo,
                     `${date} ${time}`,
                     actions
-                ];
-            });
+                ]);
+            }
             
             // Обновляем данные в таблице
             this.filterTemplatesDataTable.clear().rows.add(tableData).draw();
@@ -2388,7 +2491,7 @@ class ReportsManager {
             event.preventDefault();
             const button = event.currentTarget;
             const action = button.getAttribute('data-action');
-            const templateId = parseInt(button.getAttribute('data-template-id'));
+            const templateId = button.getAttribute('data-template-id'); // Оставляем как строку
             
             if (action === 'select') {
                 await this.selectFilterTemplate(templateId);
@@ -2404,14 +2507,14 @@ class ReportsManager {
     async selectFilterTemplate(templateId) {
         try {
             // Устанавливаем значение в SlimSelect
+            // afterChange событие автоматически вызовет onFilterTemplateSelect
             if (this.reportFilterSlimSelect) {
                 this.reportFilterSlimSelect.setSelected(templateId.toString());
             } else {
                 $('#reportFilterSelect').val(templateId);
+                // Для обычного select нужно вызвать обработчик вручную
+                await this.onFilterTemplateSelect(templateId.toString());
             }
-            
-            // Вызываем обработчик выбора шаблона
-            await this.onFilterTemplateSelect(templateId.toString());
 
             if (this.debugEnabled) {
                 console.log('📋 ReportsManager: Шаблон выбран из таблицы:', templateId);
@@ -2427,10 +2530,28 @@ class ReportsManager {
      */
     async deleteFilterTemplate(templateId) {
         try {
+            if (this.debugEnabled) {
+                console.log('🗑️ ReportsManager: Попытка удаления шаблона с ID:', templateId, typeof templateId);
+            }
+            
+            // Попробуем получить все шаблоны для отладки
+            if (this.debugEnabled) {
+                const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+                if (areaId) {
+                    const allTemplates = await window.db.getFilterTemplatesByArea(areaId);
+                    console.log('🗑️ ReportsManager: Все шаблоны в области:', allTemplates.map(t => ({id: t.id, name: t.name})));
+                }
+            }
+            
             const template = await window.db.getSavedReport(templateId);
             if (!template) {
+                console.error('❌ ReportsManager: Шаблон не найден в базе данных, ID:', templateId);
                 alert('Шаблон не найден');
                 return;
+            }
+            
+            if (this.debugEnabled) {
+                console.log('🗑️ ReportsManager: Найден шаблон для удаления:', template);
             }
             
             if (!confirm(`Вы уверены, что хотите удалить шаблон "${template.name}"?`)) {
@@ -2439,8 +2560,34 @@ class ReportsManager {
             
             await window.db.deleteSavedReport(templateId);
             
+            // Удаляем все связанные отчёты с этим шаблоном
+            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+            if (areaId) {
+                const allReports = await window.db.getFullReportsByArea(areaId);
+                const relatedReports = allReports.filter(report => 
+                    report.filter_template_id && report.filter_template_id === templateId
+                );
+                
+                if (relatedReports.length > 0) {
+                    if (this.debugEnabled) {
+                        console.log(`🗑️ ReportsManager: Найдено ${relatedReports.length} связанных отчётов для удаления`);
+                    }
+                    
+                    // Удаляем каждый связанный отчёт
+                    for (const report of relatedReports) {
+                        await window.db.deleteSavedReport(report.id);
+                        if (this.debugEnabled) {
+                            console.log(`🗑️ ReportsManager: Удалён связанный отчёт: ${report.name} (ID: ${report.id})`);
+                        }
+                    }
+                }
+            }
+            
             // Обновляем данные в таблице
             await this.loadFilterTemplatesData();
+            
+            // Обновляем таблицу сохранённых отчётов
+            await this.loadSavedReportsData();
             
             // Обновляем SlimSelect
             await this.loadFilterTemplates();
@@ -2451,7 +2598,14 @@ class ReportsManager {
                 this.clearFilterForm();
             }
             
-            alert(`Шаблон "${template.name}" удалён успешно!`);
+            // Уведомление через UIManager вместо alert
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `🗑️ Шаблон "${template.name}" удалён`,
+                    duration: 3000
+                });
+            }
 
             if (this.debugEnabled) {
                 console.log('🗑️ ReportsManager: Шаблон удалён из таблицы:', templateId);
@@ -2484,8 +2638,10 @@ class ReportsManager {
         // Удаляем индикаторы фильтрации
         $('.filter-indicator').remove();
 
-        // Показываем все отчёты (без фильтрации по шаблону)
-        this.loadSavedReportsData(null);
+        // Очищаем таблицу отчётов (без выбранного шаблона таблица должна быть пустой)
+        if (this.savedReportsDataTable) {
+            this.savedReportsDataTable.clear().draw();
+        }
     }
 
     /**
@@ -2807,6 +2963,70 @@ class ReportsManager {
         }
     }
 
+    /**
+     * Удаление отчёта с подтверждением из таблицы
+     */
+    async deleteReportWithConfirmation(reportId) {
+        let button, originalText;
+        try {
+            // Показываем индикатор загрузки на кнопке
+            button = $(`[data-report-id="${reportId}"][data-action="delete"]`);
+            originalText = button.html();
+            button.html('⏳').prop('disabled', true);
+            
+            const report = await window.db.getSavedReport(reportId);
+            if (!report) {
+                if (this.areaPage && this.areaPage.uiManager) {
+                    this.areaPage.uiManager.showNotification({
+                        type: 'error',
+                        message: 'Отчёт не найден',
+                        duration: 3000
+                    });
+                }
+                return;
+            }
+            
+            // Восстанавливаем кнопку для показа диалога
+            button.html(originalText).prop('disabled', false);
+            
+            if (!confirm(`Вы уверены, что хотите удалить отчёт "${report.name}"?\n\nЭто действие нельзя отменить.`)) {
+                return;
+            }
+            
+            // Снова показываем индикатор загрузки
+            button.html('⏳').prop('disabled', true);
+            
+            await window.db.deleteSavedReport(reportId);
+            
+            // Обновляем таблицу
+            await this.loadSavedReportsData();
+            
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `🗑️ Отчёт "${report.name}" удалён`,
+                    duration: 3000
+                });
+            }
+            
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка удаления отчёта:', error);
+            
+            // Восстанавливаем кнопку в случае ошибки
+            if (button && originalText) {
+                button.html(originalText).prop('disabled', false);
+            }
+            
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'error',
+                    message: 'Ошибка удаления отчёта',
+                    duration: 5000
+                });
+            }
+        }
+    }
+
     // ===== МЕТОДЫ ДЛЯ УПРАВЛЕНИЯ ШАБЛОНАМИ ФИЛЬТРОВ =====
 
     /**
@@ -2934,6 +3154,9 @@ class ReportsManager {
 
             // Обновляем видимость отчётов после применения настроек
             await this.updateReportsVisibility();
+            
+            // Сохраняем новое состояние чекбоксов
+            this.saveReportsCheckboxState();
 
             if (this.debugEnabled) {
                 console.log('📋 ReportsManager: Конфигурация отчётов применена:', reportsConfig);
@@ -2954,6 +3177,11 @@ class ReportsManager {
             // Получаем менеджер сравнительного анализа
             const comparativeManager = this.areaPage?.comparativeAnalysisManager;
             if (comparativeManager && typeof comparativeManager.applySettings === 'function') {
+                // Показываем интерфейс сравнительного анализа если он скрыт
+                // Пропускаем восстановление состояния из localStorage, т.к. применяем состояние из шаблона
+                await comparativeManager.showComparativeAnalysis(true);
+                
+                // Применяем настройки из шаблона
                 await comparativeManager.applySettings(comparativeConfig);
                 
                 if (this.debugEnabled) {
@@ -3031,7 +3259,18 @@ class ReportsManager {
             // Включаем кнопку удаления
             $('#deleteReportFilterBtn').prop('disabled', false);
             
-            alert(`Шаблон фильтра "${filterName}" сохранён успешно!`);
+            // Уведомление через UIManager вместо alert
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `💾 Шаблон "${filterName}" сохранён`,
+                    duration: 3000
+                });
+            }
+            
+            // Скрываем индикаторы несохранённых изменений
+            this.hideUnsavedChangesIndicator();
+            this.hideComparativeUnsavedIndicator();
             
             if (this.debugEnabled) {
             }
@@ -3047,6 +3286,9 @@ class ReportsManager {
      */
     async onFilterTemplateSelect(templateId) {
         try {
+            // Устанавливаем флаг восстановления шаблона
+            this.isRestoringTemplate = true;
+            
             const $deleteBtn = $('#deleteReportFilterBtn');
             const $nameField = $('#reportFilterName');
             const $idField = $('#reportFilterId');
@@ -3058,6 +3300,7 @@ class ReportsManager {
                 $idField.val('');
                 // Показываем все отчёты без фильтрации
                 await this.loadSavedReportsData(null);
+                this.isRestoringTemplate = false; // Снимаем флаг перед выходом
                 return;
             }
 
@@ -3068,6 +3311,7 @@ class ReportsManager {
             const template = await window.db.getSavedReport(templateId);
             if (!template) {
                 this.hideTemplateLoadingIndicator();
+                this.isRestoringTemplate = false; // Снимаем флаг перед выходом
                 alert('Шаблон фильтра не найден');
                 return;
             }
@@ -3113,10 +3357,14 @@ class ReportsManager {
 
             // Обновляем таблицу сохранённых отчётов с фильтрацией по шаблону
             this.showTemplateLoadingIndicator('Обновление списка отчётов...');
-            await this.loadSavedReportsData(templateId ? parseInt(templateId) : null);
+            await this.loadSavedReportsData(templateId || null);
 
             // Скрываем индикатор загрузки
             this.hideTemplateLoadingIndicator();
+            
+            // Скрываем индикаторы несохранённых изменений после применения шаблона
+            this.hideUnsavedChangesIndicator();
+            this.hideComparativeUnsavedIndicator();
             
             if (this.debugEnabled) {
                 console.log('📋 ReportsManager: Шаблон фильтра применён:', template ? template.name : 'Новый фильтр');
@@ -3127,6 +3375,9 @@ class ReportsManager {
             this.hideTemplateLoadingIndicator();
             console.error('❌ ReportsManager: Ошибка применения шаблона фильтра:', error);
             alert('Ошибка применения шаблона фильтра');
+        } finally {
+            // Снимаем флаг восстановления шаблона в любом случае
+            this.isRestoringTemplate = false;
         }
     }
 
@@ -3137,10 +3388,11 @@ class ReportsManager {
         try {
             const segment = await window.db.getSegment(segmentId);
             if (segment && this.segmentSlimSelect) {
-                this.segmentSlimSelect.setSelected(segmentId);
+                // Устанавливаем выбранный сегмент (обработчики заблокированы флагом isRestoringTemplate)
+                this.segmentSlimSelect.setSelected([segmentId.toString()]);
                 this.currentSegment = segment;
                 
-                // Загружаем подсегменты для выбранного сегмента (без обновления отчётов)
+                // Загружаем подсегменты для выбранного сегмента
                 await this.handleSegmentChangeForTemplate(segmentId);
             }
         } catch (error) {
@@ -3207,7 +3459,8 @@ class ReportsManager {
         try {
             const subsegment = await window.db.getSubsegment(subsegmentId);
             if (subsegment && this.subsegmentSlimSelect) {
-                this.subsegmentSlimSelect.setSelected(subsegmentId);
+                // Устанавливаем выбранный подсегмент (обработчики заблокированы флагом isRestoringTemplate)
+                this.subsegmentSlimSelect.setSelected([subsegmentId.toString()]);
                 this.currentSubsegment = subsegment;
             }
         } catch (error) {
@@ -3250,7 +3503,14 @@ class ReportsManager {
             await this.loadFilterTemplates();
             await this.loadFilterTemplatesData();
             
-            alert(`Шаблон фильтра "${template.name}" удалён успешно!`);
+            // Уведомление через UIManager вместо alert
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `🗑️ Шаблон "${template.name}" удалён`,
+                    duration: 3000
+                });
+            }
             
             if (this.debugEnabled) {
             }
@@ -3259,6 +3519,180 @@ class ReportsManager {
             console.error('❌ ReportsManager: Ошибка удаления шаблона фильтра:', error);
             alert('Ошибка удаления шаблона фильтра');
         }
+    }
+
+    // ===== ИНДИКАТОРЫ НЕСОХРАНЁННЫХ ИЗМЕНЕНИЙ =====
+
+    /**
+     * Показать индикатор несохранённых изменений в фильтрах
+     */
+    showUnsavedChangesIndicator() {
+        const indicator = document.getElementById('unsavedChangesIndicator');
+        if (indicator) {
+            indicator.classList.remove('hidden');
+        }
+    }
+
+    /**
+     * Скрыть индикатор несохранённых изменений в фильтрах
+     */
+    hideUnsavedChangesIndicator() {
+        const indicator = document.getElementById('unsavedChangesIndicator');
+        if (indicator) {
+            indicator.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Показать индикатор несохранённых изменений в сравнительном анализе
+     */
+    showComparativeUnsavedIndicator() {
+        const indicator = document.getElementById('comparativeUnsavedIndicator');
+        if (indicator) {
+            indicator.classList.remove('hidden');
+        }
+    }
+
+    /**
+     * Скрыть индикатор несохранённых изменений в сравнительном анализе
+     */
+    hideComparativeUnsavedIndicator() {
+        const indicator = document.getElementById('comparativeUnsavedIndicator');
+        if (indicator) {
+            indicator.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Проверка наличия несохранённых изменений
+     */
+    checkForUnsavedChanges() {
+        // Проверяем, есть ли выбранный шаблон
+        const selectedTemplateId = $('#reportFilterId').val();
+        
+        if (!selectedTemplateId) {
+            // Если шаблон не выбран, показываем индикатор только если есть активные фильтры
+            const hasActiveFilters = this.hasActiveFilters();
+            if (hasActiveFilters) {
+                this.showUnsavedChangesIndicator();
+            } else {
+                this.hideUnsavedChangesIndicator();
+            }
+            return;
+        }
+
+        // Если шаблон выбран, сравниваем текущие настройки с сохранёнными
+        this.compareWithSavedTemplate(selectedTemplateId);
+    }
+
+    /**
+     * Проверка наличия активных фильтров
+     */
+    hasActiveFilters() {
+        // Проверяем базовые фильтры
+        const hasSegment = this.currentSegment && this.currentSegment.id;
+        const hasSubsegment = this.currentSubsegment && this.currentSubsegment.id;
+        const hasDateFilter = this.dateFromFilter?.value || this.dateToFilter?.value;
+        
+        // Проверяем настройки отчётов
+        const hasReportsConfig = this.hasNonDefaultReportsConfig();
+        
+        // Проверяем настройки сравнительного анализа
+        const hasComparativeChanges = this.hasComparativeAnalysisChanges();
+
+        return hasSegment || hasSubsegment || hasDateFilter || hasReportsConfig || hasComparativeChanges;
+    }
+
+    /**
+     * Проверка настроек отчётов на отличие от значений по умолчанию
+     */
+    hasNonDefaultReportsConfig() {
+        // Проверяем чекбоксы отчётов
+        const checkboxes = document.querySelectorAll('#reportsConfigContainer input[type="checkbox"]');
+        for (const checkbox of checkboxes) {
+            // Если чекбокс не отмечен (значение по умолчанию - все включены), то есть изменения
+            if (!checkbox.checked) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Проверка наличия изменений в сравнительном анализе
+     */
+    hasComparativeAnalysisChanges() {
+        const comparativeManager = this.areaPage?.comparativeAnalysisManager;
+        if (!comparativeManager) return false;
+
+        // Проверяем наличие оценок
+        const hasEvaluations = comparativeManager.evaluations && comparativeManager.evaluations.size > 0;
+        
+        // Проверяем наличие выбранного объекта
+        const hasSelectedObject = comparativeManager.selectedObjectId;
+
+        return hasEvaluations || hasSelectedObject;
+    }
+
+    /**
+     * Сравнение текущих настроек с сохранённым шаблоном
+     */
+    async compareWithSavedTemplate(templateId) {
+        try {
+            const template = await window.db.getSavedReport(templateId);
+            if (!template) {
+                this.hideUnsavedChangesIndicator();
+                return;
+            }
+
+            // Сравниваем текущие настройки с шаблоном
+            const currentConfig = this.getCurrentFiltersConfig();
+            const hasChanges = !this.deepEqual(currentConfig, template.filters);
+
+            if (hasChanges) {
+                this.showUnsavedChangesIndicator();
+            } else {
+                this.hideUnsavedChangesIndicator();
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка сравнения с шаблоном:', error);
+        }
+    }
+
+    /**
+     * Получение текущей конфигурации фильтров
+     */
+    getCurrentFiltersConfig() {
+        return {
+            segment_id: this.currentSegment?.id || null,
+            subsegment_id: this.currentSubsegment?.id || null,
+            date_from: this.dateFromFilter?.value || null,
+            date_to: this.dateToFilter?.value || null,
+            reports_config: this.getReportsConfig(),
+            comparative_analysis_config: this.getComparativeAnalysisConfig()
+        };
+    }
+
+    /**
+     * Глубокое сравнение объектов
+     */
+    deepEqual(obj1, obj2) {
+        if (obj1 === obj2) return true;
+        if (!obj1 || !obj2) return false;
+        if (typeof obj1 !== 'object' || typeof obj2 !== 'object') return false;
+
+        const keys1 = Object.keys(obj1);
+        const keys2 = Object.keys(obj2);
+
+        if (keys1.length !== keys2.length) return false;
+
+        for (const key of keys1) {
+            if (!keys2.includes(key)) return false;
+            if (!this.deepEqual(obj1[key], obj2[key])) return false;
+        }
+
+        return true;
     }
 
     // ===== ЭКСПОРТ ОТЧЁТОВ В JSON =====
@@ -3776,6 +4210,7 @@ class ReportsManager {
         $('.filter-indicator').remove();
 
         // Удаление обработчиков событий EventBus
+        this.eventBus.off(CONSTANTS.EVENTS.AREA_LOADED);
         this.eventBus.off(CONSTANTS.EVENTS.SEGMENTS_UPDATED);
         this.eventBus.off(CONSTANTS.EVENTS.SUBSEGMENT_CREATED);
         this.eventBus.off(CONSTANTS.EVENTS.SUBSEGMENT_UPDATED);

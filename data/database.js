@@ -540,6 +540,11 @@ class NeocenkaDB {
    * Универсальный метод добавления записи
    */
   async add(storeName, data) {
+    if (!this.db) {
+      console.warn(`База данных не инициализирована для операции add(${storeName})`);
+      return null;
+    }
+    
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
@@ -645,6 +650,11 @@ class NeocenkaDB {
    * Получение всех записей из хранилища
    */
   async getAll(storeName) {
+    if (!this.db) {
+      console.warn(`База данных не инициализирована для операции getAll(${storeName})`);
+      return [];
+    }
+    
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);

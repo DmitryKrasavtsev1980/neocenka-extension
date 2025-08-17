@@ -217,6 +217,7 @@ class UIManager {
             { name: 'dataWork', header: 'dataWorkPanelHeader', content: 'dataWorkPanelContent', chevron: 'dataWorkPanelChevron' },
             { name: 'map', header: 'mapPanelHeader', content: 'mapPanelContent', chevron: 'mapPanelChevron' },
             { name: 'segments', header: 'segmentsPanelHeader', content: 'segmentsPanelContent', chevron: 'segmentsPanelChevron' },
+            { name: 'reports', header: 'reportsPanelHeader', content: 'reportsPanelContent', chevron: 'reportsPanelChevron' },
             { name: 'duplicates', header: 'duplicatesPanelHeader', content: 'duplicatesPanelContent', chevron: 'duplicatesPanelChevron' },
             { name: 'addressTable', header: 'addressTableHeader', content: 'addressTableContent', chevron: 'addressTableChevron' }
         ];
@@ -521,6 +522,7 @@ class UIManager {
             { name: 'dataWork', content: 'dataWorkPanelContent', chevron: 'dataWorkPanelChevron' },
             { name: 'map', content: 'mapPanelContent', chevron: 'mapPanelChevron' },
             { name: 'segments', content: 'segmentsPanelContent', chevron: 'segmentsPanelChevron' },
+            { name: 'reports', content: 'reportsPanelContent', chevron: 'reportsPanelChevron' },
             { name: 'duplicates', content: 'duplicatesPanelContent', chevron: 'duplicatesPanelChevron' },
             { name: 'addressTable', content: 'addressTableContent', chevron: 'addressTableChevron' }
         ];
@@ -3657,9 +3659,11 @@ class UIManager {
                 // Заполняем цену (форматируем для отображения)
                 priceInput.value = parseInt(price).toLocaleString('ru-RU');
                 
-                // Заполняем дату (преобразуем в format datetime-local)
+                // Заполняем дату (преобразуем в format datetime-local с учетом местного времени)
                 const date = new Date(historyItem.date);
-                const formattedDate = date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+                // Корректируем смещение временной зоны для правильного отображения
+                const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+                const formattedDate = localDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
                 dateInput.value = formattedDate;
 
                 // Сохраняем текущий индекс редактируемой записи
@@ -4090,13 +4094,18 @@ class UIManager {
                 listing.address_match_method = 'manual_selection';
                 listing.address_match_score = 1.0;
                 listing.address_distance = null;
-                listing.processing_status = 'processed';
+                // Не устанавливаем 'processed', чтобы объявление осталось в таблице дублей
+                if (listing.processing_status === 'address_needed') {
+                    listing.processing_status = 'duplicate_check_needed';
+                }
             } else {
                 // Если адрес убран, очищаем информацию о совпадении
                 listing.address_match_confidence = null;
                 listing.address_match_method = null;
                 listing.address_match_score = null;
                 listing.address_distance = null;
+                // Если адрес убран, возвращаем статус для повторного определения
+                listing.processing_status = 'address_needed';
             }
             
             // Сохраняем в базе данных

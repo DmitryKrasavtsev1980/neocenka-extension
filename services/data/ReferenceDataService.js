@@ -25,7 +25,8 @@ class ReferenceDataService {
         // Статистика использования
         this.usageStats = new Map();
         
-        this.initialize();
+        // Временно отключаем автоинициализацию до решения проблемы с базой данных
+        // this.initialize();
     }
 
     /**

@@ -354,7 +354,7 @@
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 10px;
-            max-height: 180px;
+            max-height: 360px;
             overflow-y: auto;
             border: 1px solid #e5e7eb;
             border-radius: 6px;
@@ -382,9 +382,11 @@
         }
 
         .object-block.selected {
-            border-color: #3b82f6;
-            background: #eff6ff;
-            transform: translateY(-1px);
+            border-color: #1d4ed8;
+            border-width: 3px;
+            background: #dbeafe;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(29, 78, 216, 0.3);
         }
 
         .object-block.evaluated-better {
@@ -562,8 +564,23 @@
         }
 
         .eval-btn.active {
-            transform: scale(1.05);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+            border-width: 3px;
+            font-weight: 700;
+            position: relative;
+        }
+
+        .eval-btn.active::after {
+            content: '';
+            position: absolute;
+            top: -3px;
+            left: -3px;
+            right: -3px;
+            bottom: -3px;
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            pointer-events: none;
         }
 
         .chart-panel {
@@ -1581,21 +1598,21 @@
                                 <div id="reportsDropdown" class="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg z-10 border border-gray-200 hidden">
                                     <div class="py-1">
                                         <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
-                                            <input type="checkbox" id="liquidityReportCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                            <input type="checkbox" id="liquidityReportCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                                             <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                                             </svg>
                                             Ликвидность
                                         </label>
                                         <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
-                                            <input type="checkbox" id="priceChangesReportCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                            <input type="checkbox" id="priceChangesReportCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                                             <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path>
                                             </svg>
                                             Изменение средней цены
                                         </label>
                                         <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
-                                            <input type="checkbox" id="marketCorridorReportCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                            <input type="checkbox" id="marketCorridorReportCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                                             <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                                             </svg>
@@ -1687,6 +1704,22 @@
                                 <button type="button" id="deleteReportFilterBtn" class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled title="Удалить выбранный шаблон">
                                     🗑️ Удалить шаблон
                                 </button>
+                            </div>
+                            
+                            <!-- Индикатор несохранённых изменений -->
+                            <div id="unsavedChangesIndicator" class="hidden mt-2 p-2 bg-orange-50 border border-orange-200 rounded-md">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-4 w-4 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                    <div class="ml-2">
+                                        <p class="text-sm text-orange-700">
+                                            <strong>Есть несохранённые изменения</strong> в настройках фильтров или сравнительном анализе
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -1884,7 +1917,7 @@
                                             <div class="exclude-buttons flex gap-3">
                                                 <button class="eval-btn exclude" data-evaluation="fake">Фейк</button>
                                                 <button class="eval-btn exclude" data-evaluation="not-competitor">Не конкурент</button>
-                                                <button class="eval-btn exclude" data-evaluation="not-sold">Не продан</button>
+                                                <button class="eval-btn exclude" data-evaluation="not-sold">Переоценён</button>
                                             </div>
                                             
                                             <!-- Правая группа - оценочные кнопки -->
@@ -1921,6 +1954,35 @@
                                                 <div class="corridor-section optimal">
                                                     <div class="text-xs font-medium text-emerald-600 mb-1">Оптимальный диапазон:</div>
                                                     <div id="optimalRange" class="text-sm font-semibold text-emerald-700 bg-emerald-50 p-3 rounded border-l-4 border-emerald-400">-</div>
+                                                </div>
+                                                <div class="corridor-section confidence mt-4">
+                                                    <div class="text-xs font-medium text-purple-600 mb-1">Статистическая достоверность:</div>
+                                                    <div id="confidenceLevel" class="text-sm bg-purple-50 p-2 rounded">
+                                                        <div class="flex items-center mb-2">
+                                                            <div class="confidence-bar bg-gray-200 rounded-full h-2 flex-1 mr-2 overflow-hidden">
+                                                                <div id="confidenceProgress" class="h-full bg-purple-500 transition-all duration-500" style="width: 0%"></div>
+                                                            </div>
+                                                            <span id="confidencePercent" class="text-xs font-medium text-purple-700">0%</span>
+                                                        </div>
+                                                        <div id="confidenceMessage" class="text-xs text-gray-600 mb-1">Коридор не определён</div>
+                                                        <div id="confidenceRecommendation" class="text-xs text-blue-600 italic">Начните оценивать объекты</div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Индикатор несохранённых изменений в сравнительном анализе -->
+                                                <div id="comparativeUnsavedIndicator" class="hidden mt-4 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+                                                    <div class="flex items-center">
+                                                        <div class="flex-shrink-0">
+                                                            <svg class="h-4 w-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                                            </svg>
+                                                        </div>
+                                                        <div class="ml-2">
+                                                            <p class="text-xs text-yellow-700">
+                                                                <strong>Несохранённые изменения в анализе</strong> - сохраните шаблон для сохранения состояния
+                                                            </p>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

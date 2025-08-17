@@ -6,8 +6,13 @@
 class OSMOverpassAPI {
     constructor() {
         this.apiUrl = 'https://overpass-api.de/api/interpreter';
+        this.nominatimUrl = 'https://nominatim.openstreetmap.org';
         this.timeout = 30000; // 30 секунд
         this.geoUtils = new GeoUtils();
+        
+        // Кэш для обратного геокодирования (время жизни 1 час)
+        this.reverseGeocodeCache = new Map();
+        this.cacheLifetime = 3600000; // 1 час в миллисекундах
     }
 
     /**
@@ -372,22 +377,135 @@ out geom;
     }
 
     /**
-     * Получение адреса по координатам (reverse geocoding)
+     * Очистка устаревшего кэша
+     */
+    cleanExpiredCache() {
+        const now = Date.now();
+        for (const [key, value] of this.reverseGeocodeCache.entries()) {
+            if (now - value.timestamp > this.cacheLifetime) {
+                this.reverseGeocodeCache.delete(key);
+            }
+        }
+    }
+
+    /**
+     * Получение адреса через Nominatim API (быстрее для точечных запросов)
+     * @param {number} lat - Широта 
+     * @param {number} lng - Долгота
+     * @returns {Promise<string>} Найденный адрес или null
+     */
+    async reverseGeocodeNominatim(lat, lng) {
+        try {
+            const url = `${this.nominatimUrl}/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ru`;
+            
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Neocenka-Extension/1.0'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data && data.address) {
+                const addr = data.address;
+                let address = '';
+                
+                // Формируем адрес из компонентов
+                if (addr.road || addr.pedestrian || addr.footway) {
+                    address += (addr.road || addr.pedestrian || addr.footway);
+                    if (addr.house_number) {
+                        address += ', ' + addr.house_number;
+                    }
+                }
+                
+                if (addr.city || addr.town || addr.village) {
+                    if (address) address += ', ';
+                    address += (addr.city || addr.town || addr.village);
+                }
+                
+                return address || data.display_name;
+            }
+            
+            return null;
+        } catch (error) {
+            console.warn('Nominatim reverse geocoding failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение адреса по координатам (reverse geocoding) - оптимизированная версия
      * @param {number} lat - Широта
      * @param {number} lng - Долгота
      * @returns {Promise<string>} Найденный адрес или пустая строка
      */
     async reverseGeocode(lat, lng) {
         try {
+            // Создаём ключ для кэширования (округляем до 5 знаков для группировки близких координат)
+            const cacheKey = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+            
+            // Очищаем устаревший кэш
+            this.cleanExpiredCache();
+            
+            // Проверяем кэш
+            const cached = this.reverseGeocodeCache.get(cacheKey);
+            if (cached) {
+                return cached.address;
+            }
+
+            // Запускаем параллельно два запроса: быстрый Nominatim и точный Overpass
+            const [nominatimResult, overpassResult] = await Promise.allSettled([
+                this.reverseGeocodeNominatim(lat, lng),
+                this.reverseGeocodeOverpass(lat, lng)
+            ]);
+
+            let address = '';
+
+            // Предпочитаем результат Overpass (более точный для зданий)
+            if (overpassResult.status === 'fulfilled' && overpassResult.value) {
+                address = overpassResult.value;
+            } 
+            // Fallback на Nominatim
+            else if (nominatimResult.status === 'fulfilled' && nominatimResult.value) {
+                address = nominatimResult.value;
+            }
+
+            // Кэшируем результат
+            this.reverseGeocodeCache.set(cacheKey, {
+                address: address,
+                timestamp: Date.now()
+            });
+
+            return address;
+
+        } catch (error) {
+            console.error('Reverse geocoding failed:', error);
+            return '';
+        }
+    }
+
+    /**
+     * Получение адреса через Overpass API (более точный, но медленный)
+     * @param {number} lat - Широта
+     * @param {number} lng - Долгота
+     * @returns {Promise<string>} Найденный адрес или пустая строка
+     */
+    async reverseGeocodeOverpass(lat, lng) {
+        try {
+            // Увеличиваем радиус поиска до 200м и уменьшаем таймаут
             const query = `
-[out:json][timeout:10];
+[out:json][timeout:8];
 (
-  way["addr:housenumber"]["addr:street"](around:100,${lat},${lng});
-  node["addr:housenumber"]["addr:street"](around:100,${lat},${lng});
+  way["addr:housenumber"]["addr:street"](around:200,${lat},${lng});
+  node["addr:housenumber"]["addr:street"](around:200,${lat},${lng});
+  relation["addr:housenumber"]["addr:street"](around:200,${lat},${lng});
 );
 out geom;
             `.trim();
-
             
             const data = await this.executeQuery(query);
             
@@ -403,7 +521,6 @@ out geom;
                     
                     // Вычисляем расстояние до элемента
                     const distance = this.calculateDistance(lat, lng, elementCoords.lat, elementCoords.lng);
-                    
                     
                     if (distance < minDistance) {
                         minDistance = distance;
@@ -433,7 +550,7 @@ out geom;
             return '';
             
         } catch (error) {
-            console.error('Ошибка reverse geocoding:', error);
+            console.warn('Overpass reverse geocoding failed:', error);
             return '';
         }
     }

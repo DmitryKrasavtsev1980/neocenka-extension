@@ -141,9 +141,9 @@ class ApplicationController {
         this.container.registerFactory('SegmentModal', (container) => {
             return new SegmentModal(
                 container.get('ValidationService'),
-                container.get('ErrorHandlingService')
+                container.get('ConfigService')
             );
-        }, { singleton: true, dependencies: ['ValidationService', 'ErrorHandlingService'] });
+        }, { singleton: true, dependencies: ['ValidationService', 'ConfigService'] });
 
         // SegmentTable отключен - используется legacy версия из SegmentsManager
         /*

@@ -379,6 +379,14 @@ class AreaPage {
             // Обработчики кнопок карты через MapManager
             this.bindMapButtons();
             
+            // Обработчик кнопки удаления данных
+            const deleteDataBtn = document.getElementById('deleteDataBtn');
+            if (deleteDataBtn) {
+                deleteDataBtn.addEventListener('click', () => {
+                    this.deleteDataFromTab();
+                });
+            }
+            
             // Закрытие модальных окон при клике на overlay
             this.bindModalEvents();
             
@@ -712,6 +720,147 @@ class AreaPage {
             
         } catch (error) {
             console.error('❌ Ошибка инициализации панели Inpars:', error);
+        }
+    }
+
+    /**
+     * Удаление объявлений из области через таб "Удаление данных"
+     */
+    async deleteDataFromTab() {
+        try {
+            // Проверяем что область существует
+            if (!this.currentArea || !this.currentAreaId) {
+                if (this.progressManager) {
+                    this.progressManager.showError('Область не загружена');
+                } else {
+                    alert('Область не загружена');
+                }
+                return;
+            }
+
+            // Показываем прогресс-бар
+            if (this.progressManager) {
+                this.progressManager.updateProgressBar('delete-data', 10, 'Загрузка данных...');
+            }
+
+            // Загружаем все объявления
+            const allListings = await window.db.getListings();
+            
+            // Фильтруем объявления, входящие в полигон области
+            const listingsInArea = allListings.filter(listing => {
+                if (!listing.coordinates || !listing.coordinates.lat || !(listing.coordinates.lng || listing.coordinates.lon)) {
+                    return false;
+                }
+                
+                const lat = listing.coordinates.lat;
+                const lng = listing.coordinates.lng || listing.coordinates.lon;
+                
+                return window.db.isPointInPolygon({lat, lng}, this.currentArea.polygon);
+            });
+
+            if (this.progressManager) {
+                this.progressManager.updateProgressBar('delete-data', 30, 'Подготовка к удалению...');
+            }
+
+            if (listingsInArea.length === 0) {
+                if (this.progressManager) {
+                    this.progressManager.updateProgressBar('delete-data', 100, 'Завершено');
+                    this.progressManager.showInfo('В области нет объявлений для удаления');
+                } else {
+                    alert('В области нет объявлений для удаления');
+                }
+                return;
+            }
+
+            // Показываем диалог подтверждения
+            const confirmed = confirm(
+                `Вы действительно хотите удалить ${listingsInArea.length} объявлений из области "${this.currentArea.name}"?\n\n` +
+                `Это действие нельзя отменить.`
+            );
+
+            if (!confirmed) {
+                if (this.progressManager) {
+                    this.progressManager.updateProgressBar('delete-data', 0, 'Отменено');
+                }
+                return;
+            }
+
+            if (this.progressManager) {
+                this.progressManager.updateProgressBar('delete-data', 50, 'Удаление объявлений...');
+            }
+
+            // Удаляем объявления
+            let deletedCount = 0;
+            let errorCount = 0;
+            const totalCount = listingsInArea.length;
+
+            for (let i = 0; i < listingsInArea.length; i++) {
+                const listing = listingsInArea[i];
+                try {
+                    await window.db.delete('listings', listing.id);
+                    deletedCount++;
+                    
+                    // Обновляем прогресс
+                    const progress = 50 + (i + 1) / totalCount * 40; // от 50% до 90%
+                    if (this.progressManager) {
+                        this.progressManager.updateProgressBar('delete-data', progress, `Удалено ${deletedCount} из ${totalCount}`);
+                    }
+                    
+                } catch (error) {
+                    console.error(`Ошибка удаления объявления ${listing.id}:`, error);
+                    errorCount++;
+                }
+            }
+
+            if (this.progressManager) {
+                this.progressManager.updateProgressBar('delete-data', 95, 'Обновление интерфейса...');
+            }
+
+            // Обновляем карту и таблицы через новую архитектуру
+            if (this.mapManager) {
+                await this.mapManager.loadMapData();
+            }
+            
+            if (this.duplicatesManager) {
+                await this.duplicatesManager.loadDuplicatesTable();
+            }
+
+            if (this.progressManager) {
+                this.progressManager.updateProgressBar('delete-data', 100, 'Удаление завершено');
+            }
+
+            // Показываем результат
+            if (errorCount === 0) {
+                if (this.progressManager) {
+                    this.progressManager.showSuccess(`Успешно удалено ${deletedCount} объявлений из области`);
+                } else {
+                    alert(`Успешно удалено ${deletedCount} объявлений из области`);
+                }
+            } else {
+                if (this.progressManager) {
+                    this.progressManager.showWarning(`Удалено ${deletedCount} объявлений, ошибок: ${errorCount}`);
+                } else {
+                    alert(`Удалено ${deletedCount} объявлений, ошибок: ${errorCount}`);
+                }
+            }
+
+            console.log(`🗑️ Удалено объявлений: ${deletedCount}, ошибок: ${errorCount}`);
+
+            // Скрываем прогресс-бар через 2 секунды
+            setTimeout(() => {
+                if (this.progressManager) {
+                    this.progressManager.updateProgressBar('delete-data', 100, 'Завершено');
+                }
+            }, 2000);
+
+        } catch (error) {
+            console.error('Ошибка удаления объявлений:', error);
+            if (this.progressManager) {
+                this.progressManager.updateProgressBar('delete-data', 0, 'Ошибка');
+                this.progressManager.showError(`Ошибка удаления объявлений: ${error.message}`);
+            } else {
+                alert(`Ошибка удаления объявлений: ${error.message}`);
+            }
         }
     }
 }

@@ -22,6 +22,7 @@
     "https://inpars.ru/*",
     "https://api.inpars.ru/*",
     "https://overpass-api.de/*",
+    "https://nominatim.openstreetmap.org/*",
     "https://api.github.com/*",
     "https://github.com/*",
     "https://raw.githubusercontent.com/*",
@@ -91,7 +92,7 @@
   ],
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://inpars.ru https://api.inpars.ru https://overpass-api.de https://api.github.com https://github.com https://raw.githubusercontent.com https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st; img-src 'self' data: blob: https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st https://*.tile.openstreetmap.org;"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://inpars.ru https://api.inpars.ru https://overpass-api.de https://nominatim.openstreetmap.org https://api.github.com https://github.com https://raw.githubusercontent.com https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st; img-src 'self' data: blob: https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st https://*.tile.openstreetmap.org;"
   },
 
   "options_page": "pages/settings.html"

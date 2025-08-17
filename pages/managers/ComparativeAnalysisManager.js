@@ -51,9 +51,6 @@ class ComparativeAnalysisManager {
             this.debugEnabled = await this.getDebugSetting();
             this.isInitialized = true;
             
-            // Восстановляем сохраненное состояние сравнений
-            this.restoreComparativeState();
-            
             if (this.debugEnabled) {
             }
         } catch (error) {
@@ -98,14 +95,17 @@ class ComparativeAnalysisManager {
             });
         });
         
+        
         // Глобальная переменная для доступа из HTML
         window.comparativeAnalysisManager = this;
     }
     
+    
     /**
      * Показ интерфейса сравнительного анализа
+     * @param {boolean} skipStateRestore - пропустить восстановление состояния из localStorage
      */
-    async showComparativeAnalysis() {
+    async showComparativeAnalysis(skipStateRestore = false) {
         try {
             // Скрываем placeholder и показываем интерфейс
             const placeholder = document.getElementById('comparativeAnalysisPlaceholder');
@@ -118,7 +118,7 @@ class ComparativeAnalysisManager {
             await this.loadAddresses();
             
             // Запускаем новый анализ
-            await this.startNewAnalysis();
+            await this.startNewAnalysis(skipStateRestore);
             
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка показа интерфейса:', error);
@@ -138,25 +138,76 @@ class ComparativeAnalysisManager {
     
     /**
      * Запуск нового анализа
+     * @param {boolean} skipStateRestore - пропустить восстановление состояния из localStorage
      */
-    async startNewAnalysis() {
+    async startNewAnalysis(skipStateRestore = false) {
         try {
             if (this.debugEnabled) {
             }
             
-            // Очищаем предыдущие результаты
-            this.evaluations.clear();
-            this.selectedObjectId = null;
-            this.selectedListingId = null;
-            this.resetCorridors();
+            // Восстанавливаем сохраненное состояние перед загрузкой объектов (если не пропускаем)
+            if (!skipStateRestore) {
+                this.restoreComparativeState();
+            } else {
+                // Если пропускаем восстановление состояния (например, при восстановлении шаблона),
+                // очищаем блоки объявлений и деталей
+                const listingsList = document.getElementById('listingsList');
+                if (listingsList) {
+                    listingsList.innerHTML = '<div class="text-sm text-gray-500">Выберите объект для просмотра объявлений</div>';
+                }
+                
+                const detailsContainer = document.getElementById('listingDetails');
+                if (detailsContainer) {
+                    detailsContainer.classList.add('hidden');
+                    detailsContainer.innerHTML = '';
+                }
+                
+                // Очищаем старые элементы
+                const photosGallery = document.getElementById('photosGallery');
+                const descriptionDiv = document.getElementById('listingDescription');
+                
+                if (photosGallery) {
+                    photosGallery.innerHTML = '';
+                    photosGallery.style.display = 'none';
+                }
+                
+                if (descriptionDiv) {
+                    descriptionDiv.innerHTML = '';
+                    descriptionDiv.style.display = 'none';
+                }
+            }
             
             // Загружаем объекты для анализа с учетом глобальных фильтров
             await this.loadObjectsForAnalysis();
+            
+            // Обновляем коридоры на основе текущих оценок
+            this.updateCorridors();
+            
+            // Восстанавливаем фильтр статуса (обновляет UI кнопок)
+            this.setStatusFilter(this.statusFilter);
             
             // Отображаем интерфейс
             this.updateObjectsDisplay();
             this.updateChartDebounced();
             this.updateCorridorInfo();
+            this.updateConfidenceDisplay();
+            
+            // Восстанавливаем выбранный объект, если он был сохранен
+            if (this.selectedObjectId) {
+                // Проверяем, что объект существует в текущем списке
+                const objectExists = this.currentObjects.find(obj => obj.id === this.selectedObjectId);
+                if (objectExists) {
+                    // Восстанавливаем выбор объекта без перезаписи сохранённого состояния
+                    await this.selectObject(this.selectedObjectId, true);
+                } else {
+                    // Если объект не найден, сбрасываем выбор
+                    this.selectedObjectId = null;
+                    this.selectedListingId = null;
+                }
+            }
+            
+            // Обновляем кнопки оценки после восстановления всего состояния
+            this.updateEvaluationButtons();
             
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка запуска анализа:', error);
@@ -179,27 +230,64 @@ class ComparativeAnalysisManager {
             }
             
             // Очищаем все оценки и состояние
-            this.evaluations.clear();
-            this.selectedObjectId = null;
-            this.selectedListingId = null;
-            this.resetCorridors();
+            this.clearAnalysisState();
             
-            // Очищаем сохраненное состояние
-            const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
-            if (areaId) {
-                const stateKey = `comparative_state_${areaId}`;
-                localStorage.removeItem(stateKey);
-            }
-            
-            // Обновляем отображение
-            this.updateObjectsDisplay();
-            this.updateChartDebounced();
-            this.updateCorridorInfo();
-            this.updateEvaluationButtons();
+            // Перезапускаем анализ с чистого состояния
+            this.startNewAnalysis();
             
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка сброса сравнений:', error);
         }
+    }
+    
+    /**
+     * Очистка состояния анализа
+     */
+    clearAnalysisState() {
+        // Очищаем все оценки и состояния
+        this.evaluations.clear();
+        this.selectedObjectId = null;
+        this.selectedListingId = null;
+        this.resetCorridors();
+        
+        // Очищаем блоки объявлений и деталей
+        const listingsList = document.getElementById('listingsList');
+        if (listingsList) {
+            listingsList.innerHTML = '<div class="text-sm text-gray-500">Выберите объект для просмотра объявлений</div>';
+        }
+        
+        const detailsContainer = document.getElementById('listingDetails');
+        if (detailsContainer) {
+            detailsContainer.classList.add('hidden');
+            detailsContainer.innerHTML = '';
+        }
+        
+        // Очищаем старые элементы, если они существуют
+        const photosGallery = document.getElementById('photosGallery');
+        const descriptionDiv = document.getElementById('listingDescription');
+        
+        if (photosGallery) {
+            photosGallery.innerHTML = '';
+            photosGallery.style.display = 'none';
+        }
+        
+        if (descriptionDiv) {
+            descriptionDiv.innerHTML = '';
+            descriptionDiv.style.display = 'none';
+        }
+        
+        // Очищаем сохраненное состояние
+        const areaId = this.areaPage.dataState?.getState('currentArea')?.id;
+        if (areaId) {
+            const stateKey = `comparative_state_${areaId}`;
+            localStorage.removeItem(stateKey);
+        }
+        
+        // Обновляем отображение
+        this.updateObjectsDisplay();
+        this.updateChartDebounced();
+        this.updateCorridorInfo();
+        this.updateEvaluationButtons();
     }
     
     /**
@@ -248,15 +336,21 @@ class ComparativeAnalysisManager {
      * Получение текущих настроек для сохранения в шаблон
      */
     getCurrentSettings() {
-        return {
+        const settings = {
             status_filter: this.statusFilter,
             selected_object_id: this.selectedObjectId,
             evaluations: Array.from(this.evaluations.entries()).map(([objectId, evaluation]) => ({
-                object_id: parseInt(objectId),
+                object_id: objectId, // Сохраняем как строку, не преобразуем в число
                 evaluation: evaluation
             })),
             corridors: this.corridors
         };
+        
+        if (this.debugEnabled) {
+            console.log('📋 ComparativeAnalysisManager: Текущие настройки для сохранения:', settings);
+        }
+        
+        return settings;
     }
 
     /**
@@ -275,6 +369,9 @@ class ComparativeAnalysisManager {
             if (settings.evaluations && Array.isArray(settings.evaluations)) {
                 this.evaluations.clear();
                 settings.evaluations.forEach(item => {
+                    if (this.debugEnabled) {
+                        console.log('📋 ComparativeAnalysisManager: Применяем оценку:', item.object_id, '→', item.evaluation);
+                    }
                     this.evaluations.set(item.object_id.toString(), item.evaluation);
                 });
             }
@@ -289,11 +386,20 @@ class ComparativeAnalysisManager {
                 this.corridors = { ...this.corridors, ...settings.corridors };
             }
 
+            // Применяем автоматическую переоценку к загруженным оценкам
+            this.autoDetectOverpricedObjects();
+            
+            // Пересчитываем коридоры после переоценки
+            this.updateCorridors();
+
             // Обновляем интерфейс
             this.updateObjectsDisplay();
             if (this.comparativeChart) {
                 this.updateChart();
             }
+            
+            // Сохраняем применённые настройки в localStorage для дальнейшего использования
+            this.saveComparativeState();
 
             if (this.debugEnabled) {
                 console.log('🔄 ComparativeAnalysisManager: Настройки применены из шаблона:', settings);
@@ -437,7 +543,7 @@ class ComparativeAnalysisManager {
     /**
      * Выбор объекта для просмотра
      */
-    async selectObject(objectId) {
+    async selectObject(objectId, skipSave = true) {
         try {
             this.selectedObjectId = objectId;
             
@@ -447,8 +553,12 @@ class ComparativeAnalysisManager {
             // Обновляем отображение блоков
             this.updateObjectsDisplay();
             
-            // Сохраняем состояние
-            this.saveComparativeState();
+            // Сохраняем состояние только если не указан флаг skipSave
+            if (!skipSave) {
+                this.saveComparativeState();
+                // Уведомляем ReportsManager о изменениях
+                this.notifyReportsManagerOfChanges();
+            }
             
             // Обновляем график (выбранный объект станет розовым)
             this.updateChartDebounced();
@@ -710,7 +820,10 @@ class ComparativeAnalysisManager {
             if (this.debugEnabled) {
             }
             
-            // Обновляем коридоры
+            // 🆕 Автоматическое определение переоценённых объектов
+            const overpriceDetected = this.autoDetectOverpricedObjects();
+            
+            // Обновляем коридоры (уже с учётом переоценённых объектов)
             this.updateCorridors();
             
             // Обновляем отображение
@@ -719,8 +832,20 @@ class ComparativeAnalysisManager {
             this.updateCorridorInfo();
             this.updateEvaluationButtons();
             
+            // Уведомляем о автоматической переоценке
+            if (overpriceDetected && this.areaPage?.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    message: '🔄 Обнаружены переоценённые объекты. Некоторые оценки "Хуже" автоматически изменены на "Переоценён"',
+                    type: 'info',
+                    duration: 6000
+                });
+            }
+            
             // Сохраняем состояние
             this.saveComparativeState();
+            
+            // Уведомляем ReportsManager о изменениях
+            this.notifyReportsManagerOfChanges();
             
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка оценки объекта:', error);
@@ -736,6 +861,71 @@ class ComparativeAnalysisManager {
             archive: { min: null, max: null },
             optimal: { min: null, max: null }
         };
+    }
+    
+    
+    /**
+     * Автоматическое определение переоценённых объектов
+     */
+    autoDetectOverpricedObjects() {
+        try {
+            // Получаем все объекты, оценённые как "Лучше"
+            const betterObjects = [];
+            for (let [objectId, evaluation] of this.evaluations) {
+                if (evaluation === 'better') {
+                    const obj = this.currentObjects.find(o => o.id === objectId);
+                    if (obj && obj.current_price > 0) {
+                        betterObjects.push(obj);
+                    }
+                }
+            }
+            
+            if (betterObjects.length === 0) {
+                return; // Нет объектов "Лучше" для сравнения
+            }
+            
+            let overpriceDetected = false;
+            
+            // Проверяем каждый объект, оценённый как "Хуже"
+            for (let [objectId, evaluation] of this.evaluations) {
+                if (evaluation === 'worse') {
+                    const worseObj = this.currentObjects.find(o => o.id === objectId);
+                    if (!worseObj || !worseObj.current_price || worseObj.current_price <= 0) continue;
+                    
+                    const worsePrice = worseObj.current_price;
+                    const worseUpdated = new Date(worseObj.updated);
+                    
+                    // Проверяем условие против всех "Лучших" объектов
+                    const shouldBeOverpriced = betterObjects.some(betterObj => {
+                        const betterPrice = betterObj.current_price;
+                        const betterCreated = new Date(betterObj.created);
+                        const betterUpdated = new Date(betterObj.updated);
+                        
+                        return (
+                            worsePrice > betterPrice && // Цена "хуже" выше цены "лучше"
+                            worseUpdated >= betterCreated && // updated "хуже" >= created "лучше"  
+                            worseUpdated <= betterUpdated    // updated "хуже" <= updated "лучше"
+                        );
+                    });
+                    
+                    if (shouldBeOverpriced) {
+                        // Автоматически переоцениваем как "Переоценён"
+                        this.evaluations.set(objectId, 'not-sold');
+                        overpriceDetected = true;
+                        
+                        if (this.debugEnabled) {
+                            console.log(`🔄 ComparativeAnalysis: Объект ${objectId} автоматически переоценён как "Переоценён" (цена: ${this.formatPrice(worsePrice)})`);
+                        }
+                    }
+                }
+            }
+            
+            return overpriceDetected;
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка автоматического определения переоценённых объектов:', error);
+            return false;
+        }
     }
     
     /**
@@ -856,6 +1046,54 @@ class ComparativeAnalysisManager {
             optimalDiv.textContent = optimalText;
             optimalDiv.style.fontWeight = optimalText !== '-' ? 'bold' : 'normal';
         }
+        
+        // Обновляем статистическую достоверность
+        this.updateConfidenceDisplay();
+    }
+    
+    /**
+     * Обновление отображения статистической достоверности
+     */
+    updateConfidenceDisplay() {
+        try {
+            const confidence = this.calculateConfidenceLevel();
+            
+            const confidencePercent = document.getElementById('confidencePercent');
+            const confidenceProgress = document.getElementById('confidenceProgress');
+            const confidenceMessage = document.getElementById('confidenceMessage');
+            const confidenceRecommendation = document.getElementById('confidenceRecommendation');
+            
+            if (confidencePercent) {
+                confidencePercent.textContent = `${Math.round(confidence.level)}%`;
+            }
+            
+            if (confidenceProgress) {
+                confidenceProgress.style.width = `${confidence.level}%`;
+                
+                // Меняем цвет прогресс-бара в зависимости от уровня достоверности
+                confidenceProgress.classList.remove('bg-red-500', 'bg-yellow-500', 'bg-green-500', 'bg-purple-500');
+                if (confidence.level < 30) {
+                    confidenceProgress.classList.add('bg-red-500');
+                } else if (confidence.level < 60) {
+                    confidenceProgress.classList.add('bg-yellow-500');
+                } else if (confidence.level < 80) {
+                    confidenceProgress.classList.add('bg-green-500');
+                } else {
+                    confidenceProgress.classList.add('bg-purple-500');
+                }
+            }
+            
+            if (confidenceMessage) {
+                confidenceMessage.textContent = confidence.message;
+            }
+            
+            if (confidenceRecommendation) {
+                confidenceRecommendation.textContent = confidence.recommendation;
+            }
+            
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка обновления достоверности:', error);
+        }
     }
     
     /**
@@ -933,61 +1171,8 @@ class ComparativeAnalysisManager {
                 return;
             }
             
-            const options = {
-                chart: {
-                    type: 'scatter',
-                    height: 400,
-                    toolbar: { show: false },
-                    events: {
-                        dataPointSelection: (event, chartContext, config) => {
-                            // Обернём в setTimeout, так как ApexCharts не поддерживает async коллбэки
-                            setTimeout(async () => {
-                                await this.onChartPointClick(config);
-                            }, 0);
-                        }
-                    },
-                    locales: [{
-                        "name": "ru",
-                        "options": {
-                            "months": ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
-                            "shortMonths": ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
-                            "days": ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"],
-                            "shortDays": ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"]
-                        }
-                    }],
-                    defaultLocale: "ru"
-                },
-                series: chartData.series,
-                colors: chartData.colors,
-                xaxis: {
-                    type: 'datetime',
-                    title: { text: 'Дата' }
-                },
-                yaxis: {
-                    title: { text: 'Цена, ₽' },
-                    labels: {
-                        formatter: (value) => this.formatPrice(value)
-                    }
-                },
-                tooltip: {
-                    shared: false,
-                    intersect: true,
-                    custom: ({ series, seriesIndex, dataPointIndex, w }) => {
-                        return this.generateTooltip({ series, seriesIndex, dataPointIndex, w });
-                    }
-                },
-                markers: {
-                    size: 6,
-                    strokeWidth: 2,
-                    strokeColor: '#fff'
-                },
-                legend: {
-                    show: false
-                },
-                annotations: {
-                    yaxis: this.generateCorridorAnnotations()
-                }
-            };
+            // Генерируем конфигурацию графика
+            const options = this.generate2DChartConfig(chartData);
             
             try {
                 this.comparativeChart = new ApexCharts(chartContainer, options);
@@ -1008,6 +1193,67 @@ class ComparativeAnalysisManager {
             this.isUpdatingChart = false;
         }
     }
+    
+    /**
+     * Генерация конфигурации 2D графика
+     */
+    generate2DChartConfig(chartData) {
+        return {
+            chart: {
+                type: 'scatter',
+                height: 400,
+                toolbar: { show: false },
+                events: {
+                    dataPointSelection: (event, chartContext, config) => {
+                        setTimeout(async () => {
+                            await this.onChartPointClick(config);
+                        }, 0);
+                    }
+                },
+                locales: [{
+                    "name": "ru",
+                    "options": {
+                        "months": ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
+                        "shortMonths": ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
+                        "days": ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"],
+                        "shortDays": ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"]
+                    }
+                }],
+                defaultLocale: "ru"
+            },
+            series: chartData.series,
+            colors: chartData.colors,
+            xaxis: {
+                type: 'datetime',
+                title: { text: 'Дата' }
+            },
+            yaxis: {
+                title: { text: 'Цена, ₽' },
+                labels: {
+                    formatter: (value) => this.formatPrice(value)
+                }
+            },
+            tooltip: {
+                shared: false,
+                intersect: true,
+                custom: ({ series, seriesIndex, dataPointIndex, w }) => {
+                    return this.generateTooltip({ series, seriesIndex, dataPointIndex, w });
+                }
+            },
+            markers: {
+                size: 6,
+                strokeWidth: 2,
+                strokeColor: '#fff'
+            },
+            legend: {
+                show: false
+            },
+            annotations: {
+                yaxis: this.generateCorridorAnnotations()
+            }
+        };
+    }
+    
     
     /**
      * Проверка готовности контейнера для графика
@@ -1184,80 +1430,206 @@ class ComparativeAnalysisManager {
     }
     
     /**
-     * Генерация аннотаций коридоров
+     * Генерация аннотаций коридоров с динамическими зонами неопределённости
      */
     generateCorridorAnnotations() {
         const annotations = [];
         
-        // Коридор активных объектов
-        if (this.corridors.active.min !== null) {
+        // Рассчитываем достоверность коридоров
+        const confidence = this.calculateConfidenceLevel();
+        const uncertaintyFactor = this.calculateUncertaintyFactor();
+        
+        // Коридор активных объектов с зонами неопределённости
+        if (this.corridors.active.min !== null && this.corridors.active.max !== null) {
+            // Основной коридор
             annotations.push({
                 y: this.corridors.active.min,
                 borderColor: '#3b82f6',
-                borderWidth: 2,
-                strokeDashArray: 5,
+                borderWidth: confidence.level > 70 ? 3 : 2,
+                strokeDashArray: confidence.level > 70 ? 0 : 5,
                 label: {
-                    text: 'Активные: мин',
+                    text: `Активные: мин (${Math.round(confidence.level)}%)`,
                     style: { background: '#3b82f6', color: '#fff' }
                 }
             });
-        }
-        
-        if (this.corridors.active.max !== null) {
+            
             annotations.push({
                 y: this.corridors.active.max,
                 borderColor: '#3b82f6',
-                borderWidth: 2,
-                strokeDashArray: 5,
+                borderWidth: confidence.level > 70 ? 3 : 2,
+                strokeDashArray: confidence.level > 70 ? 0 : 5,
                 label: {
-                    text: 'Активные: макс',
+                    text: `Активные: макс (${Math.round(confidence.level)}%)`,
                     style: { background: '#3b82f6', color: '#fff' }
                 }
             });
+            
+            // Зона неопределённости для активных объектов
+            if (confidence.level < 80) {
+                const uncertaintyRange = (this.corridors.active.max - this.corridors.active.min) * uncertaintyFactor;
+                
+                // Верхняя зона неопределённости
+                annotations.push({
+                    y: this.corridors.active.max,
+                    y2: this.corridors.active.max + uncertaintyRange,
+                    fillColor: '#3b82f6',
+                    opacity: 0.08,
+                    label: {
+                        text: 'Зона неопределённости (активные)',
+                        style: { background: '#93c5fd', color: '#1e40af', fontSize: '10px' }
+                    }
+                });
+                
+                // Нижняя зона неопределённости
+                annotations.push({
+                    y: this.corridors.active.min - uncertaintyRange,
+                    y2: this.corridors.active.min,
+                    fillColor: '#3b82f6',
+                    opacity: 0.08
+                });
+            }
         }
         
-        // Коридор архивных объектов
-        if (this.corridors.archive.min !== null) {
+        // Коридор архивных объектов с зонами неопределённости
+        if (this.corridors.archive.min !== null && this.corridors.archive.max !== null) {
+            // Основной коридор
             annotations.push({
                 y: this.corridors.archive.min,
                 borderColor: '#22c55e',
-                borderWidth: 2,
-                strokeDashArray: 5,
+                borderWidth: confidence.level > 70 ? 3 : 2,
+                strokeDashArray: confidence.level > 70 ? 0 : 5,
                 label: {
-                    text: 'Архивные: мин',
+                    text: `Архивные: мин (${Math.round(confidence.level)}%)`,
                     style: { background: '#22c55e', color: '#fff' }
                 }
             });
-        }
-        
-        if (this.corridors.archive.max !== null) {
+            
             annotations.push({
                 y: this.corridors.archive.max,
                 borderColor: '#22c55e',
-                borderWidth: 2,
-                strokeDashArray: 5,
+                borderWidth: confidence.level > 70 ? 3 : 2,
+                strokeDashArray: confidence.level > 70 ? 0 : 5,
                 label: {
-                    text: 'Архивные: макс',
+                    text: `Архивные: макс (${Math.round(confidence.level)}%)`,
                     style: { background: '#22c55e', color: '#fff' }
                 }
             });
+            
+            // Зона неопределённости для архивных объектов
+            if (confidence.level < 80) {
+                const uncertaintyRange = (this.corridors.archive.max - this.corridors.archive.min) * uncertaintyFactor;
+                
+                // Верхняя зона неопределённости
+                annotations.push({
+                    y: this.corridors.archive.max,
+                    y2: this.corridors.archive.max + uncertaintyRange,
+                    fillColor: '#22c55e',
+                    opacity: 0.08,
+                    label: {
+                        text: 'Зона неопределённости (архивные)',
+                        style: { background: '#86efac', color: '#166534', fontSize: '10px' }
+                    }
+                });
+                
+                // Нижняя зона неопределённости
+                annotations.push({
+                    y: this.corridors.archive.min - uncertaintyRange,
+                    y2: this.corridors.archive.min,
+                    fillColor: '#22c55e',
+                    opacity: 0.08
+                });
+            }
         }
         
-        // Оптимальный диапазон (заливка между линиями)
+        // Оптимальный диапазон с учётом неопределённости
         if (this.corridors.optimal.min !== null && this.corridors.optimal.max !== null) {
+            // Основной оптимальный диапазон
             annotations.push({
                 y: this.corridors.optimal.min,
                 y2: this.corridors.optimal.max,
                 fillColor: '#10b981',
-                opacity: 0.1,
+                opacity: confidence.level > 80 ? 0.15 : 0.08,
                 label: {
-                    text: 'Оптимальный диапазон',
-                    style: { background: '#10b981', color: '#fff' }
+                    text: `Оптимальный диапазон (${Math.round(confidence.level)}% достоверность)`,
+                    style: { 
+                        background: confidence.level > 80 ? '#10b981' : '#fbbf24', 
+                        color: '#fff',
+                        fontSize: '11px'
+                    }
                 }
             });
+            
+            // Расширенная зона неопределённости для оптимального диапазона
+            if (confidence.level < 70) {
+                const optimalRange = this.corridors.optimal.max - this.corridors.optimal.min;
+                const expandedUncertainty = optimalRange * uncertaintyFactor * 1.5;
+                
+                annotations.push({
+                    y: this.corridors.optimal.min - expandedUncertainty,
+                    y2: this.corridors.optimal.max + expandedUncertainty,
+                    fillColor: '#fbbf24',
+                    opacity: 0.05,
+                    label: {
+                        text: 'Расширенная зона поиска цены',
+                        style: { background: '#fbbf24', color: '#92400e', fontSize: '10px' }
+                    }
+                });
+            }
         }
         
         return annotations;
+    }
+    
+    /**
+     * Расчёт коэффициента неопределённости
+     */
+    calculateUncertaintyFactor() {
+        const confidence = this.calculateConfidenceLevel();
+        
+        // Чем ниже достоверность, тем больше зона неопределённости
+        // При 0% достоверности - коэффициент 0.3 (30% от диапазона)
+        // При 100% достоверности - коэффициент 0.05 (5% от диапазона)
+        const baseUncertainty = 0.05; // минимальная неопределённость
+        const maxUncertainty = 0.3;   // максимальная неопределённость
+        
+        const uncertaintyRange = maxUncertainty - baseUncertainty;
+        const confidenceNormalized = confidence.level / 100;
+        
+        return maxUncertainty - (uncertaintyRange * confidenceNormalized);
+    }
+    
+    
+    
+    /**
+     * Получение текста оценки
+     */
+    getEvaluationText(evaluation) {
+        const texts = {
+            'better': 'Лучше',
+            'equal': 'Равно', 
+            'worse': 'Хуже',
+            'fake': 'Фейк',
+            'not-competitor': 'Не конкурент',
+            'not-sold': 'Не продан',
+            'overpriced': 'Переоценён'
+        };
+        return texts[evaluation] || evaluation;
+    }
+    
+    /**
+     * Получение цветов для оценки
+     */
+    getEvaluationColor(evaluation) {
+        const colors = {
+            'better': { bg: '#dcfce7', text: '#166534' },
+            'equal': { bg: '#dbeafe', text: '#1e40af' },
+            'worse': { bg: '#fee2e2', text: '#991b1b' },
+            'fake': { bg: '#f3f4f6', text: '#6b7280' },
+            'not-competitor': { bg: '#f3f4f6', text: '#6b7280' },
+            'not-sold': { bg: '#f3f4f6', text: '#6b7280' },
+            'overpriced': { bg: '#fef3c7', text: '#92400e' }
+        };
+        return colors[evaluation] || { bg: '#f3f4f6', text: '#6b7280' };
     }
     
     /**
@@ -1323,7 +1695,7 @@ class ComparativeAnalysisManager {
             'equal': 'Равно',
             'fake': 'Фейк',
             'not-competitor': 'Не конкурент',
-            'not-sold': 'Не продан'
+            'not-sold': 'Переоценён'
         };
         return names[evaluation] || 'Не оценен';
     }
@@ -1370,6 +1742,52 @@ class ComparativeAnalysisManager {
         // TODO: Реализовать модальное окно со списком сохраненных анализов
     }
     
+
+    /**
+     * Расчёт статистической достоверности коридоров
+     */
+    calculateConfidenceLevel() {
+        const evaluatedCount = this.evaluations.size;
+        const excludedCount = Array.from(this.evaluations.values())
+            .filter(evaluation => ['fake', 'not-competitor', 'not-sold'].includes(evaluation)).length;
+        const validEvaluations = evaluatedCount - excludedCount;
+        
+        let confidence = 0;
+        let message = '';
+        let recommendation = '';
+        
+        if (validEvaluations === 0) {
+            confidence = 0;
+            message = 'Коридор не определён';
+            recommendation = 'Начните оценивать объекты для построения коридора';
+        } else if (validEvaluations <= 2) {
+            confidence = 25;
+            message = `Низкая достоверность (${validEvaluations} оценки)`;
+            recommendation = `Добавьте ещё ${5 - validEvaluations} оценок для повышения точности`;
+        } else if (validEvaluations <= 5) {
+            confidence = 60;
+            message = `Умеренная достоверность (${validEvaluations} оценок)`;
+            recommendation = `Добавьте ещё ${8 - validEvaluations} оценок для высокой точности`;
+        } else if (validEvaluations <= 8) {
+            confidence = 80;
+            message = `Хорошая достоверность (${validEvaluations} оценок)`;
+            recommendation = 'Коридор достаточно надёжен для принятия решений';
+        } else {
+            confidence = 95;
+            message = `Высокая достоверность (${validEvaluations} оценок)`;
+            recommendation = 'Коридор очень надёжен';
+        }
+        
+        return {
+            level: confidence,
+            message,
+            recommendation,
+            validEvaluations,
+            totalEvaluations: evaluatedCount,
+            excludedEvaluations: excludedCount
+        };
+    }
+
     /**
      * Форматирование цены
      */
@@ -1775,6 +2193,21 @@ class ComparativeAnalysisManager {
             console.error('❌ ComparativeAnalysisManager: Ошибка сохранения состояния:', error);
         }
     }
+
+    /**
+     * Уведомление ReportsManager об изменениях в сравнительном анализе
+     */
+    notifyReportsManagerOfChanges() {
+        try {
+            const reportsManager = this.areaPage?.reportsManager;
+            if (reportsManager && typeof reportsManager.checkForUnsavedChanges === 'function') {
+                reportsManager.checkForUnsavedChanges();
+                reportsManager.showComparativeUnsavedIndicator();
+            }
+        } catch (error) {
+            console.error('❌ ComparativeAnalysisManager: Ошибка уведомления ReportsManager:', error);
+        }
+    }
     
     /**
      * Восстановление состояния сравнений из localStorage
@@ -1810,6 +2243,12 @@ class ComparativeAnalysisManager {
             this.statusFilter = state.statusFilter || 'all';
             
             if (this.debugEnabled) {
+                console.log('🔄 ComparativeAnalysisManager: Состояние восстановлено:', {
+                    evaluations: this.evaluations.size,
+                    selectedObjectId: this.selectedObjectId,
+                    statusFilter: this.statusFilter,
+                    corridors: this.corridors
+                });
             }
         } catch (error) {
             console.error('❌ ComparativeAnalysisManager: Ошибка восстановления состояния:', error);
@@ -1836,4 +2275,9 @@ class ComparativeAnalysisManager {
         if (this.debugEnabled) {
         }
     }
+}
+
+// Экспорт для использования в других модулях
+if (typeof window !== 'undefined') {
+    window.ComparativeAnalysisManager = ComparativeAnalysisManager;
 }
