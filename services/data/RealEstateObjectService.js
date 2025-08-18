@@ -33,27 +33,23 @@ class RealEstateObjectService {
      * Получение объектов недвижимости по сегменту
      */
     async getObjectsBySegment(segmentId, options = {}) {
-        console.log('🔍 RealEstateObjectService: Загрузка объектов для сегмента:', segmentId, options);
 
         // Проверяем кэш
         const cacheKey = `segment_${segmentId}`;
         const cached = this.objectsCache.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp) < this.cacheExpiry) {
-            console.log('🔍 RealEstateObjectService: Данные получены из кэша, объектов:', cached.data.length);
             return cached.data;
         }
 
         if (!window.db) {
-            console.error('🔍 RealEstateObjectService: window.db недоступен');
+            console.error('RealEstateObjectService: window.db недоступен');
             return [];
         }
 
         try {
             // Используем тот же метод что и таблица дублей - window.db.getObjectsBySegment()
-            console.log('🔍 RealEstateObjectService: Вызываем window.db.getObjectsBySegment() как в таблице дублей');
             const objects = await window.db.getObjectsBySegment(segmentId);
             
-            console.log('🔍 RealEstateObjectService: Получено объектов из database.js:', objects?.length || 0);
             
             if (!objects || !Array.isArray(objects)) {
                 return [];
@@ -77,7 +73,7 @@ class RealEstateObjectService {
             return objects;
             
         } catch (error) {
-            console.error('🔍 RealEstateObjectService: Ошибка при загрузке объектов:', error);
+            console.error('RealEstateObjectService: Ошибка при загрузке объектов:', error);
             return [];
         }
     }
@@ -111,9 +107,6 @@ class RealEstateObjectService {
             return true;
         });
 
-        if (this.debugEnabled) {
-            console.log('🏠 RealEstateObjectService: Отфильтровано объектов:', filtered.length);
-        }
 
         return filtered;
     }
@@ -175,9 +168,6 @@ class RealEstateObjectService {
      */
     clearCache() {
         this.objectsCache.clear();
-        if (this.debugEnabled) {
-            console.log('🏠 RealEstateObjectService: Кэш очищен');
-        }
     }
 }
 

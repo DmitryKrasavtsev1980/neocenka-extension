@@ -56,10 +56,63 @@
             font-weight: 600 !important;
         }
         
+        /* Ограничение z-index для карты флиппинга, чтобы не перекрывать tooltip графиков */
+        #flippingProfitabilityMap {
+            z-index: 1 !important;
+            position: relative !important;
+        }
+        
+        #flippingProfitabilityMap .leaflet-map-pane,
+        #flippingProfitabilityMap .leaflet-tile-pane,
+        #flippingProfitabilityMap .leaflet-overlay-pane {
+            z-index: 1 !important;
+        }
+        
+        /* Повышение z-index для tooltip'ов ApexCharts */
+        .apexcharts-tooltip {
+            z-index: 9999 !important;
+        }
+        
         /* Скрываем легенду ApexCharts для графика коридора рынка */
         #marketCorridorChart .apexcharts-legend,
-        #marketCorridorChart .apexcharts-legend-text {
+        #marketCorridorChart .apexcharts-legend-text,
+        #flippingMarketCorridorChart .apexcharts-legend,
+        #flippingMarketCorridorChart .apexcharts-legend-text {
             display: none !important;
+        }
+
+        /* Стили для блоков объектов в флиппинг отчёте */
+        .flipping-object-block {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 8px;
+            cursor: pointer;
+            background: white;
+            transition: all 0.15s ease;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+
+        .flipping-object-block:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+        }
+
+        .flipping-object-block.selected {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+
+        .flipping-object-block .object-price {
+            font-size: 14px !important;
+            color: #059669 !important;
+            font-weight: 600 !important;
+        }
+
+        .flipping-object-block .price-per-sqm {
+            font-size: 9px !important;
+            color: #10b981 !important;
+            font-weight: 400 !important;
         }
         
         /* Стили для кластеров объявлений */
@@ -2016,10 +2069,9 @@
                                         
                                         <!-- Карта (2/3 ширины) -->
                                         <div class="col-span-8">
-                                            <div class="bg-gray-50 border border-gray-200 rounded-lg h-96">
+                                            <div class="bg-gray-50 border border-gray-200 rounded-lg h-96 overflow-hidden">
                                                 <div class="p-4 border-b border-gray-200 bg-white rounded-t-lg">
                                                     <h5 class="text-md font-medium text-gray-900">Карта доходности</h5>
-                                                    <p class="text-sm text-gray-600">Зелёные маркеры - доходность >20% годовых, серые - до 20%</p>
                                                 </div>
                                                 <div class="relative h-80">
                                                     <div id="flippingProfitabilityMap" class="w-full h-full"></div>
@@ -2182,6 +2234,60 @@
                                         </div>
                                     </div>
 
+                                    <!-- График коридора рынка недвижимости с боковой панелью объектов -->
+                                    <div class="bg-gray-50 border border-gray-200 rounded-lg mb-6">
+                                        <div class="p-4 border-b border-gray-200 bg-white rounded-t-lg">
+                                            <div class="flex items-center justify-between">
+                                                <h5 class="text-md font-medium text-gray-900">Коридор рынка недвижимости</h5>
+                                                <div class="flex items-center space-x-2">
+                                                    <label for="flippingMarketCorridorMode" class="text-sm text-gray-600">Режим:</label>
+                                                    <select id="flippingMarketCorridorMode" class="text-sm border border-gray-300 rounded px-2 py-1">
+                                                        <option value="sales">Коридор продаж</option>
+                                                        <option value="history">История активных</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="p-4 bg-white rounded-b-lg">
+                                            <div class="grid grid-cols-3 gap-4 h-96">
+                                                <!-- График (2/3 ширины) -->
+                                                <div class="col-span-2">
+                                                    <div id="flippingMarketCorridorChart" class="h-full">
+                                                        <div class="flex items-center justify-center h-full text-gray-500">
+                                                            Примените фильтры для отображения данных
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Панель объектов (1/3 ширины) -->
+                                                <div class="col-span-1 border-l border-gray-200 pl-4 h-96 overflow-hidden">
+                                                    <div class="h-full flex flex-col">
+                                                        <h6 class="text-sm font-medium text-gray-900 mb-3 flex-shrink-0">Оценка эталонных объектов</h6>
+                                                        
+                                                        <!-- Селектор оценки объекта -->
+                                                        <div class="mb-3 flex-shrink-0">
+                                                            <label for="objectEvaluationSelect" class="block text-xs font-medium text-gray-700 mb-1">Оценка</label>
+                                                            <select id="objectEvaluationSelect" class="w-full text-sm">
+                                                                <option value="">Выберите оценку</option>
+                                                                <option value="flipping">Флиппинг</option>
+                                                                <option value="designer_renovation">Дизайнерский ремонт</option>
+                                                                <option value="euro_renovation">Евроремонт</option>
+                                                            </select>
+                                                        </div>
+                                                        
+                                                        <div class="flex-1 overflow-y-auto min-h-0 max-h-72">
+                                                            <div id="flippingObjectsGrid" class="grid grid-cols-1 gap-2 pr-2">
+                                                                <div class="text-center text-gray-500 py-4 text-sm">
+                                                                    Примените фильтры для отображения объектов
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <!-- Таблица объектов -->
                                     <div class="bg-gray-50 border border-gray-200 rounded-lg">
                                         <div class="p-4 border-b border-gray-200 bg-white rounded-t-lg">
@@ -2191,22 +2297,30 @@
                                         <!-- Контейнер для таблицы -->
                                         <div class="p-4 bg-white rounded-b-lg">
                                             <div id="flippingTableContainer">
-                                                <table id="flippingTable" class="display nowrap" style="width:100%">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>ID</th>
-                                                            <th>Адрес</th>
-                                                            <th>Площадь</th>
-                                                            <th>Комнат</th>
-                                                            <th>Цена</th>
-                                                            <th>Доходность</th>
-                                                            <th>Статус</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <!-- Данные будут загружены через JavaScript -->
-                                                    </tbody>
-                                                </table>
+                                                <!-- Панель управления выбором -->
+                                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 hidden" id="flippingSelectionPanel">
+                                                    <div class="flex items-center justify-between">
+                                                        <span id="flippingSelectedItemsCount" class="text-sm font-medium text-blue-800">0 элементов выбрано</span>
+                                                        <button type="button" id="flippingClearSelectionBtn" class="ml-4 text-sm text-blue-600 hover:text-blue-800 underline">
+                                                            Очистить выбор
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="overflow-x-auto">
+                                                    <table id="flippingTable" class="min-w-full divide-y divide-gray-200">
+                                                        <!-- DataTables будет автоматически создавать заголовки -->
+                                                    </table>
+                                                </div>
+                                                
+                                                <!-- Заглушка для пустой таблицы -->
+                                                <div id="flippingTableEmpty" class="text-center py-12 hidden">
+                                                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                                    </svg>
+                                                    <h3 class="mt-2 text-sm font-medium text-gray-900">Нет данных</h3>
+                                                    <p class="mt-1 text-sm text-gray-500">Объекты для инвестирования не найдены</p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

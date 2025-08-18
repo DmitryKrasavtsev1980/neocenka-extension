@@ -60,9 +60,6 @@ class FlippingController extends EventTarget {
 
             this.initialized = true;
 
-            if (this.debugEnabled) {
-                console.log('🏠 FlippingController: Контроллер инициализирован');
-            }
 
         } catch (error) {
             console.error('❌ FlippingController: Ошибка инициализации:', error);
@@ -103,9 +100,6 @@ class FlippingController extends EventTarget {
             );
             await this.flippingMap.initialize();
 
-            if (this.debugEnabled) {
-                console.log('🏠 FlippingController: UI компоненты инициализированы');
-            }
 
         } catch (error) {
             console.error('❌ FlippingController: Ошибка инициализации UI:', error);
@@ -162,9 +156,6 @@ class FlippingController extends EventTarget {
     setCurrentSegment(segment) {
         this.currentSegment = segment;
         
-        if (this.debugEnabled) {
-            console.log('🏠 FlippingController: Установлен сегмент:', segment?.name);
-        }
 
         // Эмитируем событие изменения сегмента
         this.emit('segment:changed', { segment });
@@ -176,9 +167,6 @@ class FlippingController extends EventTarget {
     handleFilterChange(filters) {
         this.currentFilters = { ...this.currentFilters, ...filters };
         
-        if (this.debugEnabled) {
-            console.log('🏠 FlippingController: Фильтры изменены:', this.currentFilters);
-        }
 
         // Эмитируем событие изменения фильтров
         this.emit('filters:changed', { filters: this.currentFilters });
@@ -188,50 +176,48 @@ class FlippingController extends EventTarget {
      * Применение фильтров и обновление данных
      */
     async applyFilters() {
-        console.log('🔍 FlippingController.applyFilters(): НАЧАЛО метода');
-        console.log('🔍 FlippingController.applyFilters(): errorHandlingService существует:', !!this.errorHandlingService);
         
         try {
-            console.log('🔍 FlippingController: Применение фильтров началось');
-            console.log('🔍 FlippingController: currentSegment:', this.currentSegment?.name, 'ID:', this.currentSegment?.id);
-            console.log('🔍 FlippingController: currentFilters:', this.currentFilters);
 
             if (!this.currentSegment) {
                 throw new Error('Не выбран сегмент для анализа');
             }
 
-            console.log('🔍 FlippingController: Загружаем объекты для сегмента:', this.currentSegment.id);
 
-            // Загружаем объекты из базы данных
-            this.objects = await this.realEstateObjectService.getObjectsBySegment(
-                this.currentSegment.id,
-                { includeAddress: true }
+            // Получаем глобальные фильтры и загружаем объекты через ReportsManager
+            const globalSegmentId = this.currentFilters.globalSegment?.id || this.currentSegment.id;
+            const globalSubsegmentId = this.currentFilters.globalSubsegment?.id;
+            const dateFrom = this.currentFilters.globalDateFrom || new Date('2023-01-01');
+            const dateTo = this.currentFilters.globalDateTo || new Date();
+            
+            // Получаем текущую область из dataState
+            const currentArea = this.getCurrentArea();
+            if (!currentArea) {
+                throw new Error('Не выбрана область для анализа');
+            }
+            
+            console.log('🔧 FlippingController: Загружаем объекты с фильтрами:', {
+                areaId: currentArea.id,
+                globalSegmentId,
+                globalSubsegmentId,
+                dateFrom: dateFrom.toISOString(),
+                dateTo: dateTo.toISOString()
+            });
+            
+            // Используем тот же метод что и FlippingProfitabilityManager для согласованности
+            this.objects = await this.getFilteredObjectsFromReportsManager(
+                currentArea.id, globalSegmentId, globalSubsegmentId, dateFrom, dateTo
             );
 
-            console.log('🔍 FlippingController: Получено объектов от RealEstateObjectService:', this.objects?.length || 0);
-            console.log('🔍 FlippingController: Тип данных objects:', typeof this.objects, 'isArray:', Array.isArray(this.objects));
 
             if (!Array.isArray(this.objects)) {
-                console.log('🔍 FlippingController: objects не массив, устанавливаем пустой массив');
                 this.objects = [];
             }
 
             if (this.objects.length === 0) {
-                console.log('🔍 FlippingController: Нет объектов в сегменте, проверим window.db.getObjectsBySegment напрямую');
-                
-                // Проверим что возвращает window.db напрямую
-                try {
-                    const directObjects = await window.db.getObjectsBySegment(this.currentSegment.id);
-                    console.log('🔍 FlippingController: window.db.getObjectsBySegment вернул:', directObjects?.length || 0, 'объектов');
-                    console.log('🔍 FlippingController: Первые 3 объекта:', directObjects?.slice(0, 3));
-                } catch (error) {
-                    console.error('🔍 FlippingController: Ошибка вызова window.db.getObjectsBySegment:', error);
-                }
-                
                 throw new Error('В выбранном сегменте нет объектов недвижимости');
             }
 
-            console.log('🔍 FlippingController: Применяем фильтры к', this.objects.length, 'объектам');
 
             // Применяем фильтры
             this.filteredObjects = this.realEstateObjectService.filterObjects(
@@ -239,7 +225,6 @@ class FlippingController extends EventTarget {
                 this.currentFilters
             );
 
-            console.log('🔍 FlippingController: Отфильтровано объектов:', this.filteredObjects.length);
 
             if (this.filteredObjects.length === 0) {
                 throw new Error('Нет объектов, соответствующих заданным фильтрам');
@@ -251,7 +236,6 @@ class FlippingController extends EventTarget {
                 profitability: this.realEstateObjectService.calculateProfitability(obj, this.currentFilters)
             }));
 
-            console.log('🔍 FlippingController: Обновляем UI компоненты');
 
             // Обновляем UI компоненты
             await this.updateUIComponents();
@@ -260,9 +244,6 @@ class FlippingController extends EventTarget {
             setTimeout(() => {
                 if (this.flippingMap && this.flippingMap.map) {
                     this.flippingMap.map.invalidateSize();
-                    if (this.debugEnabled) {
-                        console.log('🔍 FlippingController: Карта обновлена после загрузки интерфейса');
-                    }
                 }
             }, 500);
 
@@ -272,11 +253,10 @@ class FlippingController extends EventTarget {
                 filters: this.currentFilters 
             });
 
-            console.log('🔍 FlippingController: applyFilters завершён успешно, объектов:', this.filteredObjects.length);
             return this.filteredObjects;
 
         } catch (error) {
-            console.error('🔍 FlippingController: ОШИБКА в applyFilters:', error);
+            console.error('❌ FlippingController: Ошибка в applyFilters:', error);
             // Уведомляем ErrorHandlingService об ошибке
             await this.errorHandlingService.handleError(error, { context: 'applyFilters' });
             throw error; // Пробрасываем ошибку дальше
@@ -288,30 +268,17 @@ class FlippingController extends EventTarget {
      */
     async updateUIComponents() {
         try {
-            console.log('🔍 FlippingController: updateUIComponents() начат');
-            console.log('🔍 FlippingController: flippingTable существует:', !!this.flippingTable);
-            console.log('🔍 FlippingController: flippingMap существует:', !!this.flippingMap);
-            console.log('🔍 FlippingController: filteredObjects для UI:', this.filteredObjects?.length || 0);
 
             // Обновляем таблицу
             if (this.flippingTable) {
-                console.log('🔍 FlippingController: Обновляем таблицу...');
                 await this.flippingTable.updateData(this.filteredObjects, this.currentFilters);
-                console.log('🔍 FlippingController: Таблица обновлена');
-            } else {
-                console.log('🔍 FlippingController: Таблица не инициализирована');
             }
 
             // Обновляем карту
             if (this.flippingMap) {
-                console.log('🔍 FlippingController: Обновляем карту...');
                 await this.flippingMap.updateObjects(this.filteredObjects, this.currentFilters);
-                console.log('🔍 FlippingController: Карта обновлена');
-            } else {
-                console.log('🔍 FlippingController: Карта не инициализирована');
             }
 
-            console.log('🔍 FlippingController: UI компоненты обновлены успешно');
 
         } catch (error) {
             console.error('❌ FlippingController: Ошибка обновления UI:', error);
@@ -323,9 +290,6 @@ class FlippingController extends EventTarget {
      * Обработка выбора объекта
      */
     handleObjectSelection(object) {
-        if (this.debugEnabled) {
-            console.log('🏠 FlippingController: Выбран объект:', object.id);
-        }
 
         // Эмитируем событие выбора объекта
         this.emit('object:selected', { object });
@@ -388,9 +352,6 @@ ${address}
         const event = new CustomEvent(eventName, { detail: data });
         this.dispatchEvent(event);
 
-        if (this.debugEnabled) {
-            console.log(`🏠 FlippingController: Событие "${eventName}"`, data);
-        }
     }
 
     /**
@@ -420,8 +381,301 @@ ${address}
 
         this.initialized = false;
 
-        if (this.debugEnabled) {
-            console.log('🏠 FlippingController: Контроллер уничтожен');
+    }
+    
+    /**
+     * Получение текущей области из DataState
+     */
+    getCurrentArea() {
+        try {
+            // Получаем DataState через глобальную переменную (как в FlippingProfitabilityManager)
+            if (window.areaPage && window.areaPage.dataState) {
+                return window.areaPage.dataState.getState('currentArea');
+            }
+            return null;
+        } catch (error) {
+            console.error('❌ FlippingController: Ошибка получения текущей области:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Получение отфильтрованных объектов через ReportsManager
+     */
+    async getFilteredObjectsFromReportsManager(areaId, segmentId, subsegmentId, dateFrom, dateTo) {
+        try {
+            // Получаем ReportsManager через глобальную переменную
+            if (window.areaPage && window.areaPage.reportsManager && typeof window.areaPage.reportsManager.getFilteredRealEstateObjects === 'function') {
+                return await window.areaPage.reportsManager.getFilteredRealEstateObjects(
+                    areaId, segmentId, subsegmentId, dateFrom, dateTo
+                );
+            } else {
+                if (this.debugEnabled) {
+                    console.warn('⚠️ FlippingController: ReportsManager недоступен:', {
+                        'window.areaPage': !!window.areaPage,
+                        'reportsManager': !!window.areaPage?.reportsManager,
+                        'getFilteredRealEstateObjects': typeof window.areaPage?.reportsManager?.getFilteredRealEstateObjects
+                    });
+                }
+                // Fallback: если нет segmentId, получаем все объекты области
+                if (!segmentId) {
+                    // Получаем все адреса в области и все объекты этих адресов
+                    if (window.db && areaId) {
+                        const addresses = await window.db.getAddressesInMapArea(areaId);
+                        let allObjects = [];
+                        for (const address of addresses) {
+                            const addressObjects = await window.db.getObjectsByAddress(address.id);
+                            for (const obj of addressObjects) {
+                                if (obj.address_id) {
+                                    obj.address = await window.db.getAddress(obj.address_id);
+                                }
+                            }
+                            allObjects.push(...addressObjects);
+                        }
+                        return allObjects;
+                    }
+                    return [];
+                } else {
+                    // Fallback на старый метод только если есть segmentId
+                    return await this.realEstateObjectService.getObjectsBySegment(segmentId, { includeAddress: true });
+                }
+            }
+        } catch (error) {
+            console.error('❌ FlippingController: Ошибка получения объектов через ReportsManager:', error);
+            // Fallback: если нет segmentId, возвращаем пустой массив вместо ошибки
+            if (!segmentId) {
+                console.warn('⚠️ FlippingController: segmentId не определён, возвращаем пустой массив');
+                return [];
+            }
+            // Fallback на старый метод только если есть segmentId
+            try {
+                return await this.realEstateObjectService.getObjectsBySegment(segmentId, { includeAddress: true });
+            } catch (fallbackError) {
+                console.error('❌ FlippingController: Fallback также не сработал:', fallbackError);
+                return [];
+            }
+        }
+    }
+    
+    /**
+     * Применение фильтров с переданной областью и ReportsManager (используется FlippingProfitabilityManager)
+     */
+    async applyFiltersWithAreaAndReportsManager(currentArea, globalFilters = {}, reportsManager = null) {
+        try {
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: applyFiltersWithAreaAndReportsManager вызван с:', {
+                    areaId: currentArea?.id,
+                    globalFilters,
+                    hasReportsManager: !!reportsManager
+                });
+            }
+            
+            if (!currentArea) {
+                throw new Error('Не передана область для анализа');
+            }
+            
+            // Устанавливаем глобальные фильтры в текущие фильтры
+            this.currentFilters = { ...this.currentFilters, ...globalFilters };
+            
+            // Получаем параметры фильтрации
+            const globalSegmentId = this.currentFilters.globalSegment?.id;
+            const globalSubsegmentId = this.currentFilters.globalSubsegment?.id;
+            const dateFrom = this.currentFilters.globalDateFrom || new Date('2023-01-01');
+            const dateTo = this.currentFilters.globalDateTo || new Date();
+            
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: Загружаем объекты с параметрами:', {
+                    areaId: currentArea.id,
+                    globalSegmentId,
+                    globalSubsegmentId,
+                    dateFrom: dateFrom.toISOString(),
+                    dateTo: dateTo.toISOString()
+                });
+            }
+            
+            // Используем переданный ReportsManager если доступен
+            if (reportsManager && typeof reportsManager.getFilteredRealEstateObjects === 'function') {
+                this.objects = await reportsManager.getFilteredRealEstateObjects(
+                    currentArea.id, globalSegmentId, globalSubsegmentId, dateFrom, dateTo
+                );
+            } else {
+                // Fallback на метод с глобальной переменной
+                this.objects = await this.getFilteredObjectsFromReportsManager(
+                    currentArea.id, globalSegmentId, globalSubsegmentId, dateFrom, dateTo
+                );
+            }
+            
+            if (!Array.isArray(this.objects)) {
+                this.objects = [];
+            }
+            
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: Загружено объектов:', this.objects.length);
+            }
+            
+            if (this.objects.length === 0) {
+                // Не выбрасываем ошибку, а показываем пустую таблицу
+                console.warn('⚠️ FlippingController: В выбранном сегменте нет объектов недвижимости');
+                this.filteredObjects = [];
+                await this.updateUIComponents();
+                return this.filteredObjects;
+            }
+            
+            // Применяем локальные фильтры флиппинг-отчёта
+            this.filteredObjects = this.realEstateObjectService.filterObjects(
+                this.objects, 
+                this.currentFilters
+            );
+            
+            if (this.filteredObjects.length === 0) {
+                console.warn('⚠️ FlippingController: Нет объектов, соответствующих заданным фильтрам');
+                // Показываем пустую таблицу вместо ошибки
+                await this.updateUIComponents();
+                return this.filteredObjects;
+            }
+            
+            // Рассчитываем доходность для каждого объекта
+            this.filteredObjects = this.filteredObjects.map(obj => ({
+                ...obj,
+                profitability: this.realEstateObjectService.calculateProfitability(obj, this.currentFilters)
+            }));
+            
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: Отфильтрованных объектов:', this.filteredObjects.length);
+            }
+            
+            // Обновляем UI компоненты
+            await this.updateUIComponents();
+            
+            // Даём время интерфейсу загрузиться, затем обновляем карту
+            setTimeout(() => {
+                if (this.flippingMap && this.flippingMap.map) {
+                    this.flippingMap.map.invalidateSize();
+                }
+            }, 500);
+            
+            // Эмитируем событие успешного применения фильтров
+            this.emit('filters:applied', { 
+                objects: this.filteredObjects,
+                filters: this.currentFilters 
+            });
+            
+            return this.filteredObjects;
+            
+        } catch (error) {
+            console.error('❌ FlippingController: Ошибка в applyFiltersWithAreaAndReportsManager:', error);
+            // Уведомляем ErrorHandlingService об ошибке
+            if (this.errorHandlingService) {
+                await this.errorHandlingService.handleError(error, { context: 'applyFiltersWithAreaAndReportsManager' });
+            }
+            throw error; // Пробрасываем ошибку дальше
+        }
+    }
+    
+    /**
+     * Применение фильтров с переданной областью (используется FlippingProfitabilityManager)
+     */
+    async applyFiltersWithArea(currentArea, globalFilters = {}) {
+        try {
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: applyFiltersWithArea вызван с:', {
+                    areaId: currentArea?.id,
+                    globalFilters
+                });
+            }
+            
+            if (!currentArea) {
+                throw new Error('Не передана область для анализа');
+            }
+            
+            // Устанавливаем глобальные фильтры в текущие фильтры
+            this.currentFilters = { ...this.currentFilters, ...globalFilters };
+            
+            // Получаем параметры фильтрации
+            const globalSegmentId = this.currentFilters.globalSegment?.id;
+            const globalSubsegmentId = this.currentFilters.globalSubsegment?.id;
+            const dateFrom = this.currentFilters.globalDateFrom || new Date('2023-01-01');
+            const dateTo = this.currentFilters.globalDateTo || new Date();
+            
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: Загружаем объекты с параметрами:', {
+                    areaId: currentArea.id,
+                    globalSegmentId,
+                    globalSubsegmentId,
+                    dateFrom: dateFrom.toISOString(),
+                    dateTo: dateTo.toISOString()
+                });
+            }
+            
+            // Загружаем объекты через ReportsManager
+            this.objects = await this.getFilteredObjectsFromReportsManager(
+                currentArea.id, globalSegmentId, globalSubsegmentId, dateFrom, dateTo
+            );
+            
+            if (!Array.isArray(this.objects)) {
+                this.objects = [];
+            }
+            
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: Загружено объектов:', this.objects.length);
+            }
+            
+            if (this.objects.length === 0) {
+                // Не выбрасываем ошибку, а показываем пустую таблицу
+                console.warn('⚠️ FlippingController: В выбранном сегменте нет объектов недвижимости');
+                this.filteredObjects = [];
+                await this.updateUIComponents();
+                return this.filteredObjects;
+            }
+            
+            // Применяем локальные фильтры флиппинг-отчёта
+            this.filteredObjects = this.realEstateObjectService.filterObjects(
+                this.objects, 
+                this.currentFilters
+            );
+            
+            if (this.filteredObjects.length === 0) {
+                console.warn('⚠️ FlippingController: Нет объектов, соответствующих заданным фильтрам');
+                // Показываем пустую таблицу вместо ошибки
+                await this.updateUIComponents();
+                return this.filteredObjects;
+            }
+            
+            // Рассчитываем доходность для каждого объекта
+            this.filteredObjects = this.filteredObjects.map(obj => ({
+                ...obj,
+                profitability: this.realEstateObjectService.calculateProfitability(obj, this.currentFilters)
+            }));
+            
+            if (this.debugEnabled) {
+                console.log('🔧 FlippingController: Отфильтрованных объектов:', this.filteredObjects.length);
+            }
+            
+            // Обновляем UI компоненты
+            await this.updateUIComponents();
+            
+            // Даём время интерфейсу загрузиться, затем обновляем карту
+            setTimeout(() => {
+                if (this.flippingMap && this.flippingMap.map) {
+                    this.flippingMap.map.invalidateSize();
+                }
+            }, 500);
+            
+            // Эмитируем событие успешного применения фильтров
+            this.emit('filters:applied', { 
+                objects: this.filteredObjects,
+                filters: this.currentFilters 
+            });
+            
+            return this.filteredObjects;
+            
+        } catch (error) {
+            console.error('❌ FlippingController: Ошибка в applyFiltersWithArea:', error);
+            // Уведомляем ErrorHandlingService об ошибке
+            if (this.errorHandlingService) {
+                await this.errorHandlingService.handleError(error, { context: 'applyFiltersWithArea' });
+            }
+            throw error; // Пробрасываем ошибку дальше
         }
     }
 }

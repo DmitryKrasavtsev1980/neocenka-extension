@@ -419,8 +419,14 @@ class ReportsManager {
         if (showLiquidity || showPriceChanges || showMarketCorridor || showComparativeAnalysis || showFlippingProfitability) {
             this.reportsContent.classList.remove('hidden');
             
-            // Генерация отчётов
-            await this.generateReports();
+            // Генерация только нужных отчётов
+            await this.generateReports({
+                showLiquidity,
+                showPriceChanges,
+                showMarketCorridor,
+                showComparativeAnalysis,
+                showFlippingProfitability
+            });
             
             // Показать/скрыть конкретные отчёты
             const liquidityReport = document.querySelector('#liquidityChart').closest('.bg-white');
@@ -444,6 +450,12 @@ class ReportsManager {
                 comparativeAnalysisReport.style.display = showComparativeAnalysis ? 'block' : 'none';
             }
 
+            // Найти отчёт "Доходность флиппинг"
+            const flippingProfitabilityReport = document.querySelector('#flippingProfitabilityReport');
+            if (flippingProfitabilityReport) {
+                flippingProfitabilityReport.style.display = showFlippingProfitability ? 'block' : 'none';
+            }
+
             // Управление интерфейсом сравнительного анализа
             if (showComparativeAnalysis && this.areaPage.comparativeAnalysisManager) {
                 await this.areaPage.comparativeAnalysisManager.showComparativeAnalysis();
@@ -452,12 +464,22 @@ class ReportsManager {
             } else if (!showComparativeAnalysis && this.areaPage.comparativeAnalysisManager) {
                 this.areaPage.comparativeAnalysisManager.hideComparativeAnalysis();
             }
+
+            // Управление интерфейсом доходности флиппинг
+            if (!showFlippingProfitability && this.flippingProfitabilityManager) {
+                this.flippingProfitabilityManager.hide();
+            }
         } else {
             this.reportsContent.classList.add('hidden');
             
             // Скрываем сравнительный анализ если контейнер отчетов скрыт
             if (this.areaPage.comparativeAnalysisManager) {
                 this.areaPage.comparativeAnalysisManager.hideComparativeAnalysis();
+            }
+            
+            // Скрываем доходность флиппинг если контейнер отчетов скрыт
+            if (this.flippingProfitabilityManager) {
+                this.flippingProfitabilityManager.hide();
             }
         }
 
@@ -774,36 +796,43 @@ class ReportsManager {
     }
 
     /**
-     * Генерация отчётов
+     * Генерация отчётов с выборочным показом
      */
-    async generateReports() {
+    async generateReports(options = {}) {
         try {
-            // console.log('🔍 ReportsManager: generateReports() вызван');
+            // Настройки по умолчанию - показывать все отчёты (для обратной совместимости)
+            const {
+                showLiquidity = true,
+                showPriceChanges = true,
+                showMarketCorridor = true,
+                showComparativeAnalysis = true,
+                showFlippingProfitability = true
+            } = options;
 
-            // Получение данных для отчётов
-            const reportData = await this.getReportData();
+            // Получение данных для отчётов (только если нужен хотя бы один отчёт)
+            let reportData = null;
+            if (showLiquidity || showPriceChanges || showMarketCorridor) {
+                reportData = await this.getReportData();
+            }
             
-            // Создание графика ликвидности
-            this.createLiquidityChart(reportData);
+            // Создание графика ликвидности (только если нужен)
+            if (showLiquidity && reportData) {
+                this.createLiquidityChart(reportData);
+            }
             
-            // Создание графика изменения цен
-            this.createPriceChangesChart(reportData);
+            // Создание графика изменения цен (только если нужен)
+            if (showPriceChanges && reportData) {
+                this.createPriceChangesChart(reportData);
+            }
 
-            // Создание графика коридора рынка недвижимости
-            await this.createMarketCorridorChart(reportData);
+            // Создание графика коридора рынка недвижимости (только если нужен)
+            if (showMarketCorridor && reportData) {
+                await this.createMarketCorridorChart(reportData);
+            }
 
-            // Показ отчёта флиппинг доходности
-            const flippingProfitabilityCheck = document.getElementById('flippingProfitabilityReportCheck');
-            // console.log('🔍 ReportsManager: flippingProfitabilityCheck найден:', !!flippingProfitabilityCheck);
-            // console.log('🔍 ReportsManager: flippingProfitabilityCheck.checked:', flippingProfitabilityCheck?.checked);
-            // console.log('🔍 ReportsManager: flippingProfitabilityManager доступен:', !!this.flippingProfitabilityManager);
-            
-            if (flippingProfitabilityCheck?.checked && this.flippingProfitabilityManager) {
-                // console.log('🔍 ReportsManager: Вызываем flippingProfitabilityManager.show()');
+            // Показ отчёта флиппинг доходности (только если нужен)
+            if (showFlippingProfitability && this.flippingProfitabilityManager) {
                 await this.flippingProfitabilityManager.show();
-                // console.log('🔍 ReportsManager: flippingProfitabilityManager.show() завершён');
-            } else {
-                // console.log('🔍 ReportsManager: Условие для показа флиппинг-отчёта НЕ выполнено');
             }
 
         } catch (error) {
