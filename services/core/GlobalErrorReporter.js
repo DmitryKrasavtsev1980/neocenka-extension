@@ -117,7 +117,6 @@ class GlobalErrorReporter {
             // Настраиваем мониторинг производительности
             this.setupPerformanceMonitoring();
             
-            console.log('GlobalErrorReporter инициализирован');
 
         } catch (error) {
             console.error('Ошибка инициализации GlobalErrorReporter:', error);

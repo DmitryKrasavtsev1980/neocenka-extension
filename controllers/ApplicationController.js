@@ -289,7 +289,6 @@ class ApplicationController {
         try {
             const flippingController = await this.container.get('FlippingController');
             this.controllers.set('FlippingController', flippingController);
-            console.log('✅ FlippingController создан и инициализирован');
         } catch (error) {
             console.warn('⚠️ FlippingController не создан:', error.message);
         }

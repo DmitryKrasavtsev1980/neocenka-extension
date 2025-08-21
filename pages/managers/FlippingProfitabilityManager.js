@@ -289,7 +289,7 @@ class FlippingProfitabilityManager {
 
             if (this.debugEnabled) {
                 const calculatedCount = this.filteredObjects.filter(obj => obj.flippingProfitability).length;
-                console.log(`✅ Рассчитана доходность для ${calculatedCount} из ${this.filteredObjects.length} объектов`);
+                
             }
 
         } catch (error) {
@@ -356,6 +356,7 @@ class FlippingProfitabilityManager {
         this.objectsGrid = document.getElementById('flippingObjectsGrid');
         this.evaluationSelect = document.getElementById('objectEvaluationSelect');
         this.investmentTable = document.getElementById('flippingTable');
+        // mapContainer и карта управляются FlippingController
 
         // Инициализация пространственного индекса для оптимизации
         this.spatialIndex = window.geoUtils || new GeoUtils();
@@ -791,12 +792,24 @@ class FlippingProfitabilityManager {
         
         try {
             
-            if (!this.filteredObjects || this.filteredObjects.length === 0 || this.evaluations.size === 0) {
+            if (!this.filteredObjects || this.filteredObjects.length === 0) {
                 if (this.debugEnabled) {
-                    console.log('🔍 calculateReferencePrice: Нет объектов или оценок для расчёта');
+                    
                 }
                 this.referencePrice = { perMeter: null, total: null, area: null, count: 0 };
                 this.referencePrices = []; // Множественные эталонные цены
+                return;
+            }
+            
+            // Если нет оценок, создаём базовые карточки подсегментов с нулевой эталонной ценой
+            if (this.evaluations.size === 0) {
+                if (this.debugEnabled) {
+                    
+                }
+                await this.createBaseSubsegmentCards();
+                if (updatePanel) {
+                    await this.updateReferencePricePanel();
+                }
                 return;
             }
 
@@ -822,7 +835,7 @@ class FlippingProfitabilityManager {
 
             // Определяем уровень фильтрации
             if (currentSubsegment) {
-                console.log('🔍 calculateReferencePrice: Случай 1 - Выбран конкретный подсегмент:', currentSubsegment.name);
+                
                 // Случай 1: Выбран конкретный подсегмент - расчёт только по нему
                 // Найдем сегмент для этого подсегмента
                 let segmentName = null;
@@ -836,10 +849,10 @@ class FlippingProfitabilityManager {
                 this.referencePrices = [await this.calculateSubsegmentReferencePrice(currentSubsegment, weights, segmentName)];
                 this.referencePrice = this.referencePrices[0] || { perMeter: null, total: null, area: null, count: 0 };
             } else if (currentSegment) {
-                console.log('🔍 calculateReferencePrice: Случай 2 - Выбран сегмент:', currentSegment.name);
+                
                 // Случай 2: Выбран сегмент - расчёт по всем подсегментам сегмента отдельно
                 const subsegments = await this.database.getSubsegmentsBySegment(currentSegment.id);
-                console.log('🔍 calculateReferencePrice: Найдено подсегментов в сегменте:', subsegments.length, subsegments.map(s => s.name));
+                
                 this.referencePrices = [];
                 for (const subsegment of subsegments) {
                     const price = await this.calculateSubsegmentReferencePrice(subsegment, weights, currentSegment.name);
@@ -851,8 +864,8 @@ class FlippingProfitabilityManager {
                 this.referencePrice = this.referencePrices[0] || { perMeter: null, total: null, area: null, count: 0 };
             } else {
                 if (this.debugEnabled) {
-                    console.log('🔍 calculateReferencePrice: Случай 3 - Фильтр пуст, перебор всех сегментов');
-                    console.log('🔍 Сегменты для обработки:', this.reportsManager.segments.map(s => ({id: s.id, name: s.name})));
+                    
+                    
                 }
                 // Случай 3: Фильтр пуст - перебор всех сегментов и их подсегментов
                 this.referencePrices = [];
@@ -922,12 +935,12 @@ class FlippingProfitabilityManager {
                 let filteredAddresses = addresses;
                 if (segment.filters) {
                     if (this.debugEnabled) {
-                        console.log(`🔍 Сегмент "${segment.name}" имеет фильтры:`, segment.filters);
+                        
                     }
                     // Используем метод из ReportsManager для фильтрации адресов
                     filteredAddresses = this.reportsManager.filterAddressesBySegmentCriteria(addresses, segment.filters);
                     if (this.debugEnabled) {
-                        console.log(`🔍 После фильтрации адресов: ${filteredAddresses.length} из ${addresses.length}`);
+                        
                     }
                 }
                 
@@ -940,7 +953,7 @@ class FlippingProfitabilityManager {
                 });
                 
                 if (this.debugEnabled) {
-                    console.log(`🔍 Объекты сегмента "${segmentName}": ${segmentObjects.length} из ${this.filteredObjects.length} общих`);
+                    
                 }
             }
             
@@ -962,7 +975,7 @@ class FlippingProfitabilityManager {
             });
             
             if (this.debugEnabled) {
-                console.log(`🔍 Подсегмент "${subsegment.name}" содержит ${subsegmentObjects.length} объектов из ${segmentObjects.length} объектов сегмента`);
+                
             }
 
             // Фильтруем только оценённые ПРОДАННЫЕ объекты с качественным ремонтом
@@ -1089,6 +1102,53 @@ class FlippingProfitabilityManager {
     }
 
     /**
+     * Создание базовых карточек подсегментов без оценок
+     */
+    async createBaseSubsegmentCards() {
+        try {
+            const currentSegment = this.reportsManager.currentSegment;
+            if (!currentSegment) {
+                this.referencePrices = [];
+                return;
+            }
+            
+            // Получаем все подсегменты текущего сегмента
+            const subsegments = await this.database.getSubsegmentsBySegment(currentSegment.id);
+            
+            if (!subsegments || subsegments.length === 0) {
+                this.referencePrices = [];
+                return;
+            }
+            
+            // Создаём базовые карточки для каждого подсегмента
+            this.referencePrices = subsegments.map(subsegment => ({
+                id: subsegment.id,
+                name: subsegment.name,
+                segment: currentSegment.name,
+                referencePrice: { 
+                    perMeter: null, 
+                    total: null, 
+                    area: null, 
+                    count: 0,
+                    evaluatedCount: 0,
+                    status: 'no_evaluations'
+                },
+                exposure: { days: null, count: 0 },
+                objects: [],
+                evaluatedObjects: []
+            }));
+            
+            if (this.debugEnabled) {
+                
+            }
+            
+        } catch (error) {
+            console.error('❌ createBaseSubsegmentCards: Ошибка создания базовых карточек:', error);
+            this.referencePrices = [];
+        }
+    }
+
+    /**
      * Обновление панели эталонной цены и срока экспозиции
      */
     async updateReferencePricePanel() {
@@ -1131,26 +1191,27 @@ class FlippingProfitabilityManager {
     /**
      * Создание карточки подсегмента с эталонной ценой
      */
-    async createSubsegmentCard(price, colorIndex = 0) {
+    async createSubsegmentCard(priceData, colorIndex = 0) {
         const colors = this.getSubsegmentColorScheme(colorIndex);
         const card = document.createElement('div');
         card.className = `p-3 ${colors.bgColor} rounded-lg text-xs ${colors.textColor} border ${colors.borderColor}`;
         
-        // Рассчитываем средний срок экспозиции для объектов этого подсегмента
-        const exposureData = await this.calculateSubsegmentExposure(price.subsegmentId);
-        
         // Форматируем дни в понятный вид
         const formatDays = (days) => {
+            if (!days) return 'Нет данных';
             if (days === 1) return '1 день';
             if (days < 5) return `${days} дня`;
             return `${days} дней`;
         };
         
+        const referencePrice = priceData.referencePrice;
+        const exposure = priceData.exposure;
+        
         card.innerHTML = `
             <div class="space-y-2">
                 <!-- Заголовок подсегмента -->
                 <div class="font-medium ${colors.titleColor} text-sm border-b ${colors.borderColor} pb-2">
-                    ${price.segmentName ? `${price.segmentName} - ${price.subsegmentName}` : price.subsegmentName}
+                    ${priceData.segment ? `${priceData.segment} - ${priceData.name}` : priceData.name}
                 </div>
                 
                 <!-- Информация в две колонки -->
@@ -1158,43 +1219,44 @@ class FlippingProfitabilityManager {
                     <!-- Левая колонка: Эталонная цена -->
                     <div>
                         <div class="font-medium mb-1">Эталонная цена:</div>
-                        <div class="font-semibold">${new Intl.NumberFormat('ru-RU').format(price.perMeter)} ₽/м²</div>
-                        <div>${new Intl.NumberFormat('ru-RU').format(price.total)} ₽ (${price.area}м²)</div>
-                        <div class="${colors.accentColor} mt-1">${price.count} объектов</div>
+                        ${referencePrice.perMeter ? `
+                        <div class="font-semibold">${new Intl.NumberFormat('ru-RU').format(referencePrice.perMeter)} ₽/м²</div>
+                        <div>${new Intl.NumberFormat('ru-RU').format(referencePrice.total)} ₽ (${referencePrice.area}м²)</div>
+                        <div class="${colors.accentColor} mt-1">${referencePrice.evaluatedCount} оценок из ${referencePrice.count} объектов</div>
+                        ` : `
+                        <div class="text-gray-400 text-xs">Нет оценок</div>
+                        <div class="${colors.accentColor} mt-1">${referencePrice.count} объектов</div>
+                        `}
                     </div>
                     
                     <!-- Правая колонка: Средний срок экспозиции -->
-                    ${exposureData ? `
                     <div>
                         <div class="font-medium mb-1">Средний срок экспозиции:</div>
-                        <div class="font-semibold">${formatDays(exposureData.median)}</div>
-                        <div class="${colors.accentColor}">от ${formatDays(exposureData.min)} до ${formatDays(exposureData.max)}</div>
-                        <div class="${colors.accentColor}">Среднее: ${formatDays(exposureData.average)}</div>
+                        ${exposure.days ? `
+                        <div class="font-semibold">${formatDays(exposure.days)}</div>
+                        <div class="${colors.accentColor}">На основе ${exposure.count} продаж</div>
+                        ` : `
+                        <div class="text-gray-400 text-xs">Нет данных о продажах</div>
+                        `}
                     </div>
-                    ` : `
-                    <div>
-                        <div class="font-medium mb-1 text-gray-400">Средний срок экспозиции:</div>
-                        <div class="text-gray-400 text-xs">Нет данных</div>
-                    </div>
-                    `}
                 </div>
             </div>
         `;
         
         // Добавляем обработчики событий для интерактивности
         card.style.cursor = 'pointer';
-        card.dataset.subsegmentId = price.subsegmentId;
+        card.dataset.subsegmentId = priceData.id;
         
         // Обработчик клика для фильтрации по подсегменту
         card.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            this.handleSubsegmentCardClick(price.subsegmentId);
+            this.handleSubsegmentCardClick(priceData.id);
         });
         
         // Hover-эффекты как у карточек объектов
         card.addEventListener('mouseenter', () => {
-            if (this.activeSubsegmentId !== price.subsegmentId) {
+            if (this.activeSubsegmentId !== priceData.id) {
                 card.style.borderColor = colors.graphColor;
                 card.style.borderWidth = '1px';
                 card.style.transform = 'translateY(-1px)';
@@ -1203,7 +1265,7 @@ class FlippingProfitabilityManager {
         });
         
         card.addEventListener('mouseleave', () => {
-            if (this.activeSubsegmentId !== price.subsegmentId) {
+            if (this.activeSubsegmentId !== priceData.id) {
                 card.style.borderColor = '';
                 card.style.borderWidth = '';
                 card.style.transform = '';
@@ -1212,7 +1274,7 @@ class FlippingProfitabilityManager {
         });
         
         // Устанавливаем активное состояние если этот подсегмент выбран
-        if (this.activeSubsegmentId === price.subsegmentId) {
+        if (this.activeSubsegmentId === priceData.id) {
             this.setCardActiveState(card, colors, true);
         }
         
@@ -1315,11 +1377,11 @@ class FlippingProfitabilityManager {
             // Сохраняем исходные объекты если еще не сохранили
             if (this.activeSubsegmentId === null) {
                 this.originalFilteredObjects = [...this.filteredObjects];
-                console.log(`🔍 Сохранено исходных объектов: ${this.originalFilteredObjects.length}`);
+                
             }
             
             this.activeSubsegmentId = subsegmentId;
-            console.log(`🔍 Активирован подсегмент: ${subsegmentId}`);
+            
             
             // Получаем подсегмент для фильтрации
             const subsegment = await this.getSubsegmentById(subsegmentId);
@@ -1329,7 +1391,7 @@ class FlippingProfitabilityManager {
             }
             
             // Сначала фильтруем объекты по сегменту (через адреса), затем по подсегменту
-            console.log(`🔧 Фильтруем по сегменту "${subsegment.segment_id}" и подсегменту "${subsegment.name}"`);
+            
             
             // Получаем сегмент
             const segment = await this.database.getSegment(subsegment.segment_id);
@@ -1347,7 +1409,7 @@ class FlippingProfitabilityManager {
             }
             const filteredAddressIds = new Set(filteredAddresses.map(a => a.id));
             
-            console.log(`🔧 Адреса сегмента: ${filteredAddresses.length} из ${addresses.length}`);
+            
             
             // Фильтруем объекты: сначала по сегменту (адресам), затем по подсегменту
             this.filteredObjects = this.originalFilteredObjects.filter(obj => {
@@ -1371,7 +1433,7 @@ class FlippingProfitabilityManager {
                 return matchesSubsegment;
             });
             
-            console.log(`🔍 Отфильтровано объектов: ${this.filteredObjects.length} из ${this.originalFilteredObjects.length}`);
+            
             
             // Обновляем интерфейс
             await this.updateInterfaceAfterSubsegmentFilter();
@@ -1386,7 +1448,7 @@ class FlippingProfitabilityManager {
      */
     async clearSubsegmentFilter() {
         try {
-            console.log('🔧 Сброс фильтрации по подсегменту');
+            
             
             this.activeSubsegmentId = null;
             
@@ -1394,7 +1456,7 @@ class FlippingProfitabilityManager {
             if (this.originalFilteredObjects.length > 0) {
                 this.filteredObjects = [...this.originalFilteredObjects];
                 this.originalFilteredObjects = [];
-                console.log(`🔧 Восстановлено объектов: ${this.filteredObjects.length}`);
+                
             }
             
             // Обновляем интерфейс
@@ -1410,23 +1472,23 @@ class FlippingProfitabilityManager {
      */
     async updateInterfaceAfterSubsegmentFilter() {
         try {
-            console.log('🔧 Начато обновление интерфейса после фильтрации подсегмента');
+            
             
             // Обновляем карточки подсегментов (для визуализации активного состояния)
-            console.log('🔧 Обновляем активное состояние карточек...');
+            
             this.updateSubsegmentCardsActiveState();
             
             // Обновляем график
-            console.log('🔧 Обновляем график...');
+            
             await this.updateMarketCorridorChart();
             
             // Обновляем блок объектов для оценки (БЕЗ пересчета карточек подсегментов)
-            console.log('🔧 Обновляем блок объектов для оценки...');
+            
             await this.updateObjectsDisplayOnly();
             
             // Обновляем FlippingController (таблица объектов)
             if (this.flippingController) {
-                console.log('🔧 Обновляем FlippingController таблицу...');
+                
                 
                 // Загружаем адреса для объектов если они не загружены
                 const objectsWithAddresses = await this.loadAddressesForObjects(this.filteredObjects);
@@ -1438,7 +1500,7 @@ class FlippingProfitabilityManager {
                 console.warn('⚠️ FlippingController недоступен');
             }
             
-            console.log('✅ Интерфейс обновлён после изменения фильтрации подсегмента');
+            
             
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка обновления интерфейса:', error);
@@ -1450,7 +1512,7 @@ class FlippingProfitabilityManager {
      */
     async loadAddressesForObjects(objects) {
         try {
-            console.log('🔧 FlippingProfitabilityManager: Загружаем адреса для объектов:', objects.length);
+            
             
             const objectsWithAddresses = [];
             for (const obj of objects) {
@@ -1512,7 +1574,7 @@ class FlippingProfitabilityManager {
             );
             
             if (this.debugEnabled) {
-                console.log(`🔧 Отфильтрованных архивных объектов для обновления сетки: ${objects.length}`);
+                
             }
             
             // НЕ вызываем calculateReferencePrice() чтобы не пересчитывать карточки подсегментов
@@ -1602,7 +1664,7 @@ class FlippingProfitabilityManager {
                 if (selectedBlock) {
                     selectedBlock.classList.add('selected');
                     if (this.debugEnabled) {
-                        console.log('🔧 Восстановлен выбранный объект:', this.selectedObjectId);
+                        
                     }
                 } else if (this.debugEnabled) {
                     console.log('⚠️ Выбранный объект не найден в новом списке:', this.selectedObjectId);
@@ -1618,7 +1680,7 @@ class FlippingProfitabilityManager {
             });
             
             if (this.flippingController && this.flippingController.flippingMap) {
-                console.log('🔧 Обновляем карту FlippingController с отфильтрованными объектами');
+                
                 
                 // При фильтрации по подсегменту показываем на карте ВСЕ объекты сегмента (не только архивные)
                 // чтобы видеть полную картину по домам сегмента
@@ -1644,8 +1706,8 @@ class FlippingProfitabilityManager {
                                 obj.address_id && filteredAddressIds.has(obj.address_id)
                             );
                             
-                            console.log(`🗺️ Объекты для карты: ${objectsForMap.length} из сегмента "${segment.name}" (было ${this.originalFilteredObjects.length})`);
-                            console.log(`🗺️ Адреса сегмента: ${filteredAddresses.length} из ${addresses.length} адресов`);
+                            
+                            
                         } else {
                             console.warn('⚠️ Сегмент не найден для подсегмента:', subsegment.segment_id);
                         }
@@ -1748,7 +1810,7 @@ class FlippingProfitabilityManager {
         try {
             if (!this.filteredObjects || this.filteredObjects.length === 0 || this.evaluations.size === 0) {
                 if (this.debugEnabled) {
-                    console.log(`🔍 Экспозиция подсегмента ${subsegmentId}: нет объектов или оценок`);
+                    
                 }
                 return null;
             }
@@ -1766,7 +1828,7 @@ class FlippingProfitabilityManager {
             
             if (!subsegment) {
                 if (this.debugEnabled) {
-                    console.log(`🔍 Экспозиция: подсегмент ${subsegmentId} не найден среди всех сегментов`);
+                    
                 }
                 return null;
             }
@@ -1783,7 +1845,7 @@ class FlippingProfitabilityManager {
             );
 
             if (this.debugEnabled) {
-                console.log(`🔍 Экспозиция "${subsegment.name}": объектов в подсегменте: ${subsegmentObjects.length}, оценённых: ${evaluatedObjects.length}`);
+                
             }
 
             if (evaluatedObjects.length === 0) {
@@ -1862,6 +1924,18 @@ class FlippingProfitabilityManager {
     setButtonInactive(button) {
         button.classList.remove('bg-blue-500', 'text-white', 'border-blue-500', 'hover:bg-blue-600');
         button.classList.add('bg-white', 'text-gray-700', 'border-gray-300', 'hover:bg-gray-100', 'hover:border-gray-400');
+    }
+
+    /**
+     * Обновление таблицы объектов для инвестирования
+     */
+    updateInvestmentTable() {
+        // Этот метод обновляет таблицу объектов для оценки
+        // Функциональность интегрирована с новой архитектурой v0.1
+        // Обновление происходит через FlippingController
+        if (this.flippingController && this.filteredObjects) {
+            this.flippingController.filteredObjects = this.filteredObjects;
+        }
     }
 
     /**
@@ -2279,11 +2353,20 @@ class FlippingProfitabilityManager {
                 // Загружаем адреса для корректного отображения
                 await this.loadAddresses();
                 
+                // Карта управляется FlippingController через FlippingMap
+                // Убираем дублирующую инициализацию
+                
                 // Загружаем данные на карту
                 await this.loadMapData();
                 
                 // Создаём график коридора рынка
                 await this.createMarketCorridorChart();
+                
+                // Синхронизируем объекты с FlippingController перед обновлением UI
+                if (this.flippingController && this.flippingController.filteredObjects) {
+                    this.filteredObjects = this.flippingController.filteredObjects;
+                    // Синхронизированы объекты с FlippingController (legacy)
+                }
                 
                 // Обновляем панель объектов
                 await this.updateObjectsDisplay();
@@ -2338,12 +2421,21 @@ class FlippingProfitabilityManager {
             // Загружаем адреса для корректного отображения
             await this.loadAddresses();
             
+            // Карта управляется FlippingController через FlippingMap
+            // Убираем дублирующую инициализацию
+            
             // Обновляем карту в legacy режиме
             await this.loadMapData();
             
             // Создаём график коридора рынка
             await this.createMarketCorridorChart();
             
+            // Синхронизируем объекты с FlippingController перед обновлением UI
+            if (this.flippingController && this.flippingController.filteredObjects) {
+                this.filteredObjects = this.flippingController.filteredObjects;
+                // Синхронизированы объекты с FlippingController
+            }
+
             // Обновляем панель объектов
             await this.updateObjectsDisplay();
             
@@ -2461,7 +2553,7 @@ class FlippingProfitabilityManager {
         try {
             if (this.evaluationSelect) {
                 // Простая заглушка для обновления состояния
-                console.log('🔧 FlippingProfitabilityManager: Обновление состояния селектора оценки');
+                
             }
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка обновления состояния селектора:', error);
@@ -2473,7 +2565,7 @@ class FlippingProfitabilityManager {
      */
     async loadAddresses() {
         try {
-            console.log('🔧 FlippingProfitabilityManager: Загрузка адресов (заглушка)');
+            
             // Адреса теперь загружаются через FlippingController
             return [];
         } catch (error) {
@@ -2482,14 +2574,19 @@ class FlippingProfitabilityManager {
         }
     }
 
+    // Методы карты удалены - карта управляется FlippingController через FlippingMap
+
     /**
-     * Загрузка данных на карту (заглушка для совместимости)
+     * Загрузка данных на карту (через FlippingController)
      */
     async loadMapData() {
         try {
-            console.log('🔧 FlippingProfitabilityManager: Загрузка данных на карту (заглушка)');
-            // Карта теперь управляется через FlippingController
-            return;
+            
+            
+            // Карта обновляется через FlippingController в updateObjectsDisplay
+            if (this.flippingController) {
+                await this.flippingController.updateUIComponents();
+            }
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка загрузки данных на карту:', error);
         }
@@ -2505,7 +2602,7 @@ class FlippingProfitabilityManager {
                 return;
             }
 
-            console.log('📊 FlippingProfitabilityManager: Создание графика рыночного коридора');
+            
             
             // Подготавливаем данные для графика
             const chartData = this.prepareChartData();
@@ -2563,7 +2660,7 @@ class FlippingProfitabilityManager {
             this.marketCorridorChart = new ApexCharts(this.chartContainer, options);
             await this.marketCorridorChart.render();
 
-            console.log('✅ FlippingProfitabilityManager: График создан с данными:', chartData?.length || 0);
+            
 
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка создания графика:', error);
@@ -2575,7 +2672,7 @@ class FlippingProfitabilityManager {
      */
     async updateMarketCorridorChart() {
         try {
-            console.log('📊 FlippingProfitabilityManager: Обновление графика рыночного коридора');
+            
             
             if (!this.marketCorridorChart) {
                 await this.createMarketCorridorChart();
@@ -2588,7 +2685,7 @@ class FlippingProfitabilityManager {
             // Обновляем серии данных
             if (chartData && chartData.length > 0) {
                 this.marketCorridorChart.updateSeries(chartData);
-                console.log('✅ FlippingProfitabilityManager: График обновлен с новыми данными');
+                
             }
 
         } catch (error) {
@@ -2638,7 +2735,7 @@ class FlippingProfitabilityManager {
      */
     handleChartClick(config) {
         try {
-            console.log('🔍 FlippingProfitabilityManager: Клик по графику:', config);
+            
             // Обработка клика по точке графика
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка обработки клика по графику:', error);
@@ -2650,12 +2747,12 @@ class FlippingProfitabilityManager {
      */
     async updateObjectsDisplay() {
         try {
-            console.log('🔧 FlippingProfitabilityManager: Обновление отображения объектов');
+            
             
             // Обновляем таблицу через FlippingController
             if (this.flippingController && this.flippingController.flippingTable) {
                 await this.flippingController.flippingTable.updateData(this.filteredObjects, this.currentFilters);
-                console.log('✅ Таблица объектов обновлена');
+                
             }
 
             // Обновляем карту через FlippingController  
@@ -2670,12 +2767,12 @@ class FlippingProfitabilityManager {
                 const uniqueAddresses = Array.from(addressMap.values());
                 
                 await this.flippingController.flippingMap.updateAddresses(uniqueAddresses, this.currentFilters, this.filteredObjects);
-                console.log('✅ Карта объектов обновлена');
+                
             }
 
             // Обновляем график
             await this.updateMarketCorridorChart();
-            console.log('✅ График обновлен');
+            
 
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка обновления отображения объектов:', error);

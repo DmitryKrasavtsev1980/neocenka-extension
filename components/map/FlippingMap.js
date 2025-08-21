@@ -39,26 +39,17 @@ class FlippingMap {
             const mapPanelContainer = document.getElementById('mapPanelContainer');
             const mapPanelContent = document.getElementById('mapPanelContent');
             const mapPanelCheckbox = document.getElementById('mapPanel');
-            
-            console.log('🗺️ FlippingMap: Проверка видимости панели карты:', {
-                container: !!mapPanelContainer,
-                content: !!mapPanelContent,
-                checkbox: !!mapPanelCheckbox,
-                containerHidden: mapPanelContainer?.classList.contains('hidden'),
-                contentHidden: mapPanelContent?.classList.contains('hidden'),
-                checkboxChecked: mapPanelCheckbox?.checked
-            });
 
             // Убираем класс hidden с контейнера панели
             if (mapPanelContainer && mapPanelContainer.classList.contains('hidden')) {
                 mapPanelContainer.classList.remove('hidden');
-                console.log('🗺️ FlippingMap: Убрали hidden с контейнера панели карты');
+                
             }
 
             // Убираем класс hidden с содержимого панели
             if (mapPanelContent && mapPanelContent.classList.contains('hidden')) {
                 mapPanelContent.classList.remove('hidden');
-                console.log('🗺️ FlippingMap: Убрали hidden с содержимого панели карты');
+                
                 
                 // Обновляем чекбокс
                 if (mapPanelCheckbox && !mapPanelCheckbox.checked) {
@@ -86,7 +77,7 @@ class FlippingMap {
                     if (parent.classList.contains('h-80')) {
                         parent.classList.remove('h-80');
                         parent.style.height = '500px';
-                        console.log('🗺️ FlippingMap: Убрали ограничение высоты h-80 с родителя');
+                        
                     }
                     
                     // Убеждаемся, что контейнер не имеет ограничений высоты
@@ -103,7 +94,7 @@ class FlippingMap {
                     mapPanelContent.style.minHeight = '500px';
                 }
                 
-                console.log('🗺️ FlippingMap: Принудительно установили размеры карты');
+                
             }
 
         } catch (error) {
@@ -123,18 +114,8 @@ class FlippingMap {
             // Принудительно открываем панель карты
             this.ensureMapPanelVisible();
 
-            console.log('🗺️ FlippingMap: Инициализация карты, элемент:', {
-                id: this.mapElementId,
-                element: this.mapElement,
-                width: this.mapElement.offsetWidth,
-                height: this.mapElement.offsetHeight,
-                parentWidth: this.mapElement.parentElement?.offsetWidth,
-                parentHeight: this.mapElement.parentElement?.offsetHeight
-            });
-
             // Дополнительная проверка размеров перед инициализацией Leaflet
             if (this.mapElement.offsetWidth === 0 || this.mapElement.offsetHeight === 0) {
-                console.warn('🗺️ FlippingMap: Размеры карты всё ещё 0x0, применяем экстренные меры');
                 this.mapElement.style.height = '500px !important';
                 this.mapElement.style.width = '100% !important';
                 
@@ -157,29 +138,17 @@ class FlippingMap {
             // Принудительная установка размера карты - несколько попыток
             setTimeout(() => {
                 this.map.invalidateSize();
-                console.log('🗺️ FlippingMap: Размер карты обновлён (попытка 1)', {
-                    width: this.mapElement.offsetWidth,
-                    height: this.mapElement.offsetHeight
-                });
             }, 100);
 
             setTimeout(() => {
                 this.map.invalidateSize();
-                console.log('🗺️ FlippingMap: Размер карты обновлён (попытка 2)', {
-                    width: this.mapElement.offsetWidth,
-                    height: this.mapElement.offsetHeight
-                });
             }, 300);
 
             setTimeout(() => {
                 this.map.invalidateSize();
-                console.log('🗺️ FlippingMap: Размер карты обновлён (попытка 3)', {
-                    width: this.mapElement.offsetWidth,
-                    height: this.mapElement.offsetHeight
-                });
             }, 1000);
 
-            console.log('🏠 FlippingMap: Карта инициализирована');
+            
         } catch (error) {
             console.error('❌ FlippingMap: Ошибка инициализации:', error);
             throw error;
@@ -201,11 +170,11 @@ class FlippingMap {
             this.clearMarkers();
 
             if (this.addresses.length === 0) {
-                console.log('🏠 FlippingMap: Нет адресов для отображения');
+                
                 return;
             }
 
-            console.log(`🗺️ FlippingMap: Простое отображение ${this.addresses.length} адресов на карте`);
+            
             
             // Создаём простые маркеры для каждого адреса
             for (let index = 0; index < this.addresses.length; index++) {
@@ -215,20 +184,19 @@ class FlippingMap {
                     this.markers.push(marker);
                     marker.addTo(this.map);
                     
-                    console.log(`✅ Маркер ${index + 1} добавлен на карту. Адрес:`, address.address_string || address.address);
+                    
                 } else {
-                    console.warn(`⚠️ Не удалось создать маркер для адреса ${index + 1}:`, address.id);
                 }
             }
 
             // Проверяем финальное состояние карты
-            console.log(`🗺️ Итого маркеров на карте: ${this.markers.length}`);
+            
             
             // Принудительная перерисовка карты через небольшую задержку
             setTimeout(() => {
                 if (this.map) {
                     this.map.invalidateSize(true);
-                    console.log('🗺️ Принудительная перерисовка карты выполнена');
+                    
                 }
             }, 500);
             
@@ -236,7 +204,6 @@ class FlippingMap {
             if (this.markers.length > 0) {
                 this.fitMapToMarkers();
             } else {
-                console.warn('⚠️ FlippingMap: Нет маркеров для подгонки карты');
             }
             
         } catch (error) {
@@ -259,7 +226,6 @@ class FlippingMap {
         }
         
         const addresses = Array.from(addressMap.values());
-        console.log(`🔄 FlippingMap: Конвертируем ${objects?.length || 0} объектов в ${addresses.length} уникальных адресов`);
         
         // Передаём объекты для расчёта доходности
         return this.updateAddresses(addresses, profitabilityParameters, objects);
@@ -271,7 +237,6 @@ class FlippingMap {
     async createAddressMarker(address) {
         // Проверяем готовность базы данных
         if (!window.db || !window.db.db) {
-            console.warn('🔍 FlippingMap: База данных не готова для создания маркера');
             return this.createSimpleAddressMarker(address);
         }
 
@@ -300,19 +265,12 @@ class FlippingMap {
                 const profitabilityService = window.flippingProfitabilityService || 
                                             (window.flippingController?.profitabilityService) ||
                                             (window.areaPage?.reportsManager?.flippingProfitabilityManager?.profitabilityService);
-                console.log(`🔍 Доступные сервисы доходности:`, {
-                    window_flippingProfitabilityService: !!window.flippingProfitabilityService,
-                    flippingController_service: !!(window.flippingController?.profitabilityService),
-                    manager_service: !!(window.areaPage?.reportsManager?.flippingProfitabilityManager?.profitabilityService),
-                    final_service: !!profitabilityService
-                });
                 
                 // Получаем объекты по данному адресу через переданные данные
                 // Так как объекты уже переданы в updateAddresses через FlippingController
                 // мы можем использовать их напрямую
                 if (this.cachedObjects && this.cachedObjects.length > 0) {
                     const objectsAtAddress = this.cachedObjects.filter(obj => obj.address_id === address.id);
-                    console.log(`🔍 Объекты для адреса ${address.id}:`, objectsAtAddress.length, objectsAtAddress.map(o => o.id));
                     
                     if (objectsAtAddress.length > 0) {
                         let maxProfitability = -Infinity;
@@ -324,45 +282,28 @@ class FlippingMap {
                                                         (window.flippingController?.profitabilityService) ||
                                                         (window.areaPage?.reportsManager?.flippingProfitabilityManager?.profitabilityService);
                             
-                            console.log(`🔍 Расчёт доходности для объекта ${obj.id}:`, {
-                                hasService: !!profitabilityService,
-                                objData: {
-                                    id: obj.id,
-                                    price: obj.current_price || obj.price,
-                                    area: obj.area_total || obj.area,
-                                    property_type: obj.property_type
-                                },
-                                filters: this.currentFilters
-                            });
-                            
                             if (profitabilityService) {
                                 try {
                                     const profitabilityResult = profitabilityService.calculateFlippingProfitability(obj, this.currentFilters);
-                                    console.log(`📊 Результат расчёта для объекта ${obj.id}:`, profitabilityResult);
                                     
                                     if (profitabilityResult && profitabilityResult.annualROI) {
                                         maxProfitability = Math.max(maxProfitability, profitabilityResult.annualROI);
-                                        console.log(`✅ Доходность для объекта ${obj.id}: ${profitabilityResult.annualROI.toFixed(1)}%`);
+                                        
                                     } else {
-                                        console.warn(`⚠️ Результат расчёта пустой для объекта ${obj.id}`);
                                     }
                                 } catch (error) {
-                                    console.warn(`⚠️ Ошибка расчёта доходности для объекта ${obj.id}:`, error);
                                 }
                             } else {
-                                console.warn('⚠️ FlippingProfitabilityService не найден');
                             }
                         }
                         
                         if (maxProfitability !== -Infinity) {
                             labelText = `${maxProfitability.toFixed(1)}%`;
-                            console.log(`✅ Максимальная доходность для адреса ${address.id}: ${labelText}`);
+                            
                         } else {
                             labelText = '';
-                            console.log(`⚠️ Не удалось рассчитать доходность для адреса ${address.id}`);
                         }
                     } else {
-                        console.log(`ℹ️ Нет объектов для адреса ${address.id}`);
                     }
                 } else {
                     // Попытка получить через БД как fallback
@@ -383,7 +324,6 @@ class FlippingMap {
                                             maxProfitability = Math.max(maxProfitability, profitabilityResult.annualROI);
                                         }
                                     } catch (error) {
-                                        console.warn(`⚠️ Ошибка расчёта доходности (fallback) для объекта ${obj.id}:`, error);
                                     }
                                 }
                             }
@@ -395,7 +335,6 @@ class FlippingMap {
                     }
                 }
             } catch (error) {
-                console.warn('FlippingMap: Не удалось рассчитать доходность для адреса:', address.id, error);
             }
         }
         
@@ -422,21 +361,12 @@ class FlippingMap {
             markerColor = '#3b82f6';
         }
         
-        // Отладка структуры адреса
-        console.log('🔍 FlippingMap: Структура адреса:', {
-            id: address.id,
-            address_string: address.address_string,
-            address: address.address,
-            coordinates: address.coordinates,
-            allFields: Object.keys(address),
-            fullAddress: address
-        });
+        // Отладка структуры адреса - отключена
         
         // Получаем координаты (используем точно тот же формат, что и FlippingProfitabilityManager)
         let lat = address.coordinates?.lat;
         let lng = address.coordinates?.lng;
         
-        console.log('🔍 FlippingMap: Координаты адреса:', { lat, lng, coordinates: address.coordinates });
         
         if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
             console.error('❌ FlippingMap: Не удалось найти координаты для адреса:', {
@@ -450,10 +380,6 @@ class FlippingMap {
             return null;
         }
         
-        console.log('🔍 FlippingMap: Создаем маркер с параметрами:', {
-            lat, lng, markerHeight, markerColor, labelText, labelTextColor, labelBackground
-        });
-        
         // Используем circleMarker - он всегда видимый и не требует иконок
         const marker = L.circleMarker([lat, lng], {
             radius: 8,
@@ -464,7 +390,7 @@ class FlippingMap {
             fillOpacity: 0.8,
         });
         
-        console.log('✅ FlippingMap: Треугольный маркер создан (копия из FlippingProfitabilityManager) с координатами:', [lat, lng]);
+        
         
 
         // Сохраняем данные адреса в маркере для оптимизации
@@ -552,7 +478,6 @@ class FlippingMap {
                 objectsGroup = await window.db.getObjectsByAddress(address.id) || [];
             }
         } catch (error) {
-            console.warn('FlippingMap: Не удалось загрузить объекты для popup адреса:', address.id, error);
         }
         
         const objectCount = objectsGroup.length;
@@ -748,7 +673,7 @@ class FlippingMap {
         }
 
         if (this.debugEnabled) {
-            console.log('🏠 FlippingMap: Выбран адрес:', addressKey, 'объектов:', objectsGroup.length);
+            
         }
     }
 
@@ -765,7 +690,7 @@ class FlippingMap {
         }
 
         if (this.debugEnabled) {
-            console.log('🏠 FlippingMap: Выбран объект:', obj.id);
+            
         }
     }
 
@@ -850,7 +775,7 @@ class FlippingMap {
         }
 
         if (this.debugEnabled) {
-            console.log('🏠 FlippingMap: Карта уничтожена');
+            
         }
     }
 }

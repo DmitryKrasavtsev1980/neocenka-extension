@@ -196,14 +196,6 @@ class FlippingController extends EventTarget {
                 throw new Error('Не выбрана область для анализа');
             }
             
-            console.log('🔧 FlippingController: Загружаем объекты с фильтрами:', {
-                areaId: currentArea.id,
-                globalSegmentId,
-                globalSubsegmentId,
-                dateFrom: dateFrom.toISOString(),
-                dateTo: dateTo.toISOString()
-            });
-            
             // Используем тот же метод что и FlippingProfitabilityManager для согласованности
             this.objects = await this.getFilteredObjectsFromReportsManager(
                 currentArea.id, globalSegmentId, globalSubsegmentId, dateFrom, dateTo
@@ -235,16 +227,6 @@ class FlippingController extends EventTarget {
                 ...obj,
                 profitability: this.realEstateObjectService.calculateProfitability(obj, this.currentFilters)
             }));
-
-            console.log('🔧 FlippingController: Проверка адресов у объектов:', 
-                this.filteredObjects.map(obj => ({
-                    id: obj.id,
-                    hasAddress: !!obj.address,
-                    addressId: obj.address_id,
-                    addressString: obj.address?.address_string,
-                    hasCoords: !!(obj.address?.latitude && obj.address?.longitude)
-                }))
-            );
 
             // Обновляем UI компоненты
             await this.updateUIComponents();
@@ -308,8 +290,8 @@ class FlippingController extends EventTarget {
                 }
                 
                 const uniqueAddresses = Array.from(addressMap.values());
-                console.log(`🔄 FlippingController: Обновляем карту с ${uniqueAddresses.length} уникальными адресами из ${this.filteredObjects.length} объектов`);
-                console.log(`📍 Передаём объекты для расчёта доходности:`, this.filteredObjects.length);
+                
+                
                 
                 // Передаём и адреса, и объекты для расчёта доходности
                 await this.flippingMap.updateAddresses(uniqueAddresses, this.currentFilters, this.filteredObjects);
@@ -475,15 +457,6 @@ ${address}
                             allObjects.push(...addressObjects);
                         }
                         
-                        console.log('🔧 FlippingController: Загружено объектов через fallback:', allObjects.length);
-                        console.log('🔧 FlippingController: Первые 3 объекта:', allObjects.slice(0, 3).map(obj => ({
-                            id: obj.id,
-                            hasAddress: !!obj.address,
-                            addressId: obj.address_id,
-                            addressString: obj.address?.address_string,
-                            hasCoords: !!(obj.address?.latitude && obj.address?.longitude)
-                        })));
-                        
                         return allObjects;
                     }
                     return [];
@@ -514,13 +487,7 @@ ${address}
      */
     async applyFiltersWithAreaAndReportsManager(currentArea, globalFilters = {}, reportsManager = null) {
         try {
-            if (this.debugEnabled) {
-                console.log('🔧 FlippingController: applyFiltersWithAreaAndReportsManager вызван с:', {
-                    areaId: currentArea?.id,
-                    globalFilters,
-                    hasReportsManager: !!reportsManager
-                });
-            }
+            // Debug отключен
             
             if (!currentArea) {
                 throw new Error('Не передана область для анализа');
@@ -535,15 +502,7 @@ ${address}
             const dateFrom = this.currentFilters.globalDateFrom || new Date('2023-01-01');
             const dateTo = this.currentFilters.globalDateTo || new Date();
             
-            if (this.debugEnabled) {
-                console.log('🔧 FlippingController: Загружаем объекты с параметрами:', {
-                    areaId: currentArea.id,
-                    globalSegmentId,
-                    globalSubsegmentId,
-                    dateFrom: dateFrom.toISOString(),
-                    dateTo: dateTo.toISOString()
-                });
-            }
+            // Debug отключен
             
             // Используем переданный ReportsManager если доступен
             if (reportsManager && typeof reportsManager.getFilteredRealEstateObjects === 'function') {
@@ -562,7 +521,7 @@ ${address}
             }
             
             if (this.debugEnabled) {
-                console.log('🔧 FlippingController: Загружено объектов:', this.objects.length);
+                
             }
             
             if (this.objects.length === 0) {
@@ -593,7 +552,7 @@ ${address}
             }));
             
             if (this.debugEnabled) {
-                console.log('🔧 FlippingController: Отфильтрованных объектов:', this.filteredObjects.length);
+                
             }
             
             // Обновляем UI компоненты
@@ -629,12 +588,7 @@ ${address}
      */
     async applyFiltersWithArea(currentArea, globalFilters = {}) {
         try {
-            if (this.debugEnabled) {
-                console.log('🔧 FlippingController: applyFiltersWithArea вызван с:', {
-                    areaId: currentArea?.id,
-                    globalFilters
-                });
-            }
+            // Debug отключен
             
             if (!currentArea) {
                 throw new Error('Не передана область для анализа');
@@ -649,15 +603,7 @@ ${address}
             const dateFrom = this.currentFilters.globalDateFrom || new Date('2023-01-01');
             const dateTo = this.currentFilters.globalDateTo || new Date();
             
-            if (this.debugEnabled) {
-                console.log('🔧 FlippingController: Загружаем объекты с параметрами:', {
-                    areaId: currentArea.id,
-                    globalSegmentId,
-                    globalSubsegmentId,
-                    dateFrom: dateFrom.toISOString(),
-                    dateTo: dateTo.toISOString()
-                });
-            }
+            // Debug отключен
             
             // Загружаем объекты через ReportsManager
             this.objects = await this.getFilteredObjectsFromReportsManager(
@@ -669,7 +615,7 @@ ${address}
             }
             
             if (this.debugEnabled) {
-                console.log('🔧 FlippingController: Загружено объектов:', this.objects.length);
+                
             }
             
             if (this.objects.length === 0) {
@@ -700,7 +646,7 @@ ${address}
             }));
             
             if (this.debugEnabled) {
-                console.log('🔧 FlippingController: Отфильтрованных объектов:', this.filteredObjects.length);
+                
             }
             
             // Обновляем UI компоненты
