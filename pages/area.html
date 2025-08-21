@@ -2129,19 +2129,38 @@
                                                     <!-- Форма раздела прибыли (условное поле) -->
                                                     <div class="conditional-field mb-4 hidden" id="flippingProfitSharingSection">
                                                         <label class="block text-sm font-medium text-gray-700 mb-2">Форма раздела прибыли</label>
-                                                        <div class="flex flex-wrap gap-2">
-                                                            <button type="button" class="px-3 py-1.5 text-sm border border-blue-500 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors" data-profit-sharing="50/50">50/50</button>
-                                                            <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-100 hover:border-gray-400 transition-colors" data-profit-sharing="40/60">40/60</button>
-                                                            <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-100 hover:border-gray-400 transition-colors" data-profit-sharing="fix+30/70" id="flippingFixPlus3070">фикс+30/70</button>
-                                                            <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-100 hover:border-gray-400 transition-colors" data-profit-sharing="fix/100" id="flippingFix100">фикс/100</button>
+                                                        <div class="flex gap-2 mb-3">
+                                                            <button type="button" class="px-3 py-1.5 text-sm border border-blue-500 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors" data-profit-sharing="percentage" id="flippingProfitSharingPercentage">Раздел в %</button>
+                                                            <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-100 hover:border-gray-400 transition-colors" data-profit-sharing="fix-plus-percentage" id="flippingProfitSharingFixPlus">Фикс + %</button>
                                                         </div>
-                                                    </div>
-
-                                                    <!-- Размер фиксированной оплаты (условное поле) -->
-                                                    <div class="conditional-field mb-4 hidden" id="flippingFixedPaymentSection">
-                                                        <label for="flippingFixedPayment" class="block text-sm font-medium text-gray-700 mb-2">Размер фиксированной оплаты</label>
-                                                        <input type="number" id="flippingFixedPayment" value="250000" 
-                                                               class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                        
+                                                        <!-- Настройка процентов для раздела -->
+                                                        <div id="flippingProfitPercentageSettings" class="space-y-2">
+                                                            <div>
+                                                                <label for="flippingFlipperPercentage" class="block text-xs font-medium text-gray-600 mb-1">Процент флиппера</label>
+                                                                <input type="number" id="flippingFlipperPercentage" value="50" min="0" max="100"
+                                                                       class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                            </div>
+                                                            <div>
+                                                                <label for="flippingInvestorPercentage" class="block text-xs font-medium text-gray-600 mb-1">Процент инвестора</label>
+                                                                <input type="number" id="flippingInvestorPercentage" value="50" min="0" max="100" readonly
+                                                                       class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-gray-50">
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <!-- Настройка фиксированной оплаты + процент -->
+                                                        <div id="flippingFixedPlusPercentageSettings" class="space-y-2 hidden">
+                                                            <div>
+                                                                <label for="flippingFixedPaymentAmount" class="block text-xs font-medium text-gray-600 mb-1">Фиксированная оплата флиппера, ₽</label>
+                                                                <input type="number" id="flippingFixedPaymentAmount" value="250000"
+                                                                       class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                            </div>
+                                                            <div>
+                                                                <label for="flippingFixedPlusPercentage" class="block text-xs font-medium text-gray-600 mb-1">Процент флиппера с остатка прибыли</label>
+                                                                <input type="number" id="flippingFixedPlusPercentage" value="30" min="0" max="100"
+                                                                       class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                            </div>
+                                                        </div>
                                                     </div>
 
                                                     <!-- Источник финансирования -->
@@ -2222,12 +2241,6 @@
                                                                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                                                     </div>
 
-                                                    <!-- Кнопка применения фильтра -->
-                                                    <div class="pt-4 border-t border-gray-200">
-                                                        <button type="button" id="flippingApplyFilterBtn" class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                            Применить фильтр
-                                                        </button>
-                                                    </div>
 
                                                 </div>
                                             </div>
@@ -2249,7 +2262,7 @@
                                             </div>
                                         </div>
                                         <div class="p-4 bg-white rounded-b-lg">
-                                            <div class="grid grid-cols-3 gap-4 h-96">
+                                            <div class="grid grid-cols-3 gap-4 h-[28rem]">
                                                 <!-- График (2/3 ширины) -->
                                                 <div class="col-span-2">
                                                     <div id="flippingMarketCorridorChart" class="h-full">
@@ -2260,8 +2273,13 @@
                                                 </div>
                                                 
                                                 <!-- Панель объектов (1/3 ширины) -->
-                                                <div class="col-span-1 border-l border-gray-200 pl-4 h-96 overflow-hidden">
+                                                <div class="col-span-1 border-l border-gray-200 pl-4 h-[28rem] overflow-hidden">
                                                     <div class="h-full flex flex-col">
+                                                        <!-- Карточки подсегментов с эталонными ценами -->
+                                                        <div id="referencePriceCardsContainer" class="mb-3 flex-shrink-0 space-y-2 max-h-48 overflow-y-auto pr-2 hidden">
+                                                            <!-- Карточки подсегментов будут динамически добавляться через JavaScript -->
+                                                        </div>
+                                                        
                                                         <h6 class="text-sm font-medium text-gray-900 mb-3 flex-shrink-0">Оценка эталонных объектов</h6>
                                                         
                                                         <!-- Селектор оценки объекта -->
@@ -2275,7 +2293,7 @@
                                                             </select>
                                                         </div>
                                                         
-                                                        <div class="flex-1 overflow-y-auto min-h-0 max-h-72">
+                                                        <div class="flex-1 overflow-y-auto min-h-0 max-h-80">
                                                             <div id="flippingObjectsGrid" class="grid grid-cols-1 gap-2 pr-2">
                                                                 <div class="text-center text-gray-500 py-4 text-sm">
                                                                     Примените фильтры для отображения объектов
@@ -3716,6 +3734,7 @@
     <script src="../services/data/RealEstateObjectService.js"></script>
     
     <!-- UI компоненты v0.1 (должны загружаться ПЕРЕД контроллерами) -->
+    <script src="../services/FlippingProfitabilityService.js"></script>
     <script src="../components/ui/FlippingTable.js"></script>
     <script src="../components/map/FlippingMap.js"></script>
     

@@ -115,20 +115,63 @@ class RealEstateObjectService {
      * Расчёт доходности для объекта (заглушка)
      */
     calculateProfitability(object, parameters) {
-        // TODO: Реализовать расчёт доходности по модели флиппинг
-        
-        // Временная заглушка - случайная доходность от -5% до 35%
-        const mockProfitability = Math.random() * 40 - 5;
-        
-        return {
-            annualReturn: mockProfitability,
-            totalProfit: object.price ? object.price * (mockProfitability / 100) : 0,
-            renovationCosts: parameters.renovationType === 'manual' ? 
-                (parameters.workCost + parameters.materialsCost) : 
-                Math.floor(object.price * 0.15), // 15% от стоимости
-            holdingPeriod: parameters.renovationSpeed * 12, // в месяцах
-            taxAmount: 0 // будет рассчитано позже
-        };
+        try {
+            // Используем FlippingProfitabilityService напрямую если доступен
+            if (window.flippingProfitabilityService) {
+                const flippingService = window.flippingProfitabilityService;
+                
+                // Формируем параметры для расчёта
+                const flippingParams = {
+                    ...parameters,
+                    referencePricePerMeter: parameters.referencePricePerMeter || 150000, // Эталонная цена за м²
+                    averageExposureDays: parameters.averageExposureDays || 60, // Средний срок экспозиции
+                };
+                
+                // Используем FlippingProfitabilityService для расчёта
+                const flippingResult = flippingService.calculateFlippingProfitability({
+                    ...object,
+                    currentPrice: object.price || object.currentPrice,
+                    area: object.area
+                }, flippingParams);
+                
+                // Адаптируем результат под ожидаемый формат
+                return {
+                    annualReturn: flippingResult.annualROI || 0,
+                    totalProfit: flippingResult.netProfit || 0,
+                    renovationCosts: flippingResult.renovationCost || 0,
+                    holdingPeriod: flippingResult.totalProjectMonths || 12,
+                    taxAmount: flippingResult.taxes || 0,
+                    roi: flippingResult.roi || 0,
+                    salePrice: flippingResult.salePrice || 0,
+                    totalCosts: flippingResult.totalCosts || 0
+                };
+            }
+            
+            // Fallback: временная заглушка если FlippingProfitabilityService недоступен
+            const mockProfitability = Math.random() * 40 - 5;
+            
+            return {
+                annualReturn: mockProfitability,
+                totalProfit: object.price ? object.price * (mockProfitability / 100) : 0,
+                renovationCosts: parameters.renovationType === 'manual' ? 
+                    (parameters.workCost + parameters.materialsCost) : 
+                    Math.floor((object.price || 0) * 0.15), // 15% от стоимости
+                holdingPeriod: parameters.renovationSpeed || 12, // в месяцах
+                taxAmount: 0 // будет рассчитано позже
+            };
+            
+        } catch (error) {
+            console.error('❌ RealEstateObjectService: Ошибка расчёта доходности:', error);
+            
+            // Fallback в случае ошибки
+            return {
+                annualReturn: 0,
+                totalProfit: 0,
+                renovationCosts: 0,
+                holdingPeriod: 12,
+                taxAmount: 0
+            };
+        }
     }
 
     /**

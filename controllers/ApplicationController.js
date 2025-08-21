@@ -285,10 +285,20 @@ class ApplicationController {
             console.warn('⚠️ MapController не создан:', error.message);
         }
 
+        // FlippingController - создаем через контейнер (требует асинхронной инициализации)
+        try {
+            const flippingController = await this.container.get('FlippingController');
+            this.controllers.set('FlippingController', flippingController);
+            console.log('✅ FlippingController создан и инициализирован');
+        } catch (error) {
+            console.warn('⚠️ FlippingController не создан:', error.message);
+        }
+
         // Делаем контроллеры доступными глобально для отладки и интеграции
         if (typeof window !== 'undefined') {
             window.segmentController = this.controllers.get('SegmentController');
             window.mapController = this.controllers.get('MapController');
+            window.flippingController = this.controllers.get('FlippingController');
             window.appController = this;
         }
     }

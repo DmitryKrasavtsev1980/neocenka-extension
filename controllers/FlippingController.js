@@ -236,6 +236,15 @@ class FlippingController extends EventTarget {
                 profitability: this.realEstateObjectService.calculateProfitability(obj, this.currentFilters)
             }));
 
+            console.log('🔧 FlippingController: Проверка адресов у объектов:', 
+                this.filteredObjects.map(obj => ({
+                    id: obj.id,
+                    hasAddress: !!obj.address,
+                    addressId: obj.address_id,
+                    addressString: obj.address?.address_string,
+                    hasCoords: !!(obj.address?.latitude && obj.address?.longitude)
+                }))
+            );
 
             // Обновляем UI компоненты
             await this.updateUIComponents();
@@ -274,9 +283,36 @@ class FlippingController extends EventTarget {
                 await this.flippingTable.updateData(this.filteredObjects, this.currentFilters);
             }
 
-            // Обновляем карту
+            // Обновляем карту с адресами (новый подход)
             if (this.flippingMap) {
-                await this.flippingMap.updateObjects(this.filteredObjects, this.currentFilters);
+                // Извлекаем уникальные адреса из отфильтрованных объектов
+                const addressMap = new Map();
+                
+                for (const obj of this.filteredObjects) {
+                    // Проверяем наличие адреса в объекте
+                    if (obj.address && obj.address_id) {
+                        addressMap.set(obj.address_id, obj.address);
+                    } else if (obj.address_id) {
+                        // Если адреса нет в объекте, пытаемся загрузить его
+                        try {
+                            const address = await window.db.getAddress(obj.address_id);
+                            if (address) {
+                                addressMap.set(obj.address_id, address);
+                                // Сохраняем адрес в объекте для дальнейшего использования
+                                obj.address = address;
+                            }
+                        } catch (error) {
+                            console.warn(`⚠️ Не удалось загрузить адрес ${obj.address_id}:`, error);
+                        }
+                    }
+                }
+                
+                const uniqueAddresses = Array.from(addressMap.values());
+                console.log(`🔄 FlippingController: Обновляем карту с ${uniqueAddresses.length} уникальными адресами из ${this.filteredObjects.length} объектов`);
+                console.log(`📍 Передаём объекты для расчёта доходности:`, this.filteredObjects.length);
+                
+                // Передаём и адреса, и объекты для расчёта доходности
+                await this.flippingMap.updateAddresses(uniqueAddresses, this.currentFilters, this.filteredObjects);
             }
 
 
@@ -428,10 +464,26 @@ ${address}
                             for (const obj of addressObjects) {
                                 if (obj.address_id) {
                                     obj.address = await window.db.getAddress(obj.address_id);
+                                } else {
+                                    // Если у объекта нет address_id, но есть address, используем его
+                                    if (!obj.address && address) {
+                                        obj.address = address;
+                                        obj.address_id = address.id;
+                                    }
                                 }
                             }
                             allObjects.push(...addressObjects);
                         }
+                        
+                        console.log('🔧 FlippingController: Загружено объектов через fallback:', allObjects.length);
+                        console.log('🔧 FlippingController: Первые 3 объекта:', allObjects.slice(0, 3).map(obj => ({
+                            id: obj.id,
+                            hasAddress: !!obj.address,
+                            addressId: obj.address_id,
+                            addressString: obj.address?.address_string,
+                            hasCoords: !!(obj.address?.latitude && obj.address?.longitude)
+                        })));
+                        
                         return allObjects;
                     }
                     return [];

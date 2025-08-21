@@ -129,9 +129,25 @@ class FlippingTable {
                     data: null, 
                     title: 'Доходность',
                     render: (data, type, row) => {
-                        // Пока показываем заглушку, в будущем здесь будет расчёт доходности
-                        return `<div class="text-xs text-center">
-                            <span class="text-gray-400">—</span>
+                        // Получаем рассчитанную доходность из объекта
+                        const profitability = row.flippingProfitability;
+                        
+                        if (!profitability) {
+                            return `<div class="text-xs text-center cursor-pointer hover:bg-gray-50 p-1 rounded profitability-details" data-object-id="${row.id}">
+                                <span class="text-gray-400">Расчёт...</span>
+                            </div>`;
+                        }
+
+                        // Определяем цвет по уровню доходности
+                        const annualROI = profitability.annualROI || 0;
+                        let colorClass = 'text-gray-600';
+                        if (annualROI >= 20) colorClass = 'text-green-600';
+                        else if (annualROI >= 10) colorClass = 'text-yellow-600';
+                        else if (annualROI < 0) colorClass = 'text-red-600';
+
+                        return `<div class="text-xs text-center cursor-pointer hover:bg-gray-50 p-1 rounded profitability-details" data-object-id="${row.id}">
+                            <div class="${colorClass} font-medium">${annualROI.toFixed(1)}% год.</div>
+                            <div class="text-gray-400" style="font-size: 10px;">прибыль: ${new Intl.NumberFormat('ru-RU').format(Math.round(profitability.netProfit || 0))} ₽</div>
                         </div>`;
                     }
                 },
@@ -390,6 +406,18 @@ class FlippingTable {
             });
         });
 
+        // Обработчик клика на колонку доходности
+        $(document).off('click', '.profitability-details');
+        $(document).on('click', '.profitability-details', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const objectId = $(e.currentTarget).data('object-id');
+            if (!objectId) return;
+            
+            this.toggleProfitabilityDetails(objectId, e.currentTarget);
+        });
+
         // Обработчик разворачивания объявлений (точная копия из DuplicatesManager)
         $(document).off('click', '.expand-object-listings');
         $(document).on('click', '.expand-object-listings', (e) => {
@@ -548,11 +576,182 @@ class FlippingTable {
     }
 
     /**
+     * Разворачивание/сворачивание подробностей доходности
+     */
+    async toggleProfitabilityDetails(objectId, clickedElement) {
+        try {
+            const row = this.dataTable.row($(clickedElement).closest('tr'));
+            const rowData = row.data();
+            
+            if (!rowData) return;
+            
+            if (row.child.isShown()) {
+                // Сворачиваем
+                row.child.hide();
+                
+                if (this.debugEnabled) {
+                    console.log('🏠 FlippingTable: Свернули детали доходности для объекта:', objectId);
+                }
+            } else {
+                // Разворачиваем - показываем подробный расчёт
+                const profitability = rowData.flippingProfitability;
+                
+                if (!profitability) {
+                    const noProfitabilityContent = `
+                        <div class="p-4 bg-gray-50 text-center text-gray-500 text-sm">
+                            Расчёт доходности недоступен для этого объекта
+                        </div>
+                    `;
+                    row.child(noProfitabilityContent, 'child-row').show();
+                    return;
+                }
+                
+                const childContent = this.createProfitabilityDetailsContent(profitability, rowData);
+                row.child(childContent, 'child-row').show();
+                
+                if (this.debugEnabled) {
+                    console.log('🏠 FlippingTable: Развернули детали доходности для объекта:', objectId);
+                }
+            }
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка отображения деталей доходности:', error);
+        }
+    }
+
+    /**
+     * Создание содержимого с подробным расчётом доходности
+     */
+    createProfitabilityDetailsContent(profitability, objectData) {
+        const current = profitability.currentPrice || profitability;
+        const target = profitability.targetPrice || null;
+
+        const formatCurrency = (amount) => new Intl.NumberFormat('ru-RU').format(Math.round(amount)) + ' ₽';
+        const formatPercent = (percent) => (Math.round(percent * 10) / 10).toFixed(1) + '%';
+
+        let targetColumn = '';
+        if (target) {
+            targetColumn = `
+                <td class="py-2 px-3 text-center">
+                    <div class="text-xs">
+                        <div class="font-medium text-blue-600">${formatCurrency(target.targetPurchasePrice || target.purchasePrice)}</div>
+                        <div class="text-green-600">-${target.discount || 0}%</div>
+                    </div>
+                </td>
+                <td class="py-2 px-3 text-center">${formatCurrency(target.renovationCost)}</td>
+                <td class="py-2 px-3 text-center">${formatCurrency(target.additionalExpenses)}</td>
+                <td class="py-2 px-3 text-center">${formatCurrency(target.taxes)}</td>
+                <td class="py-2 px-3 text-center font-medium">${formatCurrency(target.totalCosts)}</td>
+                <td class="py-2 px-3 text-center">${formatCurrency(target.salePrice)}</td>
+                <td class="py-2 px-3 text-center font-medium text-green-600">${formatCurrency(target.netProfit)}</td>
+                <td class="py-2 px-3 text-center font-bold text-green-600">${formatPercent(target.annualROI)}</td>
+                <td class="py-2 px-3 text-center">${target.totalProjectMonths} мес.</td>
+            `;
+        } else {
+            targetColumn = '<td colspan="9" class="py-2 px-3 text-center text-gray-400 text-xs">Расчёт целевой цены недоступен</td>';
+        }
+
+        // Раздел прибыли
+        let profitSharingContent = '';
+        if (current.profitSharing && current.profitSharing.flipper > 0) {
+            profitSharingContent = `
+                <div class="mt-3 pt-3 border-t border-gray-200">
+                    <h6 class="text-xs font-medium text-gray-700 mb-2">Раздел прибыли:</h6>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="bg-blue-50 p-2 rounded">
+                            <div class="font-medium text-blue-700">Флиппер</div>
+                            <div class="text-blue-600">${formatCurrency(current.profitSharing.flipper)}</div>
+                            <div class="text-gray-500">${current.profitSharing.flipperPercent || 100}%</div>
+                        </div>
+                        <div class="bg-gray-50 p-2 rounded">
+                            <div class="font-medium text-gray-700">Инвестор</div>
+                            <div class="text-gray-600">${formatCurrency(current.profitSharing.investor || 0)}</div>
+                            <div class="text-gray-500">${current.profitSharing.investorPercent || 0}%</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="p-4 bg-gray-50">
+                <div class="text-sm font-medium text-gray-700 mb-3">
+                    Расчёт доходности для объекта #${objectData.id}
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs border border-gray-300">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="py-2 px-3 text-left border-r">Параметр</th>
+                                <th class="py-2 px-3 text-center border-r">При тек. цене</th>
+                                ${target ? '<th class="py-2 px-3 text-center">Цель. цена</th>' : ''}
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white">
+                            <tr class="border-t">
+                                <td class="py-2 px-3 font-medium border-r">Покупка</td>
+                                <td class="py-2 px-3 text-center border-r">${formatCurrency(current.purchasePrice)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center">
+                                    <div class="text-blue-600 font-medium">${formatCurrency(target.targetPurchasePrice || target.purchasePrice)}</div>
+                                    <div class="text-green-600 text-xs">-${target.discount || 0}%</div>
+                                </td>` : ''}
+                            </tr>
+                            <tr class="border-t">
+                                <td class="py-2 px-3 font-medium border-r">Ремонт</td>
+                                <td class="py-2 px-3 text-center border-r">${formatCurrency(current.renovationCost)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center">${formatCurrency(target.renovationCost)}</td>` : ''}
+                            </tr>
+                            <tr class="border-t">
+                                <td class="py-2 px-3 font-medium border-r">Доп. расходы</td>
+                                <td class="py-2 px-3 text-center border-r">${formatCurrency(current.additionalExpenses)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center">${formatCurrency(target.additionalExpenses)}</td>` : ''}
+                            </tr>
+                            <tr class="border-t">
+                                <td class="py-2 px-3 font-medium border-r">Налоги</td>
+                                <td class="py-2 px-3 text-center border-r">${formatCurrency(current.taxes)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center">${formatCurrency(target.taxes)}</td>` : ''}
+                            </tr>
+                            <tr class="border-t bg-gray-50">
+                                <td class="py-2 px-3 font-bold border-r">Всего вложения</td>
+                                <td class="py-2 px-3 text-center font-bold border-r">${formatCurrency(current.totalCosts)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center font-bold">${formatCurrency(target.totalCosts)}</td>` : ''}
+                            </tr>
+                            <tr class="border-t">
+                                <td class="py-2 px-3 font-medium border-r">Продажа</td>
+                                <td class="py-2 px-3 text-center border-r">${formatCurrency(current.salePrice)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center">${formatCurrency(target.salePrice)}</td>` : ''}
+                            </tr>
+                            <tr class="border-t bg-green-50">
+                                <td class="py-2 px-3 font-bold border-r">Прибыль</td>
+                                <td class="py-2 px-3 text-center font-bold text-green-600 border-r">${formatCurrency(current.netProfit)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center font-bold text-green-600">${formatCurrency(target.netProfit)}</td>` : ''}
+                            </tr>
+                            <tr class="border-t bg-blue-50">
+                                <td class="py-2 px-3 font-bold border-r">Доходность</td>
+                                <td class="py-2 px-3 text-center font-bold text-blue-600 border-r">${formatPercent(current.annualROI)} год.</td>
+                                ${target ? `<td class="py-2 px-3 text-center font-bold text-blue-600">${formatPercent(target.annualROI)} год.</td>` : ''}
+                            </tr>
+                            <tr class="border-t">
+                                <td class="py-2 px-3 font-medium border-r">Срок проекта</td>
+                                <td class="py-2 px-3 text-center border-r">${current.totalProjectMonths} мес.</td>
+                                ${target ? `<td class="py-2 px-3 text-center">${target.totalProjectMonths} мес.</td>` : ''}
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                ${profitSharingContent}
+            </div>
+        `;
+    }
+
+    /**
      * Уничтожение таблицы
      */
     destroy() {
         // Удаляем обработчики событий
         $(document).off('click', '.expand-object-listings');
+        $(document).off('click', '.profitability-details');
         
         if (this.dataTable) {
             this.dataTable.destroy();

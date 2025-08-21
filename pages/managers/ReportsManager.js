@@ -3900,34 +3900,42 @@ class ReportsManager {
      * Проверка соответствия объекта подсегменту
      */
     objectMatchesSubsegment(object, subsegment) {
-        // Проверяем тип недвижимости
-        if (subsegment.property_type && subsegment.property_type.length > 0) {
-            if (!subsegment.property_type.includes(object.property_type)) {
+        // Получаем фильтры подсегмента
+        const filters = subsegment.filters;
+        if (!filters) {
+            return true; // Если нет фильтров, объект подходит
+        }
+        
+        // Проверяем тип недвижимости (комнатность)
+        if (filters.property_type && filters.property_type.length > 0) {
+            if (!filters.property_type.includes(object.property_type)) {
                 return false;
             }
         }
         
-        // Проверяем площадь
-        if (subsegment.area_min && object.area < subsegment.area_min) {
+        // Проверяем площадь (используем area_total для объектов)
+        const objectArea = object.area_total || object.area;
+        if (filters.area_from && objectArea < filters.area_from) {
             return false;
         }
-        if (subsegment.area_max && object.area > subsegment.area_max) {
+        if (filters.area_to && objectArea > filters.area_to) {
             return false;
         }
         
         // Проверяем этаж
-        if (subsegment.floor_min && object.floor < subsegment.floor_min) {
+        if (filters.floor_from && object.floor < filters.floor_from) {
             return false;
         }
-        if (subsegment.floor_max && object.floor > subsegment.floor_max) {
+        if (filters.floor_to && object.floor > filters.floor_to) {
             return false;
         }
         
-        // Проверяем цену
-        if (subsegment.price_min && object.price < subsegment.price_min) {
+        // Проверяем цену (используем current_price для объектов)
+        const objectPrice = object.current_price || object.price;
+        if (filters.price_from && objectPrice < filters.price_from) {
             return false;
         }
-        if (subsegment.price_max && object.price > subsegment.price_max) {
+        if (filters.price_to && objectPrice > filters.price_to) {
             return false;
         }
         
