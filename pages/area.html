@@ -81,27 +81,6 @@
             display: none !important;
         }
 
-        /* Стили для блоков объектов в флиппинг отчёте */
-        .flipping-object-block {
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 8px;
-            cursor: pointer;
-            background: white;
-            transition: all 0.15s ease;
-            font-size: 11px;
-            line-height: 1.3;
-        }
-
-        .flipping-object-block:hover {
-            border-color: #3b82f6;
-            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
-        }
-
-        .flipping-object-block.selected {
-            border-color: #3b82f6;
-            background-color: #eff6ff;
-        }
 
         .flipping-object-block .object-price {
             font-size: 14px !important;
@@ -2276,7 +2255,7 @@
                                                 <div class="col-span-1 border-l border-gray-200 pl-4 h-[28rem] overflow-hidden">
                                                     <div class="h-full flex flex-col">
                                                         <!-- Карточки подсегментов с эталонными ценами -->
-                                                        <div id="referencePriceCardsContainer" class="mb-3 flex-shrink-0 space-y-2 max-h-48 overflow-y-auto pr-2 hidden">
+                                                        <div id="referencePriceCardsContainer" class="mb-3 flex-shrink-0 flex flex-col gap-2 max-h-48 overflow-y-auto p-2 hidden">
                                                             <!-- Карточки подсегментов будут динамически добавляться через JavaScript -->
                                                         </div>
                                                         
@@ -2294,7 +2273,7 @@
                                                         </div>
                                                         
                                                         <div class="flex-1 overflow-y-auto min-h-0 max-h-80">
-                                                            <div id="flippingObjectsGrid" class="grid grid-cols-1 gap-2 pr-2">
+                                                            <div id="flippingObjectsGrid" class="grid grid-cols-1 gap-2 p-2">
                                                                 <div class="text-center text-gray-500 py-4 text-sm">
                                                                     Примените фильтры для отображения объектов
                                                                 </div>
