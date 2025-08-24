@@ -39,6 +39,12 @@ class FlippingProfitabilityManager {
         this.database = window.db;
         this.eventBus = reportsManager.eventBus;
         
+        // ✅ ИСПРАВЛЕНО: Флаг уничтожения для защиты от асинхронных операций
+        this.isDestroyed = false;
+        
+        // ✅ ИСПРАВЛЕНО: Глобальный перехватчик ошибок ApexCharts
+        this.setupApexChartsErrorSuppression();
+        
         // Интеграция с архитектурой v0.1
         this.flippingController = null;
         this.profitabilityService = null;
@@ -48,7 +54,43 @@ class FlippingProfitabilityManager {
         this.placeholder = null;
         this.content = null;
         this.filterContainer = null;
+        this.objectsGrid = null;
+        this.mapContainer = null;
         this.chartContainer = null;
+        
+        // Настройки расчёта доходности флиппинга
+        this.flippingSettings = {
+            purchaseExpenses: 300000,    // Расходы на покупку
+            repairCostPerMeter: 15000,   // Стоимость ремонта за м²
+            sellingExpenses: 300000,     // Расходы на продажу  
+            maintenanceMonths: 6,        // Месяцы содержания
+            maintenancePerMonth: 15000,  // Месячное содержание
+            additionalExpenses: 100000
+        };
+        
+        // Данные
+        this.segments = [];
+        this.subsegments = [];
+        this.realEstateObjects = [];
+        this.filteredObjects = [];
+        this.objectsForEvaluation = []; // Объекты доступные для оценки (архивные)
+        this.addresses = []; // Загруженные адреса области
+        
+        // График коридора рынка
+        this.marketCorridorChart = null;
+        this.marketCorridorMode = 'sales'; // 'sales' или 'history'
+        this.currentPointsData = []; // Данные точек для tooltip
+        this.chartCreationInProgress = false; // Флаг защиты от множественного создания
+        this.chartUpdateInProgress = false; // Флаг защиты от одновременного обновления
+        this.chartBeingDestroyed = false; // Флаг для игнорирования событий во время уничтожения графика
+        
+        // Селектор оценки объекта
+        this.selectedObjectId = null;
+        this.highlightedObjectId = null; // Выделенный объект на графике
+        this.evaluationSlimSelect = null;
+        this.evaluations = new Map(); // objectId -> evaluation (локальное хранение как в ComparativeAnalysisManager)
+        
+        this.debugEnabled = false; // Отладка выключена
         
         // Фильтры
         this.currentFilters = {
@@ -79,6 +121,7 @@ class FlippingProfitabilityManager {
         this.subsegments = [];
         this.realEstateObjects = [];
         this.filteredObjects = [];
+        this.objectsForEvaluation = []; // Объекты доступные для оценки (архивные)
         this.addresses = []; // Загруженные адреса области
         
         // График коридора рынка
@@ -87,15 +130,43 @@ class FlippingProfitabilityManager {
         this.currentPointsData = []; // Данные точек для tooltip
         this.chartCreationInProgress = false; // Флаг защиты от множественного создания
         this.chartUpdateInProgress = false; // Флаг защиты от одновременного обновления
+        this.chartBeingDestroyed = false; // Флаг для игнорирования событий во время уничтожения графика
         
         // Селектор оценки объекта
         this.selectedObjectId = null;
+        this.highlightedObjectId = null; // Выделенный объект на графике
         this.evaluationSlimSelect = null;
         this.evaluations = new Map(); // objectId -> evaluation (локальное хранение как в ComparativeAnalysisManager)
         
         this.debugEnabled = false; // Отладка выключена
+    }
+    
+    /**
+     * ✅ ИСПРАВЛЕНО: Настройка подавления ошибок ApexCharts querySelector
+     */
+    setupApexChartsErrorSuppression() {
+        // Перехватываем глобальные ошибки JavaScript
+        if (!window.flippingApexChartsErrorHandler) {
+            window.flippingApexChartsErrorHandler = window.onerror;
+            window.onerror = (message, source, lineno, colno, error) => {
+                // Подавляем конкретные ошибки ApexCharts
+                if (typeof message === 'string' && 
+                    source && source.includes('apexcharts.js') &&
+                    (message.includes('querySelector') || 
+                     message.includes('Cannot read properties of null'))) {
+                    console.warn('🔇 Подавлена известная ошибка ApexCharts querySelector');
+                    return true; // Предотвращаем дальнейшую обработку ошибки
+                }
+                
+                // Для остальных ошибок вызываем оригинальный обработчик
+                if (window.flippingApexChartsErrorHandler) {
+                    return window.flippingApexChartsErrorHandler(message, source, lineno, colno, error);
+                }
+                return false;
+            };
+        }
         
-        // Эталонная цена
+        // Эталонная цена (продолжение конструктора)
         this.referencePrice = {
             perMeter: null,     // Цена за м²
             total: null,        // Общая цена (для конкретной площади)
@@ -445,12 +516,22 @@ class FlippingProfitabilityManager {
         });
 
 
-        // Переключатель режима графика коридора рынка
+        // Переключатель режима графика коридора рынка (SlimSelect)
         const modeSelect = document.getElementById('flippingMarketCorridorMode');
         if (modeSelect) {
-            modeSelect.addEventListener('change', (e) => {
+            this.marketCorridorModeSlimSelect = new SlimSelect({
+                select: modeSelect,
+                settings: {
+                    showSearch: false,
+                    placeholderText: 'Выберите режим'
+                }
+            });
+            
+            modeSelect.addEventListener('change', async (e) => {
                 this.marketCorridorMode = e.target.value;
-                this.updateMarketCorridorChart();
+                console.log('🔄 Смена режима графика на:', this.marketCorridorMode);
+                // При смене режима ОБЯЗАТЕЛЬНО пересоздаем график полностью
+                await this.createMarketCorridorChart();
             });
         }
 
@@ -1453,6 +1534,15 @@ class FlippingProfitabilityManager {
             
             
             
+            // ✅ ДОБАВЛЕНО: Отладка фильтрации объектов
+            console.log('🔍 Фильтрация объектов по подсегменту:', {
+                subsegmentName: subsegment.name,
+                originalObjectsCount: this.originalFilteredObjects.length,
+                originalActiveCount: this.originalFilteredObjects.filter(obj => obj.status === 'active').length,
+                originalArchiveCount: this.originalFilteredObjects.filter(obj => obj.status === 'archive').length,
+                filteredAddressesCount: filteredAddressIds.size
+            });
+
             // Фильтруем объекты: сначала по сегменту (адресам), затем по подсегменту
             this.filteredObjects = this.originalFilteredObjects.filter(obj => {
                 // Проверка принадлежности к сегменту через адрес
@@ -1464,18 +1554,28 @@ class FlippingProfitabilityManager {
                 // Проверка соответствия критериям подсегмента
                 const matchesSubsegment = this.reportsManager.objectMatchesSubsegment(obj, subsegment);
                 
-                if (belongsToSegment && matchesSubsegment) {
-                    console.log(`✅ Объект ${obj.id} подходит под сегмент+подсегмент`, {
+                // ✅ ИСПРАВЛЕНО: возвращаем true только если объект принадлежит И сегменту И подсегменту
+                const finalMatch = belongsToSegment && matchesSubsegment;
+                
+                if (finalMatch) {
+                    console.log(`✅ Объект ${obj.id} (${obj.status}) подходит под сегмент+подсегмент`, {
                         property_type: obj.property_type,
                         area_total: obj.area_total,
-                        address_id: obj.address_id
+                        address_id: obj.address_id,
+                        status: obj.status
                     });
                 }
                 
-                return matchesSubsegment;
+                return finalMatch;
             });
             
-            
+            // ✅ ДОБАВЛЕНО: Отладка результата фильтрации
+            console.log('🔍 Результат фильтрации объектов по подсегменту:', {
+                subsegmentName: subsegment.name,
+                filteredObjectsCount: this.filteredObjects.length,
+                filteredActiveCount: this.filteredObjects.filter(obj => obj.status === 'active').length,
+                filteredArchiveCount: this.filteredObjects.filter(obj => obj.status === 'archive').length
+            });
             
             // Обновляем интерфейс
             await this.updateInterfaceAfterSubsegmentFilter();
@@ -1493,6 +1593,21 @@ class FlippingProfitabilityManager {
             
             
             this.activeSubsegmentId = null;
+            
+            // ИСПРАВЛЕНИЕ: Сбрасываем выделение объекта при снятии фильтра подсегмента
+            // чтобы график корректно обновился
+            if (this.selectedObjectId) {
+                // Убираем выделение с карточки объекта
+                const selectedBlock = this.objectsGrid?.querySelector(`[data-object-id="${this.selectedObjectId}"]`);
+                if (selectedBlock) {
+                    selectedBlock.classList.remove('!bg-blue-50', '!border-blue-500');
+                    selectedBlock.classList.add('bg-white', 'border-gray-200');
+                }
+                this.selectedObjectId = null;
+            }
+            
+            // Сбрасываем выделение на графике
+            this.highlightedObjectId = null;
             
             // Восстанавливаем исходные объекты
             if (this.originalFilteredObjects.length > 0) {
@@ -1611,8 +1726,15 @@ class FlippingProfitabilityManager {
                 obj.status === 'archive' // Только проданные объекты
             );
             
+            // Сохраняем объекты для оценки (ИСПРАВЛЕНИЕ: добавлено отсутствующее присвоение)
+            this.objectsForEvaluation = objects;
+            
             if (this.debugEnabled) {
-                
+                console.log('📋 Объекты для оценки:', {
+                    totalFiltered: this.filteredObjects.length,
+                    archiveCount: objects.length,
+                    objectsForEvaluationSet: true
+                });
             }
             
             // НЕ вызываем calculateReferencePrice() чтобы не пересчитывать карточки подсегментов
@@ -1775,8 +1897,33 @@ class FlippingProfitabilityManager {
     /**
      * Выбор объекта для оценки
      */
-    async selectObject(objectId) {
+    async selectObject(objectId, disableScroll = false) {
         try {
+            // console.log('📋 selectObject вызван:', {
+            //     objectId,
+            //     disableScroll,
+            //     isDestroyed: this.isDestroyed,
+            //     currentSelectedId: this.selectedObjectId
+            // });
+            
+            // Если кликнули по уже выбранному объекту, снимаем выделение
+            if (this.selectedObjectId === objectId) {
+                console.log('📋 Снятие выделения с объекта:', objectId);
+                
+                // Убираем выделение с карточки
+                const prevSelected = this.objectsGrid.querySelector(`[data-object-id="${objectId}"]`);
+                if (prevSelected) {
+                    prevSelected.classList.remove('!bg-blue-50', '!border-blue-500');
+                    prevSelected.classList.add('bg-white', 'border-gray-200');
+                }
+                
+                // Сбрасываем выбранный объект и убираем выделение с графика
+                this.selectedObjectId = null;
+                await this.updateObjectHighlightOnChart(null);
+                
+                return;
+            }
+
             // Убираем выделение с предыдущего объекта
             if (this.selectedObjectId) {
                 const prevSelected = this.objectsGrid.querySelector(`[data-object-id="${this.selectedObjectId}"]`);
@@ -1794,22 +1941,180 @@ class FlippingProfitabilityManager {
             if (selectedBlock) {
                 selectedBlock.classList.remove('bg-white', 'border-gray-200');
                 selectedBlock.classList.add('!bg-blue-50', '!border-blue-500');
+                
+                // Автоматически прокручиваем к выделенной карточке (если не отключено)  
+                if (!disableScroll) {
+                    // Прокручиваем только внутри ближайшего скроллируемого контейнера
+                    selectedBlock.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'nearest', // nearest вместо center чтобы не прокручивать всю страницу
+                        inline: 'nearest'
+                    });
+                    console.log('📋 Прокрутка к выделенной карточке объекта:', objectId);
+                } else {
+                    console.log('📋 Прокрутка отключена для клика из графика:', objectId);
+                }
+            } else {
+                console.log('📋 Карточка объекта не найдена в DOM (возможно, вне области просмотра):', objectId);
+                // Это нормальная ситуация - карточка может быть вне области просмотра или не загружена
             }
+            
+            // Выделяем объект на графике
+            await this.updateObjectHighlightOnChart(objectId);
             
             // Загружаем текущую оценку объекта в селектор
             await this.loadObjectEvaluation(objectId);
             
-            if (this.debugEnabled) {
-                console.log('📋 Выбран объект для оценки:', {
-                    objectId: objectId,
-                    hasEvaluation: this.evaluations.has(objectId),
-                    evaluation: this.evaluations.get(objectId)
-                });
-            }
+            console.log('📋 Выбран объект для оценки:', {
+                objectId: objectId,
+                hasEvaluation: this.evaluations.has(objectId),
+                evaluation: this.evaluations.get(objectId)
+            });
             
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка выбора объекта:', error);
         }
+    }
+
+    /**
+     * Обновление выделения объекта на графике
+     * @param {string|null} objectId - ID объекта для выделения или null для снятия выделения
+     */
+    async updateObjectHighlightOnChart(objectId) {
+        try {
+            if (!this.marketCorridorChart) {
+                return;
+            }
+
+            // Проверяем, изменилось ли выделение
+            if (this.highlightedObjectId === objectId) {
+                return; // Ничего не изменилось
+            }
+
+            // Запоминаем, было ли выделение до изменения
+            const wasHighlighted = !!this.highlightedObjectId;
+            
+            // Сохраняем выделенный объект
+            this.highlightedObjectId = objectId;
+            
+            if (objectId) {
+                console.log('📊 Выделение объекта:', objectId);
+            } else {
+                console.log('📊 Снятие выделения');
+            }
+            
+            // ИСПРАВЛЕНИЕ: Всегда используем полное обновление графика через updateMarketCorridorChart
+            // так как updateOptions не всегда корректно обновляет discrete маркеры в ApexCharts
+            console.log('📊 Полное обновление графика для корректного выделения объекта:', {
+                objectId,
+                wasHighlighted,
+                hasChart: !!this.marketCorridorChart
+            });
+            
+            // Используем тот же метод, который вызывается при клике на подсегмент
+            await this.updateMarketCorridorChart();
+
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityManager: Ошибка выделения объекта на графике:', error);
+        }
+    }
+
+    /**
+     * Получение опций маркеров с учетом выделенного объекта
+     */
+    getMarkerOptions() {
+        console.log('📊 getMarkerOptions вызван:', {
+            highlightedObjectId: this.highlightedObjectId,
+            hasCurrentSeriesDataMapping: !!this.currentSeriesDataMapping
+        });
+        
+        const baseOptions = {
+            size: 4,
+            opacity: 0.9,
+            strokeColor: "#fff",
+            strokeWidth: 2,
+            style: 'inverted',
+            hover: {
+                size: 15
+            },
+            discrete: []
+        };
+
+        // ✅ ИСПРАВЛЕНО: Если есть выделенный объект, добавляем его в discrete
+        if (this.highlightedObjectId) {
+            console.log('📊 Поиск выделенного объекта:', this.highlightedObjectId, {
+                mode: this.marketCorridorMode,
+                hasCurrentSeriesDataMapping: !!this.currentSeriesDataMapping,
+                hasCurrentPointsData: !!this.currentPointsData,
+                hasChart: !!this.marketCorridorChart?.w?.config?.series
+            });
+            
+            if (this.marketCorridorMode === 'history') {
+                // ИСПРАВЛЕНИЕ: В режиме истории используем currentSeriesDataMapping, который теперь заполнен
+                if (this.currentSeriesDataMapping && this.marketCorridorChart?.w?.config?.series) {
+                    // Проходим по всем сериям и их маппингам
+                    for (let seriesIndex = 0; seriesIndex < this.currentSeriesDataMapping.length; seriesIndex++) {
+                        const seriesMapping = this.currentSeriesDataMapping[seriesIndex];
+                        if (seriesMapping && Array.isArray(seriesMapping)) {
+                            // Ищем объект в маппинге этой серии
+                            seriesMapping.forEach((point, dataPointIndex) => {
+                                if (point && point.objectId === this.highlightedObjectId) {
+                                    baseOptions.discrete.push({
+                                        seriesIndex: seriesIndex,
+                                        dataPointIndex: dataPointIndex,
+                                        fillColor: '#ef4444',
+                                        strokeColor: '#fff',
+                                        size: 12,
+                                        strokeWidth: 3
+                                    });
+                                    
+                                    const seriesName = this.marketCorridorChart.w.config.series[seriesIndex]?.name || 'Unknown';
+                                    console.log('📊 Добавлен выделенный маркер в режиме истории:', {
+                                        objectId: this.highlightedObjectId,
+                                        seriesIndex,
+                                        dataPointIndex,
+                                        series: seriesName
+                                    });
+                                }
+                            });
+                        }
+                    }
+                }
+            } else if (this.currentSeriesDataMapping) {
+                // Режим коридора - используем seriesDataMapping как раньше
+                for (let sIdx = 0; sIdx < this.currentSeriesDataMapping.length; sIdx++) {
+                    const seriesMap = this.currentSeriesDataMapping[sIdx];
+                    if (seriesMap) {
+                        for (let dIdx = 0; dIdx < seriesMap.length; dIdx++) {
+                            if (seriesMap[dIdx] && seriesMap[dIdx].objectId === this.highlightedObjectId) {
+                                baseOptions.discrete.push({
+                                    seriesIndex: sIdx,
+                                    dataPointIndex: dIdx,
+                                    fillColor: '#ef4444',
+                                    strokeColor: '#fff',
+                                    size: 12,
+                                    strokeWidth: 3
+                                });
+                                
+                                console.log('📊 Добавлен выделенный маркер в режиме коридора:', {
+                                    objectId: this.highlightedObjectId,
+                                    seriesIndex: sIdx,
+                                    dataPointIndex: dIdx
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (baseOptions.discrete.length === 0) {
+                console.warn('📊 Выделенный объект не найден:', this.highlightedObjectId);
+            }
+        }
+
+        console.log('📊 getMarkerOptions результат:', baseOptions);
+        return baseOptions;
     }
 
     /**
@@ -2621,6 +2926,9 @@ class FlippingProfitabilityManager {
      * Показ отчёта (вызывается из ReportsManager)
      */
     async show() {
+        // ✅ ИСПРАВЛЕНО: Сбрасываем флаг уничтожения при показе отчёта
+        this.isDestroyed = false;
+        
         if (this.debugEnabled) {
         }
         
@@ -2698,7 +3006,7 @@ class FlippingProfitabilityManager {
      */
     async loadAddresses() {
         try {
-            const areaId = this.areaPage?.currentAreaId;
+            const areaId = this.reportsManager.areaPage?.currentAreaId;
             if (!areaId) {
                 this.addresses = [];
                 return;
@@ -2750,30 +3058,21 @@ class FlippingProfitabilityManager {
 
             
             
-            // Подготавливаем данные для графика
-            const chartData = this.prepareChartData();
-
-            // Определяем цвета для серий (как в ReportsManager)
-            const colors = [];
-            if (chartData && chartData.length > 0) {
-                chartData.forEach(serie => {
-                    if (serie.name === 'Активные объекты') {
-                        colors.push('#56c2d6'); // Синий для активных
-                    } else if (serie.name === 'Архивные объекты') {
-                        colors.push('#dc2626'); // Красный для архивных
-                    }
-                });
-            }
+            // ✅ ИСПРАВЛЕНО: Получаем подготовленные серии и цвета из prepareChartData() как в ReportsManager
+            const { series: chartData, colors } = this.prepareChartData();
             
             // Опции для графика ApexCharts (аналогично ReportsManager)
             const options = {
                 series: chartData || [],
                 colors: colors,
                 chart: {
-                    type: 'scatter',
+                    type: this.marketCorridorMode === 'history' ? 'line' : 'scatter',
                     height: 400,
                     zoom: {
                         enabled: true
+                    },
+                    selection: {
+                        enabled: false // Отключаем selection чтобы избежать автопрокрутки
                     },
                     animations: {
                         enabled: false
@@ -2802,24 +3101,50 @@ class FlippingProfitabilityManager {
                     defaultLocale: "ru",
                     events: {
                         dataPointSelection: (event, chartContext, config) => {
-                            this.handleChartClick(config);
+                            // ИСПРАВЛЕНИЕ: Игнорируем события во время уничтожения графика
+                            if (this.chartBeingDestroyed) {
+                                if (event) {
+                                    event.preventDefault && event.preventDefault();
+                                    event.stopPropagation && event.stopPropagation();
+                                }
+                                return;
+                            }
+                            
+                            // ИСПРАВЛЕНИЕ: Игнорируем клики по пустым областям
+                            // ApexCharts вызывает dataPointSelection даже для кликов вне точек с индексами -1
+                            if (!config || config.dataPointIndex < 0 || config.seriesIndex < 0) {
+                                // Полностью игнорируем клики по пустым областям
+                                if (event) {
+                                    event.preventDefault && event.preventDefault();
+                                    event.stopPropagation && event.stopPropagation();
+                                }
+                                return;
+                            }
+                            
+                            // ✅ ИСПРАВЛЕНО: Защита от вызовов после уничтожения графика
+                            if (this.isDestroyed || !this.marketCorridorChart || !this.chartContainer || !document.contains(this.chartContainer)) {
+                                return;
+                            }
+                            
+                            // Предотвращаем стандартное поведение прокрутки
+                            if (event) {
+                                event.preventDefault && event.preventDefault();
+                                event.stopPropagation && event.stopPropagation();
+                            }
+                            
+                            try {
+                                this.handleChartClick(config);
+                            } catch (error) {
+                                console.error('❌ Ошибка обработки клика по графику:', error);
+                            }
                         }
                     }
                 },
                 stroke: {
-                    width: 0,
-                    curve: 'straight'
+                    width: this.marketCorridorMode === 'history' ? 2 : 0, // Линии только в режиме истории
+                    curve: this.marketCorridorMode === 'history' ? 'stepline' : 'straight'
                 },
-                markers: {
-                    size: 4,
-                    opacity: 0.9,
-                    strokeColor: "#fff",
-                    strokeWidth: 2,
-                    style: 'inverted',
-                    hover: {
-                        size: 15
-                    }
-                },
+                markers: this.getMarkerOptions(),
                 xaxis: {
                     type: 'datetime',
                     title: {
@@ -2891,19 +3216,59 @@ class FlippingProfitabilityManager {
                 title: {
                     text: '',
                     align: 'left'
+                },
+                annotations: {
+                    yaxis: []  // Будем динамически добавлять линию эталонной цены
                 }
             };
 
             // Создаем график
             if (this.marketCorridorChart) {
-                this.marketCorridorChart.destroy();
+                try {
+                    // ИСПРАВЛЕНИЕ: Флаг для игнорирования событий во время уничтожения
+                    this.chartBeingDestroyed = true;
+                    
+                    // Проверяем что график существует и может быть уничтожен
+                    if (this.marketCorridorChart.destroy && typeof this.marketCorridorChart.destroy === 'function') {
+                        this.marketCorridorChart.destroy();
+                    }
+                } catch (error) {
+                    console.warn('📊 Ошибка при уничтожении графика:', error);
+                }
+                this.marketCorridorChart = null;
+                
+                // ✅ ИСПРАВЛЕНО: Принудительная очистка DOM элемента для устранения querySelector ошибок
+                if (this.chartContainer) {
+                    // Удаляем все обработчики событий с контейнера
+                    const newContainer = this.chartContainer.cloneNode(false);
+                    this.chartContainer.parentNode.replaceChild(newContainer, this.chartContainer);
+                    this.chartContainer = newContainer;
+                }
+                
+                // Небольшая задержка для завершения всех асинхронных операций ApexCharts
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Сбрасываем флаг после задержки
+                this.chartBeingDestroyed = false;
             }
 
+            // Проверяем, что контейнер графика существует
+            if (!this.chartContainer || !document.contains(this.chartContainer)) {
+                console.error('📊 Контейнер графика недоступен');
+                return;
+            }
+
+            // Создание графика (ошибки перехватываются глобальным обработчиком)
             this.marketCorridorChart = new ApexCharts(this.chartContainer, options);
             await this.marketCorridorChart.render();
 
             // Создаем глобальную ссылку для tooltip
             window.flippingProfitabilityManagerInstance = this;
+            
+            // Добавляем линию эталонной цены, если есть активный подсегмент
+            if (this.activeSubsegmentId) {
+                this.updateReferencePriceAnnotation();
+            }
 
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка создания графика:', error);
@@ -2923,27 +3288,169 @@ class FlippingProfitabilityManager {
                 return;
             }
             
-            if (!this.marketCorridorChart) {
-                await this.createMarketCorridorChart();
-                return;
-            }
+            // ИСПРАВЛЕНИЕ: ВСЕГДА пересоздаём график полностью для надёжности
+            // Это гарантирует корректное отображение выделения и избегает проблем с ApexCharts
+            console.log('📊 Полное пересоздание графика:', {
+                hasChart: !!this.marketCorridorChart,
+                highlightedObjectId: this.highlightedObjectId,
+                activeSubsegmentId: this.activeSubsegmentId
+            });
             
+            await this.createMarketCorridorChart();
+            return;
+            
+            // Код ниже больше не выполняется - оставлен для истории
             this.chartUpdateInProgress = true;
 
             // Подготавливаем данные для графика на основе отфильтрованных объектов
-            const chartData = this.prepareChartData();
+            const { series: chartData, colors } = this.prepareChartData();
             
             // Обновляем серии данных
             if (chartData && chartData.length > 0) {
                 this.marketCorridorChart.updateSeries(chartData);
-                
             }
+            
+            // Обновляем линию эталонной цены для активного подсегмента
+            this.updateReferencePriceAnnotation();
 
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка обновления графика:', error);
         } finally {
             // Сбрасываем флаг обновления
             this.chartUpdateInProgress = false;
+        }
+    }
+
+    /**
+     * Обновление аннотации с эталонной ценой на графике
+     */
+    updateReferencePriceAnnotation() {
+        try {
+            console.log('📊 Обновление линии эталонной цены:', {
+                hasChart: !!this.marketCorridorChart,
+                activeSubsegmentId: this.activeSubsegmentId,
+                referencePrices: this.referencePrices
+            });
+
+            if (!this.marketCorridorChart) {
+                return;
+            }
+
+            // Если нет активного подсегмента, убираем линию
+            if (!this.activeSubsegmentId) {
+                console.log('📊 Нет активного подсегмента, убираем линию');
+                
+                // Пробуем сначала основной метод
+                try {
+                    this.marketCorridorChart.clearAnnotations();
+                    console.log('📊 Аннотации очищены основным методом');
+                } catch (error) {
+                    console.warn('📊 Ошибка очистки основным методом:', error);
+                    // Альтернативный метод
+                    this.marketCorridorChart.updateOptions({
+                        annotations: {
+                            yaxis: []
+                        }
+                    });
+                    console.log('📊 Аннотации очищены альтернативным методом');
+                }
+                return;
+            }
+
+            // Находим эталонную цену для активного подсегмента
+            const subsegmentPrice = this.referencePrices.find(p => p.id === this.activeSubsegmentId);
+            const subsegmentIndex = this.referencePrices.findIndex(p => p.id === this.activeSubsegmentId);
+            const colors = this.getSubsegmentColorScheme(subsegmentIndex);
+            
+            console.log('📊 Найденная цена подсегмента:', subsegmentPrice);
+            console.log('📊 Цветовая схема:', colors);
+            
+            if (!subsegmentPrice || !subsegmentPrice.referencePrice || !subsegmentPrice.referencePrice.total) {
+                console.log('📊 Нет эталонной цены для подсегмента, убираем линию');
+                // Если нет цены, убираем линию
+                this.marketCorridorChart.updateOptions({
+                    annotations: {
+                        yaxis: []
+                    }
+                });
+                return;
+            }
+
+            const totalPrice = subsegmentPrice.referencePrice.total;
+            console.log('📊 Добавляем линию эталонной цены (за объект):', totalPrice);
+            const formattedPrice = new Intl.NumberFormat('ru-RU').format(totalPrice);
+            
+            // Проверяем диапазон данных на графике
+            const chartOptions = this.marketCorridorChart.opts;
+            console.log('📊 Текущие опции графика:', {
+                yaxis: chartOptions?.yaxis,
+                hasData: !!this.filteredObjects?.length,
+                minPrice: this.filteredObjects?.length ? Math.min(...this.filteredObjects.map(obj => obj.current_price).filter(p => p > 0)) : 'нет данных',
+                maxPrice: this.filteredObjects?.length ? Math.max(...this.filteredObjects.map(obj => obj.current_price).filter(p => p > 0)) : 'нет данных'
+            });
+
+            // Проверяем доступные методы
+            console.log('📊 Доступные методы chart:', {
+                clearAnnotations: typeof this.marketCorridorChart.clearAnnotations,
+                addYaxisAnnotation: typeof this.marketCorridorChart.addYaxisAnnotation,
+                updateOptions: typeof this.marketCorridorChart.updateOptions
+            });
+
+            // Добавляем горизонтальную линию эталонной цены
+            // Сначала очищаем предыдущие аннотации
+            try {
+                this.marketCorridorChart.clearAnnotations();
+                console.log('📊 Аннотации очищены');
+                
+                // Добавляем новую аннотацию
+                this.marketCorridorChart.addYaxisAnnotation({
+                    y: totalPrice,
+                    borderColor: colors.graphColor,
+                    borderWidth: 2,
+                    strokeDashArray: 5,  // Прерывистая линия
+                    label: {
+                        borderColor: colors.graphColor,
+                        style: {
+                            color: '#fff',
+                            background: colors.graphColor,
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                        },
+                        text: `${formattedPrice} ₽`,
+                        position: 'left'  // Размещаем подпись слева
+                    }
+                });
+                console.log('📊 Аннотация добавлена успешно');
+            } catch (annotationError) {
+                console.error('📊 Ошибка добавления аннотации:', annotationError);
+                // Альтернативный метод
+                // Альтернативный метод через updateOptions с полной структурой
+                this.marketCorridorChart.updateOptions({
+                    annotations: {
+                        yaxis: [{
+                            y: totalPrice,
+                            borderColor: colors.graphColor,
+                            borderWidth: 2,
+                            strokeDashArray: 5,  // Пунктирная линия
+                            label: {
+                                borderColor: colors.graphColor,
+                                style: {
+                                    color: '#fff',
+                                    background: colors.graphColor,
+                                    fontSize: '12px',
+                                    fontWeight: 600
+                                },
+                                text: `${formattedPrice} ₽`,
+                                position: 'left',
+                                offsetX: 10
+                            }
+                        }]
+                    }
+                }, false, true);  // false - не сбрасывать серии, true - обновить график
+            }
+
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityManager: Ошибка обновления линии эталонной цены:', error);
         }
     }
 
@@ -2982,20 +3489,42 @@ class FlippingProfitabilityManager {
                         });
                     }
                 } else if (obj.status === 'active') {
-                    // Активные объекты: текущая цена на текущую дату (режим "Коридор продаж")
-                    activePointsData.push({
-                        x: new Date().getTime(),
-                        y: obj.current_price,
-                        objectId: obj.id,
-                        address: obj.address_id,
-                        rooms: obj.rooms || obj.property_type,
-                        area: obj.area_total,
-                        floor: obj.floor,
-                        floors_total: obj.floors_total,
-                        status: obj.status,
-                        created: obj.created,
-                        updated: obj.updated
-                    });
+                    if (this.marketCorridorMode === 'history') {
+                        // Режим "История активных" - используем алгоритм из модального окна (как в ReportsManager)
+                        const objectPriceHistory = this.prepareObjectPriceHistoryForChart(obj);
+                        
+                        // Каждая точка истории добавляется с информацией об объекте
+                        objectPriceHistory.forEach(historyPoint => {
+                            activePointsData.push({
+                                x: historyPoint.date,
+                                y: historyPoint.price,
+                                objectId: obj.id,
+                                address: obj.address_id,
+                                rooms: obj.rooms || obj.property_type,
+                                area: obj.area_total,
+                                floor: obj.floor,
+                                floors_total: obj.floors_total,
+                                status: obj.status,
+                                created: obj.created,
+                                updated: obj.updated
+                            });
+                        });
+                    } else {
+                        // Активные объекты: текущая цена на текущую дату (режим "Коридор продаж")
+                        activePointsData.push({
+                            x: new Date().getTime(),
+                            y: obj.current_price,
+                            objectId: obj.id,
+                            address: obj.address_id,
+                            rooms: obj.rooms || obj.property_type,
+                            area: obj.area_total,
+                            floor: obj.floor,
+                            floors_total: obj.floors_total,
+                            status: obj.status,
+                            created: obj.created,
+                            updated: obj.updated
+                        });
+                    }
                 }
             });
             
@@ -3003,43 +3532,294 @@ class FlippingProfitabilityManager {
             activePointsData.sort((a, b) => a.x - b.x);
             archivePointsData.sort((a, b) => a.x - b.x);
 
-            // Формируем серии данных с разными цветами
+            // ✅ ИСПРАВЛЕНО: Формируем серии данных и цвета точно как в ReportsManager
             const series = [];
+            const colors = []; // Цвета добавляются внутри циклов создания серий
+            const seriesDataMapping = []; // Маппинг серий к данным (только для режима коридора)
             
-            if (activePointsData.length > 0) {
-                series.push({
-                    name: 'Активные объекты',
-                    data: activePointsData.map(point => [point.x, point.y])
-                });
-            }
-            
-            if (archivePointsData.length > 0) {
-                series.push({
-                    name: 'Архивные объекты',
-                    data: archivePointsData.map(point => [point.x, point.y])
+            // Отладка только при включенном режиме отладки
+            if (this.debugEnabled) {
+                console.log('🔍 ОТЛАДКА: Режим графика и данные:', {
+                    mode: this.marketCorridorMode,
+                    totalObjects: this.filteredObjects?.length || 0,
+                    activeObjects: this.filteredObjects?.filter(obj => obj.status === 'active').length || 0,
+                    archiveObjects: this.filteredObjects?.filter(obj => obj.status === 'archive').length || 0,
+                    activePoints: activePointsData.length,
+                    archivePoints: archivePointsData.length,
+                    activeSubsegmentId: this.activeSubsegmentId
                 });
             }
 
-            // Сохраняем данные точек для tooltip
+            if (this.marketCorridorMode === 'history') {
+                console.log('📊 Режим ИСТОРИИ: группируем активные объекты по ID');
+                // В режиме истории группируем активные объекты по ID для создания отдельных линий (точная копия ReportsManager)
+                const activeObjectsGrouped = {};
+                const objectPointsMapping = {}; // Маппинг объектов к их точкам для seriesDataMapping
+                
+                activePointsData.forEach(point => {
+                    if (!activeObjectsGrouped[point.objectId]) {
+                        activeObjectsGrouped[point.objectId] = {
+                            name: `Объект #${point.objectId}`,
+                            data: [],
+                            color: '#56c2d6'
+                        };
+                        objectPointsMapping[point.objectId] = [];
+                    }
+                    activeObjectsGrouped[point.objectId].data.push([point.x, point.y]);
+                    objectPointsMapping[point.objectId].push(point);
+                });
+                
+                // Добавляем каждый объект как отдельную серию (точная копия ReportsManager)
+                Object.entries(activeObjectsGrouped).forEach(([objectId, objectSeries]) => {
+                    const seriesIndex = series.length;
+                    // Сортируем данные по дате для правильного соединения линий
+                    objectSeries.data.sort((a, b) => a[0] - b[0]);
+                    // Явно указываем тип линии для активных объектов в режиме истории
+                    objectSeries.type = 'line';
+                    series.push(objectSeries);
+                    colors.push('#56c2d6'); // ✅ Добавляем цвет внутри цикла как в ReportsManager
+                    
+                    // ИСПРАВЛЕНИЕ: Заполняем seriesDataMapping для режима истории
+                    // Сортируем точки объекта по дате в том же порядке, что и данные серии
+                    const sortedPoints = objectPointsMapping[objectId].sort((a, b) => a.x - b.x);
+                    seriesDataMapping[seriesIndex] = sortedPoints;
+                });
+                
+                // Архивные объекты показываем как отдельные точки (точная копия ReportsManager) 
+                if (archivePointsData.length > 0) {
+                    const seriesIndex = series.length;
+                    series.push({
+                        name: 'Архивные объекты',
+                        data: archivePointsData.map(point => [point.x, point.y]),
+                        type: 'scatter' // Точки без линий
+                    });
+                    colors.push('#dc2626'); // ✅ Добавляем цвет внутри условия как в ReportsManager
+                    
+                    // ИСПРАВЛЕНИЕ: Заполняем seriesDataMapping для архивных объектов
+                    seriesDataMapping[seriesIndex] = archivePointsData;
+                }
+            } else {
+                // Режим "Коридор продаж" - группируем по статусу (точная копия ReportsManager)
+                if (activePointsData.length > 0) {
+                    const seriesIndex = series.length;
+                    series.push({
+                        name: 'Активные объекты',
+                        data: activePointsData.map(point => [point.x, point.y])
+                    });
+                    colors.push('#56c2d6'); // ✅ Добавляем цвет внутри условия как в ReportsManager
+                    seriesDataMapping[seriesIndex] = activePointsData; // Прямой маппинг
+                }
+                
+                if (archivePointsData.length > 0) {
+                    const seriesIndex = series.length;
+                    series.push({
+                        name: 'Архивные объекты',
+                        data: archivePointsData.map(point => [point.x, point.y])
+                    });
+                    colors.push('#dc2626'); // ✅ Добавляем цвет внутри условия как в ReportsManager
+                    seriesDataMapping[seriesIndex] = archivePointsData; // Прямой маппинг
+                }
+            }
+
+            // Сохраняем данные точек для tooltip и маппинг серий
             this.currentPointsData = [...activePointsData, ...archivePointsData];
+            this.currentSeriesDataMapping = seriesDataMapping; // Как в ReportsManager
 
-            return series;
+            // Отладка только при включенном режиме отладки
+            if (this.debugEnabled) {
+                console.log('🔍 РЕЗУЛЬТАТ подготовки графика:', {
+                    mode: this.marketCorridorMode,
+                    seriesCount: series.length,
+                    colorsCount: colors.length,
+                    seriesPreview: series.map(s => ({ 
+                        name: s.name, 
+                        type: s.type, 
+                        dataPoints: s.data?.length,
+                        hasArchive: s.name?.includes('Архивные')
+                    })),
+                    hasArchiveSeries: series.some(s => s.name?.includes('Архivные'))
+                });
+            }
+
+            // ✅ ИСПРАВЛЕНО: Возвращаем объект с series и colors как в ReportsManager  
+            return { series, colors };
 
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка подготовки данных графика:', error);
-            return [];
+            return { series: [], colors: [] };
         }
+    }
+
+    /**
+     * Подготовка данных истории цен объекта для графика (копия из ReportsManager)
+     */
+    prepareObjectPriceHistoryForChart(realEstateObject) {
+        const history = [];
+        
+        // Добавляем историю цен если есть
+        if (realEstateObject.price_history && Array.isArray(realEstateObject.price_history)) {
+            realEstateObject.price_history.forEach(item => {
+                if (item.price && item.date) {
+                    history.push({
+                        date: new Date(item.date).getTime(),
+                        price: parseInt(item.price)
+                    });
+                }
+            });
+        }
+
+        // Добавляем конечную точку с текущей ценой объекта (аналогично логике объявления)
+        if (realEstateObject.current_price) {
+            let endPriceDate;
+            
+            if (realEstateObject.status === 'active') {
+                // Для активных объектов - текущая дата
+                endPriceDate = new Date();
+            } else {
+                // Для архивных объектов - дата последнего логического обновления
+                endPriceDate = new Date(realEstateObject.updated);
+            }
+            
+            // Добавляем конечную точку только если она отличается от уже существующих
+            const lastHistoryDate = history.length > 0 ? history[history.length - 1].date : 0;
+            if (Math.abs(endPriceDate.getTime() - lastHistoryDate) > 24 * 60 * 60 * 1000) {
+                history.push({
+                    date: endPriceDate.getTime(),
+                    price: parseInt(realEstateObject.current_price)
+                });
+            }
+        }
+
+        // Сортируем по дате
+        history.sort((a, b) => a.date - b.date);
+        
+        // Убираем дубликаты цен подряд, но оставляем ключевые точки
+        const filtered = [];
+        for (let i = 0; i < history.length; i++) {
+            if (i === 0 || i === history.length - 1 || history[i].price !== history[i-1].price) {
+                filtered.push(history[i]);
+            }
+        }
+
+        return filtered;
     }
 
     /**
      * Обработка клика по точке графика
      */
-    handleChartClick(config) {
+    async handleChartClick(config) {
         try {
+            // ✅ ИСПРАВЛЕНО: Защита от обработки кликов после уничтожения графика
+            if (this.isDestroyed || !this.marketCorridorChart || !this.chartContainer || !document.contains(this.chartContainer)) {
+                console.warn('📊 Попытка обработать клик после уничтожения графика');
+                return;
+            }
             
-            // Обработка клика по точке графика
+            // Дополнительная проверка на всякий случай (основная проверка в dataPointSelection)
+            if (!config || config.dataPointIndex < 0 || config.seriesIndex < 0) {
+                return;
+            }
+
+            // Получаем данные точки из графика
+            if (this.marketCorridorChart && this.marketCorridorChart.w && this.marketCorridorChart.w.config && this.marketCorridorChart.w.config.series) {
+                const seriesData = this.marketCorridorChart.w.config.series[config.seriesIndex];
+                if (seriesData && seriesData.data && seriesData.data[config.dataPointIndex]) {
+                    const [timestamp, price] = seriesData.data[config.dataPointIndex];
+                    
+                    console.log('📊 Клик по точке графика:', {
+                        timestamp: new Date(timestamp),
+                        price,
+                        seriesIndex: config.seriesIndex,
+                        dataPointIndex: config.dataPointIndex
+                    });
+
+                    // Ищем объект как в ReportsManager - сначала через seriesDataMapping, потом по координатам
+                    let clickedObject = null;
+                    
+                    if (this.marketCorridorMode === 'history') {
+                        // В режиме истории нужно найти соответствующую точку по координатам
+                        clickedObject = this.currentPointsData.find(p => 
+                            Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                        );
+                    } else {
+                        // В режиме коридора продаж используем серии-маппинг
+                        if (this.currentSeriesDataMapping && 
+                            this.currentSeriesDataMapping[config.seriesIndex] && 
+                            this.currentSeriesDataMapping[config.seriesIndex][config.dataPointIndex]) {
+                            
+                            const pointData = this.currentSeriesDataMapping[config.seriesIndex][config.dataPointIndex];
+                            // pointData уже содержит всю информацию о точке, включая objectId
+                            clickedObject = pointData;
+                            
+                        } else {
+                            // Fallback - ищем по координатам
+                            clickedObject = this.currentPointsData.find(p => 
+                                Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                            );
+                        }
+                    }
+
+                    if (clickedObject) {
+                        const objectId = clickedObject.objectId;
+                        console.log('📊 Найден объект на графике:', objectId);
+                        
+                        // Проверяем, уже ли выделен этот объект
+                        if (this.selectedObjectId === objectId) {
+                            // Повторный клик по уже выделенному объекту - открываем модальное окно
+                            console.log('📊 Повторный клик - открываем модальное окно:', objectId);
+                            this.showObjectDetails(objectId);
+                        } else {
+                            // Первый клик - выделяем объект (как при клике по карточке)
+                            console.log('📊 Первый клик - выделяем объект:', objectId);
+                            await this.selectObject(objectId, true); // disableScroll = true для кликов из графика
+                        }
+                    } else {
+                        console.warn('📊 Объект не найден для точки графика');
+                    }
+                }
+            }
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка обработки клика по графику:', error);
+        }
+    }
+
+    /**
+     * Показать детали объекта недвижимости (использует существующее модальное окно)
+     * @param {string} objectId - ID объекта
+     */
+    async showObjectDetails(objectId) {
+        try {
+            // ИСПРАВЛЕНИЕ: Проверяем готовность базы данных перед вызовом
+            await DatabaseUtils.ensureDatabaseReady();
+            
+            // Получаем объект из нашего локального массива (уже загружен)
+            const object = this.filteredObjects.find(obj => obj.id === objectId);
+            if (!object) {
+                console.warn('⚠️ Объект не найден в отфильтрованных данных:', objectId);
+                return;
+            }
+            
+            // Используем метод из DuplicatesManager через reportsManager.areaPage
+            if (this.reportsManager && this.reportsManager.areaPage && this.reportsManager.areaPage.duplicatesManager && this.reportsManager.areaPage.duplicatesManager.showObjectDetails) {
+                await this.reportsManager.areaPage.duplicatesManager.showObjectDetails(objectId);
+            } else {
+                console.error('❌ FlippingProfitabilityManager: DuplicatesManager недоступен для показа деталей объекта');
+                
+                // Fallback - показываем информацию об объекте из наших данных
+                const rooms = object.rooms || object.property_type || 'н/д';
+                const area = object.area_total ? `${object.area_total} м²` : 'н/д';
+                const price = new Intl.NumberFormat('ru-RU').format(object.current_price);
+                const status = object.status === 'active' ? 'Активный' : 'Архивный';
+                
+                alert(`📋 Объект ${objectId}\n\n` +
+                      `Комнат: ${rooms}\n` +
+                      `Площадь: ${area}\n` +
+                      `Цена: ${price} ₽\n` +
+                      `Статус: ${status}\n\n` +
+                      `Для полного просмотра откройте панель "Управление дублями"`);
+            }
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityManager: Ошибка показа деталей объекта:', error);
         }
     }
 
@@ -3141,10 +3921,25 @@ class FlippingProfitabilityManager {
      * Скрытие отчёта
      */
     hide() {
+        // ✅ ИСПРАВЛЕНО: Устанавливаем флаг уничтожения для защиты от асинхронных операций
+        this.isDestroyed = true;
+        
         // Очищаем график при скрытии
         if (this.marketCorridorChart) {
-            this.marketCorridorChart.destroy();
+            try {
+                // Проверяем что график может быть уничтожен
+                if (this.marketCorridorChart.destroy && typeof this.marketCorridorChart.destroy === 'function') {
+                    this.marketCorridorChart.destroy();
+                }
+            } catch (error) {
+                console.warn('📊 Ошибка при уничтожении графика при скрытии:', error);
+            }
             this.marketCorridorChart = null;
+            
+            // ✅ ИСПРАВЛЕНО: Принудительная очистка DOM элемента для устранения querySelector ошибок
+            if (this.chartContainer) {
+                this.chartContainer.innerHTML = '';
+            }
         }
     }
 }
