@@ -166,6 +166,8 @@ class FlippingMap {
                 await this.initialize();
             }
 
+            // FlippingMap получил адреса для отображения
+
             // Очищаем предыдущие маркеры
             this.clearMarkers();
 
@@ -255,11 +257,16 @@ class FlippingMap {
             markerHeight = 10; // По умолчанию
         }
         
-        // Определяем текст на маркере - в режиме доходности показываем доходность
+        // Определяем текст на маркере - используем подготовленные данные от FlippingProfitabilityManager
         let labelText = '';
-        const activeMapFilter = 'profitability'; // Фиксируем режим доходности для FlippingMap
         
-        if (activeMapFilter === 'profitability') {
+        // Приоритет: используем готовые данные от FlippingProfitabilityManager
+        if (address.maxProfitabilityText) {
+            labelText = address.maxProfitabilityText.replace(' годовых', '');
+        } else {
+            // Fallback: старая логика расчета доходности
+            const activeMapFilter = 'profitability';
+            if (activeMapFilter === 'profitability') {
             try {
                 // Логируем доступные сервисы доходности
                 const profitabilityService = window.flippingProfitabilityService || 
@@ -336,10 +343,11 @@ class FlippingMap {
                 }
             } catch (error) {
             }
+            }
         }
         
-        // Определяем цвет маркера
-        let markerColor = '#3b82f6'; // Цвет по умолчанию
+        // Определяем цвет маркера - используем данные от FlippingProfitabilityManager
+        let markerColor = address.markerColor || '#3b82f6'; // Цвет по умолчанию
         
         // Определяем стили подписи для режима доходности
         let labelTextColor = '#374151';  // Серый текст по умолчанию
@@ -393,6 +401,17 @@ class FlippingMap {
         
         
 
+        // Добавляем подпись с доходностью на маркер
+        if (labelText) {
+            marker.bindTooltip(labelText, {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -10],
+                className: 'profitability-label',
+                opacity: 0.9
+            });
+        }
+        
         // Сохраняем данные адреса в маркере для оптимизации
         marker.addressData = address;
 
@@ -434,25 +453,50 @@ class FlippingMap {
             return null;
         }
         
-        // Используем circleMarker вместо обычного маркера (избегаем проблемы с иконками)
+        // Определяем цвет и размер маркера на основе доходности
+        const profitability = address.maxProfitability || 0;
+        const markerColor = address.markerColor || '#6b7280'; // Серый по умолчанию
+        
+        // Размер маркера зависит от доходности
+        let radius = 6;
+        if (profitability >= 80) radius = 10;
+        else if (profitability >= 50) radius = 8;
+        else if (profitability >= 20) radius = 6;
+        else if (profitability > 0) radius = 5;
+        
+        // Используем circleMarker с цветовым кодированием по доходности
         const marker = L.circleMarker([lat, lng], {
-            radius: 8,
-            fillColor: '#3b82f6',
+            radius: radius,
+            fillColor: markerColor,
             color: 'white',
             weight: 2,
             opacity: 1,
             fillOpacity: 0.8,
         });
         
-        // Простой popup
+        // Popup с информацией о доходности
+        const addressText = address.address_string || address.address || 'Адрес не определён';
+        const profitabilityText = address.maxProfitabilityText || 'Нет данных о доходности';
+        const activeObjectsCount = address.activeObjects ? address.activeObjects.length : 0;
+        
         const popupContent = `
             <div class="p-3">
                 <div class="font-semibold text-sm mb-2">
-                    ${address.address_string || address.address || 'Адрес не определён'}
+                    ${addressText}
                 </div>
+                ${address.maxProfitabilityText ? `
+                <div class="text-sm font-bold text-green-600 mb-1">
+                    Макс. доходность: ${profitabilityText}
+                </div>
+                ` : ''}
                 <div class="text-xs text-gray-600">
-                    ID: ${address.id}
+                    Активных объектов: ${activeObjectsCount}
                 </div>
+                ${address.floors_count ? `
+                <div class="text-xs text-gray-600">
+                    Этажей: ${address.floors_count}
+                </div>
+                ` : ''}
             </div>
         `;
         
@@ -764,10 +808,91 @@ class FlippingMap {
     }
 
     /**
+     * Отображение полигона области на карте
+     */
+    displayAreaPolygon(polygonCoords) {
+        try {
+            if (!this.map) {
+                console.warn('⚠️ FlippingMap: Карта не инициализирована');
+                return;
+            }
+
+            // Удаляем существующий полигон, если есть
+            this.clearAreaPolygon();
+
+            if (!polygonCoords || polygonCoords.length === 0) {
+                console.warn('⚠️ FlippingMap: Координаты полигона не предоставлены');
+                return;
+            }
+
+            // Преобразуем координаты в формат Leaflet (массив [lat, lng])
+            const leafletCoords = polygonCoords.map(coord => [coord.lat, coord.lng]);
+
+            // Создаём полигон
+            this.areaPolygon = L.polygon(leafletCoords, {
+                color: '#3B82F6',        // Синий цвет контура
+                weight: 2,               // Толщина линии
+                opacity: 0.8,            // Прозрачность линии
+                fillColor: '#3B82F6',    // Синий цвет заливки
+                fillOpacity: 0.1         // Низкая прозрачность заливки
+            }).addTo(this.map);
+
+            // Подгоняем карту под полигон, если нет маркеров
+            if (this.markers.length === 0) {
+                this.map.fitBounds(this.areaPolygon.getBounds(), {
+                    padding: [20, 20]
+                });
+            }
+
+        } catch (error) {
+            console.error('❌ FlippingMap: Ошибка отображения полигона области:', error);
+        }
+    }
+
+    /**
+     * Очистка полигона области
+     */
+    clearAreaPolygon() {
+        if (this.areaPolygon) {
+            this.map.removeLayer(this.areaPolygon);
+            this.areaPolygon = null;
+        }
+    }
+
+    /**
+     * Подгонка карты под полигон области
+     */
+    fitMapToAreaPolygon() {
+        try {
+            if (this.areaPolygon) {
+                this.map.fitBounds(this.areaPolygon.getBounds(), {
+                    padding: [30, 30]
+                });
+            }
+        } catch (error) {
+            console.error('❌ FlippingMap: Ошибка подгонки карты под полигон:', error);
+        }
+    }
+
+    /**
+     * Очистка всех маркеров
+     */
+    clearMarkers() {
+        // Удаляем существующие маркеры
+        this.markers.forEach(marker => {
+            if (this.map && this.map.hasLayer(marker)) {
+                this.map.removeLayer(marker);
+            }
+        });
+        this.markers = [];
+    }
+
+    /**
      * Уничтожение карты
      */
     destroy() {
         this.clearMarkers();
+        this.clearAreaPolygon();
         
         if (this.map) {
             this.map.remove();

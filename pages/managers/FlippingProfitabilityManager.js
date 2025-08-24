@@ -42,6 +42,9 @@ class FlippingProfitabilityManager {
         // ✅ ИСПРАВЛЕНО: Флаг уничтожения для защиты от асинхронных операций
         this.isDestroyed = false;
         
+        // Флаг инициализации для предотвращения двойной инициализации
+        this.initialized = false;
+        
         // ✅ ИСПРАВЛЕНО: Глобальный перехватчик ошибок ApexCharts
         this.setupApexChartsErrorSuppression();
         
@@ -200,6 +203,12 @@ class FlippingProfitabilityManager {
      * Инициализация менеджера
      */
     async initialize() {
+        // Проверяем, не был ли уже инициализирован
+        if (this.initialized) {
+            console.log('📊 FlippingProfitabilityManager: уже инициализирован, пропускаем');
+            return;
+        }
+
         try {
             await this.loadDebugSettings();
             
@@ -216,6 +225,9 @@ class FlippingProfitabilityManager {
             // Инициализация FlippingProfitabilityService
             await this.initializeProfitabilityService();
             
+            // Устанавливаем флаг успешной инициализации
+            this.initialized = true;
+            console.log('✅ FlippingProfitabilityManager: инициализация завершена успешно');
             
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка инициализации:', error);
@@ -1643,6 +1655,9 @@ class FlippingProfitabilityManager {
             
             await this.updateObjectsForEvaluation();
             
+            // ИСПРАВЛЕНИЕ: Обновляем карту при смене подсегмента
+            await this.updateMapDisplay('смена подсегмента');
+            
             // Обновляем FlippingController (таблица объектов)
             if (this.flippingController) {
                 
@@ -1833,58 +1848,8 @@ class FlippingProfitabilityManager {
                 }
             }
             
-            // Обновляем карту FlippingController для отображения отфильтрованных объектов
-            console.log('🗺️ Проверяем наличие FlippingController и карты:', {
-                hasFlippingController: !!this.flippingController,
-                hasFlippingMap: !!(this.flippingController && this.flippingController.flippingMap),
-                activeSubsegmentId: this.activeSubsegmentId
-            });
-            
-            if (this.flippingController && this.flippingController.flippingMap) {
-                
-                
-                // При фильтрации по подсегменту показываем на карте ВСЕ объекты сегмента (не только архивные)
-                // чтобы видеть полную картину по домам сегмента
-                let objectsForMap = [];
-                
-                if (this.activeSubsegmentId) {
-                    // Если выбран подсегмент, показываем все объекты из исходного набора,
-                    // которые принадлежат к адресам сегмента этого подсегмента
-                    const subsegment = await this.getSubsegmentById(this.activeSubsegmentId);
-                    if (subsegment) {
-                        const segment = await this.database.getSegment(subsegment.segment_id);
-                        if (segment) {
-                            // Получаем адреса сегмента
-                            const addresses = await this.database.getAddressesInMapArea(segment.map_area_id);
-                            let filteredAddresses = addresses;
-                            if (segment.filters) {
-                                filteredAddresses = this.reportsManager.filterAddressesBySegmentCriteria(addresses, segment.filters);
-                            }
-                            const filteredAddressIds = new Set(filteredAddresses.map(a => a.id));
-                            
-                            // Фильтруем ВСЕ объекты (не только архивные) по адресам сегмента
-                            objectsForMap = this.originalFilteredObjects.filter(obj => 
-                                obj.address_id && filteredAddressIds.has(obj.address_id)
-                            );
-                            
-                            
-                            
-                        } else {
-                        }
-                    }
-                } else {
-                    // Если подсегмент не выбран, показываем все объекты
-                    objectsForMap = this.filteredObjects;
-                }
-                
-                // Устанавливаем отфильтрованные объекты в контроллер для таблицы
-                this.flippingController.filteredObjects = this.filteredObjects;
-                
-                // Карта обновляется автоматически через FlippingController
-            } else {
-                if (this.debugEnabled) {
-                }
-            }
+            // Карта обновляется в applyFiltersMode, здесь дублирующий вызов убран
+            // (обновление карты происходит в основном потоке инициализации)
             
             if (this.debugEnabled) {
             }
@@ -2708,6 +2673,12 @@ class FlippingProfitabilityManager {
         
         this.applyFiltersInProgress = true;
         
+        // Отменяем любые отложенные вызовы applyFilters, так как мы уже выполняемся
+        if (this.applyFiltersTimeout) {
+            clearTimeout(this.applyFiltersTimeout);
+            this.applyFiltersTimeout = null;
+        }
+        
         try {
             this.showPlaceholder("Загрузка данных...");
             
@@ -2793,8 +2764,11 @@ class FlippingProfitabilityManager {
                 // Карта управляется FlippingController через FlippingMap
                 // Убираем дублирующую инициализацию
                 
-                // Загружаем данные на карту
-                await this.loadMapData();
+                // Загружаем данные на карту (только один раз)
+                if (!this.mapDisplayUpdated) {
+                    this.mapDisplayUpdated = true;
+                    await this.updateMapDisplay('инициализация');
+                }
                 
                 // Создаём график коридора рынка
                 await this.createMarketCorridorChart();
@@ -2867,8 +2841,7 @@ class FlippingProfitabilityManager {
             // Рассчитываем референсные цены для подсегментов
             await this.calculateReferencePrice(true);
             
-            // Обновляем карту в legacy режиме
-            await this.loadMapData();
+            // Legacy метод loadMapData удален - карта обновляется выше в новом режиме
             
             // Создаём график коридора рынка
             await this.createMarketCorridorChart();
@@ -3026,19 +2999,452 @@ class FlippingProfitabilityManager {
     // Методы карты удалены - карта управляется FlippingController через FlippingMap
 
     /**
-     * Загрузка данных на карту (через FlippingController)
+     * Обновление отображения карты согласно новой логике
+     */
+    async updateMapDisplay(source = 'неизвестно') {
+        try {
+            // Предотвращение одновременного выполнения
+            if (this._updateMapDisplayInProgress) {
+                console.log(`⏳ updateMapDisplay уже выполняется, пропускаем вызов из: ${source}`);
+                return;
+            }
+            this._updateMapDisplayInProgress = true;
+            
+            // Диагностика вызовов updateMapDisplay
+            if (this.debugEnabled) {
+                console.log(`🗺️ updateMapDisplay вызван из: ${source}`);
+            }
+            
+            if (!this.flippingController || !this.flippingController.flippingMap) {
+                console.warn('⚠️ FlippingController или FlippingMap не доступны');
+                this._updateMapDisplayInProgress = false;
+                return;
+            }
+
+            const map = this.flippingController.flippingMap;
+            
+            // 1. Показываем полигон области (всегда)
+            await this.displayAreaPolygon();
+            
+            // 2. Определяем адреса для показа в зависимости от выбранного фильтра
+            const addressesToShow = await this.getAddressesToDisplay();
+            
+            if (addressesToShow.length === 0) {
+                // Если нет адресов для показа, очищаем маркеры
+                if (map.clearMarkers) {
+                    map.clearMarkers();
+                }
+                this._updateMapDisplayInProgress = false;
+                return;
+            }
+            
+            // 3. Для каждого адреса находим активные объекты и рассчитываем максимальную доходность
+            const addressesWithProfitability = await this.calculateAddressProfitability(addressesToShow);
+            
+            // 4. Обновляем маркеры на карте с цветовым кодированием
+            if (map.updateAddresses) {
+                // Передаем подготовленные адреса с activeObjects в карту
+                
+                await map.updateAddresses(addressesWithProfitability, this.currentFilters, this.filteredObjects);
+            }
+            
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityManager: Ошибка обновления карты:', error);
+        } finally {
+            // Сбрасываем флаг выполнения
+            this._updateMapDisplayInProgress = false;
+        }
+    }
+
+    /**
+     * Показ полигона области на карте
+     */
+    async displayAreaPolygon() {
+        try {
+            // Получаем текущую область
+            const currentArea = this.reportsManager?.areaPage?.dataState?.getState('currentArea');
+            if (!currentArea || !currentArea.polygon) {
+                console.warn('⚠️ Область или полигон не найден');
+                return;
+            }
+
+            const map = this.flippingController.flippingMap;
+            
+            // Если у FlippingMap есть метод для отображения полигона области
+            if (map.displayAreaPolygon) {
+                map.displayAreaPolygon(currentArea.polygon);
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка отображения полигона области:', error);
+        }
+    }
+
+    /**
+     * Определение адресов для отображения на карте
+     */
+    async getAddressesToDisplay() {
+        try {
+            const currentArea = this.reportsManager?.areaPage?.dataState?.getState('currentArea');
+            if (!currentArea) {
+                return [];
+            }
+
+            let addressesToShow = [];
+
+            // Получаем текущие глобальные фильтры
+            const currentSegment = this.reportsManager.currentSegment;
+            const currentSubsegment = this.reportsManager.currentSubsegment;
+            
+            if (this.activeSubsegmentId || currentSubsegment) {
+                // 4. Выбран подсегмент - показываем адреса подсегмента с активными объектами
+                const subsegmentId = this.activeSubsegmentId || currentSubsegment.id;
+                addressesToShow = await this.getSubsegmentActiveAddresses(subsegmentId);
+                
+            } else if (currentSegment) {
+                // 3. Выбран сегмент - показываем адреса сегмента с активными объектами
+                addressesToShow = await this.getSegmentActiveAddresses(currentSegment.id);
+                
+            } else {
+                // 2. Сегмент не выбран - показываем все адреса области с активными объектами
+                addressesToShow = await this.getAreaActiveAddresses(currentArea.id);
+            }
+
+            return addressesToShow;
+
+        } catch (error) {
+            console.error('❌ Ошибка определения адресов для карты:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Получение адресов области с активными объектами
+     */
+    async getAreaActiveAddresses(areaId) {
+        try {
+            // Получаем все адреса области
+            const allAddresses = await this.database.getAddressesInMapArea(areaId);
+            console.log(`🔍 Область ${areaId}: найдено ${allAddresses.length} адресов`);
+            
+            // Фильтруем только те адреса, где есть активные объекты
+            const activeAddresses = [];
+            let totalObjects = 0;
+            let totalActiveObjects = 0;
+            
+            for (const address of allAddresses) {
+                const objects = await this.database.getObjectsByAddress(address.id);
+                const activeObjects = objects.filter(obj => obj.status === 'active');
+                
+                // Диагностика статусов (только для первых 3 адресов)
+                if (objects.length > 0 && totalObjects < 3) {
+                    const statusCounts = {};
+                    objects.forEach(obj => {
+                        statusCounts[obj.status || 'undefined'] = (statusCounts[obj.status || 'undefined'] || 0) + 1;
+                    });
+                    console.log(`📊 Адрес ${address.address}: статусы объектов:`, statusCounts);
+                }
+                
+                totalObjects += objects.length;
+                totalActiveObjects += activeObjects.length;
+                
+                if (activeObjects.length > 0) {
+                    const addressWithActiveObjects = {
+                        ...address,
+                        activeObjects
+                    };
+                    activeAddresses.push(addressWithActiveObjects);
+                    
+                    // Диагностика для первого адреса
+                    if (activeAddresses.length === 1) {
+                        console.log(`✅ Первый адрес с активными объектами:`, {
+                            address: address.address,
+                            activeObjectsCount: activeObjects.length,
+                            hasActiveObjectsField: !!addressWithActiveObjects.activeObjects
+                        });
+                    }
+                }
+            }
+            
+            console.log(`🔍 Статистика области ${areaId}:`, {
+                всегоАдресов: allAddresses.length,
+                адресовСАктивнымиОбъектами: activeAddresses.length,
+                всегоОбъектов: totalObjects,
+                активныхОбъектов: totalActiveObjects
+            });
+            
+            return activeAddresses;
+            
+        } catch (error) {
+            console.error('❌ Ошибка получения адресов области:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Получение адресов сегмента с активными объектами
+     */
+    async getSegmentActiveAddresses(segmentId) {
+        try {
+            const segment = await this.database.getSegment(segmentId);
+            if (!segment) {
+                return [];
+            }
+
+            // Получаем адреса области сегмента
+            const addresses = await this.database.getAddressesInMapArea(segment.map_area_id);
+            
+            // Применяем критерии сегмента для фильтрации адресов
+            let filteredAddresses = addresses;
+            if (segment.filters) {
+                filteredAddresses = this.reportsManager.filterAddressesBySegmentCriteria(addresses, segment.filters);
+            }
+            
+            // Оставляем только адреса с активными объектами
+            const activeAddresses = [];
+            let totalObjects = 0;
+            let totalActiveObjects = 0;
+            
+            for (const address of filteredAddresses) {
+                const objects = await this.database.getObjectsByAddress(address.id);
+                const activeObjects = objects.filter(obj => obj.status === 'active');
+                
+                totalObjects += objects.length;
+                totalActiveObjects += activeObjects.length;
+                
+                if (activeObjects.length > 0) {
+                    activeAddresses.push({
+                        ...address,
+                        activeObjects
+                    });
+                }
+            }
+            
+            console.log(`🔍 Статистика сегмента ${segmentId}:`, {
+                адресовСегмента: filteredAddresses.length,
+                адресовСАктивнымиОбъектами: activeAddresses.length,
+                всегоОбъектов: totalObjects,
+                активныхОбъектов: totalActiveObjects
+            });
+            
+            return activeAddresses;
+            
+        } catch (error) {
+            console.error('❌ Ошибка получения адресов сегмента:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Получение адресов подсегмента с активными объектами
+     */
+    async getSubsegmentActiveAddresses(subsegmentId) {
+        try {
+            const subsegment = await this.getSubsegmentById(subsegmentId);
+            if (!subsegment) {
+                return [];
+            }
+
+            // Сначала получаем адреса родительского сегмента
+            const segmentAddresses = await this.getSegmentActiveAddresses(subsegment.segment_id);
+            
+            // Теперь фильтруем только те адреса, где есть объекты, соответствующие критериям подсегмента
+            const subsegmentAddresses = [];
+            
+            let totalActiveObjects = 0;
+            let subsegmentActiveObjects = 0;
+            
+            for (const address of segmentAddresses) {
+                totalActiveObjects += address.activeObjects.length;
+                
+                // Проверяем, есть ли среди активных объектов те, что соответствуют подсегменту
+                const subsegmentObjects = address.activeObjects.filter(obj => 
+                    this.reportsManager.objectMatchesSubsegment(obj, subsegment)
+                );
+                
+                subsegmentActiveObjects += subsegmentObjects.length;
+                
+                if (subsegmentObjects.length > 0) {
+                    subsegmentAddresses.push({
+                        ...address,
+                        activeObjects: subsegmentObjects // Оставляем только объекты подсегмента
+                    });
+                }
+            }
+            
+            console.log(`🔍 Статистика подсегмента ${subsegmentId}:`, {
+                адресовРодительскогоСегмента: segmentAddresses.length,
+                адресовПодсегмента: subsegmentAddresses.length,
+                активныхОбъектовВСегменте: totalActiveObjects,
+                активныхОбъектовВПодсегменте: subsegmentActiveObjects
+            });
+            
+            return subsegmentAddresses;
+            
+        } catch (error) {
+            console.error('❌ Ошибка получения адресов подсегмента:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Расчёт доходности для каждого адреса
+     */
+    async calculateAddressProfitability(addresses) {
+        try {
+            const addressesWithProfitability = [];
+            
+            if (this.debugEnabled) {
+                console.log(`🔍 calculateAddressProfitability: получено ${addresses.length} адресов для расчета доходности`);
+            }
+            
+            for (const address of addresses) {
+                let maxProfitability = 0;
+                let maxProfitabilityText = '';
+                
+                // Проверяем наличие активных объектов
+                if (!address.activeObjects || !Array.isArray(address.activeObjects)) {
+                    console.warn('⚠️ У адреса нет поля activeObjects:', address.id);
+                    addressesWithProfitability.push({
+                        ...address,
+                        maxProfitability: 0,
+                        maxProfitabilityText: 'Нет данных',
+                        markerColor: '#6b7280',
+                        activeObjects: []
+                    });
+                    continue;
+                }
+                
+                // Рассчитываем доходность для каждого активного объекта адреса
+                for (const obj of address.activeObjects) {
+                    const profitability = this.calculateObjectProfitability(obj);
+                    
+                    // Диагностика расчета доходности (только при отладке)
+                    if (this.debugEnabled) {
+                        console.log(`💰 Расчет доходности для объекта ${obj.id}:`, {
+                            объект: obj.property_type,
+                            цена: obj.current_price,
+                            площадь: obj.area_total,
+                            доходность: profitability?.annualReturn || 'нет данных'
+                        });
+                    }
+                    
+                    if (profitability && profitability.annualReturn > maxProfitability) {
+                        maxProfitability = profitability.annualReturn;
+                        maxProfitabilityText = `${profitability.annualReturn.toFixed(1)}% годовых`;
+                    }
+                }
+                
+                // Определяем цвет маркера на основе доходности
+                const markerColor = this.getProfitabilityColor(maxProfitability);
+                
+                addressesWithProfitability.push({
+                    ...address,
+                    maxProfitability,
+                    maxProfitabilityText,
+                    markerColor,
+                    activeObjects: address.activeObjects // Сохраняем activeObjects для popup
+                });
+                
+                console.log(`🏠 Адрес ${address.address}:`, {
+                    активныхОбъектов: address.activeObjects.length,
+                    максДоходность: maxProfitability,
+                    текстДоходности: maxProfitabilityText,
+                    цветМаркера: markerColor
+                });
+            }
+            
+            if (this.debugEnabled) {
+                console.log(`✅ calculateAddressProfitability: обработано ${addressesWithProfitability.length} адресов с доходностью`);
+                
+                // Диагностика первых 3 адресов
+                for (let i = 0; i < Math.min(3, addressesWithProfitability.length); i++) {
+                    const addr = addressesWithProfitability[i];
+                    console.log(`📊 Адрес ${i+1}: ${addr.address}, активных объектов: ${addr.activeObjects?.length || 0}`);
+                }
+            }
+            
+            return addressesWithProfitability;
+            
+        } catch (error) {
+            console.error('❌ Ошибка расчёта доходности адресов:', error);
+            return addresses; // Возвращаем без доходности в случае ошибки
+        }
+    }
+
+    /**
+     * Расчёт доходности конкретного объекта
+     */
+    calculateObjectProfitability(obj) {
+        try {
+            console.log(`🔍 calculateObjectProfitability для ${obj.id}:`, {
+                hasService: !!(this.flippingController && this.flippingController.realEstateObjectService),
+                current_price: obj.current_price,
+                price: obj.price,
+                area_total: obj.area_total,
+                currentFilters: this.currentFilters
+            });
+            
+            // Используем тот же сервис расчёта доходности, что и для таблицы
+            if (this.flippingController && this.flippingController.realEstateObjectService) {
+                const serviceResult = this.flippingController.realEstateObjectService.calculateProfitability(obj, this.currentFilters);
+                console.log(`📊 Результат от сервиса:`, serviceResult);
+                
+                // Если сервис работает корректно (не все нули), используем его результат
+                if (serviceResult && serviceResult.annualReturn > 0) {
+                    return serviceResult;
+                }
+                
+                console.log(`⚠️ Сервис вернул 0, используем fallback расчет`);
+            }
+            
+            // Fallback: базовый расчёт доходности
+            const price = obj.current_price || obj.price;
+            if (!price || !obj.area_total) {
+                console.log(`❌ Нет цены или площади: price=${price}, area=${obj.area_total}`);
+                return null;
+            }
+            
+            const pricePerMeter = price / obj.area_total;
+            const profitabilityPercent = this.currentFilters?.profitabilityPercent || 60;
+            const annualReturn = (pricePerMeter * profitabilityPercent) / price * 100;
+            
+            const result = {
+                annualReturn: annualReturn || 0,
+                totalProfit: price * profitabilityPercent / 100
+            };
+            
+            console.log(`✅ Fallback расчет доходности:`, {
+                pricePerMeter,
+                profitabilityPercent,
+                annualReturn,
+                result
+            });
+            
+            return result;
+            
+        } catch (error) {
+            console.error('❌ Ошибка расчёта доходности объекта:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Определение цвета маркера на основе доходности
+     */
+    getProfitabilityColor(profitability) {
+        if (profitability >= 80) return '#22c55e';  // Зелёный - высокая доходность
+        if (profitability >= 50) return '#eab308';  // Жёлтый - средняя доходность  
+        if (profitability >= 20) return '#f97316';  // Оранжевый - низкая доходность
+        if (profitability > 0)   return '#ef4444';  // Красный - очень низкая доходность
+        return '#6b7280';                           // Серый - нет данных
+    }
+
+    /**
+     * Устаревший метод - заменён на updateMapDisplay()
      */
     async loadMapData() {
-        try {
-            
-            
-            // Карта обновляется через FlippingController в updateObjectsDisplay
-            if (this.flippingController) {
-                await this.flippingController.updateUIComponents();
-            }
-        } catch (error) {
-            console.error('❌ FlippingProfitabilityManager: Ошибка загрузки данных на карту:', error);
-        }
+        await this.updateMapDisplay('loadMapData (устаревший)');
     }
 
     /**
@@ -3839,20 +4245,8 @@ class FlippingProfitabilityManager {
                 
             }
 
-            // Обновляем карту через FlippingController  
-            if (this.flippingController && this.flippingController.flippingMap) {
-                // Извлекаем уникальные адреса из отфильтрованных объектов
-                const addressMap = new Map();
-                for (const obj of this.filteredObjects) {
-                    if (obj.address && obj.address_id) {
-                        addressMap.set(obj.address_id, obj.address);
-                    }
-                }
-                const uniqueAddresses = Array.from(addressMap.values());
-                
-                await this.flippingController.flippingMap.updateAddresses(uniqueAddresses, this.currentFilters, this.filteredObjects);
-                
-            }
+            // Карта обновляется в updateMapDisplay(), здесь дублирующий вызов убран
+            // (данный вызов перезаписывал правильные адреса с activeObjects неправильными данными)
 
             // Обновляем график
             await this.updateMarketCorridorChart();

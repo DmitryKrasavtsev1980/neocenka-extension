@@ -53,6 +53,9 @@ class AreaArchitectureIntegration {
             throw new Error('ApplicationController не загружен');
         }
         
+        // Ожидаем готовности базы данных перед инициализацией контроллеров
+        await this.waitForDatabaseReady();
+        
         this.applicationController = new ApplicationController();
         this.diContainer = this.applicationController.container;
         
@@ -291,6 +294,32 @@ class AreaArchitectureIntegration {
         });
     }
     
+    /**
+     * Ожидание готовности базы данных
+     */
+    async waitForDatabaseReady() {
+        let attempts = 0;
+        const maxAttempts = 100; // 10 секунд максимум
+        
+        while (attempts < maxAttempts) {
+            try {
+                if (window.db && typeof window.db.getAll === 'function') {
+                    // Проверяем, что БД действительно готова к работе
+                    await window.db.getAll('addresses');
+                    console.log('✅ База данных готова к работе');
+                    return;
+                }
+            } catch (error) {
+                // БД ещё не готова, продолжаем ждать
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        throw new Error('База данных не готова после 10 секунд ожидания');
+    }
+
     /**
      * Отладочное логирование
      */

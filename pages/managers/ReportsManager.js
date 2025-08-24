@@ -79,10 +79,17 @@ class ReportsManager {
 
             // Инициализация FlippingProfitabilityManager
             if (typeof FlippingProfitabilityManager !== 'undefined') {
-                this.flippingProfitabilityManager = new FlippingProfitabilityManager(this);
-                await this.flippingProfitabilityManager.initialize();
-                if (this.debugEnabled) {
-                    console.log('📊 ReportsManager: FlippingProfitabilityManager инициализирован');
+                // Проверяем, не был ли уже инициализирован
+                if (!this.flippingProfitabilityManager) {
+                    this.flippingProfitabilityManager = new FlippingProfitabilityManager(this);
+                    await this.flippingProfitabilityManager.initialize();
+                    if (this.debugEnabled) {
+                        console.log('📊 ReportsManager: FlippingProfitabilityManager инициализирован');
+                    }
+                } else {
+                    if (this.debugEnabled) {
+                        console.log('📊 ReportsManager: FlippingProfitabilityManager уже инициализирован, пропускаем');
+                    }
                 }
             } else {
                 console.warn('⚠️ ReportsManager: FlippingProfitabilityManager не найден');
@@ -106,8 +113,9 @@ class ReportsManager {
             // Установка значений по умолчанию для чекбоксов отчётов
             this.setDefaultReportsSettings();
 
-            // Первоначальное обновление видимости отчётов
-            await this.updateReportsVisibility();
+            // Первоначальное обновление видимости отчётов происходит автоматически 
+            // при инициализации фильтров, убираем дублирующий вызов
+            // await this.updateReportsVisibility();
             
             // Инициализация DataTables для сохранённых отчётов
             await this.initializeSavedReportsDataTable();
