@@ -767,11 +767,9 @@ class FlippingTable {
                             <tr class="border-t">
                                 <td class="py-2 px-3 font-medium border-r">Покупка</td>
                                 <td class="py-2 px-3 text-center border-r">
-                                    <div class="font-medium">${formatCurrency(current.purchasePrice)}</div>
                                     ${current.financing && current.financing.downPayment !== undefined && current.financing.interestCosts !== undefined ? 
-                                        `<div class="text-xs text-gray-600">
-                                            (${formatCurrency(current.financing.downPayment)} + ${formatCurrency(current.financing.interestCosts)})
-                                        </div>` : ''
+                                        `<div class="font-medium">${formatCurrency(current.purchasePrice)} (${formatCurrency(current.financing.downPayment)} + ${formatCurrency(current.financing.interestCosts)})</div>`
+                                        : `<div class="font-medium">${formatCurrency(current.purchasePrice)}</div>`
                                     }
                                 </td>
                                 ${target ? `<td class="py-2 px-3 text-center">
