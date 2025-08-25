@@ -130,16 +130,18 @@ class FlippingTable {
                     title: 'Доходность',
                     render: (data, type, row) => {
                         // Получаем рассчитанную доходность из объекта
-                        const profitability = row.flippingProfitability;
+                        const flippingProfitability = row.flippingProfitability;
                         
-                        if (!profitability) {
+                        if (!flippingProfitability || !flippingProfitability.current) {
+                            console.log(`⚠️ FlippingTable: Объект ${row.id} не имеет flippingProfitability.current`);
                             return `<div class="text-xs text-center cursor-pointer hover:bg-gray-50 p-1 rounded profitability-details" data-object-id="${row.id}">
-                                <span class="text-gray-400">Расчёт...</span>
+                                <span class="text-gray-400">Ожидание..</span>
                             </div>`;
                         }
 
-                        // Определяем цвет по уровню доходности
-                        const annualROI = profitability.annualROI || 0;
+                        // Определяем цвет по уровню доходности (текущий сценарий)
+                        const current = flippingProfitability.current;
+                        const annualROI = current.annualROI || 0;
                         let colorClass = 'text-gray-600';
                         if (annualROI >= 20) colorClass = 'text-green-600';
                         else if (annualROI >= 10) colorClass = 'text-yellow-600';
@@ -147,7 +149,7 @@ class FlippingTable {
 
                         return `<div class="text-xs text-center cursor-pointer hover:bg-gray-50 p-1 rounded profitability-details" data-object-id="${row.id}">
                             <div class="${colorClass} font-medium">${annualROI.toFixed(1)}% год.</div>
-                            <div class="text-gray-400" style="font-size: 10px;">прибыль: ${new Intl.NumberFormat('ru-RU').format(Math.round(profitability.netProfit || 0))} ₽</div>
+                            <div class="text-gray-400" style="font-size: 10px;">прибыль: ${new Intl.NumberFormat('ru-RU').format(Math.round(current.netProfit || 0))} ₽</div>
                         </div>`;
                     }
                 },
@@ -338,6 +340,12 @@ class FlippingTable {
      */
     async updateData(objects, profitabilityParameters = {}) {
         try {
+            console.log('📊 FlippingTable.updateData вызван:', {
+                objectsCount: objects?.length || 0,
+                firstObject: objects?.[0],
+                hasFlippingProfitability: !!objects?.[0]?.flippingProfitability
+            });
+            
             this.objects = objects || [];
             this.profitabilityParameters = profitabilityParameters;
 
@@ -622,18 +630,86 @@ class FlippingTable {
      * Создание содержимого с подробным расчётом доходности
      */
     createProfitabilityDetailsContent(profitability, objectData) {
-        const current = profitability.currentPrice || profitability;
-        const target = profitability.targetPrice || null;
+        // Поддержка новой структуры flippingProfitability и старой profitability
+        let current, target;
+        
+        if (objectData.flippingProfitability && objectData.flippingProfitability.fullData) {
+            // Новая структура с двумя сценариями из сервиса
+            current = objectData.flippingProfitability.fullData.currentPrice;
+            target = objectData.flippingProfitability.fullData.targetPrice;
+        } else if (objectData.flippingProfitability) {
+            // Структура из менеджера
+            current = objectData.flippingProfitability.current;
+            target = objectData.flippingProfitability.target;
+        } else {
+            // Старая структура (обратная совместимость)
+            current = profitability.currentPrice || profitability;
+            target = profitability.targetPrice || null;
+        }
+        
+        // Диагностика данных для дочерней таблицы
+        console.log(`🔍 Данные для дочерней таблицы объекта ${objectData.id}:`, {
+            profitability,
+            objectData: objectData,
+            flippingProfitability: objectData.flippingProfitability,
+            fullData: objectData.flippingProfitability?.fullData,
+            current,
+            target,
+            currentSalePrice: current?.salePrice,
+            targetSalePrice: target?.salePrice,
+            currentFinancing: current?.financing,
+            targetFinancing: target?.financing,
+            currentPurchasePrice: current?.purchasePrice,
+            currentActualPrice: current?.actualPurchasePrice
+        });
 
-        const formatCurrency = (amount) => new Intl.NumberFormat('ru-RU').format(Math.round(amount)) + ' ₽';
-        const formatPercent = (percent) => (Math.round(percent * 10) / 10).toFixed(1) + '%';
+        const formatCurrency = (amount) => {
+            if (amount === undefined || amount === null || isNaN(amount)) {
+                return '—';
+            }
+            return new Intl.NumberFormat('ru-RU').format(Math.round(amount)) + ' ₽';
+        };
+        
+        const formatPercent = (percent) => {
+            if (percent === undefined || percent === null || isNaN(percent)) {
+                return '—';
+            }
+            return (Math.round(percent * 10) / 10).toFixed(1) + '%';
+        };
+        
+        const formatProjectDuration = (days) => {
+            if (!days || isNaN(days)) {
+                return '—';
+            }
+            const totalDays = Math.round(days);
+            const months = Math.floor(totalDays / 30);
+            const remainingDays = totalDays % 30;
+            
+            if (months > 0 && remainingDays > 0) {
+                return `${totalDays} дн. (${months} мес. ${remainingDays} дн.)`;
+            } else if (months > 0) {
+                return `${totalDays} дн. (${months} мес.)`;
+            } else {
+                return `${totalDays} дн.`;
+            }
+        };
+        
+        // Проверка наличия данных для текущего сценария
+        if (!current) {
+            console.error('❌ Данные для current не найдены:', {
+                profitability,
+                objectData,
+                flippingProfitability: objectData?.flippingProfitability
+            });
+            return '<div class="text-center text-red-500 py-4">Данные расчёта доходности отсутствуют</div>';
+        }
 
         let targetColumn = '';
         if (target) {
             targetColumn = `
                 <td class="py-2 px-3 text-center">
                     <div class="text-xs">
-                        <div class="font-medium text-blue-600">${formatCurrency(target.targetPurchasePrice || target.purchasePrice)}</div>
+                        <div class="font-medium text-blue-600">${formatCurrency(target.targetPrice || target.purchasePrice)}</div>
                         <div class="text-green-600">-${target.discount || 0}%</div>
                     </div>
                 </td>
@@ -644,7 +720,7 @@ class FlippingTable {
                 <td class="py-2 px-3 text-center">${formatCurrency(target.salePrice)}</td>
                 <td class="py-2 px-3 text-center font-medium text-green-600">${formatCurrency(target.netProfit)}</td>
                 <td class="py-2 px-3 text-center font-bold text-green-600">${formatPercent(target.annualROI)}</td>
-                <td class="py-2 px-3 text-center">${target.totalProjectMonths} мес.</td>
+                <td class="py-2 px-3 text-center">${formatProjectDuration(target.totalProjectDays)}</td>
             `;
         } else {
             targetColumn = '<td colspan="9" class="py-2 px-3 text-center text-gray-400 text-xs">Расчёт целевой цены недоступен</td>';
@@ -690,10 +766,22 @@ class FlippingTable {
                         <tbody class="bg-white">
                             <tr class="border-t">
                                 <td class="py-2 px-3 font-medium border-r">Покупка</td>
-                                <td class="py-2 px-3 text-center border-r">${formatCurrency(current.purchasePrice)}</td>
+                                <td class="py-2 px-3 text-center border-r">
+                                    <div class="font-medium">${formatCurrency(current.purchasePrice)}</div>
+                                    ${current.financing && current.financing.downPayment !== undefined && current.financing.interestCosts !== undefined ? 
+                                        `<div class="text-xs text-gray-600">
+                                            (${formatCurrency(current.financing.downPayment)} + ${formatCurrency(current.financing.interestCosts)})
+                                        </div>` : ''
+                                    }
+                                </td>
                                 ${target ? `<td class="py-2 px-3 text-center">
-                                    <div class="text-blue-600 font-medium">${formatCurrency(target.targetPurchasePrice || target.purchasePrice)}</div>
+                                    <div class="text-blue-600 font-medium">${formatCurrency(target.targetPrice || target.purchasePrice)}</div>
                                     <div class="text-green-600 text-xs">-${target.discount || 0}%</div>
+                                    ${target.financing && target.financing.downPayment && target.financing.interestCosts ? 
+                                        `<div class="text-xs text-gray-600">
+                                            (${formatCurrency(target.financing.downPayment)} + ${formatCurrency(target.financing.interestCosts)})
+                                        </div>` : ''
+                                    }
                                 </td>` : ''}
                             </tr>
                             <tr class="border-t">
@@ -733,8 +821,8 @@ class FlippingTable {
                             </tr>
                             <tr class="border-t">
                                 <td class="py-2 px-3 font-medium border-r">Срок проекта</td>
-                                <td class="py-2 px-3 text-center border-r">${current.totalProjectMonths} мес.</td>
-                                ${target ? `<td class="py-2 px-3 text-center">${target.totalProjectMonths} мес.</td>` : ''}
+                                <td class="py-2 px-3 text-center border-r">${formatProjectDuration(current.totalProjectDays)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center">${formatProjectDuration(target.totalProjectDays)}</td>` : ''}
                             </tr>
                         </tbody>
                     </table>

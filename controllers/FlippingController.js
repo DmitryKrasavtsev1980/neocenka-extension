@@ -222,11 +222,34 @@ class FlippingController extends EventTarget {
                 throw new Error('Нет объектов, соответствующих заданным фильтрам');
             }
 
-            // Рассчитываем доходность для каждого объекта
-            this.filteredObjects = this.filteredObjects.map(obj => ({
-                ...obj,
-                profitability: this.realEstateObjectService.calculateProfitability(obj, this.currentFilters)
-            }));
+            // Рассчитываем доходность для каждого объекта (только если еще не рассчитана)
+            this.filteredObjects = this.filteredObjects.map(obj => {
+                // Проверяем есть ли уже правильно рассчитанная доходность от FlippingProfitabilityManager
+                if (obj.flippingProfitability && obj.profitability) {
+                    // Объект уже имеет правильную доходность, не перезаписываем
+                    return obj;
+                }
+                
+                // Рассчитываем доходность только если её нет
+                const profitability = this.realEstateObjectService.calculateProfitability(obj, this.currentFilters);
+                
+                // Создаем совместимую структуру для FlippingTable
+                const flippingProfitability = profitability ? {
+                    currentPrice: {
+                        annualROI: profitability.annualReturn || 0,
+                        netProfit: profitability.totalProfit || 0,
+                        roi: profitability.roi || 0,
+                        totalCosts: profitability.totalCosts || 0,
+                        salePrice: profitability.salePrice || 0
+                    }
+                } : null;
+                
+                return {
+                    ...obj,
+                    profitability: profitability, // Для карты и других компонентов
+                    flippingProfitability: flippingProfitability // Для FlippingTable
+                };
+            });
 
             // Обновляем UI компоненты
             await this.updateUIComponents();
@@ -260,10 +283,8 @@ class FlippingController extends EventTarget {
     async updateUIComponents() {
         try {
 
-            // Обновляем таблицу
-            if (this.flippingTable) {
-                await this.flippingTable.updateData(this.filteredObjects, this.currentFilters);
-            }
+            // Таблица будет обновлена FlippingProfitabilityManager после расчёта доходности
+            // Убираем здесь обновление таблицы чтобы избежать показа объектов без доходности
 
             // Обновляем карту с адресами (новый подход)
             if (this.flippingMap) {

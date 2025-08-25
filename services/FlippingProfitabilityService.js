@@ -37,7 +37,7 @@ class FlippingProfitabilityService {
             }
 
             // 1. Расчёт продажной цены
-            const salePrice = params.referencePricePerMeter * object.area * (params.profitabilityPercent / 100);
+            const salePrice = params.referencePricePerMeter * object.area;
 
             // 2. Расчёт стоимости ремонта
             const renovationCost = this.calculateRenovationCost(object.area, params);
@@ -48,6 +48,19 @@ class FlippingProfitabilityService {
             const totalProjectMonths = totalProjectDays / 30;
 
             // 4. Расчёт общих затрат
+            // Валидация параметров финансирования перед расчётом
+            if (params.financing === 'mortgage') {
+                if (!params.downPayment || params.downPayment <= 0 || params.downPayment >= 100) {
+                    throw new Error(`Некорректный первоначальный взнос: ${params.downPayment}%`);
+                }
+                if (!params.mortgageRate || params.mortgageRate <= 0) {
+                    throw new Error(`Некорректная ставка ипотеки: ${params.mortgageRate}%`);
+                }
+                if (!params.mortgageTerm || params.mortgageTerm <= 0) {
+                    throw new Error(`Некорректный срок ипотеки: ${params.mortgageTerm} лет`);
+                }
+            }
+            
             const financingResult = this.calculateFinancingCosts(object.currentPrice, params, totalProjectDays);
             const totalCosts = financingResult.downPayment + renovationCost + params.additionalExpenses + financingResult.interestCosts;
 
@@ -65,9 +78,15 @@ class FlippingProfitabilityService {
             // 8. Раздел прибыли между участниками
             const profitSharing = this.calculateProfitSharing(netProfit, params);
 
+            // Для строки "Покупка" в дочерней таблице при ипотеке показываем полную стоимость покупки
+            const displayPurchasePrice = params.financing === 'mortgage' 
+                ? financingResult.downPayment + financingResult.interestCosts
+                : object.currentPrice;
+
             const result = {
                 salePrice,
-                purchasePrice: object.currentPrice,
+                purchasePrice: displayPurchasePrice, // Полная стоимость покупки для отображения
+                actualPurchasePrice: object.currentPrice, // Реальная цена объекта для справки
                 renovationCost,
                 additionalExpenses: params.additionalExpenses,
                 financingCosts: financingResult.interestCosts,
@@ -171,12 +190,24 @@ class FlippingProfitabilityService {
                 totalPayments: 0
             };
         } else {
-            // Ипотека
+            // Ипотека - дополнительная валидация
+            if (!purchasePrice || purchasePrice <= 0) {
+                throw new Error(`Некорректная цена покупки: ${purchasePrice}`);
+            }
+            if (!projectDays || projectDays <= 0) {
+                throw new Error(`Некорректный срок проекта: ${projectDays} дней`);
+            }
+            
             const downPaymentAmount = purchasePrice * (params.downPayment / 100);
             const loanAmount = purchasePrice - downPaymentAmount;
             const monthlyPayment = this.calculateMortgagePayment(loanAmount, params.mortgageRate, params.mortgageTerm);
             const projectMonths = projectDays / 30;
             const interestCosts = monthlyPayment * projectMonths;
+
+            // Проверка на NaN значения
+            if (isNaN(downPaymentAmount) || isNaN(loanAmount) || isNaN(monthlyPayment) || isNaN(interestCosts)) {
+                throw new Error(`Получены NaN значения при расчёте ипотеки: downPayment=${downPaymentAmount}, loanAmount=${loanAmount}, monthlyPayment=${monthlyPayment}, interestCosts=${interestCosts}`);
+            }
 
             return {
                 downPayment: downPaymentAmount,
