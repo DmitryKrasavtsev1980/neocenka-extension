@@ -148,6 +148,9 @@ class FlippingMap {
                 this.map.invalidateSize();
             }, 1000);
 
+            // Настраиваем обработчики событий popup
+            this.setupPopupEventHandlers();
+
             
         } catch (error) {
             console.error('❌ FlippingMap: Ошибка инициализации:', error);
@@ -503,9 +506,15 @@ class FlippingMap {
                 <div class="text-sm font-bold mb-1" style="color: ${textColor}">
                     ${displayText}
                 </div>
-                <div class="text-xs text-gray-500">
+                <div class="text-xs text-gray-500 mb-2">
                     Этажей: ${address.floors_count || '?'}
                 </div>
+                <button 
+                    class="show-address-objects-btn w-full px-3 py-1 text-xs font-medium text-white bg-blue-600 border border-transparent rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    data-address-id="${address.id}"
+                >
+                    Показать
+                </button>
             </div>
         `;
         
@@ -894,6 +903,43 @@ class FlippingMap {
             }
         });
         this.markers = [];
+    }
+
+    /**
+     * Настройка обработчиков событий для popup
+     */
+    setupPopupEventHandlers() {
+        // Используем делегирование событий для кнопок "Показать"
+        document.addEventListener('click', (event) => {
+            if (event.target.classList.contains('show-address-objects-btn')) {
+                const addressId = event.target.getAttribute('data-address-id');
+                if (addressId) {
+                    this.filterTableByAddress(addressId);
+                }
+            }
+        });
+    }
+
+    /**
+     * Фильтрация таблицы по адресу (вызывается из popup карты)
+     */
+    filterTableByAddress(addressId) {
+        try {
+            // Получаем доступ к FlippingController через ApplicationController
+            if (window.applicationController) {
+                const flippingController = window.applicationController.getController('FlippingController');
+                if (flippingController && flippingController.flippingTable) {
+                    // Используем метод setAddressFilter из FlippingTable
+                    flippingController.flippingTable.setAddressFilter(addressId);
+                } else {
+                    console.warn('FlippingController или flippingTable не найдены');
+                }
+            } else {
+                console.warn('ApplicationController не найден');
+            }
+        } catch (error) {
+            console.error('❌ FlippingMap: Ошибка фильтрации по адресу:', error);
+        }
     }
 
     /**

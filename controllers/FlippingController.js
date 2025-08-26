@@ -57,6 +57,8 @@ class FlippingController extends EventTarget {
 
             // Экспортируем в глобальную область для доступа из HTML
             window.flippingController = this;
+            window.flippingMap = this.flippingMap;
+            window.flippingTable = this.flippingTable;
 
             this.initialized = true;
 
@@ -84,11 +86,22 @@ class FlippingController extends EventTarget {
      */
     async initializeUIComponents() {
         try {
-            // Инициализируем таблицу
+            // Инициализируем таблицу с передачей dataState
+            // Проверяем разные источники для получения dataState
+            let dataState = null;
+            if (window.areaPage?.dataState) {
+                dataState = window.areaPage.dataState;
+            } else if (window.duplicatesManager?.dataState) {
+                dataState = window.duplicatesManager.dataState;
+            } else if (window.dataState) {
+                dataState = window.dataState;
+            }
+            
             this.flippingTable = new FlippingTable(
                 'flippingTable',
                 this.errorHandlingService,
-                this.configService
+                this.configService,
+                dataState
             );
             await this.flippingTable.initialize();
 

@@ -249,6 +249,18 @@ class FlippingProfitabilityManager {
                 }
             } else {
             }
+
+            // Фильтр адресов будет обновлён автоматически при получении события AREA_LOADED
+            // Fallback: попробуем обновить через 3 секунды, если событие не сработает
+            setTimeout(async () => {
+                if (window.flippingTable) {
+                    try {
+                        await window.flippingTable.refreshFlippingAddressFilter();
+                    } catch (error) {
+                        console.error('❌ FlippingProfitabilityManager: ошибка fallback обновления фильтра адресов:', error);
+                    }
+                }
+            }, 3000);
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка инициализации FlippingController:', error);
         }
@@ -706,6 +718,17 @@ class FlippingProfitabilityManager {
             // Обновление при изменении текущего сегмента
             this.eventBus.on(CONSTANTS.EVENTS.SEGMENT_UPDATED, () => {
                 this.onGlobalFiltersChanged();
+            });
+
+            // Обновление фильтра адресов когда область загружена
+            this.eventBus.on(CONSTANTS.EVENTS.AREA_LOADED, async () => {
+                if (window.flippingTable) {
+                    try {
+                        await window.flippingTable.refreshFlippingAddressFilter();
+                    } catch (error) {
+                        console.error('❌ FlippingProfitabilityManager: ошибка обновления фильтра после AREA_LOADED:', error);
+                    }
+                }
             });
         }
 

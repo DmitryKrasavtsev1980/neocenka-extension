@@ -4,10 +4,11 @@
  * Следует архитектуре v0.1
  */
 class FlippingTable {
-    constructor(tableElementId, errorHandlingService, configService) {
+    constructor(tableElementId, errorHandlingService, configService, dataState = null) {
         this.tableElementId = tableElementId;
         this.errorHandlingService = errorHandlingService;
         this.configService = configService;
+        this.dataState = dataState;
         
         this.tableElement = document.getElementById(tableElementId);
         this.dataTable = null;
@@ -43,12 +44,108 @@ class FlippingTable {
     }
 
     /**
+     * Получение адресов в области (по аналогии с DuplicatesManager)
+     */
+    async getAddressesInArea() {
+        try {
+            // Пробуем несколько способов получить currentArea
+            let currentArea = null;
+            
+            // Используем тот же подход, что и в DuplicatesManager - прямое обращение к dataState
+            if (this.dataState && this.dataState.getState) {
+                currentArea = this.dataState.getState('currentArea');
+            } else if (window.areaPage && window.areaPage.dataState && window.areaPage.dataState.getState) {
+                currentArea = window.areaPage.dataState.getState('currentArea');
+            } else if (window.duplicatesManager && window.duplicatesManager.dataState && window.duplicatesManager.dataState.getState) {
+                currentArea = window.duplicatesManager.dataState.getState('currentArea');
+            }
+            
+            // Дополнительная проверка - пробуем получить напрямую
+            if (!currentArea && window.areaPage && window.areaPage.currentArea) {
+                currentArea = window.areaPage.currentArea;
+            }
+
+            
+            // Проверяем тип currentArea и при необходимости создаем MapAreaModel
+            if (currentArea) {
+                
+                // Если currentArea не является MapAreaModel, создаем его
+                if (!(currentArea instanceof window.MapAreaModel) && window.MapAreaModel) {
+                    currentArea = new window.MapAreaModel(currentArea);
+                }
+            }
+
+            if (!currentArea || !currentArea.polygon) {
+                return []; // Возвращаем пустой массив, если нет области
+            }
+            
+            // Получаем все адреса из базы данных (как в DuplicatesManager)
+            const allAddresses = await window.db.getAll('addresses');
+            
+            
+            // Фильтруем адреса, которые входят в полигон области
+            let invalidCount = 0;
+            let checkedCount = 0;
+            
+            const areaAddresses = allAddresses.filter(address => {
+                if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                    invalidCount++;
+                    return false;
+                }
+                
+                checkedCount++;
+                
+                // Используем AddressModel для проверки принадлежности к области
+                if (window.AddressModel) {
+                    const addressModel = new window.AddressModel(address);
+                    const belongs = addressModel.belongsToMapArea(currentArea);
+                    return belongs;
+                }
+                
+                // Fallback: простая проверка точки в полигоне
+                const result = this.isPointInPolygon([address.coordinates.lat, address.coordinates.lng], currentArea.polygon);
+                return result;
+            });
+            
+            
+            return areaAddresses;
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка получения адресов в области:', error);
+            return []; // В случае ошибки возвращаем пустой массив
+        }
+    }
+
+    /**
+     * Проверка точки в полигоне (fallback метод)
+     */
+    isPointInPolygon(point, polygon) {
+        try {
+            const x = point[0], y = point[1];
+            let inside = false;
+            
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const xi = polygon[i][0], yi = polygon[i][1];
+                const xj = polygon[j][0], yj = polygon[j][1];
+                
+                if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+            }
+            
+            return inside;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
      * Получение названия адреса по ID
      */
     getAddressNameById(addressId) {
         if (!addressId || !this.addresses.length) return null;
         const address = this.addresses.find(addr => addr.id === addressId);
-        return address ? address.address_string : null;
+        return address ? address.address : null;
     }
 
     /**
@@ -64,6 +161,9 @@ class FlippingTable {
             await this.loadAddresses();
 
             this.initializeDataTable();
+            
+            // Инициализируем фильтры
+            await this.initializeFilters();
 
         } catch (error) {
             console.error('❌ FlippingTable: Ошибка инициализации:', error);
@@ -87,7 +187,7 @@ class FlippingTable {
             pageLength: 10,
             ordering: true,
             searching: true,
-            order: [[4, 'desc']], // Сортировка по дате обновления (колонка 5)
+            order: [[1, 'desc']], // Сортировка по доходности по убыванию (колонка 2)
             columnDefs: [
                 {
                     targets: 0, // Колонка с чекбоксами
@@ -242,26 +342,32 @@ class FlippingTable {
                     render: (data, type, row) => {
                         const parts = [];
                         
-                        // Тип квартиры
-                        if (row.rooms !== null && row.rooms !== undefined) {
-                            if (row.rooms === 0) {
-                                parts.push('Студия');
-                            } else {
-                                parts.push(`${row.rooms}-к`);
-                            }
+                        // Тип недвижимости (правильная реализация как в дублях)
+                        if (row.property_type) {
+                            const types = {
+                                'studio': 'Студия',
+                                '1k': '1-к',
+                                '2k': '2-к',
+                                '3k': '3-к',
+                                '4k+': '4-к+'
+                            };
+                            parts.push(types[row.property_type] || row.property_type);
                             parts.push('квартира');
                         }
                         
-                        // Площади
+                        // Площади (правильные поля)
                         const areas = [];
-                        if (row.area) areas.push(row.area);
+                        if (row.area_total) areas.push(row.area_total);
                         if (row.area_living) areas.push(row.area_living);
                         if (row.area_kitchen) areas.push(row.area_kitchen);
                         if (areas.length > 0) parts.push(`${areas.join('/')}м²`);
                         
-                        // Этаж/этажность
+                        // Этаж/этажность (поддержка обеих версий полей)
                         if (row.floor && row.total_floors) {
                             parts.push(`${row.floor}/${row.total_floors} эт.`);
+                        } else if (row.floor && row.floors_total) {
+                            // Поддержка старого поля floors_total для совместимости
+                            parts.push(`${row.floor}/${row.floors_total} эт.`);
                         }
                         
                         const characteristicsText = parts.length > 0 ? parts.join(', ') : 'Не указано';
@@ -338,9 +444,16 @@ class FlippingTable {
         try {
             this.objects = objects || [];
             this.profitabilityParameters = profitabilityParameters;
+            
 
             if (!this.dataTable) {
                 await this.initialize();
+            }
+
+            // Попытаемся загрузить адреса в фильтр при первом обновлении данных
+            // Если currentArea недоступен сейчас, адреса можно будет загрузить позже через refreshAddressFilter()
+            if (this.objects.length > 0) {
+                await this.loadFlippingAddressFilter();
             }
 
             // Очищаем таблицу и добавляем новые данные
@@ -473,80 +586,224 @@ class FlippingTable {
     }
 
     /**
-     * Создание дочерней строки с объявлениями (копия из DuplicatesManager)
+     * Создание дочерней таблицы с объявлениями (по аналогии с DuplicatesManager)
      */
     createListingsChildRow(listings, parentObject) {
-        const listingsHtml = listings.map(listing => {
-            const status = listing.status || 'unknown';
-            const statusBadge = this.createListingStatusBadge(status);
-            const price = listing.price ? new Intl.NumberFormat('ru-RU').format(listing.price) + ' ₽' : '—';
-            const publishDate = listing.publish_date ? new Date(listing.publish_date).toLocaleDateString('ru-RU') : '—';
-            const updateDate = listing.last_check ? new Date(listing.last_check).toLocaleDateString('ru-RU') : '—';
-            
-            return `
-                <tr class="listing-row text-xs">
-                    <td class="pl-12 py-2">
-                        <div class="flex items-center space-x-2">
-                            ${statusBadge}
-                            <span class="text-blue-600 hover:underline">
-                                <a href="${listing.url}" target="_blank" class="flex items-center space-x-1">
-                                    <span>${listing.source || 'Источник'}</span>
-                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-                                    </svg>
-                                </a>
-                            </span>
-                        </div>
-                    </td>
-                    <td class="py-2">${publishDate}</td>
-                    <td class="py-2">${updateDate}</td>
-                    <td class="py-2">—</td>
-                    <td class="py-2">${listing.address || parentObject.address?.address_string || '—'}</td>
-                    <td class="py-2 font-medium text-green-600">${price}</td>
-                    <td class="py-2">${listing.seller_name || '—'}</td>
-                </tr>
-            `;
-        }).join('');
-        
-        return `
-            <div class="p-2 bg-gray-50">
-                <div class="text-sm font-medium text-gray-700 mb-2">
-                    Объявления объекта (${listings.length} шт.)
+        // Сортируем по дате обновления (убывание)
+        const sortedListings = listings.sort((a, b) => {
+            const timestampA = new Date(a.updated || a.updated_at || a.created || a.created_at || 0).getTime();
+            const timestampB = new Date(b.updated || b.updated_at || b.created || b.created_at || 0).getTime();
+            return timestampB - timestampA;
+        });
+
+        const tableHtml = `
+            <div class="bg-gray-50 p-4">
+                <h4 class="text-sm font-medium text-gray-900 mb-3">Объявления объекта (${listings.length})</h4>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Создано</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Обновлено</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Характеристики</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Адрес</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Цена</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Контакт</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            ${sortedListings.map(listing => this.createChildListingRow(listing)).join('')}
+                        </tbody>
+                    </table>
                 </div>
-                <table class="w-full text-xs">
-                    <thead class="bg-gray-100">
-                        <tr>
-                            <th class="px-2 py-1 text-left">Статус / Источник</th>
-                            <th class="px-2 py-1 text-left">Создано</th>
-                            <th class="px-2 py-1 text-left">Обновлено</th>
-                            <th class="px-2 py-1 text-left">Характеристики</th>
-                            <th class="px-2 py-1 text-left">Адрес</th>
-                            <th class="px-2 py-1 text-left">Цена</th>
-                            <th class="px-2 py-1 text-left">Контакт</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${listingsHtml}
-                    </tbody>
-                </table>
             </div>
         `;
+        
+        return tableHtml;
     }
 
     /**
-     * Создание бейджа статуса объявления
+     * Создать строку в дочерней таблице объявлений (точная копия из DuplicatesManager)
      */
-    createListingStatusBadge(status) {
-        const statusConfig = {
-            'active': { text: 'Активное', class: 'bg-green-100 text-green-800' },
-            'archive': { text: 'Архивное', class: 'bg-gray-100 text-gray-800' },
-            'archived': { text: 'Архивное', class: 'bg-gray-100 text-gray-800' },
-            'sold': { text: 'Продано', class: 'bg-blue-100 text-blue-800' },
-            'unknown': { text: 'Неизвестно', class: 'bg-gray-100 text-gray-800' }
+    createChildListingRow(listing) {
+        // 1. Статус (копируем логику из родительской таблицы)
+        const statusBadges = {
+            'active': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Активный</span>',
+            'archived': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
+            'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>'
         };
         
-        const config = statusConfig[status] || statusConfig['unknown'];
-        return `<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${config.class}">${config.text}</span>`;
+        let statusHtml = statusBadges[listing.status] || `<span class="text-xs text-gray-500">${listing.status}</span>`;
+        
+        // НЕ добавляем статус обработки для дочерней таблицы как в старой версии
+        
+        // 2. Дата создания
+        const dateValue = listing.created || listing.created_at;
+        let createdHtml = '—';
+        if (dateValue) {
+            const createdDate = new Date(dateValue);
+            const dateStr = createdDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+            
+            // Вычисляем экспозицию
+            const updatedValue = listing.updated || listing.updated_at;
+            const endDate = updatedValue ? new Date(updatedValue) : new Date();
+            const diffTime = Math.abs(endDate - createdDate);
+            const exposureDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            createdHtml = `<div class="text-xs">
+                ${dateStr}<br>
+                <span class="text-gray-500" style="font-size: 10px;">эксп. ${exposureDays} дн.</span>
+            </div>`;
+        }
+        
+        // 3. Дата обновления
+        const updatedDateValue = listing.updated || listing.updated_at;
+        let updatedHtml = '—';
+        if (updatedDateValue) {
+            const date = new Date(updatedDateValue);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+            const daysAgo = diffDays === 1 ? '1 день назад' : `${diffDays} дн. назад`;
+            const color = diffDays > 7 ? 'text-red-600' : 'text-green-600';
+            
+            updatedHtml = `<div class="text-xs">
+                ${dateStr}<br>
+                <span class="${color}" style="font-size: 10px;">${daysAgo}</span>
+            </div>`;
+        }
+        
+        // 4. Характеристики
+        const parts = [];
+        
+        if (listing.property_type) {
+            const types = {
+                'studio': 'Студия',
+                '1k': '1-к',
+                '2k': '2-к',
+                '3k': '3-к',
+                '4k+': '4-к+'
+            };
+            parts.push(types[listing.property_type] || listing.property_type);
+            parts.push('квартира');
+        }
+        
+        // Площади
+        const areas = [];
+        if (listing.area_total) areas.push(listing.area_total);
+        if (listing.area_living) areas.push(listing.area_living);
+        if (listing.area_kitchen) areas.push(listing.area_kitchen);
+        if (areas.length > 0) parts.push(`${areas.join('/')}м²`);
+        
+        // Этаж/этажность
+        if (listing.floor && listing.total_floors) {
+            parts.push(`${listing.floor}/${listing.total_floors} эт.`);
+        } else if (listing.floor && listing.floors_total) {
+            parts.push(`${listing.floor}/${listing.floors_total} эт.`);
+        }
+        
+        const characteristicsText = parts.length > 0 ? parts.join(', ') : 'Не указано';
+        
+        // 5. Адрес
+        const addressFromDb = this.getAddressNameById(listing.address_id);
+        const addressText = listing.address || 'Адрес не указан';
+        let addressFromDbText = addressFromDb || 'Адрес не определен';
+        
+        // Проверяем точность определения адреса
+        const hasLowConfidence = listing.address_match_confidence === 'low' || listing.address_match_confidence === 'very_low';
+        const isManualConfidence = listing.address_match_confidence === 'manual';
+        const isAddressNotFound = addressFromDbText === 'Адрес не определен';
+        
+        if (hasLowConfidence && !isAddressNotFound) {
+            const confidenceText = listing.address_match_confidence === 'low' ? 'Низкая' : 'Очень низкая';
+            addressFromDbText += ` (${confidenceText})`;
+        } else if (isManualConfidence && !isAddressNotFound) {
+            addressFromDbText += ` (Подтвержден)`;
+        }
+        
+        const addressClass = addressText === 'Адрес не указан' ? 'text-red-600 hover:text-red-800' : 'text-blue-600 hover:text-blue-800';
+        const addressFromDbClass = (isAddressNotFound || (hasLowConfidence && !isManualConfidence)) ? 'text-red-500' : 'text-gray-500';
+        
+        const addressHtml = `<div class="text-xs max-w-xs">
+            <div class="${addressClass} cursor-pointer clickable-address truncate" data-listing-id="${listing.id}">${addressText}</div>
+            <div class="${addressFromDbClass} truncate">${addressFromDbText}</div>
+        </div>`;
+        
+        // 6. Цена
+        const priceValue = listing.price;
+        let priceHtml = '<div class="text-xs">—</div>';
+        if (priceValue) {
+            const price = priceValue.toLocaleString();
+            let pricePerMeter = '';
+            
+            if (listing.price_per_meter) {
+                pricePerMeter = listing.price_per_meter.toLocaleString();
+            } else if (priceValue && listing.area_total) {
+                const calculated = Math.round(priceValue / listing.area_total);
+                pricePerMeter = calculated.toLocaleString();
+            }
+            
+            priceHtml = `<div class="text-xs">
+                <div class="text-green-600 font-medium">${price}</div>
+                ${pricePerMeter ? `<div class="text-gray-500">${pricePerMeter}</div>` : ''}
+            </div>`;
+        }
+        
+        // 7. Контакт с источником
+        const sellerType = listing.seller_type === 'private' ? 'Собственник' : 
+                          listing.seller_type === 'agency' ? 'Агент' : 
+                          listing.seller_type === 'agent' ? 'Агент' :
+                          listing.seller_type === 'owner' ? 'Собственник' :
+                          listing.seller_type || 'Не указано';
+        
+        const sellerName = listing.seller_name || 'Не указано';
+        
+        // Получаем источник для первой строки контакта
+        const sourceUrl = listing.url || '#';
+        let sourceName = 'Неизвестно';
+        
+        // Получаем имя источника из source_metadata.original_source
+        if (listing.source_metadata && listing.source_metadata.original_source) {
+            sourceName = listing.source_metadata.original_source;
+        } else if (listing.source) {
+            // Fallback к обычному source с переводом
+            sourceName = listing.source === 'avito' ? 'avito.ru' : listing.source === 'cian' ? 'cian.ru' : listing.source;
+        }
+        
+        const contactHtml = `<div class="text-xs max-w-xs">
+            <div class="text-blue-600 hover:text-blue-800 truncate" title="${sourceName}">
+                <a href="${sourceUrl}" target="_blank">${sourceName}</a>
+            </div>
+            <div class="text-gray-900 truncate" title="${sellerType}">${sellerType}</div>
+            <div class="text-gray-500 truncate" title="${sellerName}">${sellerName}</div>
+        </div>`;
+        
+        return `
+            <tr class="hover:bg-gray-50">
+                <td class="px-3 py-2 whitespace-nowrap text-xs">${statusHtml}</td>
+                <td class="px-3 py-2 whitespace-nowrap text-xs">${createdHtml}</td>
+                <td class="px-3 py-2 whitespace-nowrap text-xs">${updatedHtml}</td>
+                <td class="px-3 py-2 whitespace-nowrap text-xs"><div class="text-xs text-gray-900 max-w-xs" title="${characteristicsText}">${characteristicsText}</div></td>
+                <td class="px-3 py-2 whitespace-nowrap text-xs">${addressHtml}</td>
+                <td class="px-3 py-2 whitespace-nowrap text-xs">${priceHtml}</td>
+                <td class="px-3 py-2 whitespace-nowrap text-xs">${contactHtml}</td>
+            </tr>
+        `;
+    }
+
+
+    /**
+     * Публичный метод для обновления фильтра адресов (когда currentArea становится доступен)
+     */
+    async refreshAddressFilter() {
+        try {
+            await this.loadFlippingAddressFilter();
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка обновления фильтра адресов:', error);
+        }
     }
 
     /**
@@ -784,6 +1041,442 @@ class FlippingTable {
 
             </div>
         `;
+    }
+
+    /**
+     * Инициализация фильтров (по аналогии с DuplicatesManager)
+     */
+    async initializeFilters() {
+        try {
+            // Инициализируем фильтр по адресу (без загрузки данных)
+            this.initFlippingAddressFilterElement();
+            
+            // Инициализируем фильтр по типу недвижимости
+            this.initFlippingPropertyTypeFilter();
+            
+            // Инициализируем фильтр по статусу
+            this.initFlippingStatusFilter();
+            
+            // Привязываем события кнопок очистки
+            this.bindFilterClearButtons();
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка инициализации фильтров:', error);
+        }
+    }
+
+    /**
+     * Инициализация элемента фильтра по адресу (без загрузки данных)
+     */
+    initFlippingAddressFilterElement() {
+        try {
+            const selectElement = document.getElementById('flippingAddressFilter');
+            if (!selectElement) return;
+
+            // Инициализируем SlimSelect с пустым списком
+            this.flippingAddressSlimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    searchPlaceholder: 'Поиск адресов...',
+                    searchText: 'Адрес не найден',
+                    placeholderText: 'Выберите адрес',
+                    allowDeselect: true,
+                    closeOnSelect: true
+                },
+                events: {
+                    afterChange: (newVal) => {
+                        this.onAddressFilterChange(newVal);
+                    }
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка инициализации элемента фильтра адресов:', error);
+        }
+    }
+
+    /**
+     * Загрузка данных в фильтр адресов (вызывается по требованию)
+     */
+    async loadFlippingAddressFilter() {
+        try {
+            
+            // Пытаемся обновить dataState перед загрузкой адресов
+            if (!this.dataState) {
+                if (window.areaPage?.dataState) {
+                    this.dataState = window.areaPage.dataState;
+                } else if (window.duplicatesManager?.dataState) {
+                    this.dataState = window.duplicatesManager.dataState;
+                } else {
+                }
+            }
+            
+            const selectElement = document.getElementById('flippingAddressFilter');
+            if (!selectElement) {
+                return;
+            }
+
+            // Очищаем существующие опции (кроме первой "Все адреса")
+            while (selectElement.children.length > 1) {
+                selectElement.removeChild(selectElement.lastChild);
+            }
+            
+            // Загружаем адреса в области
+            const areaAddresses = await this.getAddressesInArea();
+            
+            // Добавляем опции для каждого адреса в области
+            areaAddresses.forEach(address => {
+                const option = document.createElement('option');
+                option.value = address.id;
+                option.textContent = address.address;
+                selectElement.appendChild(option);
+            });
+
+            // Обновляем SlimSelect
+            if (this.flippingAddressSlimSelect) {
+                this.flippingAddressSlimSelect.destroy();
+                this.initFlippingAddressFilterElement();
+            }
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка загрузки данных фильтра адресов:', error);
+        }
+    }
+
+    /**
+     * Инициализация фильтра по типу недвижимости
+     */
+    initFlippingPropertyTypeFilter() {
+        try {
+            const selectElement = document.getElementById('flippingPropertyTypeFilter');
+            if (!selectElement) return;
+
+            // Инициализируем SlimSelect
+            this.flippingPropertyTypeSlimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    placeholderText: 'Выберите тип',
+                    allowDeselect: true,
+                    closeOnSelect: true
+                },
+                events: {
+                    afterChange: (newVal) => {
+                                    this.onPropertyTypeFilterChange(newVal);
+                    }
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка инициализации фильтра типа недвижимости:', error);
+        }
+    }
+
+    /**
+     * Инициализация фильтра по статусу
+     */
+    initFlippingStatusFilter() {
+        try {
+            const selectElement = document.getElementById('flippingStatusFilter');
+            if (!selectElement) return;
+
+            // Инициализируем SlimSelect
+            this.flippingStatusSlimSelect = new SlimSelect({
+                select: selectElement,
+                settings: {
+                    placeholderText: 'Выберите статус',
+                    allowDeselect: true,
+                    closeOnSelect: true
+                },
+                events: {
+                    afterChange: (newVal) => {
+                                    this.onStatusFilterChange(newVal);
+                    }
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка инициализации фильтра статуса:', error);
+        }
+    }
+
+    /**
+     * Обработчик изменения фильтра адресов
+     */
+    onAddressFilterChange(newVal) {
+        try {
+            this.applyFilters();
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка при изменении фильтра адресов:', error);
+        }
+    }
+
+    /**
+     * Обработчик изменения фильтра типа недвижимости
+     */
+    onPropertyTypeFilterChange(newVal) {
+        try {
+            this.applyFilters();
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка при изменении фильтра типа недвижимости:', error);
+        }
+    }
+
+    /**
+     * Обработчик изменения фильтра статуса
+     */
+    onStatusFilterChange(newVal) {
+        try {
+            this.applyFilters();
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка при изменении фильтра статуса:', error);
+        }
+    }
+
+    /**
+     * Применение всех фильтров к таблице
+     */
+    applyFilters() {
+        if (!this.dataTable) return;
+
+        try {
+            let filteredData = [...this.objects];
+            // Фильтр по адресу
+            const addressFilter = this.flippingAddressSlimSelect?.getSelected()?.[0] || '';
+            if (addressFilter) {
+                const beforeCount = filteredData.length;
+                filteredData = filteredData.filter(obj => obj.address_id == addressFilter);
+            }
+
+            // Фильтр по типу недвижимости
+            const propertyTypeFilter = this.flippingPropertyTypeSlimSelect?.getSelected()?.[0] || '';
+            if (propertyTypeFilter) {
+                const beforeCount = filteredData.length;
+                filteredData = filteredData.filter(obj => obj.property_type === propertyTypeFilter);
+            }
+
+            // Фильтр по статусу
+            const statusFilter = this.flippingStatusSlimSelect?.getSelected()?.[0] || '';
+            if (statusFilter) {
+                const beforeCount = filteredData.length;
+                filteredData = filteredData.filter(obj => obj.status === statusFilter);
+            }
+
+            
+            // Обновляем таблицу с отфильтрованными данными
+            this.dataTable.clear().rows.add(filteredData).draw();
+            
+            // Обновляем активные фильтры
+            this.updateActiveFilters();
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка применения фильтров:', error);
+        }
+    }
+
+    /**
+     * Привязка кнопок очистки фильтров
+     */
+    bindFilterClearButtons() {
+        try {
+            // Кнопка очистки всех фильтров
+            const clearAllBtn = document.getElementById('clearAllFlippingFiltersBtn');
+            if (clearAllBtn) {
+                clearAllBtn.addEventListener('click', () => {
+                    this.clearAllFilters();
+                });
+            }
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка привязки кнопок очистки:', error);
+        }
+    }
+
+    /**
+     * Очистка одного фильтра
+     */
+    clearSingleFilter(filterId) {
+        try {
+            switch (filterId) {
+                case 'flippingAddressFilter':
+                    if (this.flippingAddressSlimSelect) {
+                        this.flippingAddressSlimSelect.setSelected([]);
+                    }
+                    break;
+                case 'flippingPropertyTypeFilter':
+                    if (this.flippingPropertyTypeSlimSelect) {
+                        this.flippingPropertyTypeSlimSelect.setSelected([]);
+                    }
+                    break;
+                case 'flippingStatusFilter':
+                    if (this.flippingStatusSlimSelect) {
+                        this.flippingStatusSlimSelect.setSelected([]);
+                    }
+                    break;
+            }
+            this.applyFilters();
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка очистки фильтра:', error);
+        }
+    }
+
+    /**
+     * Очистка всех фильтров
+     */
+    clearAllFilters() {
+        try {
+            this.clearSingleFilter('flippingAddressFilter');
+            this.clearSingleFilter('flippingPropertyTypeFilter');
+            this.clearSingleFilter('flippingStatusFilter');
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка очистки всех фильтров:', error);
+        }
+    }
+
+
+    /**
+     * Обновление отображения активных фильтров
+     */
+    updateActiveFilters() {
+        try {
+            const activeFiltersContainer = document.getElementById('flippingActiveFiltersContainer');
+            const activeFilterTags = document.getElementById('flippingActiveFilterTags');
+            
+            if (!activeFiltersContainer || !activeFilterTags) return;
+
+            // Очищаем теги
+            activeFilterTags.innerHTML = '';
+            
+            const activeFilters = [];
+
+            // Проверяем фильтр по адресу
+            const addressFilter = this.flippingAddressSlimSelect?.getSelected()?.[0]?.value || '';
+            if (addressFilter) {
+                const addressText = this.getAddressNameById(addressFilter) || `ID: ${addressFilter}`;
+                activeFilters.push({
+                    type: 'address',
+                    text: `Адрес: ${addressText}`,
+                    onRemove: () => this.clearSingleFilter('flippingAddressFilter')
+                });
+            }
+
+            // Проверяем фильтр по типу недвижимости
+            const propertyTypeFilter = this.flippingPropertyTypeSlimSelect?.getSelected()?.[0]?.value || '';
+            if (propertyTypeFilter) {
+                const typeText = this.flippingPropertyTypeSlimSelect?.getSelected()?.[0]?.text || propertyTypeFilter;
+                activeFilters.push({
+                    type: 'property_type',
+                    text: `Тип: ${typeText}`,
+                    onRemove: () => this.clearSingleFilter('flippingPropertyTypeFilter')
+                });
+            }
+
+            // Проверяем фильтр по статусу
+            const statusFilter = this.flippingStatusSlimSelect?.getSelected()?.[0]?.value || '';
+            if (statusFilter) {
+                const statusText = this.flippingStatusSlimSelect?.getSelected()?.[0]?.text || statusFilter;
+                activeFilters.push({
+                    type: 'status',
+                    text: `Статус: ${statusText}`,
+                    onRemove: () => this.clearSingleFilter('flippingStatusFilter')
+                });
+            }
+
+            // Показываем/скрываем контейнер активных фильтров
+            if (activeFilters.length > 0) {
+                // Создаем теги для активных фильтров
+                activeFilters.forEach(filter => {
+                    const tag = document.createElement('span');
+                    tag.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
+                    tag.innerHTML = `
+                        ${filter.text}
+                        <button type="button" class="ml-1 flex-shrink-0 h-3 w-3 rounded-full inline-flex items-center justify-center text-blue-400 hover:bg-blue-200 hover:text-blue-600 focus:outline-none focus:bg-blue-500 focus:text-white">
+                            <span class="sr-only">Удалить фильтр</span>
+                            <svg class="h-2 w-2" fill="currentColor" viewBox="0 0 8 8">
+                                <path d="M7.71 0.29a1 1 0 0 0-1.42 0L4 2.59 1.71 0.29A1 1 0 0 0 0.29 1.71L2.59 4 0.29 6.29A1 1 0 0 0 1.71 7.71L4 5.41l2.29 2.3A1 1 0 0 0 7.71 6.29L5.41 4l2.3-2.29A1 1 0 0 0 7.71 0.29z"/>
+                            </svg>
+                        </button>
+                    `;
+                    
+                    // Привязываем событие удаления
+                    tag.querySelector('button').addEventListener('click', filter.onRemove);
+                    
+                    activeFilterTags.appendChild(tag);
+                });
+                
+                activeFiltersContainer.classList.remove('hidden');
+            } else {
+                activeFiltersContainer.classList.add('hidden');
+            }
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка обновления активных фильтров:', error);
+        }
+    }
+
+    /**
+     * Установка фильтра по адресу (для использования из popup карты)
+     */
+    setAddressFilter(addressId) {
+        try {
+            if (this.flippingAddressSlimSelect && addressId) {
+                this.flippingAddressSlimSelect.setSelected([addressId.toString()]);
+                this.applyFilters();
+            }
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка установки фильтра по адресу:', error);
+        }
+    }
+
+    /**
+     * Обновление dataState (вызывается когда он становится доступен)
+     */
+    updateDataState(dataState) {
+        this.dataState = dataState;
+    }
+
+    /**
+     * Метод для обновления данных фильтра адресов (вызывается из FlippingProfitabilityManager)
+     */
+    async refreshFlippingAddressFilter() {
+        try {
+            // Пытаемся обновить dataState перед загрузкой адресов
+            if (!this.dataState) {
+                if (window.areaPage?.dataState) {
+                    this.dataState = window.areaPage.dataState;
+                } else if (window.duplicatesManager?.dataState) {
+                    this.dataState = window.duplicatesManager.dataState;
+                }
+            }
+            
+            const selectElement = document.getElementById('flippingAddressFilter');
+            if (!selectElement) return;
+
+            // Очищаем существующие опции (кроме первой "Все адреса")
+            while (selectElement.children.length > 1) {
+                selectElement.removeChild(selectElement.lastChild);
+            }
+
+            const areaAddresses = await this.getAddressesInArea();
+            
+            // Добавляем опции для каждого адреса в области
+            areaAddresses.forEach(address => {
+                const option = document.createElement('option');
+                option.value = address.id;
+                option.textContent = address.address;
+                selectElement.appendChild(option);
+            });
+
+            // Пересоздаем SlimSelect
+            if (this.flippingAddressSlimSelect) {
+                this.flippingAddressSlimSelect.destroy();
+                this.flippingAddressSlimSelect = null;
+            }
+            
+            this.initFlippingAddressFilterElement();
+            
+        } catch (error) {
+            console.error('❌ FlippingTable: Ошибка обновления фильтра адресов:', error);
+        }
     }
 
     /**

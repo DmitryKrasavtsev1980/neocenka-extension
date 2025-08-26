@@ -1659,3 +1659,12 @@ if (typeof module !== 'undefined' && module.exports) {
     InparsCategoryModel
   };
 }
+
+// Экспорт в window для доступа из других скриптов
+if (typeof window !== 'undefined') {
+  window.MapAreaModel = MapAreaModel;
+  window.AddressModel = AddressModel;
+  window.SegmentModel = SegmentModel;
+  window.ListingModel = ListingModel;
+  window.RealEstateObjectModel = RealEstateObjectModel;
+}
