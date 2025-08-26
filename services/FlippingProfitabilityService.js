@@ -37,15 +37,17 @@ class FlippingProfitabilityService {
             }
 
             // 1. Расчёт продажной цены
-            const salePrice = params.referencePricePerMeter * object.area;
+            const salePrice = params.referencePricePerMeter * object.area_total;
 
             // 2. Расчёт стоимости ремонта
-            const renovationCost = this.calculateRenovationCost(object.area, params);
+            const renovationCost = this.calculateRenovationCost(object.area_total, params);
 
             // 3. Расчёт срока проекта
-            const renovationDays = object.area / params.renovationSpeed;
+            const renovationDays = object.area_total / params.renovationSpeed;
             const totalProjectDays = renovationDays + params.averageExposureDays;
             const totalProjectMonths = totalProjectDays / 30;
+            
+            
 
             // 4. Расчёт общих затрат
             // Валидация параметров финансирования перед расчётом
@@ -65,10 +67,13 @@ class FlippingProfitabilityService {
             const totalCosts = financingResult.downPayment + renovationCost + params.additionalExpenses + financingResult.interestCosts;
 
             // 5. Расчёт прибыли до налогов
-            const grossProfit = salePrice - totalCosts;
+            // При ипотеке нужно вычесть сумму кредита, которую нужно вернуть банку
+            const grossProfit = params.financing === 'mortgage' 
+                ? salePrice - totalCosts - financingResult.loanAmount
+                : salePrice - totalCosts;
 
             // 6. Расчёт налогов
-            const taxes = this.calculateTaxes(object.currentPrice, salePrice, totalCosts, params.taxType);
+            const taxes = this.calculateTaxes(object.currentPrice, salePrice, totalCosts, params.taxType, params);
             const netProfit = grossProfit - taxes;
 
             // 7. Расчёт доходности
@@ -123,34 +128,34 @@ class FlippingProfitabilityService {
      */
     calculateTargetPrice(object, targetROI, params) {
         try {
-            let targetPrice = object.currentPrice * 0.8; // Начинаем с 80% от текущей цены
+            // Бинарный поиск для быстрого нахождения целевой цены
+            let minPrice = object.currentPrice * 0.3; // Минимум 30% от текущей цены
+            let maxPrice = object.currentPrice * 0.95; // Максимум 95% от текущей цены
             let iterations = 0;
-            const maxIterations = 100;
+            const maxIterations = 15; // Бинарный поиск требует гораздо меньше итераций
             const precision = 0.1; // Точность 0.1%
 
-            while (iterations < maxIterations) {
-                const testObject = { ...object, currentPrice: targetPrice };
+            while (iterations < maxIterations && (maxPrice - minPrice) > 1000) {
+                const testPrice = (minPrice + maxPrice) / 2;
+                const testObject = { ...object, currentPrice: testPrice };
                 const result = this.calculateFlippingProfitability(testObject, params);
 
                 if (Math.abs(result.annualROI - targetROI) < precision) {
-                    break;
+                    return Math.round(testPrice);
                 }
 
-                // Корректируем цену
+                // Бинарный поиск: сужаем диапазон вдвое
                 if (result.annualROI > targetROI) {
-                    targetPrice *= 1.01; // Увеличиваем цену на 1%
+                    minPrice = testPrice; // Можем повысить цену
                 } else {
-                    targetPrice *= 0.99; // Уменьшаем цену на 1%
+                    maxPrice = testPrice; // Нужно понизить цену
                 }
 
                 iterations++;
             }
 
-            if (this.debugEnabled) {
-                console.log(`🎯 Целевая цена найдена за ${iterations} итераций: ${Math.round(targetPrice)} ₽`);
-            }
-
-            return Math.round(targetPrice);
+            const finalPrice = (minPrice + maxPrice) / 2;
+            return Math.round(finalPrice);
 
         } catch (error) {
             console.error('❌ FlippingProfitabilityService: Ошибка расчёта целевой цены:', error);
@@ -245,10 +250,19 @@ class FlippingProfitabilityService {
      * @param {string} taxType - тип налогообложения
      * @returns {number} сумма налогов
      */
-    calculateTaxes(purchasePrice, salePrice, totalCosts, taxType) {
+    calculateTaxes(purchasePrice, salePrice, totalCosts, taxType, params) {
         if (taxType === 'ip') {
             // ИП: 15% с (доходы - расходы)
-            const taxableIncome = salePrice - totalCosts;
+            // При ипотеке в расходы включаем полную покупную стоимость + ремонт + доп.расходы + проценты
+            let deductibleCosts;
+            if (params && params.financing === 'mortgage') {
+                // Полная стоимость объекта + ремонт + доп.расходы + проценты по ипотеке
+                const financingResult = this.calculateFinancingCosts(purchasePrice, params, params.totalProjectDays || 62);
+                deductibleCosts = purchasePrice + (params.renovationCost || 0) + (params.additionalExpenses || 0) + financingResult.interestCosts;
+            } else {
+                deductibleCosts = totalCosts;
+            }
+            const taxableIncome = salePrice - deductibleCosts;
             return Math.max(0, taxableIncome * 0.15);
         } else {
             // Физлицо: прогрессивная ставка с разницы покупки/продажи

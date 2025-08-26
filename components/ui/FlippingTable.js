@@ -65,9 +65,6 @@ class FlippingTable {
 
             this.initializeDataTable();
 
-            if (this.debugEnabled) {
-                console.log('🏠 FlippingTable: Таблица инициализирована');
-            }
         } catch (error) {
             console.error('❌ FlippingTable: Ошибка инициализации:', error);
             throw error;
@@ -133,7 +130,6 @@ class FlippingTable {
                         const flippingProfitability = row.flippingProfitability;
                         
                         if (!flippingProfitability || !flippingProfitability.current) {
-                            console.log(`⚠️ FlippingTable: Объект ${row.id} не имеет flippingProfitability.current`);
                             return `<div class="text-xs text-center cursor-pointer hover:bg-gray-50 p-1 rounded profitability-details" data-object-id="${row.id}">
                                 <span class="text-gray-400">Ожидание..</span>
                             </div>`;
@@ -340,12 +336,6 @@ class FlippingTable {
      */
     async updateData(objects, profitabilityParameters = {}) {
         try {
-            console.log('📊 FlippingTable.updateData вызван:', {
-                objectsCount: objects?.length || 0,
-                firstObject: objects?.[0],
-                hasFlippingProfitability: !!objects?.[0]?.flippingProfitability
-            });
-            
             this.objects = objects || [];
             this.profitabilityParameters = profitabilityParameters;
 
@@ -380,9 +370,6 @@ class FlippingTable {
      * Обработчик инициализации таблицы
      */
     onTableInit() {
-        if (this.debugEnabled) {
-            console.log('🏠 FlippingTable: DataTable инициализирована');
-        }
     }
 
     /**
@@ -467,10 +454,6 @@ class FlippingTable {
                 // Сворачиваем
                 row.child.hide();
                 $(clickedElement).find('svg').removeClass('transform rotate-180');
-                
-                if (this.debugEnabled) {
-                    console.log('🏠 FlippingTable: Свернули объявления для объекта:', objectId);
-                }
             } else {
                 // Разворачиваем - загружаем объявления
                 const listings = await window.db.getByIndex('listings', 'object_id', objectId);
@@ -483,10 +466,6 @@ class FlippingTable {
                 const childContent = this.createListingsChildRow(listings, rowData);
                 row.child(childContent, 'child-row').show();
                 $(clickedElement).find('svg').addClass('transform rotate-180');
-                
-                if (this.debugEnabled) {
-                    console.log('🏠 FlippingTable: Развернули объявления для объекта:', objectId, 'количество:', listings.length);
-                }
             }
         } catch (error) {
             console.error('❌ FlippingTable: Ошибка разворачивания объявлений:', error);
@@ -596,10 +575,6 @@ class FlippingTable {
             if (row.child.isShown()) {
                 // Сворачиваем
                 row.child.hide();
-                
-                if (this.debugEnabled) {
-                    console.log('🏠 FlippingTable: Свернули детали доходности для объекта:', objectId);
-                }
             } else {
                 // Разворачиваем - показываем подробный расчёт
                 const profitability = rowData.flippingProfitability;
@@ -616,10 +591,6 @@ class FlippingTable {
                 
                 const childContent = this.createProfitabilityDetailsContent(profitability, rowData);
                 row.child(childContent, 'child-row').show();
-                
-                if (this.debugEnabled) {
-                    console.log('🏠 FlippingTable: Развернули детали доходности для объекта:', objectId);
-                }
             }
         } catch (error) {
             console.error('❌ FlippingTable: Ошибка отображения деталей доходности:', error);
@@ -646,6 +617,14 @@ class FlippingTable {
             current = profitability.currentPrice || profitability;
             target = profitability.targetPrice || null;
         }
+
+        // Скрываем колонку целевой цены если текущая доходность превышает целевую
+        const targetROI = this.profitabilityParameters?.profitabilityPercent;
+        
+        if (target && current && targetROI && current.annualROI >= targetROI) {
+            console.log(`🙈 Скрываем колонку целевой цены для объекта ${objectData.id}: текущая доходность ${current.annualROI}% >= целевой ${targetROI}%`);
+            target = null; // Скрываем колонку целевой цены
+        }
         
         // Диагностика данных для дочерней таблицы
         console.log(`🔍 Данные для дочерней таблицы объекта ${objectData.id}:`, {
@@ -655,6 +634,8 @@ class FlippingTable {
             fullData: objectData.flippingProfitability?.fullData,
             current,
             target,
+            objectCurrentPrice: objectData.current_price || objectData.currentPrice,
+            objectPrice: objectData.price,
             currentSalePrice: current?.salePrice,
             targetSalePrice: target?.salePrice,
             currentFinancing: current?.financing,
@@ -726,27 +707,7 @@ class FlippingTable {
             targetColumn = '<td colspan="9" class="py-2 px-3 text-center text-gray-400 text-xs">Расчёт целевой цены недоступен</td>';
         }
 
-        // Раздел прибыли
-        let profitSharingContent = '';
-        if (current.profitSharing && current.profitSharing.flipper > 0) {
-            profitSharingContent = `
-                <div class="mt-3 pt-3 border-t border-gray-200">
-                    <h6 class="text-xs font-medium text-gray-700 mb-2">Раздел прибыли:</h6>
-                    <div class="grid grid-cols-2 gap-2 text-xs">
-                        <div class="bg-blue-50 p-2 rounded">
-                            <div class="font-medium text-blue-700">Флиппер</div>
-                            <div class="text-blue-600">${formatCurrency(current.profitSharing.flipper)}</div>
-                            <div class="text-gray-500">${current.profitSharing.flipperPercent || 100}%</div>
-                        </div>
-                        <div class="bg-gray-50 p-2 rounded">
-                            <div class="font-medium text-gray-700">Инвестор</div>
-                            <div class="text-gray-600">${formatCurrency(current.profitSharing.investor || 0)}</div>
-                            <div class="text-gray-500">${current.profitSharing.investorPercent || 0}%</div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
+        // Раздел прибыли теперь отображается в строке "Прибыль" в таблице
 
         return `
             <div class="p-4 bg-gray-50">
@@ -767,17 +728,17 @@ class FlippingTable {
                             <tr class="border-t">
                                 <td class="py-2 px-3 font-medium border-r">Покупка</td>
                                 <td class="py-2 px-3 text-center border-r">
-                                    ${current.financing && current.financing.downPayment !== undefined && current.financing.interestCosts !== undefined ? 
-                                        `<div class="font-medium">${formatCurrency(current.purchasePrice)} (${formatCurrency(current.financing.downPayment)} + ${formatCurrency(current.financing.interestCosts)})</div>`
-                                        : `<div class="font-medium">${formatCurrency(current.purchasePrice)}</div>`
+                                    ${this.profitabilityParameters?.financing === 'mortgage' && current.financing && current.financing.downPayment !== undefined && current.financing.interestCosts !== undefined ? 
+                                        `<div class="font-medium">${formatCurrency(objectData.current_price || objectData.currentPrice || objectData.price)} (${formatCurrency(current.financing.downPayment)} + ${formatCurrency(current.financing.interestCosts)} = ${formatCurrency(current.purchasePrice)})</div>`
+                                        : `<div class="font-medium">${formatCurrency(objectData.current_price || objectData.currentPrice || objectData.price || current.purchasePrice)}</div>`
                                     }
                                 </td>
                                 ${target ? `<td class="py-2 px-3 text-center">
                                     <div class="text-blue-600 font-medium">${formatCurrency(target.targetPrice || target.purchasePrice)}</div>
                                     <div class="text-green-600 text-xs">-${target.discount || 0}%</div>
-                                    ${target.financing && target.financing.downPayment && target.financing.interestCosts ? 
+                                    ${this.profitabilityParameters?.financing === 'mortgage' && target.financing && target.financing.downPayment && target.financing.interestCosts ? 
                                         `<div class="text-xs text-gray-600">
-                                            (${formatCurrency(target.financing.downPayment)} + ${formatCurrency(target.financing.interestCosts)})
+                                            (${formatCurrency(target.financing.downPayment)} + ${formatCurrency(target.financing.interestCosts)} = ${formatCurrency(target.purchasePrice || target.totalCosts)})
                                         </div>` : ''
                                     }
                                 </td>` : ''}
@@ -809,8 +770,22 @@ class FlippingTable {
                             </tr>
                             <tr class="border-t bg-green-50">
                                 <td class="py-2 px-3 font-bold border-r">Прибыль</td>
-                                <td class="py-2 px-3 text-center font-bold text-green-600 border-r">${formatCurrency(current.netProfit)}</td>
-                                ${target ? `<td class="py-2 px-3 text-center font-bold text-green-600">${formatCurrency(target.netProfit)}</td>` : ''}
+                                <td class="py-2 px-3 text-center font-bold text-green-600 border-r">
+                                    ${current.profitSharing && current.profitSharing.flipper > 0 ? 
+                                        (this.profitabilityParameters?.participants === 'flipper-investor' && current.profitSharing.investor > 0) ?
+                                            `<div>Ф: ${formatCurrency(current.profitSharing.flipper)} / И: ${formatCurrency(current.profitSharing.investor)}</div>` :
+                                            `<div>Ф: ${formatCurrency(current.profitSharing.flipper)}</div>` :
+                                        `${formatCurrency(current.netProfit)}`
+                                    }
+                                </td>
+                                ${target ? `<td class="py-2 px-3 text-center font-bold text-green-600">
+                                    ${target.profitSharing && target.profitSharing.flipper > 0 ? 
+                                        (this.profitabilityParameters?.participants === 'flipper-investor' && target.profitSharing.investor > 0) ?
+                                            `<div>Ф: ${formatCurrency(target.profitSharing.flipper)} / И: ${formatCurrency(target.profitSharing.investor)}</div>` :
+                                            `<div>Ф: ${formatCurrency(target.profitSharing.flipper)}</div>` :
+                                        `${formatCurrency(target.netProfit)}`
+                                    }
+                                </td>` : ''}
                             </tr>
                             <tr class="border-t bg-blue-50">
                                 <td class="py-2 px-3 font-bold border-r">Доходность</td>
@@ -826,7 +801,6 @@ class FlippingTable {
                     </table>
                 </div>
 
-                ${profitSharingContent}
             </div>
         `;
     }

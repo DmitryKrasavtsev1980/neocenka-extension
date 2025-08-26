@@ -123,15 +123,15 @@ class RealEstateObjectService {
                 // Формируем параметры для расчёта
                 const flippingParams = {
                     ...parameters,
-                    referencePricePerMeter: parameters.referencePricePerMeter || 150000, // Эталонная цена за м²
-                    averageExposureDays: parameters.averageExposureDays || 60, // Средний срок экспозиции
+                    referencePricePerMeter: parameters.referencePricePerMeter, // Эталонная цена за м²
+                    averageExposureDays: parameters.averageExposureDays, // Средний срок экспозиции
                 };
                 
                 // Используем FlippingProfitabilityService для расчёта
                 const flippingResult = flippingService.calculateFlippingProfitability({
                     ...object,
                     currentPrice: object.price || object.currentPrice,
-                    area: object.area
+                    area_total: object.area_total
                 }, flippingParams);
                 
                 // Адаптируем результат под ожидаемый формат

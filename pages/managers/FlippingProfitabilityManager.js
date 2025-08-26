@@ -120,8 +120,6 @@ class FlippingProfitabilityManager {
             additionalExpenses: 100000
         };
         
-        console.log('📊 Инициализация фильтра отчёта "Доходность флиппинг":', this.currentFilters);
-        
         // Данные
         this.segments = [];
         this.subsegments = [];
@@ -295,82 +293,72 @@ class FlippingProfitabilityManager {
      */
     async calculateProfitabilityForObjects() {
         try {
-            console.log('🔍 Начало calculateProfitabilityForObjects:', {
-                hasProfitabilityService: !!this.profitabilityService,
-                filteredObjectsLength: this.filteredObjects?.length || 0
-            });
-            
             if (!this.profitabilityService || !this.filteredObjects || this.filteredObjects.length === 0) {
-                console.log('❌ Досрочный выход из calculateProfitabilityForObjects: нет данных');
                 return;
             }
 
-            // Получаем эталонные цены подсегментов
-            const subsegmentPrices = await this.calculateReferencePriceForAllSubsegments();
+            // Получаем глобальные фильтры из ReportsManager
+            const globalFilters = this.getActiveReportFilters();
             
-            console.log('🔍 subsegmentPrices:', subsegmentPrices?.length || 0);
             
-            if (!subsegmentPrices || subsegmentPrices.length === 0) {
-                console.log('❌ Досрочный выход из calculateProfitabilityForObjects: нет subsegmentPrices');
-                return;
+            // Определяем подсегменты для расчёта согласно глобальным фильтрам
+            let subsegmentsToProcess = [];
+            
+            if (globalFilters.subsegment) {
+                // 3. Если выбран конкретный подсегмент
+                subsegmentsToProcess = [globalFilters.subsegment];
+            } else if (globalFilters.segment) {
+                // 2. Если выбран сегмент, получаем все его подсегменты с оценёнными объектами
+                const segmentSubsegments = await this.database.getSubsegmentsBySegment(globalFilters.segment.id);
+                
+                for (const subsegment of segmentSubsegments) {
+                    const hasEvaluatedObjects = await this.hasSubsegmentEvaluatedObjects(subsegment.id);
+                    if (hasEvaluatedObjects) {
+                        subsegmentsToProcess.push(subsegment);
+                    }
+                }
+            } else {
+                // 1. Если сегмент не указан, ищем все подсегменты с оценёнными объектами
+                for (const segment of this.reportsManager.segments) {
+                    const segmentSubsegments = await this.database.getSubsegmentsBySegment(segment.id);
+                    
+                    for (const subsegment of segmentSubsegments) {
+                        const hasEvaluatedObjects = await this.hasSubsegmentEvaluatedObjects(subsegment.id);
+                        if (hasEvaluatedObjects) {
+                            subsegmentsToProcess.push(subsegment);
+                        }
+                    }
+                }
             }
-
-            // Проверяем какие подсегменты имеют объекты и эталонные цены
-            console.log(`🔍 Анализ подсегментов:`);
-            subsegmentPrices.forEach(subsegment => {
-                const matchingObjects = this.filteredObjects.filter(object => 
-                    this.reportsManager.objectMatchesSubsegment(object, subsegment)
-                );
-                console.log(`  Подсегмент ${subsegment.id}:`, {
-                    hasReferencePrice: !!(subsegment.referencePrice?.perMeter),
-                    perMeter: subsegment.referencePrice?.perMeter,
-                    matchingObjectsCount: matchingObjects.length,
-                    objectIds: matchingObjects.map(o => o.id)
-                });
-            });
             
-            // Новая логика: для каждого подсегмента с эталонной ценой находим его объекты
-            const validSubsegments = subsegmentPrices.filter(subsegment => 
-                subsegment.referencePrice && subsegment.referencePrice.perMeter
-            );
             
-            console.log(`🔍 Найдено ${validSubsegments.length} подсегментов с эталонными ценами`);
-            
-            // Обрабатываем каждый подсегмент с эталонной ценой
-            for (const subsegment of validSubsegments) {
-                console.log(`🔍 Обрабатываем подсегмент ${subsegment.id} с ценой ${subsegment.referencePrice.perMeter} ₽/м²`);
+            // Обрабатываем каждый подсегмент
+            for (const subsegment of subsegmentsToProcess) {
+                // Используем новый оптимизированный метод
+                const subsegmentMetrics = await this.calculateSubsegmentMetrics(subsegment);
                 
-                // Находим все объекты, подходящие под этот подсегмент
-                const matchingObjects = this.filteredObjects.filter(object => 
-                    this.reportsManager.objectMatchesSubsegment(object, subsegment)
-                );
+                if (!subsegmentMetrics || !subsegmentMetrics.referencePrice || !subsegmentMetrics.referencePrice.perMeter) {
+                    continue;
+                }
                 
-                console.log(`✅ Найдено ${matchingObjects.length} объектов для подсегмента ${subsegment.id}`);
+                // Используем объекты из метрик (уже отфильтрованные по подсегменту)
+                const subsegmentObjects = subsegmentMetrics.allObjects;
                 
-                // Создаём параметры расчёта для данного подсегмента
+                if (subsegmentObjects.length === 0) {
+                    continue;
+                }
+                
+                // Создаём параметры расчёта для подсегмента
                 const profitabilityParams = this.getCurrentFormData();
                 const params = {
                     ...profitabilityParams,
-                    referencePricePerMeter: subsegment.referencePrice.perMeter,
-                    averageExposureDays: subsegment.averageExposure?.days || 90
+                    referencePricePerMeter: subsegmentMetrics.referencePrice.perMeter,
+                    averageExposureDays: subsegmentMetrics.averageExposure?.days
                 };
                 
-                // Отладочный вывод параметров
-                console.log('🔧 Параметры для FlippingProfitabilityService:', {
-                    renovationSpeed: params.renovationSpeed,
-                    financing: params.financing,
-                    downPayment: params.downPayment,
-                    mortgageRate: params.mortgageRate,
-                    mortgageTerm: params.mortgageTerm,
-                    referencePricePerMeter: params.referencePricePerMeter
-                });
-                
-                // Рассчитываем доходность для каждого объекта этого подсегмента
-                for (const object of matchingObjects) {
+                // Рассчитываем доходность для объектов подсегмента
+                for (const object of subsegmentObjects) {
                     try {
-                        console.log(`🔍 Рассчитываем доходность для объекта ${object.id} через новый сервис`);
-
-                    
                     // Валидация критически важных параметров ипотеки
                     if (params.financing === 'mortgage') {
                         if (!params.downPayment || params.downPayment <= 0 || params.downPayment >= 100) {
@@ -385,37 +373,14 @@ class FlippingProfitabilityManager {
                             console.error(`❌ Некорректный срок ипотеки: ${params.mortgageTerm} лет`);
                             continue;
                         }
-                        
-                        if (this.debugEnabled) {
-                            console.log(`🏦 Параметры ипотеки для объекта ${object.id}:`, {
-                                downPayment: params.downPayment,
-                                mortgageRate: params.mortgageRate,
-                                mortgageTerm: params.mortgageTerm
-                            });
-                        }
                     }
 
-                        // Добавляем цену покупки конкретного объекта
-                        console.log(`🔍 Отладка purchasePrice для объекта ${object.id}:`, {
-                            current_price: object.current_price,
-                            price: object.price,
-                            area: object.area,
-                            area_total: object.area_total,
-                            hasArea: !!(object.area || object.area_total)
-                        });
-                        
                         // Создаем объект с правильной структурой для сервиса
                         const objectForService = {
                             ...object,
                             currentPrice: object.current_price || object.price, // Сервис ожидает currentPrice
-                            area: object.area || object.area_total // Сервис ожидает area
+                            area_total: object.area_total // Сервис использует area_total
                         };
-                        
-                        console.log(`🔧 Объект для сервиса ${object.id}:`, {
-                            currentPrice: objectForService.currentPrice,
-                            area: objectForService.area,
-                            id: objectForService.id
-                        });
                         
                         // Рассчитываем доходность двух сценариев через новый сервис
                         const profitabilityData = this.profitabilityService.calculateBothScenarios(objectForService, params);
@@ -434,15 +399,6 @@ class FlippingProfitabilityManager {
                             target: profitabilityData.targetPrice
                         };
                         
-                        console.log(`💾 Сохранены данные для объекта ${object.id} через новый сервис:`, {
-                            financing: profitabilityData.currentPrice?.financing,
-                            purchasePrice: profitabilityData.currentPrice?.purchasePrice,
-                            actualPrice: profitabilityData.currentPrice?.actualPurchasePrice,
-                            downPayment: profitabilityData.currentPrice?.financing?.downPayment,
-                            interestCosts: profitabilityData.currentPrice?.financing?.interestCosts,
-                            isFormatted: params.financing === 'mortgage'
-                        });
-                        
                         // Для совместимости с картой также сохраняем в profitability
                         object.profitability = {
                             annualReturn: profitabilityData.currentPrice?.annualROI || 0,
@@ -450,27 +406,24 @@ class FlippingProfitabilityManager {
                             roi: profitabilityData.currentPrice?.roi || 0
                         };
                         
+                        // ВАЖНО: Синхронизируем результаты с this.filteredObjects
+                        const filteredObject = this.filteredObjects.find(obj => obj.id === object.id);
+                        if (filteredObject) {
+                            filteredObject.flippingProfitability = object.flippingProfitability;
+                            filteredObject.profitability = object.profitability;
+                        }
+                        
                     } catch (error) {
                         console.error(`❌ Ошибка расчёта доходности для объекта ${object.id}:`, error);
                         object.flippingProfitability = null;
                     }
                 }
             }
-
+            
             if (this.debugEnabled) {
                 const calculatedCount = this.filteredObjects.filter(obj => obj.flippingProfitability).length;
-                console.log(`✅ calculateProfitabilityForObjects: рассчитано ${calculatedCount} из ${this.filteredObjects.length} объектов`);
             }
             
-            // Диагностика: проверяем, что объекты имеют flippingProfitability ПОСЛЕ расчёта
-            console.log('🔍 После calculateProfitabilityForObjects:', {
-                totalObjects: this.filteredObjects.length,
-                objectsWithProfitability: this.filteredObjects.filter(obj => obj.flippingProfitability).length,
-                firstObjectId: this.filteredObjects[0]?.id,
-                firstObjectHasProfitability: !!this.filteredObjects[0]?.flippingProfitability,
-                firstObjectProfitabilityData: this.filteredObjects[0]?.flippingProfitability
-            });
-
         } catch (error) {
             console.error('❌ FlippingProfitabilityManager: Ошибка расчёта доходности:', error);
         }
@@ -483,7 +436,6 @@ class FlippingProfitabilityManager {
         try {
             const currentArea = this.reportsManager.areaPage.dataState?.getState('currentArea');
             if (!currentArea) {
-                console.log('❌ calculateReferencePriceForAllSubsegments: нет currentArea');
                 return [];
             }
             
@@ -493,24 +445,6 @@ class FlippingProfitabilityManager {
                 'designer_renovation': 0.9, // Высокий вес - премиум сегмент
                 'euro_renovation': 0.8      // Хороший вес - стандартный качественный ремонт
             };
-
-            console.log('🔍 calculateReferencePriceForAllSubsegments:', {
-                hasReportsManager: !!this.reportsManager,
-                hasSegments: !!this.reportsManager?.segments,
-                segmentsLength: this.reportsManager?.segments?.length || 0
-            });
-
-            // Диагностика структуры сегментов
-            if (this.reportsManager?.segments) {
-                this.reportsManager.segments.forEach((segment, index) => {
-                    console.log(`🔍 Сегмент ${index}:`, {
-                        id: segment.id,
-                        name: segment.name,
-                        hasSubsegments: !!segment.subsegments,
-                        subsegmentsLength: segment.subsegments?.length || 0
-                    });
-                });
-            }
 
             // Загружаем подсегменты для всех сегментов из БД
             let subsegments = [];
@@ -523,18 +457,12 @@ class FlippingProfitabilityManager {
                             segment_id: segment.id
                         }));
                         subsegments.push(...subsegmentsWithSegmentId);
-                        
-                        if (this.debugEnabled) {
-                            console.log(`🔍 Загружено ${segmentSubsegments.length} подсегментов для сегмента ${segment.name}`);
-                        }
                     } catch (error) {
                         console.error(`❌ Ошибка загрузки подсегментов для сегмента ${segment.id}:`, error);
                     }
                 }
             }
             
-            console.log('🔍 Found subsegments:', subsegments.length);
-
             const results = [];
             for (const subsegment of subsegments) {
                 const referencePriceData = await this.calculateSubsegmentReferencePrice(subsegment, weights, 'Автоматическое определение');
@@ -746,10 +674,6 @@ class FlippingProfitabilityManager {
                 input.addEventListener('change', (e) => {
                     const newValue = parseFloat(e.target.value) || 0;
                     this.currentFilters[filterKey] = newValue;
-                    
-                    if (this.debugEnabled) {
-                        console.log(`🔧 Параметр ${filterKey} изменён на ${newValue}`);
-                    }
                     
                     // Только пересчёт доходности без полной перерисовки
                     this.applyCalculationFilters();
@@ -1221,18 +1145,6 @@ class FlippingProfitabilityManager {
                 
             }
 
-            // Отладка: проверяем что происходит с фильтрацией
-            console.log(`📊 Подсегмент ${subsegment.id}: фильтрация объектов для эталонной цены:`, {
-                totalSubsegmentObjects: subsegmentObjects.length,
-                archiveObjects: subsegmentObjects.filter(obj => obj.status === 'archive').length,
-                evaluatedObjects: subsegmentObjects.filter(obj => this.evaluations.has(obj.id)).length,
-                archiveAndEvaluated: subsegmentObjects.filter(obj => 
-                    obj.status === 'archive' && this.evaluations.has(obj.id)
-                ).length,
-                evaluationsMapSize: this.evaluations.size,
-                weightsAvailable: !!weights
-            });
-            
             // Проверяем детально каждый архивный объект
             const archiveWithEvaluations = subsegmentObjects.filter(obj => 
                 obj.status === 'archive' && this.evaluations.has(obj.id)
@@ -1240,13 +1152,6 @@ class FlippingProfitabilityManager {
             
             archiveWithEvaluations.forEach(obj => {
                 const evaluation = this.evaluations.get(obj.id);
-                console.log(`  Объект ${obj.id}:`, {
-                    evaluation,
-                    weight: weights[evaluation],
-                    weightPositive: weights[evaluation] > 0,
-                    hasPrice: obj.current_price > 0,
-                    hasArea: obj.area_total > 0
-                });
             });
             
             // Фильтруем только оценённые ПРОДАННЫЕ объекты с качественным ремонтом
@@ -1258,9 +1163,6 @@ class FlippingProfitabilityManager {
                 obj.area_total > 0
             );
             
-            console.log(`📊 После фильтрации осталось ${evaluatedObjects.length} объектов для расчёта эталонной цены`);
-
-
             if (evaluatedObjects.length === 0) {
                 return {
                     id: subsegment.id,
@@ -1858,37 +1760,8 @@ class FlippingProfitabilityManager {
                     }
                 }
                 
-                // Рассчитываем доходность для объекта (оба сценария)
-                if (this.profitabilityService && objWithAddress.price && objWithAddress.area) {
-                    try {
-                        const profitabilityParams = this.getCurrentFormData();
-                        
-                        // Сценарий 1: при текущей цене
-                        const currentPriceResult = this.profitabilityService.calculateFlippingProfitability(objWithAddress, profitabilityParams);
-                        
-                        // Сценарий 2: целевая цена для заданной доходности
-                        const targetPrice = this.profitabilityService.calculateTargetPrice(objWithAddress, profitabilityParams.profitabilityPercent, profitabilityParams);
-                        const targetObject = { ...objWithAddress, current_price: targetPrice };
-                        const targetPriceResult = this.profitabilityService.calculateFlippingProfitability(targetObject, profitabilityParams);
-                        
-                        // Сохраняем оба сценария
-                        objWithAddress.flippingProfitability = {
-                            current: currentPriceResult,
-                            target: {
-                                ...targetPriceResult,
-                                targetPrice: targetPrice,
-                                discount: Math.round(((objWithAddress.current_price - targetPrice) / objWithAddress.current_price) * 100)
-                            }
-                        };
-                        
-                        // Для обратной совместимости сохраняем текущий сценарий
-                        objWithAddress.profitability = currentPriceResult;
-                        
-                        console.log(`💰 Объект ${obj.id}: текущая ${currentPriceResult.annualROI?.toFixed(1)}%, целевая ${targetPriceResult.annualROI?.toFixed(1)}% при цене ${targetPrice?.toLocaleString()} ₽`);
-                    } catch (error) {
-                        console.error('❌ Ошибка расчёта доходности для объекта:', error);
-                    }
-                }
+                // Доходность рассчитывается позже в calculateProfitabilityForObjects по подсегментам
+                // Здесь только загружаем адреса
                 
                 objectsWithAddresses.push(objWithAddress);
             }
@@ -2249,6 +2122,204 @@ class FlippingProfitabilityManager {
     }
 
     /**
+     * Получение текущего активного подсегмента
+     */
+    async getCurrentSubsegment() {
+        if (!this.activeSubsegmentId) {
+            return null;
+        }
+        return await this.getSubsegmentById(this.activeSubsegmentId);
+    }
+
+    /**
+     * Получение всех объектов подсегмента с кешированием
+     * Оптимизированный метод для работы с большими объёмами данных
+     */
+    async getSubsegmentObjects(subsegment, useCache = true) {
+        const cacheKey = `subseg_objects_${subsegment.id}`;
+        
+        // Проверяем кеш
+        if (useCache && this.subsegmentObjectsCache && this.subsegmentObjectsCache.has(cacheKey)) {
+            const cached = this.subsegmentObjectsCache.get(cacheKey);
+            if (Date.now() - cached.timestamp < 60000) { // Кеш на 1 минуту
+                return cached.objects;
+            }
+        }
+        
+        try {
+            // Получаем сегмент
+            const segment = await this.database.getSegment(subsegment.segment_id);
+            if (!segment) {
+                return [];
+            }
+
+            // 1. Получаем адреса сегмента один раз
+            const addresses = await this.database.getAddressesInMapArea(segment.map_area_id);
+            const segmentAddresses = this.reportsManager.filterAddressesBySegmentCriteria(addresses, segment.filters || {});
+            const segmentAddressIds = new Set(segmentAddresses.map(a => a.id));
+
+            // 2. Пакетная загрузка объектов (оптимизация для больших объёмов)
+            const allObjects = [];
+            const addressBatch = [];
+            const batchSize = 50; // Загружаем пакетами по 50 адресов
+            
+            for (const addressId of segmentAddressIds) {
+                addressBatch.push(addressId);
+                
+                if (addressBatch.length >= batchSize) {
+                    // Загружаем пакет
+                    const batchPromises = addressBatch.map(id => this.database.getObjectsByAddress(id));
+                    const batchResults = await Promise.all(batchPromises);
+                    batchResults.forEach(objects => {
+                        if (objects && objects.length > 0) {
+                            allObjects.push(...objects);
+                        }
+                    });
+                    addressBatch.length = 0; // Очищаем пакет
+                }
+            }
+            
+            // Загружаем остаток
+            if (addressBatch.length > 0) {
+                const batchPromises = addressBatch.map(id => this.database.getObjectsByAddress(id));
+                const batchResults = await Promise.all(batchPromises);
+                batchResults.forEach(objects => {
+                    if (objects && objects.length > 0) {
+                        allObjects.push(...objects);
+                    }
+                });
+            }
+
+            // 3. Фильтруем по подсегменту
+            const subsegmentObjects = allObjects.filter(obj => 
+                this.reportsManager.objectMatchesSubsegment(obj, subsegment)
+            );
+
+            // Сохраняем в кеш
+            if (!this.subsegmentObjectsCache) {
+                this.subsegmentObjectsCache = new Map();
+            }
+            this.subsegmentObjectsCache.set(cacheKey, {
+                objects: subsegmentObjects,
+                timestamp: Date.now()
+            });
+
+            return subsegmentObjects;
+            
+        } catch (error) {
+            console.error('❌ Ошибка получения объектов подсегмента:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Расчёт эталонной цены и медианы экспозиции для подсегмента
+     * Независимый от this.filteredObjects метод
+     */
+    async calculateSubsegmentMetrics(subsegment) {
+        try {
+            // Используем кешированный метод получения объектов
+            const allObjects = await this.getSubsegmentObjects(subsegment);
+            
+            if (allObjects.length === 0) {
+                return null;
+            }
+
+            // Веса для оценок (из существующего кода)
+            const weights = {
+                'flipping': 1.0,
+                'designer_renovation': 0.9,
+                'euro_renovation': 0.8
+            };
+
+            // Находим оценённые проданные объекты
+            const evaluatedObjects = allObjects.filter(obj => 
+                obj.status === 'archive' && 
+                obj.user_evaluation && 
+                weights[obj.user_evaluation] > 0 &&
+                obj.current_price > 0 &&
+                obj.area_total > 0
+            );
+
+            if (evaluatedObjects.length === 0) {
+                return null;
+            }
+
+            // Рассчитываем взвешенную эталонную цену
+            let totalWeightedPrice = 0;
+            let totalWeight = 0;
+
+            evaluatedObjects.forEach(obj => {
+                const pricePerMeter = obj.current_price / obj.area_total;
+                const weight = weights[obj.user_evaluation];
+                totalWeightedPrice += pricePerMeter * weight;
+                totalWeight += weight;
+            });
+
+            const avgPricePerMeter = totalWeight > 0 ? Math.round(totalWeightedPrice / totalWeight) : null;
+
+            // Рассчитываем медиану экспозиции (используем тот же подход что и в calculateSubsegmentExposure)
+            const exposureDays = evaluatedObjects.map(obj => {
+                const created = new Date(obj.created);
+                const updated = new Date(obj.updated);
+                const days = Math.floor((updated - created) / (1000 * 60 * 60 * 24));
+                return days > 0 ? days : 1; // Минимум 1 день
+            });
+            
+            exposureDays.sort((a, b) => a - b);
+            
+            const medianExposure = exposureDays.length > 0 
+                ? (exposureDays.length % 2 === 0 
+                    ? Math.round((exposureDays[exposureDays.length / 2 - 1] + exposureDays[exposureDays.length / 2]) / 2)
+                    : exposureDays[Math.floor(exposureDays.length / 2)])
+                : null;
+
+            return {
+                referencePrice: {
+                    perMeter: avgPricePerMeter,
+                    count: evaluatedObjects.length
+                },
+                averageExposure: {
+                    days: medianExposure
+                },
+                allObjects: allObjects // Возвращаем все объекты подсегмента для расчёта доходности
+            };
+
+        } catch (error) {
+            console.error('❌ Ошибка расчёта метрик подсегмента:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Проверка наличия оценённых объектов в подсегменте
+     * Оптимизированная версия использующая кеш
+     */
+    async hasSubsegmentEvaluatedObjects(subsegmentId) {
+        try {
+            const subsegment = await this.getSubsegmentById(subsegmentId);
+            if (!subsegment) {
+                return false;
+            }
+
+            // Используем кешированный метод
+            const objects = await this.getSubsegmentObjects(subsegment);
+            
+            // Проверяем есть ли оценённые
+            for (const obj of objects) {
+                if (obj.user_evaluation || this.evaluations.has(obj.id)) {
+                    return true;
+                }
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('❌ Ошибка проверки оценённых объектов подсегмента:', error);
+            return false;
+        }
+    }
+
+    /**
      * Расчёт среднего срока экспозиции для конкретного подсегмента
      */
     async calculateSubsegmentExposure(subsegmentId) {
@@ -2402,15 +2473,6 @@ class FlippingProfitabilityManager {
      */
     async updateInvestmentTable() {
         try {
-            console.log('📊 updateInvestmentTable вызван:', {
-                filteredObjectsCount: this.filteredObjects?.length || 0,
-                hasFlippingController: !!this.flippingController,
-                hasFlippingTable: !!this.flippingController?.flippingTable,
-                firstObjectHasProfitability: !!this.filteredObjects?.[0]?.flippingProfitability,
-                firstObjectId: this.filteredObjects?.[0]?.id,
-                objectsWithProfitability: this.filteredObjects?.filter(obj => obj.flippingProfitability).length || 0
-            });
-            
             // Этот метод обновляет таблицу объектов для оценки
             // Функциональность интегрирована с новой архитектурой v0.1
             // Обновление происходит через FlippingController
@@ -2419,12 +2481,6 @@ class FlippingProfitabilityManager {
                 
                 // Обновляем таблицу через FlippingController
                 if (this.flippingController.flippingTable) {
-                    console.log('🔍 Перед updateData в updateInvestmentTable:', {
-                        firstObjectId: this.filteredObjects[0]?.id,
-                        firstObjectHasProfitability: !!this.filteredObjects[0]?.flippingProfitability,
-                        objectsWithProfitability: this.filteredObjects.filter(obj => obj.flippingProfitability).length
-                    });
-                    
                     await this.flippingController.flippingTable.updateData(this.filteredObjects, this.currentFilters);
                 }
             }
@@ -2770,8 +2826,6 @@ class FlippingProfitabilityManager {
      */
     async applyFilteringOnly() {
         try {
-            console.log('📊 Фильтрация объектов (лёгкий режим):', this.currentFilters);
-            
             // Получаем объекты из базы через ReportsManager
             const objects = await this.loadData();
             
@@ -2830,7 +2884,10 @@ class FlippingProfitabilityManager {
                 return;
             }
             
-            console.log('📊 Обновление расчётов без перезагрузки:', this.currentFilters);
+            // ВАЖНО: Сначала загружаем оценки (если еще не загружены)
+            if (!this.evaluations || this.evaluations.size === 0) {
+                await this.loadAllEvaluations();
+            }
             
             // Пересчитываем доходность с новыми параметрами
             await this.calculateProfitabilityForObjects();
@@ -2870,8 +2927,6 @@ class FlippingProfitabilityManager {
             return;
         }
         
-        console.log('📊 Обновление фильтра отчёта "Доходность флиппинг":', this.currentFilters);
-        
         this.applyFiltersInProgress = true;
         
         // Отменяем любые отложенные вызовы applyFilters, так как мы уже выполняемся
@@ -2883,11 +2938,11 @@ class FlippingProfitabilityManager {
         try {
             this.showPlaceholder("Загрузка данных...");
             
-            // Используем модульную архитектуру v0.1 если доступна
+            // Используем только модульную архитектуру v0.1
             if (this.flippingController) {
                 await this.applyFiltersModular();
             } else {
-                await this.applyFiltersLegacy();
+                throw new Error('FlippingController недоступен. Модульная архитектура v0.1 обязательна.');
             }
             
         } catch (error) {
@@ -3002,72 +3057,6 @@ class FlippingProfitabilityManager {
         }
     }
 
-    /**
-     * Применение фильтров в legacy режиме
-     */
-    async applyFiltersLegacy() {
-        try {
-            
-            // Загружаем данные из базы
-            const objects = await this.loadData();
-            
-            
-            if (objects.length === 0) {
-                this.showPlaceholder("В выбранном сегменте нет объектов с координатами");
-                return;
-            }
-
-            // ReportsManager уже отфильтровал объекты по сегментам, используем их напрямую
-            this.filteredObjects = objects;
-            
-            
-            if (this.filteredObjects.length === 0) {
-                await this.showEmptyContent();
-                return;
-            }
-
-            // Показываем результат
-            this.showContent();
-            
-            // Загружаем адреса для корректного отображения
-            await this.loadAddresses();
-            
-            // Загружаем пользовательские оценки объектов СНАЧАЛА
-            await this.loadAllEvaluations();
-            
-            // Рассчитываем референсные цены для подсегментов (теперь с оценками)
-            await this.calculateReferencePrice(true);
-            
-            // Рассчитываем доходность для всех объектов (теперь с эталонными ценами)
-            await this.calculateProfitabilityForObjects();
-            
-            // Карта управляется FlippingController через FlippingMap
-            // Убираем дублирующую инициализацию
-            
-            // Legacy метод loadMapData удален - карта обновляется выше в новом режиме
-            
-            // Создаём график коридора рынка
-            await this.createMarketCorridorChart();
-            
-            // НЕ синхронизируем объекты с FlippingController здесь, так как это перезапишет
-            // наши объекты с рассчитанной доходностью объектами БЕЗ доходности
-            // Старый код синхронизации удалён для исправления проблемы
-
-            // Обновляем панель объектов (без обновления таблицы)
-            await this.updateObjectsDisplay();
-            
-            // Принудительно обновляем панель подсегментов (на случай если отчёт был скрыт/показан)
-            if (this.referencePrices && this.referencePrices.length > 0) {
-                await this.updateReferencePricePanel();
-            }
-            
-            // Обновляем таблицу объектов для инвестирования
-            await this.updateInvestmentTable();
-            
-        } catch (error) {
-            throw error;
-        }
-    }
 
     /**
      * Показ пустого контента (интерфейс активен, но нет данных)
@@ -3260,7 +3249,8 @@ class FlippingProfitabilityManager {
             }
             
             // 3. Для каждого адреса находим активные объекты и рассчитываем максимальную доходность
-            const addressesWithProfitability = await this.calculateAddressProfitability(addressesToShow);
+            // Используем новый метод вместо legacy
+            const addressesWithProfitability = await this.prepareMapMarkersData(addressesToShow);
             
             // 4. Обновляем маркеры на карте с цветовым кодированием
             if (map.updateAddresses) {
@@ -3477,15 +3467,17 @@ class FlippingProfitabilityManager {
     }
 
     /**
-     * Расчёт доходности для каждого адреса
+     * НОВЫЙ МЕТОД: Подготовка данных для маркеров карты на основе FlippingProfitabilityService
+     * Заменяет legacy метод calculateAddressProfitability
      */
-    async calculateAddressProfitability(addresses) {
+    async prepareMapMarkersData(addresses) {
         try {
             const addressesWithProfitability = [];
             
             for (const address of addresses) {
-                let maxProfitability = null; // Изменяем начальное значение на null
+                let maxProfitability = null;
                 let maxProfitabilityText = '';
+                let markerColor = '#6b7280'; // Серый по умолчанию
                 
                 // Проверяем наличие активных объектов
                 if (!address.activeObjects || !Array.isArray(address.activeObjects)) {
@@ -3493,367 +3485,53 @@ class FlippingProfitabilityManager {
                         ...address,
                         maxProfitability: 0,
                         maxProfitabilityText: 'Нет данных',
-                        markerColor: '#6b7280',
+                        markerColor,
                         activeObjects: []
                     });
                     continue;
                 }
                 
-                // Рассчитываем доходность для каждого объекта адреса (активные и архивные)
+                // Ищем максимальную доходность среди объектов адреса
+                // Используем данные из FlippingProfitabilityService (object.flippingProfitability)
                 for (const obj of address.activeObjects) {
-                    const profitability = this.calculateObjectProfitability(obj);
+                    // Находим объект в filteredObjects, который содержит рассчитанные данные
+                    const calculatedObject = this.filteredObjects.find(fo => fo.id === obj.id);
                     
-                    // ИСПРАВЛЕНИЕ: Копируем доходность в объект для таблицы с полной структурой
-                    const tableObject = this.filteredObjects.find(filteredObj => filteredObj.id === obj.id);
-                    if (tableObject && profitability) {
-                        // Получаем базовые параметры расчёта из текущих фильтров
-                        const area = obj.area_total;
-                        if (!area) {
-                            console.log(`⚠️ Площадь не указана для объекта ${obj.id}`);
-                            continue;
-                        }
-                        const renovationCostPerMeter = (this.currentFilters.workCost || 10000) + (this.currentFilters.materialsCost || 10000);
-                        const renovationCost = area * renovationCostPerMeter;
-                        const additionalExpenses = this.currentFilters.additionalExpenses || 100000;
-                        const purchasePrice = obj.current_price || 0;
+                    if (calculatedObject && calculatedObject.flippingProfitability) {
+                        const profitData = calculatedObject.flippingProfitability;
+                        const annualROI = profitData.annualROI || profitData.current?.annualROI || 0;
                         
-                        // ИСПРАВЛЕНИЕ: Правильный расчёт продажной цены по эталонной стоимости
-                        const referencePricePerMeter = this.getReferencePriceForObject(obj);
-                        console.log(`🔍 Эталонная цена для объекта ${obj.id}:`, referencePricePerMeter);
-                        
-                        let salePrice;
-                        if (referencePricePerMeter) {
-                            // ИСПРАВЛЕНИЕ: Продажная цена = эталонная цена за м² × площадь
-                            salePrice = referencePricePerMeter * area;
-                            console.log(`📊 Продажная цена: ${referencePricePerMeter} × ${area} = ${salePrice}`);
-                        } else {
-                            // Fallback: используем старую логику
-                            console.log(`⚠️ Эталонная цена не найдена для объекта ${obj.id}, используем fallback`);
-                            const netProfit = profitability.totalProfit || 0;
-                            salePrice = purchasePrice + renovationCost + additionalExpenses + netProfit;
-                        }
-                        
-                        // Проверяем наличие обязательных параметров и используем fallback
-                        const renovationSpeed = this.currentFilters.renovationSpeed || 1.5;
-                        const averageExposureDays = this.currentFilters.averageExposureDays || 90;
-                        
-                        if (!this.currentFilters.renovationSpeed) {
-                            console.warn(`⚠️ Используем скорость ремонта по умолчанию ${renovationSpeed} м²/день для объекта ${obj.id}`);
-                        }
-                        if (!this.currentFilters.averageExposureDays) {
-                            console.warn(`⚠️ Используем срок экспозиции по умолчанию ${averageExposureDays} дней для объекта ${obj.id}`);
-                        }
-                        
-                        // Рассчитываем затраты на финансирование в зависимости от типа
-                        const projectMonths = (area / this.currentFilters.renovationSpeed) / 30 + this.currentFilters.averageExposureDays / 30;
-                        let financingCost = purchasePrice; // По умолчанию "деньги"
-                        
-                        if (this.currentFilters.financing === 'mortgage') {
-                            // При ипотеке: первоначальный взнос + проценты за срок проекта
-                            if (!this.currentFilters.downPayment) {
-                                console.error(`❌ Не задан первоначальный взнос для объекта ${obj.id}`);
-                                continue;
-                            }
-                            if (!this.currentFilters.mortgageRate) {
-                                console.error(`❌ Не задана ставка ипотеки для объекта ${obj.id}`);
-                                continue;
-                            }
-                            
-                            const downPaymentPercent = this.currentFilters.downPayment;
-                            const mortgageRate = this.currentFilters.mortgageRate / 100;
-                            const downPayment = purchasePrice * (downPaymentPercent / 100);
-                            const loanAmount = purchasePrice - downPayment;
-                            
-                            // Простой расчёт процентов за срок проекта
-                            const projectYears = projectMonths / 12;
-                            const interestCosts = loanAmount * mortgageRate * projectYears;
-                            
-                            financingCost = downPayment + interestCosts;
-                        }
-                        
-                        // Рассчитываем базовые значения с правильными затратами на финансирование
-                        const totalCosts = financingCost + renovationCost + additionalExpenses;
-                        const netProfit = salePrice - totalCosts; // Прибыль = продажа - затраты
-                        const taxes = Math.max(0, salePrice - purchasePrice) * 0.13; // Упрощённый расчёт
-                        
-                        // Используем новую структуру для отображения в дочерней таблице  
-                        const currentData = {
-                            purchasePrice: financingCost, // Реальные затраты на покупку (с учётом финансирования)
-                            renovationCost: renovationCost,
-                            additionalExpenses: additionalExpenses,
-                            taxes: taxes,
-                            totalCosts: totalCosts,
-                            salePrice: salePrice,
-                            netProfit: netProfit,
-                            annualROI: profitability.annualReturn || 0,
-                            totalProjectMonths: Math.round(projectMonths * 10) / 10,
-                            totalProjectDays: Math.round(projectMonths * 30)
-                        };
-                        
-                        // Рассчитаем целевую цену для заданной доходности
-                        let targetData = null;
-                        try {
-                            const targetROI = this.currentFilters.profitabilityPercent || 60;
-                            const targetPrice = this.calculateTargetPriceForObject(obj, targetROI);
-                            
-                            if (targetPrice && targetPrice < purchasePrice) {
-                                const targetRenovationCost = area * renovationCostPerMeter; // Та же стоимость ремонта
-                                
-                                // Рассчитываем затраты на финансирование для целевой цены
-                                let targetFinancingCost = targetPrice; // По умолчанию "деньги"
-                                if (this.currentFilters.financing === 'mortgage') {
-                                    const downPaymentPercent = this.currentFilters.downPayment;
-                                    const mortgageRate = this.currentFilters.mortgageRate / 100;
-                                    const targetDownPayment = targetPrice * (downPaymentPercent / 100);
-                                    const targetLoanAmount = targetPrice - targetDownPayment;
-                                    const projectYears = projectMonths / 12;
-                                    const targetInterestCosts = targetLoanAmount * mortgageRate * projectYears;
-                                    targetFinancingCost = targetDownPayment + targetInterestCosts;
-                                }
-                                
-                                const targetTotalCosts = targetFinancingCost + targetRenovationCost + additionalExpenses;
-                                const targetNetProfit = salePrice - targetTotalCosts;
-                                const targetTaxes = Math.max(0, salePrice - targetPrice) * 0.13;
-                                const targetAnnualROI = targetTotalCosts > 0 ? (targetNetProfit / targetTotalCosts) * 100 : 0;
-                                const discount = Math.round(((purchasePrice - targetPrice) / purchasePrice) * 100);
-                                
-                                targetData = {
-                                    purchasePrice: targetFinancingCost, // Реальные затраты на покупку целевого объекта
-                                    renovationCost: targetRenovationCost,
-                                    additionalExpenses: additionalExpenses,
-                                    taxes: targetTaxes,
-                                    totalCosts: targetTotalCosts,
-                                    salePrice: salePrice,
-                                    netProfit: targetNetProfit,
-                                    annualROI: targetAnnualROI,
-                                    totalProjectMonths: Math.round(projectMonths * 10) / 10,
-                                    totalProjectDays: Math.round(projectMonths * 30),
-                                    targetPrice: targetPrice,
-                                    discount: discount
-                                };
-                            }
-                        } catch (error) {
-                            console.log(`⚠️ Не удалось рассчитать целевую цену для объекта ${obj.id}:`, error);
-                        }
-                        
-                        tableObject.flippingProfitability = {
-                            current: currentData,
-                            target: targetData
-                        };
-                        
-                        // Для обратной совместимости сохраняем также profitability
-                        tableObject.profitability = currentData;
-                        
-                        console.log(`✅ Скопирована доходность для объекта ${obj.id}: текущая ${profitability.annualReturn}% годовых${targetData ? `, целевая ${targetData.annualROI.toFixed(1)}% при цене ${targetData.targetPrice.toLocaleString()} ₽` : ''}`);
-                    } else if (!tableObject) {
-                        console.log(`⚠️ Объект ${obj.id} не найден в filteredObjects`);
-                    }
-                    
-                    // Диагностика расчета доходности (только при отладке)
-                    console.log(`💰 Расчет доходности для объекта ${obj.id}:`, {
-                                                        объект: obj.property_type,
-                                                        цена: obj.current_price,
-                                                        площадь: obj.area_total,
-                                                        доходность: profitability?.annualReturn || 'нет данных'
-                                                    });
-                    
-                    // Исправляем логику для отрицательных значений доходности
-                    if (profitability && typeof profitability.annualReturn === 'number') {
-                        if (maxProfitability === null || profitability.annualReturn > maxProfitability) {
-                            maxProfitability = profitability.annualReturn;
-                            maxProfitabilityText = `${profitability.annualReturn.toFixed(1)}% годовых`;
+                        if (maxProfitability === null || annualROI > maxProfitability) {
+                            maxProfitability = annualROI;
+                            maxProfitabilityText = `${Math.round(annualROI * 10) / 10}% годовых`;
                         }
                     }
                 }
                 
-                // Обрабатываем случай когда нет рассчитанной доходности
+                // Если данных нет, используем значения по умолчанию
                 if (maxProfitability === null) {
                     maxProfitability = 0;
-                    maxProfitabilityText = 'Нет оценок';
+                    maxProfitabilityText = 'Расчёт не выполнен';
                 }
                 
                 // Определяем цвет маркера на основе доходности
-                const markerColor = this.getProfitabilityColor(maxProfitability);
+                markerColor = this.getProfitabilityColor(maxProfitability);
                 
                 addressesWithProfitability.push({
                     ...address,
                     maxProfitability,
                     maxProfitabilityText,
                     markerColor,
-                    activeObjects: address.activeObjects // Сохраняем activeObjects для popup
+                    activeObjects: address.activeObjects
                 });
                 
-                console.log(`🏠 Адрес ${address.address}:`, {
-                    активныхОбъектов: address.activeObjects.length,
-                    максДоходность: maxProfitability,
-                    текстДоходности: maxProfitabilityText,
-                    цветМаркера: markerColor
-                });
             }
-            
-           
-                console.log(`✅ calculateAddressProfitability: обработано ${addressesWithProfitability.length} адресов с доходностью`);
-                
-                // Диагностика первых 3 адресов
-                for (let i = 0; i < Math.min(3, addressesWithProfitability.length); i++) {
-                    const addr = addressesWithProfitability[i];
-                    console.log(`📊 Адрес ${i+1}: ${addr.address}, активных объектов: ${addr.activeObjects?.length || 0}`);
-                }
-            
             
             return addressesWithProfitability;
             
         } catch (error) {
-            console.error('❌ Ошибка расчёта доходности адресов:', error);
-            return addresses; // Возвращаем без доходности в случае ошибки
-        }
-    }
-
-    /**
-     * Расчёт целевой цены покупки для достижения заданной доходности
-     * @param {Object} object - объект недвижимости
-     * @param {number} targetROI - целевая доходность (% годовых)
-     * @returns {number|null} целевая цена покупки
-     */
-    calculateTargetPriceForObject(object, targetROI) {
-        try {
-            const area = object.area_total || 0;
-            if (!area) return null;
-            
-            // Используем правильную эталонную цену и параметры расчёта
-            const referencePricePerMeter = this.getReferencePriceForObject(object) || 215076; // Fallback
-            const salePrice = referencePricePerMeter * area;
-            
-            // Проверяем наличие всех параметров
-            if (!this.currentFilters.workCost || !this.currentFilters.materialsCost) {
-                console.error('❌ Отсутствуют параметры ремонта для расчёта целевой цены');
-                return null;
-            }
-            if (!this.currentFilters.additionalExpenses) {
-                console.error('❌ Не заданы дополнительные расходы для расчёта целевой цены');
-                return null;
-            }
-            
-            const renovationCostPerMeter = this.currentFilters.workCost + this.currentFilters.materialsCost;
-            const renovationCost = area * renovationCostPerMeter;
-            const additionalExpenses = this.currentFilters.additionalExpenses;
-            
-            // Приблизительный расчёт через итерации
-            let targetPrice = object.current_price * 0.8; // Начинаем с 80%
-            let iterations = 0;
-            const maxIterations = 50;
-            const precision = 0.5; // Точность 0.5%
-            
-            while (iterations < maxIterations) {
-                // Рассчитываем затраты на финансирование для целевой цены
-                let financingCost = targetPrice; // По умолчанию "деньги"
-                if (this.currentFilters.financing === 'mortgage') {
-                    if (!this.currentFilters.downPayment || !this.currentFilters.mortgageRate) {
-                        console.error('❌ Отсутствуют параметры ипотеки для расчёта целевой цены');
-                        return null;
-                    }
-                    const downPaymentPercent = this.currentFilters.downPayment;
-                    const mortgageRate = this.currentFilters.mortgageRate / 100;
-                    const downPayment = targetPrice * (downPaymentPercent / 100);
-                    const loanAmount = targetPrice - downPayment;
-                    // Упрощённый расчёт - используем примерный срок проекта
-                    const projectYears = 0.3; // ~3.6 месяца = 0.3 года
-                    const interestCosts = loanAmount * mortgageRate * projectYears;
-                    financingCost = downPayment + interestCosts;
-                }
-                
-                const totalCosts = financingCost + renovationCost + additionalExpenses;
-                const netProfit = salePrice - totalCosts;
-                const annualROI = totalCosts > 0 ? (netProfit / totalCosts) * 100 : 0;
-                
-                if (Math.abs(annualROI - targetROI) < precision) {
-                    return Math.round(targetPrice);
-                }
-                
-                // Корректируем цену
-                if (annualROI > targetROI) {
-                    targetPrice *= 1.02; // Увеличиваем цену на 2%
-                } else {
-                    targetPrice *= 0.98; // Уменьшаем цену на 2%
-                }
-                
-                iterations++;
-                
-                // Защита от нереальных значений
-                if (targetPrice < 1000 || targetPrice > object.current_price * 2) {
-                    break;
-                }
-            }
-            
-            return targetPrice < object.current_price ? Math.round(targetPrice) : null;
-        } catch (error) {
-            console.error('❌ Ошибка расчёта целевой цены:', error);
-            return null;
-        }
-    }
-
-    /**
-     * Расчёт доходности конкретного объекта
-     */
-    calculateObjectProfitability(obj) {
-        try {
-            // Получаем эталонную цену подсегмента для объекта
-            const referencePricePerMeter = this.getReferencePriceForObject(obj);
-            
-            if (!referencePricePerMeter) {
-                // ВРЕМЕННЫЙ FALLBACK: используем среднюю эталонную цену 215076 из правой панели
-                console.log(`⚠️ Используем fallback эталонную цену для объекта ${obj.id}`);
-                const fallbackReferencePrice = 215076; // Видно из скриншота
-                
-                // Упрощённый расчёт доходности без сервиса
-                const area = obj.area_total || 30;
-                const salePrice = fallbackReferencePrice * area;
-                const totalCosts = obj.current_price + (area * 20000); // Приблизительная стоимость ремонта
-                const netProfit = salePrice - totalCosts;
-                const annualReturn = totalCosts > 0 ? (netProfit / totalCosts) * 100 : 0;
-                
-                return {
-                    annualReturn: annualReturn,
-                    totalProfit: netProfit,
-                    roi: annualReturn
-                };
-            }
-            
-            // Формируем полные параметры для сервиса
-            const params = {
-                ...this.currentFilters,
-                referencePricePerMeter: referencePricePerMeter,
-                averageExposureDays: this.averageExposureDays || 60,
-                renovationSpeed: this.currentFilters?.renovationSpeed || 1.5,
-                additionalExpenses: this.currentFilters?.additionalExpenses || 100000,
-                taxType: this.currentFilters?.taxType || 'ip',
-                financing: this.currentFilters?.financing || 'cash',
-                participants: this.currentFilters?.participants || 'flipper',
-                profitSharing: this.currentFilters?.profitSharing || 'percentage',
-                renovationType: this.currentFilters?.renovationType || 'auto',
-                workCost: this.currentFilters?.workCost || 10000,
-                materialsCost: this.currentFilters?.materialsCost || 10000
-            };
-            
-            // Адаптируем структуру объекта для сервиса
-            const adaptedObject = {
-                ...obj,
-                currentPrice: obj.current_price || obj.price,
-                area: obj.area_total
-            };
-            
-            // Используем сервис расчёта доходности
-            if (this.flippingController && this.flippingController.realEstateObjectService) {
-                const serviceResult = this.flippingController.realEstateObjectService.calculateProfitability(adaptedObject, params);
-                
-                return serviceResult;
-            }
-            
-            return null;
-            
-        } catch (error) {
-            console.error('❌ Ошибка расчёта доходности объекта:', error);
-            return null;
+            console.error('❌ FlippingProfitabilityManager: Ошибка подготовки данных для карты:', error);
+            return addresses; // Возвращаем исходные данные в случае ошибки
         }
     }
 
@@ -4731,9 +4409,6 @@ class FlippingProfitabilityManager {
      * Получение данных формы для расчёта доходности
      */
     getCurrentFormData() {
-        // Для отладки выводим что содержится в currentFilters
-        console.log('🔧 getCurrentFormData - currentFilters:', this.currentFilters);
-        
         return {
             // Данные из фильтров
             profitabilityPercent: this.currentFilters.profitabilityPercent,
@@ -4756,7 +4431,14 @@ class FlippingProfitabilityManager {
             financing: this.currentFilters.financing,
             downPayment: this.currentFilters.downPayment,
             mortgageRate: this.currentFilters.mortgageRate,
-            mortgageTerm: this.currentFilters.mortgageTerm
+            mortgageTerm: this.currentFilters.mortgageTerm,
+            
+            // Средний срок экспозиции берется из подсегментов при вызове FlippingProfitabilityService
+            // В getCurrentFormData не включаем, так как он зависит от конкретного подсегмента
+            // averageExposureDays передается отдельно в каждом вызове
+            
+            // Эталонная цена за м² - передается отдельно в calculateProfitabilityForObjects
+            referencePricePerMeter: this.currentFilters.referencePricePerMeter
         };
     }
 }

@@ -306,7 +306,6 @@ class AreaArchitectureIntegration {
                 if (window.db && typeof window.db.getAll === 'function') {
                     // Проверяем, что БД действительно готова к работе
                     await window.db.getAll('addresses');
-                    console.log('✅ База данных готова к работе');
                     return;
                 }
             } catch (error) {
@@ -328,10 +327,6 @@ class AreaArchitectureIntegration {
             if (window.db && window.db.db) {
                 const settings = await window.db.getSettings();
                 const debugEnabled = settings.find(s => s.key === 'debug_enabled')?.value === true;
-                
-                if (debugEnabled) {
-                    console.log(message, ...args);
-                }
             }
         } catch (error) {
             // Игнорируем ошибки логирования
