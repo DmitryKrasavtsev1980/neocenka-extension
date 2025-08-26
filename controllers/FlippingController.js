@@ -314,8 +314,11 @@ class FlippingController extends EventTarget {
                 
                 
                 
-                // Передаём и адреса, и объекты для расчёта доходности
-                await this.flippingMap.updateAddresses(uniqueAddresses, this.currentFilters, this.filteredObjects);
+                // ИСПРАВЛЕНО: Проверяем флаг - не обновляем карту если она уже обновлена через FlippingProfitabilityManager
+                if (!this._skipMapUpdate) {
+                    // Передаём и адреса, и объекты для расчёта доходности
+                    await this.flippingMap.updateAddresses(uniqueAddresses, this.currentFilters, this.filteredObjects);
+                }
             }
 
 

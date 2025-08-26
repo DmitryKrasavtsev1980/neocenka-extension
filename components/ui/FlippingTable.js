@@ -622,28 +622,9 @@ class FlippingTable {
         const targetROI = this.profitabilityParameters?.profitabilityPercent;
         
         if (target && current && targetROI && current.annualROI >= targetROI) {
-            console.log(`🙈 Скрываем колонку целевой цены для объекта ${objectData.id}: текущая доходность ${current.annualROI}% >= целевой ${targetROI}%`);
             target = null; // Скрываем колонку целевой цены
         }
         
-        // Диагностика данных для дочерней таблицы
-        console.log(`🔍 Данные для дочерней таблицы объекта ${objectData.id}:`, {
-            profitability,
-            objectData: objectData,
-            flippingProfitability: objectData.flippingProfitability,
-            fullData: objectData.flippingProfitability?.fullData,
-            current,
-            target,
-            objectCurrentPrice: objectData.current_price || objectData.currentPrice,
-            objectPrice: objectData.price,
-            currentSalePrice: current?.salePrice,
-            targetSalePrice: target?.salePrice,
-            currentFinancing: current?.financing,
-            targetFinancing: target?.financing,
-            currentPurchasePrice: current?.purchasePrice,
-            currentActualPrice: current?.actualPurchasePrice
-        });
-
         const formatCurrency = (amount) => {
             if (amount === undefined || amount === null || isNaN(amount)) {
                 return '—';

@@ -474,29 +474,38 @@ class FlippingMap {
             fillOpacity: 0.8,
         });
         
-        // Popup с информацией о доходности
+        // Popup с информацией о доходности активных объектов
         const addressText = address.address_string || address.address || 'Адрес не определён';
-        const profitabilityText = address.maxProfitabilityText || 'Нет данных о доходности';
         const activeObjectsCount = address.activeObjects ? address.activeObjects.length : 0;
+        
+        // ИСПРАВЛЕНО: Показываем либо максимальную доходность среди активных объектов, либо количество активных объектов
+        let displayText;
+        let textColor;
+        
+        if (address.maxProfitabilityText && address.maxProfitabilityText.includes('доходность:')) {
+            // Есть данные о доходности активных объектов
+            displayText = address.maxProfitabilityText;
+            // Определяем цвет по доходности
+            if (address.maxProfitability > 20) textColor = '#059669'; // Зеленый
+            else if (address.maxProfitability > 0) textColor = '#D97706'; // Оранжевый  
+            else textColor = '#DC2626'; // Красный
+        } else {
+            // Нет данных о доходности, показываем количество активных объектов
+            displayText = `Активных объектов: ${activeObjectsCount}`;
+            textColor = '#6B7280'; // Серый
+        }
         
         const popupContent = `
             <div class="p-3">
                 <div class="font-semibold text-sm mb-2">
                     ${addressText}
                 </div>
-                ${address.maxProfitabilityText ? `
-                <div class="text-sm font-bold text-green-600 mb-1">
-                    Макс. доходность: ${profitabilityText}
+                <div class="text-sm font-bold mb-1" style="color: ${textColor}">
+                    ${displayText}
                 </div>
-                ` : ''}
-                <div class="text-xs text-gray-600">
-                    Активных объектов: ${activeObjectsCount}
+                <div class="text-xs text-gray-500">
+                    Этажей: ${address.floors_count || '?'}
                 </div>
-                ${address.floors_count ? `
-                <div class="text-xs text-gray-600">
-                    Этажей: ${address.floors_count}
-                </div>
-                ` : ''}
             </div>
         `;
         

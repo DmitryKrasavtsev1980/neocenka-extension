@@ -293,13 +293,13 @@ class FlippingProfitabilityManager {
      */
     async calculateProfitabilityForObjects() {
         try {
+            
             if (!this.profitabilityService || !this.filteredObjects || this.filteredObjects.length === 0) {
                 return;
             }
 
             // Получаем глобальные фильтры из ReportsManager
             const globalFilters = this.getActiveReportFilters();
-            
             
             // Определяем подсегменты для расчёта согласно глобальным фильтрам
             let subsegmentsToProcess = [];
@@ -312,8 +312,10 @@ class FlippingProfitabilityManager {
                 const segmentSubsegments = await this.database.getSubsegmentsBySegment(globalFilters.segment.id);
                 
                 for (const subsegment of segmentSubsegments) {
-                    const hasEvaluatedObjects = await this.hasSubsegmentEvaluatedObjects(subsegment.id);
-                    if (hasEvaluatedObjects) {
+                    const metrics = await this.calculateSubsegmentMetrics(subsegment);
+                    if (metrics && metrics.referencePrice && metrics.referencePrice.perMeter) {
+                        // Сохраняем метрики в подсегменте чтобы не пересчитывать
+                        subsegment._cachedMetrics = metrics;
                         subsegmentsToProcess.push(subsegment);
                     }
                 }
@@ -323,19 +325,21 @@ class FlippingProfitabilityManager {
                     const segmentSubsegments = await this.database.getSubsegmentsBySegment(segment.id);
                     
                     for (const subsegment of segmentSubsegments) {
-                        const hasEvaluatedObjects = await this.hasSubsegmentEvaluatedObjects(subsegment.id);
-                        if (hasEvaluatedObjects) {
+                        const metrics = await this.calculateSubsegmentMetrics(subsegment);
+                        if (metrics && metrics.referencePrice && metrics.referencePrice.perMeter) {
+                            // Сохраняем метрики в подсегменте чтобы не пересчитывать
+                            subsegment._cachedMetrics = metrics;
                             subsegmentsToProcess.push(subsegment);
                         }
                     }
                 }
             }
             
-            
             // Обрабатываем каждый подсегмент
             for (const subsegment of subsegmentsToProcess) {
-                // Используем новый оптимизированный метод
-                const subsegmentMetrics = await this.calculateSubsegmentMetrics(subsegment);
+                
+                // Используем кешированные метрики (сохранены при поиске подсегментов)
+                const subsegmentMetrics = subsegment._cachedMetrics;
                 
                 if (!subsegmentMetrics || !subsegmentMetrics.referencePrice || !subsegmentMetrics.referencePrice.perMeter) {
                     continue;
@@ -418,10 +422,6 @@ class FlippingProfitabilityManager {
                         object.flippingProfitability = null;
                     }
                 }
-            }
-            
-            if (this.debugEnabled) {
-                const calculatedCount = this.filteredObjects.filter(obj => obj.flippingProfitability).length;
             }
             
         } catch (error) {
@@ -1407,9 +1407,12 @@ class FlippingProfitabilityManager {
         }
 
         return referencePrices.map(priceData => {
-            // Фильтруем объекты для этого подсегмента из отфильтрованного набора
-            // Теперь используется единая система фильтрации через property_type
-            const subsegmentFilteredObjects = this.filteredObjects.filter(obj => {
+            // ИСПРАВЛЕНО: Используем originalFilteredObjects если есть фильтрация по подсегменту,
+            // иначе используем обычные filteredObjects
+            const objectsToFilter = this.originalFilteredObjects || this.filteredObjects;
+            
+            // Фильтруем объекты для этого подсегмента из полного набора объектов
+            const subsegmentFilteredObjects = objectsToFilter.filter(obj => {
                 // Проверяем соответствие фильтрам подсегмента
                 if (priceData.filters) {
                     const subsegment = { id: priceData.id, name: priceData.name, filters: priceData.filters };
@@ -1725,9 +1728,15 @@ class FlippingProfitabilityManager {
                 // Загружаем адреса для объектов и рассчитываем доходность
                 const objectsWithAddresses = await this.loadAddressesForObjects(this.filteredObjects);
                 
+                // ИСПРАВЛЕНО: Устанавливаем флаг чтобы FlippingController не перезаписывал карту
+                this.flippingController._skipMapUpdate = true;
+                
                 // Устанавливаем отфильтрованные объекты в контроллер
                 this.flippingController.filteredObjects = objectsWithAddresses;
                 await this.flippingController.updateUIComponents();
+                
+                // Сбрасываем флаг
+                this.flippingController._skipMapUpdate = false;
                 
                 // Пересчитываем доходность для отфильтрованных объектов
                 await this.updateInvestmentTable();
@@ -3478,6 +3487,7 @@ class FlippingProfitabilityManager {
                 let maxProfitability = null;
                 let maxProfitabilityText = '';
                 let markerColor = '#6b7280'; // Серый по умолчанию
+                let activeObjectsCount = 0;
                 
                 // Проверяем наличие активных объектов
                 if (!address.activeObjects || !Array.isArray(address.activeObjects)) {
@@ -3486,16 +3496,29 @@ class FlippingProfitabilityManager {
                         maxProfitability: 0,
                         maxProfitabilityText: 'Нет данных',
                         markerColor,
-                        activeObjects: []
+                        activeObjects: [],
+                        activeObjectsCount: 0
                     });
                     continue;
                 }
                 
+                activeObjectsCount = address.activeObjects.length;
+                
                 // Ищем максимальную доходность среди объектов адреса
                 // Используем данные из FlippingProfitabilityService (object.flippingProfitability)
                 for (const obj of address.activeObjects) {
-                    // Находим объект в filteredObjects, который содержит рассчитанные данные
-                    const calculatedObject = this.filteredObjects.find(fo => fo.id === obj.id);
+                    // ИСПРАВЛЕНО: Сначала пытаемся найти объект в filteredObjects по ID
+                    let calculatedObject = this.filteredObjects.find(fo => fo.id === obj.id);
+                    
+                    // Если не найден в filteredObjects, проверяем originalFilteredObjects (если есть фильтрация по подсегменту)
+                    if (!calculatedObject && this.originalFilteredObjects) {
+                        calculatedObject = this.originalFilteredObjects.find(fo => fo.id === obj.id);
+                    }
+                    
+                    // Если все еще не найден, но объект содержит данные доходности, используем их
+                    if (!calculatedObject && obj.flippingProfitability) {
+                        calculatedObject = obj;
+                    }
                     
                     if (calculatedObject && calculatedObject.flippingProfitability) {
                         const profitData = calculatedObject.flippingProfitability;
@@ -3503,15 +3526,20 @@ class FlippingProfitabilityManager {
                         
                         if (maxProfitability === null || annualROI > maxProfitability) {
                             maxProfitability = annualROI;
-                            maxProfitabilityText = `${Math.round(annualROI * 10) / 10}% годовых`;
+                            maxProfitabilityText = `Макс. доходность: ${Math.round(annualROI * 10) / 10}% годовых`;
                         }
                     }
                 }
                 
-                // Если данных нет, используем значения по умолчанию
+                // Если данных о доходности нет, но есть активные объекты
                 if (maxProfitability === null) {
-                    maxProfitability = 0;
-                    maxProfitabilityText = 'Расчёт не выполнен';
+                    if (activeObjectsCount > 0) {
+                        maxProfitability = 0;
+                        maxProfitabilityText = `Активных объектов: ${activeObjectsCount}`;
+                    } else {
+                        maxProfitability = 0;
+                        maxProfitabilityText = 'Нет данных';
+                    }
                 }
                 
                 // Определяем цвет маркера на основе доходности
@@ -3522,7 +3550,8 @@ class FlippingProfitabilityManager {
                     maxProfitability,
                     maxProfitabilityText,
                     markerColor,
-                    activeObjects: address.activeObjects
+                    activeObjects: address.activeObjects,
+                    activeObjectsCount
                 });
                 
             }
