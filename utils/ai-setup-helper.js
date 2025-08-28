@@ -28,6 +28,11 @@ class AISetupHelper {
 
             await this.configService.set('ai.providers.yandex', config);
             
+            // Сохраняем в Chrome Storage
+            if (typeof chrome !== 'undefined' && chrome.storage) {
+                await this.configService.saveToStorage(chrome.storage);
+            }
+            
             console.log('✅ YandexGPT настроен успешно!');
             console.log('Конфигурация:', {
                 folderId: folderId,
@@ -56,6 +61,11 @@ class AISetupHelper {
             };
 
             await this.configService.set('ai.providers.claude', config);
+            
+            // Сохраняем в Chrome Storage
+            if (typeof chrome !== 'undefined' && chrome.storage) {
+                await this.configService.saveToStorage(chrome.storage);
+            }
             
             console.log('✅ Claude настроен успешно!');
             console.log('Конфигурация:', {
@@ -99,6 +109,11 @@ class AISetupHelper {
 
             await this.configService.set('ai', aiConfig);
             await this.configService.set('aiChat', chatConfig);
+
+            // Сохраняем в Chrome Storage
+            if (typeof chrome !== 'undefined' && chrome.storage) {
+                await this.configService.saveToStorage(chrome.storage);
+            }
 
             console.log('✅ Общие настройки AI обновлены!');
             console.log('Основной провайдер:', primaryProvider);

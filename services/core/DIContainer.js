@@ -28,7 +28,14 @@ class DIContainer {
     setupCoreServices() {
         // Регистрируем базовые сервисы
         this.registerFactory('ConfigService', () => {
-            return new ConfigService();
+            const configService = new ConfigService();
+            // Автоматически загружаем настройки из Chrome Storage
+            if (typeof chrome !== 'undefined' && chrome.storage) {
+                configService.loadFromStorage(chrome.storage).catch(error => {
+                    console.warn('Не удалось загрузить настройки из Chrome Storage:', error);
+                });
+            }
+            return configService;
         }, { singleton: true, dependencies: [] });
 
         this.registerFactory('ValidationService', () => {
