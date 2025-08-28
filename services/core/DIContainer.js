@@ -169,6 +169,16 @@ class DIContainer {
             }
             throw new Error('LLMProviderFactory не загружен');
         }, { singleton: true, dependencies: [] });
+
+        // AI UI Components - Компоненты интерфейса AI чата
+        this.registerFactory('AIChatInterface', (container) => {
+            if (typeof AIChatInterface === 'undefined') {
+                throw new Error('AIChatInterface не загружен');
+            }
+            // AIChatInterface сам найдет подходящий контейнер для UI
+            const uiContainer = document.body;
+            return new AIChatInterface(uiContainer, container);
+        }, { singleton: true, dependencies: ['EventBus', 'ConfigService', 'UniversalAIService'] });
     }
 
     /**

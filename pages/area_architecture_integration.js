@@ -31,10 +31,13 @@ class AreaArchitectureIntegration {
             // 3. Получаем контроллеры
             await this.initializeControllers();
             
-            // 3. Настраиваем интеграцию с legacy кодом
+            // 3. Инициализируем AI-интерфейс
+            await this.initializeAIInterface();
+            
+            // 4. Настраиваем интеграцию с legacy кодом
             await this.setupLegacyIntegration();
             
-            // 4. Подписываемся на события
+            // 5. Подписываемся на события
             this.setupEventListeners();
             
             this.initialized = true;
@@ -119,6 +122,43 @@ class AreaArchitectureIntegration {
             await this.debugLog('⚠️ Area: FlippingController не найден в ApplicationController:', error.message);
             this.flippingController = null;
             window.flippingController = null;
+        }
+    }
+    
+    /**
+     * Инициализация AI-интерфейса
+     */
+    async initializeAIInterface() {
+        try {
+            // Проверяем доступность необходимых классов
+            if (typeof AIChatInterface === 'undefined') {
+                await this.debugLog('⚠️ AIChatInterface не загружен, пропускаем инициализацию AI');
+                return;
+            }
+            
+            // Получаем AI-интерфейс из DI контейнера
+            const aiInterface = this.diContainer.get('AIChatInterface');
+            
+            // Ждем полной инициализации AI-интерфейса
+            let attempts = 0;
+            while (!aiInterface.isInitialized && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+            
+            if (aiInterface.isInitialized) {
+                await this.debugLog('✅ Area: AI-интерфейс инициализирован');
+                
+                // Сохраняем ссылку для легкого доступа
+                this.aiInterface = aiInterface;
+                
+            } else {
+                await this.debugLog('⚠️ Area: AI-интерфейс не смог инициализироваться за отведенное время');
+            }
+            
+        } catch (error) {
+            await this.debugLog('❌ Area: Ошибка инициализации AI-интерфейса:', error.message);
+            console.warn('AI-интерфейс недоступен:', error);
         }
     }
     
@@ -216,6 +256,34 @@ class AreaArchitectureIntegration {
                         return this.mapController.updateAddressMarkers(addresses);
                     }
                     throw new Error('MapController не доступен');
+                }
+            },
+            
+            // AI-интерфейс
+            ai: this.aiInterface || null,
+            
+            // Методы для работы с AI
+            openAIChat: () => {
+                if (this.aiInterface) {
+                    this.aiInterface.openChat();
+                } else {
+                    console.warn('AI-интерфейс недоступен');
+                }
+            },
+            
+            analyzeListings: (listings) => {
+                if (this.aiInterface) {
+                    this.aiInterface.analyzeDuplicates(listings);
+                } else {
+                    console.warn('AI-интерфейс недоступен');
+                }
+            },
+            
+            createSegmentation: (area, objects) => {
+                if (this.aiInterface) {
+                    this.aiInterface.createSegmentation(area, objects);
+                } else {
+                    console.warn('AI-интерфейс недоступен');
                 }
             }
         };

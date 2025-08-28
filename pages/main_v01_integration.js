@@ -30,7 +30,10 @@ class MainPageV01Integration {
             // 3. Настраиваем интеграцию с legacy кодом
             await this.setupLegacyIntegration();
             
-            // 4. Подписываемся на события
+            // 4. Инициализируем AI-интерфейс
+            await this.initializeAIInterface();
+            
+            // 5. Подписываемся на события
             this.setupEventListeners();
             
             this.initialized = true;
@@ -64,6 +67,43 @@ class MainPageV01Integration {
         }
         
         await this.debugLog('✅ ApplicationController инициализирован');
+    }
+    
+    /**
+     * Инициализация AI-интерфейса
+     */
+    async initializeAIInterface() {
+        try {
+            // Проверяем доступность необходимых классов
+            if (typeof AIChatInterface === 'undefined') {
+                await this.debugLog('⚠️ AIChatInterface не загружен, пропускаем инициализацию AI');
+                return;
+            }
+            
+            // Получаем AI-интерфейс из DI контейнера
+            const aiInterface = this.diContainer.get('AIChatInterface');
+            
+            // Ждем полной инициализации AI-интерфейса
+            let attempts = 0;
+            while (!aiInterface.isInitialized && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+            
+            if (aiInterface.isInitialized) {
+                await this.debugLog('✅ AI-интерфейс инициализирован');
+                
+                // Сохраняем ссылку для легкого доступа
+                this.aiInterface = aiInterface;
+                
+            } else {
+                await this.debugLog('⚠️ AI-интерфейс не смог инициализироваться за отведенное время');
+            }
+            
+        } catch (error) {
+            await this.debugLog('❌ Ошибка инициализации AI-интерфейса:', error.message);
+            console.warn('AI-интерфейс недоступен:', error);
+        }
     }
     
     /**
@@ -112,6 +152,26 @@ class MainPageV01Integration {
             // Получение компонентов
             getComponent: (componentName) => {
                 return this.diContainer.get(componentName);
+            },
+            
+            // AI-интерфейс
+            ai: this.aiInterface || null,
+            
+            // Методы для работы с AI
+            openAIChat: () => {
+                if (this.aiInterface) {
+                    this.aiInterface.openChat();
+                } else {
+                    console.warn('AI-интерфейс недоступен');
+                }
+            },
+            
+            analyzeListings: (listings) => {
+                if (this.aiInterface) {
+                    this.aiInterface.analyzeDuplicates(listings);
+                } else {
+                    console.warn('AI-интерфейс недоступен');
+                }
             }
         };
         
@@ -140,6 +200,23 @@ class MainPageV01Integration {
         
         eventBus.on('segment:deleted', (segmentId) => {
             this.debugLog('✅ Segment deleted:', segmentId);
+        });
+        
+        // AI-события
+        eventBus.on('ai-chat-interface-ready', () => {
+            this.debugLog('✅ AI-интерфейс готов к работе');
+        });
+        
+        eventBus.on('ai-chat-interface-error', (error) => {
+            this.debugLog('❌ Ошибка AI-интерфейса:', error.message);
+        });
+        
+        eventBus.on('ai-chat-opened', () => {
+            this.debugLog('🤖 AI-чат открыт');
+        });
+        
+        eventBus.on('ai-chat-closed', () => {
+            this.debugLog('🤖 AI-чат закрыт');
         });
     }
     
