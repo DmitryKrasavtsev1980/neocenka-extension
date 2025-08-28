@@ -123,8 +123,8 @@ class FlippingMap {
                 this.mapElement.offsetHeight; // Trigger reflow
             }
 
-            // Точная копия инициализации из MapManager
-            this.map = L.map(this.mapElementId).setView([55.7558, 37.6176], 10);
+            // Инициализация карты с начальным видом на Москву
+            this.map = L.map(this.mapElementId).setView([55.7558, 37.6176], 11);
 
             // Добавляем слой карты точно как в MapManager
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -161,7 +161,7 @@ class FlippingMap {
     /**
      * Простое обновление карты с адресами без расчётов
      */
-    async updateAddresses(addresses, profitabilityParameters = {}, objects = []) {
+    async updateAddresses(addresses, profitabilityParameters = {}, objects = [], options = {}) {
         try {
             this.addresses = addresses || [];
 
@@ -205,10 +205,37 @@ class FlippingMap {
                 }
             }, 500);
             
-            // Подгоняем карту под маркеры
-            if (this.markers.length > 0) {
-                this.fitMapToMarkers();
-            } else {
+            // Подгоняем карту под маркеры или полигон
+            // Проверяем, нужно ли центрировать карту (по умолчанию true)
+            const shouldFitBounds = options.fitBounds !== false;
+            
+            if (shouldFitBounds) {
+                if (this.markers.length > 0) {
+                    // Если опция keepPolygonVisible установлена, всегда показываем и полигон и маркеры
+                    if (options.keepPolygonVisible && this.areaPolygon) {
+                        // Создаем группу со всеми элементами для правильного масштабирования
+                        const allElements = [...this.markers, this.areaPolygon];
+                        const group = new L.featureGroup(allElements);
+                        this.map.fitBounds(group.getBounds(), { 
+                            padding: [40, 40],
+                            maxZoom: 15
+                        });
+                    } else if (this.areaPolygon && !options.focusOnMarkers) {
+                        // Если есть маркеры и полигон, показываем оба
+                        const allElements = [...this.markers, this.areaPolygon];
+                        const group = new L.featureGroup(allElements);
+                        this.map.fitBounds(group.getBounds(), { 
+                            padding: [30, 30],
+                            maxZoom: 16
+                        });
+                    } else {
+                        // Если только маркеры или нужен фокус на маркерах
+                        this.fitMapToMarkers();
+                    }
+                } else if (this.areaPolygon) {
+                    // Если есть только полигон - показываем его
+                    this.fitMapToAreaPolygon();
+                }
             }
             
         } catch (error) {
@@ -764,14 +791,21 @@ class FlippingMap {
 
         try {
             if (this.markers.length === 1) {
-                // Если только один маркер, центрируем на нём
+                // Если только один маркер, центрируем на нём с меньшим зумом
                 const marker = this.markers[0];
-                this.map.setView(marker.getLatLng(), 15);
-            } else {
-                // Если несколько маркеров, подгоняем границы
+                this.map.setView(marker.getLatLng(), 14);
+            } else if (this.markers.length < 5) {
+                // Если мало маркеров (2-4), показываем с умеренным зумом
                 const group = new L.featureGroup(this.markers);
                 this.map.fitBounds(group.getBounds(), { 
-                    padding: [20, 20],
+                    padding: [50, 50],
+                    maxZoom: 15
+                });
+            } else {
+                // Если много маркеров, подгоняем границы с большим отступом
+                const group = new L.featureGroup(this.markers);
+                this.map.fitBounds(group.getBounds(), { 
+                    padding: [40, 40],
                     maxZoom: 16
                 });
             }
@@ -884,7 +918,8 @@ class FlippingMap {
         try {
             if (this.areaPolygon) {
                 this.map.fitBounds(this.areaPolygon.getBounds(), {
-                    padding: [30, 30]
+                    padding: [40, 40],
+                    maxZoom: 14  // Ограничиваем максимальный зум
                 });
             }
         } catch (error) {

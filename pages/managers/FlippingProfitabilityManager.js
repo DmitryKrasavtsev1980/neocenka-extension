@@ -3286,9 +3286,21 @@ class FlippingProfitabilityManager {
             
             // 4. Обновляем маркеры на карте с цветовым кодированием
             if (map.updateAddresses) {
-                // Передаем подготовленные адреса с activeObjects в карту
+                // Определяем опции для отображения карты
+                const mapOptions = {};
                 
-                await map.updateAddresses(addressesWithProfitability, this.currentFilters, this.filteredObjects);
+                // Если выбран подсегмент, сохраняем видимость полигона
+                if (this.activeSubsegmentId) {
+                    mapOptions.keepPolygonVisible = true;
+                }
+                
+                // Если источник обновления - инициализация, показываем весь полигон
+                if (source === 'инициализация') {
+                    mapOptions.focusOnMarkers = false;
+                }
+                
+                // Передаем подготовленные адреса с activeObjects в карту
+                await map.updateAddresses(addressesWithProfitability, this.currentFilters, this.filteredObjects, mapOptions);
             }
             
         } catch (error) {
@@ -3673,7 +3685,7 @@ class FlippingProfitabilityManager {
                 colors: colors,
                 chart: {
                     type: this.marketCorridorMode === 'history' ? 'line' : 'scatter',
-                    height: 400,
+                    height: 600,
                     zoom: {
                         enabled: true
                     },
