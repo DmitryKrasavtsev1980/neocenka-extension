@@ -5,10 +5,19 @@
 
 class AISetupHelper {
     constructor() {
-        this.configService = window.diContainer?.get('ConfigService');
+        // Пробуем получить ConfigService из DIContainer или используем глобальный
+        try {
+            this.configService = window.diContainer?.get('ConfigService');
+        } catch (e) {
+            // Если не получилось из контейнера, используем глобальный
+            this.configService = window.configService;
+        }
+        
         if (!this.configService) {
-            console.error('❌ ConfigService недоступен. Убедитесь, что расширение загружено.');
-            return;
+            // Если все еще нет, создаем глобальный экземпляр
+            window.configService = new ConfigService();
+            this.configService = window.configService;
+            console.log('📝 Создан новый экземпляр ConfigService');
         }
     }
 
@@ -16,9 +25,9 @@ class AISetupHelper {
      * Настройка YandexGPT провайдера
      * @param {string} apiKey - API ключ YandexGPT
      * @param {string} folderId - Folder ID из Yandex Cloud
-     * @param {string} model - модель (по умолчанию yandexgpt-lite)
+     * @param {string} model - модель (по умолчанию yandexgpt-lite/latest)
      */
-    async setupYandexGPT(apiKey, folderId, model = 'yandexgpt-lite') {
+    async setupYandexGPT(apiKey, folderId, model = 'yandexgpt-lite/latest') {
         try {
             const config = {
                 apiKey: apiKey,
@@ -26,11 +35,20 @@ class AISetupHelper {
                 model: model
             };
 
+            // Сохраняем в ConfigService
             await this.configService.set('ai.providers.yandex', config);
             
             // Сохраняем в Chrome Storage
             if (typeof chrome !== 'undefined' && chrome.storage) {
                 await this.configService.saveToStorage(chrome.storage);
+            }
+
+            // ВАЖНО: Также сохраняем в IndexedDB для совместимости с UI формой
+            if (window.db) {
+                await window.db.set('settings', 'yandex_api_key', apiKey);
+                await window.db.set('settings', 'yandex_folder_id', folderId);
+                await window.db.set('settings', 'yandex_model', model);
+                console.log('💾 Настройки YandexGPT сохранены в IndexedDB');
             }
             
             console.log('✅ YandexGPT настроен успешно!');
@@ -40,11 +58,58 @@ class AISetupHelper {
                 apiKey: apiKey.substring(0, 10) + '...'
             });
 
+            // Синхронизируем настройки в ConfigService из базы данных
+            await this.syncConfigFromDatabase();
+
             // Перезагружаем AI сервис
             await this.reloadAIService();
             
         } catch (error) {
             console.error('❌ Ошибка настройки YandexGPT:', error);
+        }
+    }
+
+    /**
+     * Синхронизирует настройки AI из IndexedDB в ConfigService
+     */
+    async syncConfigFromDatabase() {
+        try {
+            if (!window.db) {
+                console.warn('⚠️ База данных недоступна для синхронизации настроек');
+                return;
+            }
+
+            // Загружаем настройки YandexGPT из базы
+            const yandexApiKey = await window.db.get('settings', 'yandex_api_key');
+            const yandexFolderId = await window.db.get('settings', 'yandex_folder_id');  
+            const yandexModel = await window.db.get('settings', 'yandex_model');
+
+            if (yandexApiKey && yandexFolderId) {
+                const yandexConfig = {
+                    apiKey: yandexApiKey,
+                    folderId: yandexFolderId,
+                    model: yandexModel || 'yandexgpt-lite/latest'
+                };
+                
+                this.configService.set('ai.providers.yandex', yandexConfig);
+                console.log('🔄 Настройки YandexGPT синхронизированы из базы данных');
+            }
+
+            // Можно добавить синхронизацию других провайдеров
+            const claudeApiKey = await window.db.get('settings', 'claude_api_key');
+            if (claudeApiKey) {
+                const claudeModel = await window.db.get('settings', 'claude_model');
+                const claudeConfig = {
+                    apiKey: claudeApiKey,
+                    model: claudeModel || 'claude-3-sonnet-20240229'
+                };
+                
+                this.configService.set('ai.providers.claude', claudeConfig);
+                console.log('🔄 Настройки Claude синхронизированы из базы данных');
+            }
+
+        } catch (error) {
+            console.error('❌ Ошибка синхронизации настроек из базы данных:', error);
         }
     }
 
@@ -131,14 +196,27 @@ class AISetupHelper {
      */
     async reloadAIService() {
         try {
-            // Получаем текущий AI сервис
+            // Сначала удаляем старый экземпляр UniversalAIService из контейнера
+            if (window.diContainer && window.diContainer.has('UniversalAIService')) {
+                // Удаляем из кэша синглтонов
+                if (window.diContainer.singletons) {
+                    window.diContainer.singletons.delete('UniversalAIService');
+                }
+            }
+            
+            // Получаем новый экземпляр AI сервиса (он будет создан заново с новыми настройками)
             const universalAI = window.diContainer?.get('UniversalAIService');
-            const aiInterface = window.diContainer?.get('AIChatInterface');
+            
+            // Проверяем, есть ли AIChatInterface (он может отсутствовать на странице настроек)
+            let aiInterface = null;
+            try {
+                aiInterface = window.diContainer?.get('AIChatInterface');
+            } catch (e) {
+                console.log('📝 AIChatInterface не загружен (это нормально для страницы настроек)');
+            }
 
             if (universalAI) {
-                // Перезапускаем AI сервис
-                await universalAI.initialize();
-                console.log('🔄 UniversalAIService перезагружен');
+                console.log('🔄 UniversalAIService создан заново с актуальными настройками');
             }
 
             if (aiInterface) {
@@ -154,6 +232,12 @@ class AISetupHelper {
                         console.log('⚠️ AI-ассистент пока недоступен. Проверьте настройки API-ключей.');
                     }
                 }, 1000);
+            } else if (universalAI) {
+                // Если AIChatInterface нет, просто проверяем доступность сервиса
+                const available = await universalAI.isAvailable();
+                const providers = await universalAI.getAvailableProviders();
+                console.log('🔍 AI сервис доступен:', available);
+                console.log('📡 Доступные провайдеры:', providers);
             }
 
         } catch (error) {

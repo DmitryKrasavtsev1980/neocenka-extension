@@ -152,8 +152,8 @@
                             <label for="yandexModel" class="block text-sm font-medium text-gray-700">Модель</label>
                             <select id="yandexModel" name="yandex_model"
                                     class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                                <option value="yandexgpt-lite">YandexGPT Lite (экономичная)</option>
-                                <option value="yandexgpt">YandexGPT (стандартная)</option>
+                                <option value="yandexgpt-lite/latest">YandexGPT Lite (экономичная)</option>
+                                <option value="yandexgpt/latest">YandexGPT (стандартная)</option>
                             </select>
                             <p class="mt-1 text-xs text-gray-500">Lite модель дешевле, стандартная - качественнее</p>
                         </div>
@@ -970,6 +970,30 @@
     <script src="../utils/geo-utils.js"></script>
     <script src="../utils/spatial-index-manager.js"></script>
     <script src="../utils/smart-address-matcher.js"></script>
+    
+    <!-- Core components (нужны для AI) -->
+    <script src="core/EventBus.js"></script>
+    <script src="core/DataState.js"></script>
+    
+    <!-- AI Services (нужны для настроек AI) -->
+    <script src="../services/core/ValidationService.js"></script>
+    <script src="../services/core/ConfigService.js"></script>
+    <script src="../services/core/ErrorHandlingService.js"></script>
+    <script src="../services/core/DIContainer.js"></script>
+    
+    <!-- AI Core Services (базовый класс первый) -->
+    <script src="../services/ai/core/BaseLLMService.js"></script>
+    
+    <!-- AI Providers (провайдеры до фабрики!) -->
+    <script src="../services/ai/providers/YandexProvider.js"></script>
+    <script src="../services/ai/providers/ClaudeProvider.js"></script>
+    
+    <!-- AI Factory and Service (после провайдеров) -->
+    <script src="../services/ai/core/LLMProviderFactory.js"></script>
+    <script src="../services/ai/core/UniversalAIService.js"></script>
+    
+    <!-- AI Settings Initialization -->
+    <script src="ai-settings-init.js"></script>
     
     <!-- AI Settings Handler -->
     <script src="../utils/ai-setup-helper.js"></script>

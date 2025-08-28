@@ -42,15 +42,39 @@ class AISettingsHandler {
      */
     async waitForDatabase() {
         let attempts = 0;
-        while (attempts < 50) {
-            if (window.db && typeof window.db.getSettings === 'function') {
-                this.db = window.db;
-                return;
+        console.log('🔄 Ожидание готовности базы данных...');
+        
+        while (attempts < 100) {
+            // Проверяем наличие объекта db
+            if (window.db) {
+                try {
+                    // Проверяем, что база данных инициализирована
+                    // Используем isInitialized если доступен, иначе пробуем запрос
+                    if (typeof window.db.isInitialized === 'function') {
+                        if (window.db.isInitialized()) {
+                            this.db = window.db;
+                            console.log('✅ База данных готова для AI настроек (проверка через isInitialized)');
+                            return;
+                        }
+                    } else {
+                        // Пробуем выполнить тестовый запрос к таблице settings
+                        await window.db.getAll('settings');
+                        this.db = window.db;
+                        console.log('✅ База данных готова для AI настроек (проверка через тестовый запрос)');
+                        return;
+                    }
+                } catch (error) {
+                    // БД есть, но еще не готова
+                    console.log(`🔄 База данных не готова, попытка ${attempts + 1}/100:`, error.message);
+                }
             }
+            
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
         }
-        throw new Error('База данных не готова');
+        
+        console.error('❌ База данных не готова после 10 секунд ожидания');
+        throw new Error('База данных не готова после 10 секунд ожидания');
     }
 
     /**
@@ -137,33 +161,35 @@ class AISettingsHandler {
      */
     async loadSettings() {
         try {
-            const settings = await this.db.getSettings();
+            // Используем getAllSettings вместо getSettings
+            const settings = await this.db.getAllSettings();
             
-            // Ищем настройки AI
-            const aiEnabled = this.findSetting(settings, 'ai_enabled');
-            const primaryProvider = this.findSetting(settings, 'ai_primary_provider');
+            // getAllSettings возвращает объект, а не массив
+            // Поэтому обращаемся к свойствам напрямую
+            const aiEnabled = settings['ai_enabled'];
+            const primaryProvider = settings['ai_primary_provider'];
             
             // YandexGPT настройки
-            const yandexApiKey = this.findSetting(settings, 'yandex_api_key');
-            const yandexFolderId = this.findSetting(settings, 'yandex_folder_id');
-            const yandexModel = this.findSetting(settings, 'yandex_model');
+            const yandexApiKey = settings['yandex_api_key'];
+            const yandexFolderId = settings['yandex_folder_id'];
+            const yandexModel = settings['yandex_model'];
             
             // Claude настройки
-            const claudeApiKey = this.findSetting(settings, 'claude_api_key');
-            const claudeModel = this.findSetting(settings, 'claude_model');
+            const claudeApiKey = settings['claude_api_key'];
+            const claudeModel = settings['claude_model'];
 
             // Заполняем форму
-            this.setFieldValue('aiEnabled', aiEnabled?.value || false);
-            this.setFieldValue('primaryProvider', primaryProvider?.value || 'yandex');
+            this.setFieldValue('aiEnabled', aiEnabled || false);
+            this.setFieldValue('primaryProvider', primaryProvider || 'yandex');
             
-            this.setFieldValue('yandexApiKey', yandexApiKey?.value || '');
-            this.setFieldValue('yandexFolderId', yandexFolderId?.value || '');
-            this.setFieldValue('yandexModel', yandexModel?.value || 'yandexgpt-lite');
+            this.setFieldValue('yandexApiKey', yandexApiKey || '');
+            this.setFieldValue('yandexFolderId', yandexFolderId || '');
+            this.setFieldValue('yandexModel', yandexModel || 'yandexgpt-lite/latest');
             
-            this.setFieldValue('claudeApiKey', claudeApiKey?.value || '');
-            this.setFieldValue('claudeModel', claudeModel?.value || 'claude-3-sonnet-20240229');
+            this.setFieldValue('claudeApiKey', claudeApiKey || '');
+            this.setFieldValue('claudeModel', claudeModel || 'claude-3-sonnet-20240229');
 
-            console.log('✅ Настройки AI загружены');
+            console.log('✅ Настройки AI загружены', settings);
             
         } catch (error) {
             console.error('❌ Ошибка загрузки настроек AI:', error);
@@ -171,10 +197,11 @@ class AISettingsHandler {
     }
 
     /**
-     * Поиск настройки по ключу
+     * Поиск настройки по ключу (больше не нужен с getAllSettings)
+     * @deprecated
      */
     findSetting(settings, key) {
-        return settings.find(s => s.key === key);
+        return settings[key];
     }
 
     /**
@@ -229,8 +256,9 @@ class AISettingsHandler {
             ];
 
             // Сохраняем каждую настройку
+            // Используем setSetting вместо saveSetting
             for (const setting of settings) {
-                await this.db.saveSetting(setting.key, setting.value);
+                await this.db.setSetting(setting.key, setting.value);
             }
 
             // Также сохраняем в ConfigService для совместимости с AI Setup Helper
@@ -450,7 +478,11 @@ class AISettingsHandler {
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('aiSettingsForm')) {
-        window.aiSettingsHandler = new AISettingsHandler();
+        // Добавляем небольшую задержку, чтобы SettingsPage успела инициализироваться
+        setTimeout(() => {
+            console.log('🚀 Инициализация AI Settings Handler...');
+            window.aiSettingsHandler = new AISettingsHandler();
+        }, 2000); // 2 секунды должно хватить для инициализации SettingsPage
     }
 });
 

@@ -244,6 +244,29 @@ class ConfigService {
                 profileMemory: false
             }
         });
+
+        // AI Configuration
+        this.config.set('ai', {
+            // Общие настройки
+            primaryProvider: 'yandex',
+            fallbackChain: ['yandex', 'claude'],
+            enabled: false,
+            costOptimization: true,
+            
+            // Провайдеры - важно инициализировать пустые объекты
+            providers: {
+                yandex: {},
+                claude: {},
+                openai: {},
+                gigachat: {}
+            },
+            
+            // Бюджеты
+            budget: {
+                daily: 1.0,
+                perRequest: 0.05
+            }
+        });
     }
 
     /**

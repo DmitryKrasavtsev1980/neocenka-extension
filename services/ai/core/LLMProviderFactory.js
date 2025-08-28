@@ -17,7 +17,9 @@ class LLMProviderFactory {
      * Регистрация встроенных провайдеров
      */
     registerDefaultProviders() {
-        this.registerProvider('claude', ClaudeProvider, {
+        // Проверяем, что провайдеры доступны перед регистрацией
+        if (typeof ClaudeProvider !== 'undefined') {
+            this.registerProvider('claude', ClaudeProvider, {
             name: 'Claude (Anthropic)',
             description: 'Высококачественный AI от Anthropic с большим контекстом',
             features: ['large-context', 'reasoning', 'coding', 'analysis'],
@@ -29,9 +31,13 @@ class LLMProviderFactory {
                 temperature: 0.7,
                 maxTokens: 1024
             }
-        });
+            });
+        } else {
+            console.warn('ClaudeProvider не загружен, пропускаем регистрацию');
+        }
 
-        this.registerProvider('yandex', YandexProvider, {
+        if (typeof YandexProvider !== 'undefined') {
+            this.registerProvider('yandex', YandexProvider, {
             name: 'YandexGPT',
             description: 'Российский AI сервис, оптимизированный для русского языка',
             features: ['russian-optimized', 'cost-effective', 'local-hosting'],
@@ -43,7 +49,10 @@ class LLMProviderFactory {
                 temperature: 0.6,
                 maxTokens: 2000
             }
-        });
+            });
+        } else {
+            console.warn('YandexProvider не загружен, пропускаем регистрацию');
+        }
 
         // Заглушки для будущих провайдеров
         this.registerProvider('openai', null, {
@@ -90,6 +99,15 @@ class LLMProviderFactory {
         });
     }
 
+    /**
+     * Проверка, зарегистрирован ли провайдер
+     * @param {string} name - имя провайдера
+     * @returns {boolean} true если провайдер зарегистрирован
+     */
+    hasProvider(name) {
+        return this.providers.has(name.toLowerCase());
+    }
+    
     /**
      * Создание экземпляра провайдера
      * @param {string} name - имя провайдера

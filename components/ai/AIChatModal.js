@@ -21,6 +21,35 @@ class AIChatModal {
         this.chatHistory = [];
         this.contextData = null;
         
+        // Размеры окна
+        this.windowSize = {
+            width: 384, // w-96 = 24rem = 384px
+            height: 768, // h-96 * 2 = 768px (увеличиваем в 2 раза)
+            minWidth: 320,
+            minHeight: 400,
+            maxWidth: 800,
+            maxHeight: 1000
+        };
+        
+        // Состояние изменения размеров
+        this.isResizing = false;
+        this.resizeDirection = null;
+        this.startPos = { x: 0, y: 0 };
+        this.startSize = { width: 0, height: 0 };
+        
+        // Система быстрых команд
+        this.quickCommands = {
+            '/analysis': {
+                description: 'Анализ области - полная статистика по текущей области',
+                handler: this.handleAreaAnalysis.bind(this)
+            },
+            '/help': {
+                description: 'Помощь - список всех доступных команд',
+                handler: this.handleHelp.bind(this)
+            }
+        };
+        this.showingQuickCommands = false;
+        
         // DOM элементы
         this.modal = null;
         this.chatContainer = null;
@@ -36,6 +65,9 @@ class AIChatModal {
      * Инициализация компонента
      */
     init() {
+        // Загружаем сохраненные размеры окна
+        this.loadWindowSize();
+        
         this.render();
         this.bindEvents();
         
@@ -59,109 +91,122 @@ class AIChatModal {
     render() {
         this.modal = document.createElement('div');
         this.modal.className = `
-            fixed inset-0 z-50 flex items-center justify-center
-            bg-black bg-opacity-50 backdrop-blur-sm
+            fixed bottom-4 right-4 z-50
             opacity-0 pointer-events-none
             transition-all duration-300 ease-in-out
         `;
         this.modal.setAttribute('data-testid', 'ai-chat-modal');
 
         this.modal.innerHTML = `
-            <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-5/6 max-h-screen mx-4 flex flex-col
-                        transform scale-95 transition-transform duration-300">
+            <style>
+                .resizing {
+                    transition: none !important;
+                }
+                .resizing * {
+                    pointer-events: none !important;
+                }
+            </style>
+            <div class="bg-white rounded-lg shadow-2xl flex flex-col relative
+                        transform scale-95 transition-all duration-300"
+                 style="width: ${this.windowSize.width}px; height: ${this.windowSize.height}px;"
+                 data-role="chat-window">
+                
+                <!-- Ручки для изменения размеров -->
+                <!-- Ручка для растягивания влево -->
+                <div class="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-blue-100 opacity-0 hover:opacity-100 transition-opacity"
+                     data-resize="left" title="Растянуть влево"></div>
+                
+                <!-- Ручка для растягивания вверх -->
+                <div class="absolute top-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-blue-100 opacity-0 hover:opacity-100 transition-opacity"
+                     data-resize="top" title="Растянуть вверх"></div>
+                
+                <!-- Ручка для растягивания по диагонали (влево-вверх) -->
+                <div class="absolute top-0 left-0 w-4 h-4 cursor-nw-resize hover:bg-blue-200 opacity-0 hover:opacity-100 transition-opacity rounded-br"
+                     data-resize="top-left" title="Растянуть по диагонали"></div>
                 
                 <!-- Заголовок модального окна -->
-                <div class="flex items-center justify-between p-4 border-b border-gray-200">
-                    <div class="flex items-center space-x-3">
-                        <div class="w-3 h-3 rounded-full bg-green-400 animate-pulse" data-role="status-indicator"></div>
-                        <h2 class="text-xl font-semibold text-gray-800">AI-Ассистент Neocenka</h2>
-                        <select class="text-sm bg-gray-100 rounded px-2 py-1 border" data-role="provider-select">
-                            <option value="auto">Автовыбор</option>
-                            <option value="yandex">YandexGPT</option>
+                <div class="flex items-center justify-between p-2 border-b border-gray-200">
+                    <div class="flex items-center space-x-1">
+                        <div class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" data-role="status-indicator"></div>
+                        <h2 class="text-xs font-semibold text-gray-800">AI</h2>
+                        <select class="text-xs bg-gray-100 rounded px-1 py-0.5 border" data-role="provider-select">
+                            <option value="auto">Авто</option>
+                            <option value="yandex">Yandex</option>
                             <option value="claude">Claude</option>
                         </select>
                     </div>
                     
-                    <div class="flex items-center space-x-2">
-                        <button class="text-gray-400 hover:text-gray-600 transition-colors" 
-                                data-role="minimize-button" title="Свернуть">
-                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"/>
-                            </svg>
-                        </button>
-                        
-                        <button class="text-gray-400 hover:text-gray-600 transition-colors" 
-                                data-role="close-button" title="Закрыть">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </button>
-                    </div>
+                    <button class="text-gray-400 hover:text-gray-600 transition-colors p-0.5" 
+                            data-role="close-button" title="Закрыть">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
                 </div>
 
                 <!-- Контейнер чата -->
                 <div class="flex-1 overflow-hidden flex flex-col">
                     <!-- История сообщений -->
-                    <div class="flex-1 overflow-y-auto p-4 space-y-4" data-role="chat-container">
+                    <div class="flex-1 overflow-y-auto p-2 space-y-2" data-role="chat-container">
                         <!-- Приветственное сообщение -->
-                        <div class="flex items-start space-x-3">
-                            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
-                                <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <div class="flex items-start space-x-1">
+                            <div class="flex-shrink-0 w-4 h-4 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                                <svg class="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
                                     <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
                             </div>
                             <div class="flex-1">
-                                <div class="bg-gray-100 rounded-lg px-4 py-3">
-                                    <p class="text-gray-800">Добро пожаловать! Я AI-ассистент Neocenka. Могу помочь с:</p>
-                                    <ul class="list-disc ml-4 mt-2 text-sm text-gray-600">
-                                        <li>Анализом дубликатов объявлений</li>
-                                        <li>Присвоением адресов объектам</li>
-                                        <li>Сегментацией по характеристикам</li>
-                                        <li>Созданием сравнительных отчетов</li>
-                                    </ul>
+                                <div class="bg-gray-100 rounded px-2 py-1">
+                                    <p class="text-xs text-gray-800">Готов помочь!</p>
                                 </div>
-                                <span class="text-xs text-gray-500 mt-1">AI-ассистент • только что</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Индикатор набора текста -->
-                    <div class="hidden px-4 py-2" data-role="typing-indicator">
-                        <div class="flex items-center space-x-2 text-gray-500">
+                    <div class="hidden px-2 py-1" data-role="typing-indicator">
+                        <div class="flex items-center space-x-1 text-gray-500">
                             <div class="flex space-x-1">
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                                <div class="w-1 h-1 bg-gray-400 rounded-full animate-bounce"></div>
+                                <div class="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                                <div class="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
                             </div>
-                            <span class="text-sm">AI-ассистент печатает...</span>
+                            <span class="text-xs">печатает...</span>
                         </div>
                     </div>
 
                     <!-- Поле ввода -->
-                    <div class="border-t border-gray-200 p-4">
-                        <div class="flex items-end space-x-3">
+                    <div class="border-t border-gray-200 p-2">
+                        <div class="flex items-end space-x-2">
                             <div class="flex-1 relative">
-                                <textarea 
-                                    class="w-full resize-none border border-gray-300 rounded-lg px-4 py-3 
-                                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                                           max-h-32 min-h-12" 
-                                    placeholder="Введите ваш вопрос или задачу..."
-                                    rows="1"
-                                    data-role="message-input"></textarea>
+                                <div class="relative">
+                                    <textarea 
+                                        class="w-full resize-none border border-gray-300 rounded px-2 py-1 text-xs 
+                                               focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent
+                                               max-h-20 min-h-6" 
+                                        placeholder="Ваш вопрос... (/ для команд)"
+                                        rows="1"
+                                        data-role="message-input"></textarea>
+                                    
+                                    <!-- Выпадающий список быстрых команд -->
+                                    <div class="hidden absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-200 rounded shadow-lg z-10"
+                                         data-role="quick-commands-menu">
+                                        <!-- Команды будут добавлены динамически -->
+                                    </div>
+                                </div>
                                 
                                 <!-- Подсказки по контексту -->
-                                <div class="hidden absolute bottom-full left-0 right-0 mb-2 p-2 bg-blue-50 rounded-lg border border-blue-200"
+                                <div class="hidden absolute bottom-full left-0 right-0 mb-1 p-1 bg-blue-50 rounded border border-blue-200"
                                      data-role="context-hint">
-                                    <div class="text-xs text-blue-600 font-medium">Доступен контекст:</div>
-                                    <div class="text-xs text-blue-500" data-role="context-description"></div>
+                                    <div class="text-xs text-blue-600" data-role="context-description"></div>
                                 </div>
                             </div>
                             
-                            <button class="bg-blue-500 hover:bg-blue-600 text-white rounded-lg p-3 
+                            <button class="bg-blue-500 hover:bg-blue-600 text-white rounded p-1.5 
                                           transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-                                          flex items-center justify-center min-w-12"
+                                          flex items-center justify-center min-w-8"
                                     data-role="send-button" disabled>
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                                           d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                                 </svg>
@@ -169,13 +214,9 @@ class AIChatModal {
                         </div>
                         
                         <!-- Дополнительные опции -->
-                        <div class="flex items-center justify-between mt-2 text-xs text-gray-500">
-                            <div class="flex items-center space-x-4">
-                                <span>Нажмите Enter для отправки, Shift+Enter для новой строки</span>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <span data-role="char-counter">0/1000</span>
-                            </div>
+                        <div class="flex items-center justify-between mt-1 text-xs text-gray-500">
+                            <span>Enter - отправить</span>
+                            <span data-role="char-counter">0/1000</span>
                         </div>
                     </div>
                 </div>
@@ -183,6 +224,7 @@ class AIChatModal {
         `;
 
         // Получаем ссылки на элементы
+        this.chatWindow = this.modal.querySelector('[data-role="chat-window"]');
         this.chatContainer = this.modal.querySelector('[data-role="chat-container"]');
         this.messageInput = this.modal.querySelector('[data-role="message-input"]');
         this.sendButton = this.modal.querySelector('[data-role="send-button"]');
@@ -205,11 +247,7 @@ class AIChatModal {
             this.close();
         });
 
-        // Минимизация (не реализуем пока, оставляем для будущего)
-        this.modal.querySelector('[data-role="minimize-button"]').addEventListener('click', () => {
-            // TODO: Implement minimization
-            console.log('Minimization not implemented yet');
-        });
+        // Удалили кнопку минимизации для компактности
 
         // Клик по фону для закрытия
         this.modal.addEventListener('click', (e) => {
@@ -227,21 +265,39 @@ class AIChatModal {
         this.messageInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
+                
+                // Если показываем быстрые команды, скрываем их
+                if (this.showingQuickCommands) {
+                    this.hideQuickCommands();
+                }
+                
                 this.sendMessage();
+            } else if (e.key === 'Escape' && this.showingQuickCommands) {
+                e.preventDefault();
+                this.hideQuickCommands();
             }
         });
 
         // Автоматическое изменение размера textarea
-        this.messageInput.addEventListener('input', () => {
+        this.messageInput.addEventListener('input', (e) => {
             this.adjustTextareaHeight();
             this.updateCharCounter();
             this.updateSendButton();
+            this.handleQuickCommandInput(e);
         });
 
         // Выбор провайдера
-        this.providerSelect.addEventListener('change', (e) => {
+        this.providerSelect.addEventListener('change', async (e) => {
             this.currentProvider = e.target.value;
-            this.universalAI.setPreferredProvider(this.currentProvider === 'auto' ? null : this.currentProvider);
+            if (this.currentProvider !== 'auto') {
+                try {
+                    await this.universalAI.switchProvider(this.currentProvider);
+                    this.showStatus(`Переключено на провайдер: ${this.currentProvider}`, 'success');
+                } catch (error) {
+                    console.error('Ошибка переключения провайдера:', error);
+                    this.showStatus(`Ошибка переключения провайдера: ${error.message}`, 'error');
+                }
+            }
         });
 
         // ESC для закрытия
@@ -250,6 +306,157 @@ class AIChatModal {
                 this.close();
             }
         });
+        
+        // Обработчики изменения размеров
+        this.setupResizeHandlers();
+    }
+    
+    /**
+     * Настройка обработчиков изменения размеров
+     */
+    setupResizeHandlers() {
+        // Обработчики для всех ручек изменения размеров
+        const resizeHandles = this.modal.querySelectorAll('[data-resize]');
+        
+        resizeHandles.forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                this.startResize(e, handle.getAttribute('data-resize'));
+            });
+        });
+        
+        // Глобальные обработчики для mouse move и mouse up
+        document.addEventListener('mousemove', (e) => {
+            if (this.isResizing) {
+                this.handleResize(e);
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (this.isResizing) {
+                this.stopResize();
+            }
+        });
+    }
+    
+    /**
+     * Начало изменения размера
+     */
+    startResize(e, direction) {
+        this.isResizing = true;
+        this.resizeDirection = direction;
+        this.startPos = { x: e.clientX, y: e.clientY };
+        this.startSize = { 
+            width: this.windowSize.width, 
+            height: this.windowSize.height 
+        };
+        
+        // Добавляем класс для визуальной индикации
+        this.chatWindow.classList.add('resizing');
+        document.body.style.cursor = this.getCursorForDirection(direction);
+        
+        // Отключаем выделение текста во время изменения размера
+        document.body.style.userSelect = 'none';
+    }
+    
+    /**
+     * Обработка изменения размера
+     */
+    handleResize(e) {
+        if (!this.isResizing) return;
+        
+        const deltaX = e.clientX - this.startPos.x;
+        const deltaY = e.clientY - this.startPos.y;
+        
+        let newWidth = this.startSize.width;
+        let newHeight = this.startSize.height;
+        
+        // Вычисляем новые размеры в зависимости от направления
+        switch (this.resizeDirection) {
+            case 'left':
+                newWidth = Math.max(this.windowSize.minWidth, 
+                    Math.min(this.windowSize.maxWidth, this.startSize.width - deltaX));
+                break;
+            case 'top':
+                newHeight = Math.max(this.windowSize.minHeight, 
+                    Math.min(this.windowSize.maxHeight, this.startSize.height - deltaY));
+                break;
+            case 'top-left':
+                newWidth = Math.max(this.windowSize.minWidth, 
+                    Math.min(this.windowSize.maxWidth, this.startSize.width - deltaX));
+                newHeight = Math.max(this.windowSize.minHeight, 
+                    Math.min(this.windowSize.maxHeight, this.startSize.height - deltaY));
+                break;
+        }
+        
+        // Применяем новые размеры
+        this.windowSize.width = newWidth;
+        this.windowSize.height = newHeight;
+        
+        this.chatWindow.style.width = newWidth + 'px';
+        this.chatWindow.style.height = newHeight + 'px';
+    }
+    
+    /**
+     * Завершение изменения размера
+     */
+    stopResize() {
+        this.isResizing = false;
+        this.resizeDirection = null;
+        
+        // Убираем визуальную индикацию
+        this.chatWindow.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        
+        // Сохраняем размеры в localStorage
+        this.saveWindowSize();
+    }
+    
+    /**
+     * Получение курсора для направления изменения размера
+     */
+    getCursorForDirection(direction) {
+        switch (direction) {
+            case 'left': return 'ew-resize';
+            case 'top': return 'ns-resize';
+            case 'top-left': return 'nw-resize';
+            default: return 'default';
+        }
+    }
+    
+    /**
+     * Сохранение размеров окна в localStorage
+     */
+    saveWindowSize() {
+        try {
+            localStorage.setItem('ai-chat-window-size', JSON.stringify({
+                width: this.windowSize.width,
+                height: this.windowSize.height
+            }));
+        } catch (error) {
+            console.error('Ошибка сохранения размеров окна:', error);
+        }
+    }
+    
+    /**
+     * Загрузка размеров окна из localStorage
+     */
+    loadWindowSize() {
+        try {
+            const saved = localStorage.getItem('ai-chat-window-size');
+            if (saved) {
+                const size = JSON.parse(saved);
+                if (size.width && size.height) {
+                    this.windowSize.width = Math.max(this.windowSize.minWidth, 
+                        Math.min(this.windowSize.maxWidth, size.width));
+                    this.windowSize.height = Math.max(this.windowSize.minHeight, 
+                        Math.min(this.windowSize.maxHeight, size.height));
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки размеров окна:', error);
+        }
     }
 
     /**
@@ -271,7 +478,8 @@ class AIChatModal {
         // Уведомляем о открытии
         this.eventBus.emit('ai-chat-opened');
         
-        document.body.style.overflow = 'hidden';
+        // Убираем блокировку overflow - окно не должно мешать работе с интерфейсом
+        // document.body.style.overflow = 'hidden';
     }
 
     /**
@@ -288,7 +496,7 @@ class AIChatModal {
             this.modal.style.pointerEvents = 'none';
         }, 300);
 
-        document.body.style.overflow = '';
+        // document.body.style.overflow = '';
         this.eventBus.emit('ai-chat-closed');
     }
 
@@ -377,7 +585,7 @@ class AIChatModal {
      */
     addMessage(content, type, metadata = {}) {
         const messageElement = document.createElement('div');
-        messageElement.className = 'flex items-start space-x-3';
+        messageElement.className = 'flex items-start space-x-2';
 
         const timestamp = new Date().toLocaleString('ru-RU', {
             hour: '2-digit',
@@ -387,49 +595,48 @@ class AIChatModal {
         if (type === 'user') {
             messageElement.innerHTML = `
                 <div class="flex-1 flex justify-end">
-                    <div class="bg-blue-500 text-white rounded-lg px-4 py-3 max-w-xs lg:max-w-md">
-                        <p class="whitespace-pre-wrap">${this.escapeHtml(content)}</p>
+                    <div class="bg-blue-500 text-white rounded px-2 py-1 max-w-xs">
+                        <p class="text-xs whitespace-pre-wrap">${this.escapeHtml(content)}</p>
                     </div>
                 </div>
-                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
-                    <svg class="w-4 h-4 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                <div class="flex-shrink-0 w-5 h-5 rounded-full bg-gray-300 flex items-center justify-center">
+                    <svg class="w-3 h-3 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/>
                     </svg>
                 </div>
             `;
         } else if (type === 'ai') {
             const providerInfo = metadata.provider ? ` • ${metadata.provider}` : '';
-            const tokenInfo = metadata.tokensUsed ? ` • ${metadata.tokensUsed} токенов` : '';
             
             messageElement.innerHTML = `
-                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
-                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <div class="flex-shrink-0 w-5 h-5 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                    <svg class="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                 </div>
                 <div class="flex-1">
-                    <div class="bg-gray-100 rounded-lg px-4 py-3">
-                        <div class="prose prose-sm max-w-none">
+                    <div class="bg-gray-100 rounded px-2 py-1">
+                        <div class="text-xs">
                             ${this.formatAIResponse(content)}
                         </div>
                     </div>
-                    <div class="text-xs text-gray-500 mt-1">
-                        AI-ассистент • ${timestamp}${providerInfo}${tokenInfo}
+                    <div class="text-xs text-gray-400 mt-0.5">
+                        AI • ${timestamp}${providerInfo}
                     </div>
                 </div>
             `;
         } else if (type === 'error') {
             messageElement.innerHTML = `
-                <div class="flex-shrink-0 w-8 h-8 rounded-full bg-red-500 flex items-center justify-center">
-                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <div class="flex-shrink-0 w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+                    <svg class="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"/>
                     </svg>
                 </div>
                 <div class="flex-1">
-                    <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-                        <p class="text-red-800">${this.escapeHtml(content)}</p>
+                    <div class="bg-red-50 border border-red-200 rounded px-2 py-1">
+                        <p class="text-xs text-red-800">${this.escapeHtml(content)}</p>
                     </div>
-                    <div class="text-xs text-gray-500 mt-1">Ошибка • ${timestamp}</div>
+                    <div class="text-xs text-gray-400 mt-0.5">Ошибка • ${timestamp}</div>
                 </div>
             `;
         }
@@ -495,7 +702,7 @@ class AIChatModal {
      */
     adjustTextareaHeight() {
         this.messageInput.style.height = 'auto';
-        this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 128) + 'px';
+        this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 80) + 'px';
     }
 
     /**
@@ -524,14 +731,14 @@ class AIChatModal {
         
         if (this.isProcessing) {
             this.sendButton.innerHTML = `
-                <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             `;
         } else {
             this.sendButton.innerHTML = `
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                           d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                 </svg>
@@ -601,6 +808,239 @@ class AIChatModal {
     }
 
     /**
+     * Показ статусного сообщения
+     * @param {string} message - сообщение
+     * @param {string} type - тип ('success', 'error', 'info')
+     */
+    showStatus(message, type = 'info') {
+        try {
+            // Ищем контейнер для статусов в модале
+            let statusContainer = this.modal.querySelector('.status-container');
+            
+            if (!statusContainer) {
+                // Создаем контейнер для статусов если его нет
+                statusContainer = document.createElement('div');
+                statusContainer.className = 'status-container p-3 border-b border-gray-200';
+                const chatBody = this.modal.querySelector('.modal-body');
+                chatBody.insertBefore(statusContainer, chatBody.firstChild);
+            }
+
+            // Очищаем предыдущие сообщения
+            statusContainer.innerHTML = '';
+
+            // Создаем элемент статуса
+            const statusEl = document.createElement('div');
+            statusEl.className = `status-message text-sm px-3 py-2 rounded ${
+                type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' :
+                type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' :
+                'bg-blue-100 text-blue-800 border border-blue-200'
+            }`;
+            statusEl.textContent = message;
+
+            statusContainer.appendChild(statusEl);
+
+            // Автоматически скрываем через 5 секунд
+            setTimeout(() => {
+                if (statusEl && statusEl.parentNode) {
+                    statusEl.parentNode.removeChild(statusEl);
+                }
+            }, 5000);
+
+        } catch (error) {
+            console.error('Ошибка показа статуса в AI чате:', error);
+            // Fallback - выводим в консоль
+            console.log(`AI Chat Status (${type}): ${message}`);
+        }
+    }
+
+    /**
+     * Обработка ввода для быстрых команд
+     */
+    handleQuickCommandInput(e) {
+        const input = this.messageInput.value;
+        
+        // Показываем меню команд, если ввод начинается с "/"
+        if (input.startsWith('/')) {
+            this.showQuickCommands(input);
+        } else if (this.showingQuickCommands) {
+            this.hideQuickCommands();
+        }
+    }
+
+    /**
+     * Показать меню быстрых команд
+     */
+    showQuickCommands(input) {
+        const menu = this.modal.querySelector('[data-role="quick-commands-menu"]');
+        if (!menu) return;
+
+        const filter = input.toLowerCase();
+        const matchingCommands = Object.entries(this.quickCommands)
+            .filter(([cmd, data]) => cmd.toLowerCase().includes(filter));
+
+        if (matchingCommands.length === 0) {
+            this.hideQuickCommands();
+            return;
+        }
+
+        // Создаем список команд
+        menu.innerHTML = matchingCommands.map(([cmd, data]) => `
+            <div class="px-2 py-1 hover:bg-gray-100 cursor-pointer text-xs border-b border-gray-100 last:border-b-0"
+                 data-command="${cmd}">
+                <div class="font-medium text-blue-600">${cmd}</div>
+                <div class="text-gray-500 text-xs">${data.description}</div>
+            </div>
+        `).join('');
+
+        // Добавляем обработчики кликов
+        menu.querySelectorAll('[data-command]').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const command = e.currentTarget.getAttribute('data-command');
+                this.executeQuickCommand(command);
+            });
+        });
+
+        menu.classList.remove('hidden');
+        this.showingQuickCommands = true;
+    }
+
+    /**
+     * Скрыть меню быстрых команд
+     */
+    hideQuickCommands() {
+        const menu = this.modal.querySelector('[data-role="quick-commands-menu"]');
+        if (menu) {
+            menu.classList.add('hidden');
+        }
+        this.showingQuickCommands = false;
+    }
+
+    /**
+     * Выполнение быстрой команды
+     */
+    async executeQuickCommand(command) {
+        this.hideQuickCommands();
+        this.messageInput.value = '';
+        this.updateSendButton();
+
+        if (this.quickCommands[command]) {
+            try {
+                await this.quickCommands[command].handler();
+            } catch (error) {
+                console.error('❌ Ошибка выполнения команды:', command, error);
+                this.addMessage(
+                    `Ошибка выполнения команды ${command}: ${error.message}`,
+                    'error'
+                );
+            }
+        }
+    }
+
+    /**
+     * Обработчик команды /analysis - анализ области
+     */
+    async handleAreaAnalysis() {
+        // Получаем ID текущей области из URL
+        const urlParams = new URLSearchParams(window.location.search);
+        let areaId = urlParams.get('id');
+
+
+        // Fallback для тестирования - используем первую доступную область
+        if (!areaId) {
+            try {
+                const areas = await window.db.getAll('map_areas');
+                if (areas && areas.length > 0) {
+                    areaId = areas[0].id;
+                    this.addMessage(
+                        `⚠️ ID области не найден в URL, используем для тестирования область "${areas[0].name}" (ID: ${areaId})`,
+                        'ai'
+                    );
+                } else {
+                    this.addMessage(
+                        'В базе данных нет областей для анализа. Сначала создайте область на главной странице.',
+                        'error'
+                    );
+                    return;
+                }
+            } catch (error) {
+                console.error('❌ Ошибка получения областей:', error);
+                this.addMessage(
+                    'Команда /analysis доступна только на странице области или при наличии созданных областей',
+                    'error'
+                );
+                return;
+            }
+        }
+
+        this.addMessage('/analysis', 'user');
+        
+        // Показываем индикатор обработки
+        this.showTypingIndicator();
+        this.isProcessing = true;
+        this.updateSendButton();
+
+        try {
+            // Получаем сервис анализа области
+            const analysisService = this.diContainer.get('AIAreaAnalysisService');
+            if (!analysisService) {
+                throw new Error('AIAreaAnalysisService не найден в DI контейнере');
+            }
+
+            // ID области может быть строкой (id_1754910078796_pcix8sia1) или числом
+            if (!areaId || areaId.toString().trim() === '') {
+                throw new Error(`Пустой ID области: ${areaId}`);
+            }
+
+
+            // Запускаем анализ (передаем ID как есть - строку или число)
+            const result = await analysisService.analyzeAreaWithAI(areaId);
+            
+            // Отображаем результат
+            this.addMessage(result, 'ai', {
+                provider: 'area-analysis',
+                command: '/area'
+            });
+
+        } catch (error) {
+            console.error('❌ Ошибка анализа области:', error);
+            this.addMessage(
+                'Произошла ошибка при анализе области. Попробуйте позже.',
+                'error'
+            );
+        } finally {
+            this.hideTypingIndicator();
+            this.isProcessing = false;
+            this.updateSendButton();
+        }
+    }
+
+    /**
+     * Обработчик команды /help - помощь
+     */
+    async handleHelp() {
+        this.addMessage('/help', 'user');
+
+        const helpText = `**Доступные быстрые команды:**
+
+${Object.entries(this.quickCommands).map(([cmd, data]) => 
+    `**${cmd}** - ${data.description}`
+).join('\n\n')}
+
+**Как использовать:**
+- Введите / в начале сообщения для вызова меню команд
+- Выберите команду из списка или введите полностью
+- Нажмите Enter для выполнения
+
+**Обычный чат:**
+Также можете задавать обычные вопросы без команд.`;
+
+        this.addMessage(helpText, 'ai', {
+            provider: 'help',
+            command: '/help'
+        });
+    }
+
+    /**
      * Уничтожение компонента
      */
     destroy() {
@@ -614,8 +1054,8 @@ class AIChatModal {
             this.modal.parentNode.removeChild(this.modal);
         }
         
-        // Восстанавливаем overflow
-        document.body.style.overflow = '';
+        // Восстанавливаем overflow (не нужно - окно не блокирует интерфейс)
+        // document.body.style.overflow = '';
         
         // Очищаем ссылки
         this.modal = null;

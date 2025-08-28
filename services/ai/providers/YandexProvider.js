@@ -8,7 +8,7 @@ class YandexProvider extends BaseLLMService {
         const defaultConfig = {
             provider: 'yandex',
             baseUrl: 'https://llm.api.cloud.yandex.net/foundationModels/v1',
-            model: 'yandexgpt-lite',
+            model: 'yandexgpt-lite/latest',
             ...config
         };
 

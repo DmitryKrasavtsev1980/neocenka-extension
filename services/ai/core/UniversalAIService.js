@@ -64,7 +64,8 @@ class UniversalAIService {
      */
     async loadSettings() {
         try {
-            const settings = await this.configService.get('ai') || {};
+            // ConfigService.get() синхронный
+            const settings = this.configService.get('ai') || {};
             this.settings = { ...this.defaultSettings, ...settings };
         } catch (error) {
             this.settings = this.defaultSettings;
@@ -90,9 +91,17 @@ class UniversalAIService {
         try {
             const providerConfig = await this.getProviderConfig(this.settings.primaryProvider);
             
+            // Отладка: выводим полученную конфигурацию
+            console.log(`🔍 [UniversalAI] Конфигурация для ${this.settings.primaryProvider}:`, providerConfig);
+            
             // Проверяем наличие необходимых ключей
             if (!this.hasRequiredCredentials(this.settings.primaryProvider, providerConfig)) {
-                this.log('warn', `Primary provider ${this.settings.primaryProvider} missing credentials, will show as unavailable`);
+                this.log('warn', `Primary provider ${this.settings.primaryProvider} missing credentials, will show as unavailable`, {
+                    provider: this.settings.primaryProvider,
+                    config: providerConfig,
+                    hasApiKey: !!providerConfig.apiKey,
+                    hasFolderId: !!providerConfig.folderId
+                });
                 this.currentProvider = null;
                 return;
             }
@@ -133,8 +142,14 @@ class UniversalAIService {
      */
     async getProviderConfig(providerName) {
         try {
-            return await this.configService.get(`ai.providers.${providerName}`) || {};
+            const path = `ai.providers.${providerName}`;
+            // ConfigService.get() синхронный, не нужен await
+            const config = this.configService.get(path);
+            
+            console.log(`📋 [UniversalAI] Получение конфигурации по пути '${path}':`, config);
+            return config || {};
         } catch (error) {
+            console.error(`❌ [UniversalAI] Ошибка получения конфигурации для ${providerName}:`, error);
             return {};
         }
     }
@@ -208,7 +223,7 @@ class UniversalAIService {
                 return await this.sendRequestWithFallback(prompt, options);
             }
             
-            throw this.errorHandler.handle('AI_REQUEST_FAILED', error);
+            throw this.errorHandler.handleError('AI_REQUEST_FAILED', error);
         }
     }
 
@@ -325,7 +340,21 @@ class UniversalAIService {
         }
 
         // По умолчанию используем текущего провайдера
-        return this.currentProvider;
+        if (this.currentProvider) {
+            return this.currentProvider;
+        }
+        
+        // Если текущего провайдера нет, ищем любого доступного
+        const availableProvider = this.getAnyAvailableProvider();
+        if (availableProvider) {
+            this.log('warn', 'Primary provider not available, using fallback', {
+                fallback: availableProvider.provider
+            });
+            return availableProvider;
+        }
+        
+        // Если вообще нет доступных провайдеров
+        throw new Error('No available AI providers. Please check your API keys and configuration.');
     }
 
     /**
@@ -392,6 +421,24 @@ class UniversalAIService {
         }
         
         return this.fallbackProviders.find(p => p.provider === providerName) || null;
+    }
+
+    /**
+     * Получение любого доступного провайдера
+     * @returns {object|null} - первый доступный провайдер
+     */
+    getAnyAvailableProvider() {
+        // Сначала пытаемся использовать основного провайдера
+        if (this.currentProvider) {
+            return this.currentProvider;
+        }
+        
+        // Затем ищем среди fallback провайдеров
+        if (this.fallbackProviders.length > 0) {
+            return this.fallbackProviders[0];
+        }
+        
+        return null;
     }
 
     /**
@@ -662,7 +709,7 @@ ${addresses.slice(0, 100).map(addr => JSON.stringify({
             this.log('info', `Switched to provider: ${providerName}`);
 
         } catch (error) {
-            this.errorHandler.handle('AI_PROVIDER_SWITCH_FAILED', error);
+            this.errorHandler.handleError('AI_PROVIDER_SWITCH_FAILED', error);
             throw error;
         }
     }

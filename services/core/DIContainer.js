@@ -28,13 +28,24 @@ class DIContainer {
     setupCoreServices() {
         // Регистрируем базовые сервисы
         this.registerFactory('ConfigService', () => {
+            // ВАЖНО: Всегда используем глобальный ConfigService если он есть
+            if (window.configService) {
+                return window.configService;
+            }
+            
+            // Если глобального нет, создаем новый и делаем его глобальным
             const configService = new ConfigService();
+            
             // Автоматически загружаем настройки из Chrome Storage
             if (typeof chrome !== 'undefined' && chrome.storage) {
                 configService.loadFromStorage(chrome.storage).catch(error => {
                     console.warn('Не удалось загрузить настройки из Chrome Storage:', error);
                 });
             }
+            
+            // Делаем его глобальным
+            window.configService = configService;
+            
             return configService;
         }, { singleton: true, dependencies: [] });
 
@@ -164,6 +175,16 @@ class DIContainer {
             }
             return new UniversalAIService(container);
         }, { singleton: true, dependencies: ['ConfigService', 'ErrorHandlingService', 'EventBus'] });
+
+        // AI Analysis Services - Специализированные сервисы анализа
+        this.registerFactory('AIAreaAnalysisService', (container) => {
+            if (typeof AIAreaAnalysisService === 'undefined') {
+                throw new Error('AIAreaAnalysisService не загружен');
+            }
+            const service = new AIAreaAnalysisService(container);
+            // Инициализация будет вызвана асинхронно при первом использовании
+            return service;
+        }, { singleton: true, dependencies: ['UniversalAIService', 'ConfigService'] });
 
         // AI провайдеры регистрируются автоматически через LLMProviderFactory
         // Базовые классы должны быть доступны глобально для фабрики
