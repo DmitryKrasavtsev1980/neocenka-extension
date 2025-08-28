@@ -30,6 +30,9 @@ class AIChatInterface {
      */
     async init() {
         try {
+            // Ждем готовности зависимостей
+            await this.waitForDependencies();
+            
             // Загружаем настройки AI-чата
             await this.loadSettings();
             
@@ -61,17 +64,57 @@ class AIChatInterface {
      * Загрузка настроек из ConfigService
      */
     async loadSettings() {
-        const config = await this.configService.get('aiChat', {
-            enabled: true,
-            autoOpen: false,
-            preferredProvider: 'auto',
-            maxHistoryMessages: 50
-        });
-        
-        this.isEnabled = config.enabled;
-        this.autoOpen = config.autoOpen;
-        this.preferredProvider = config.preferredProvider;
-        this.maxHistoryMessages = config.maxHistoryMessages;
+        try {
+            const config = await this.configService.get('aiChat', {
+                enabled: true,
+                autoOpen: false,
+                preferredProvider: 'auto',
+                maxHistoryMessages: 50
+            });
+            
+            this.isEnabled = config.enabled;
+            this.autoOpen = config.autoOpen;
+            this.preferredProvider = config.preferredProvider;
+            this.maxHistoryMessages = config.maxHistoryMessages;
+            
+        } catch (error) {
+            console.warn('⚠️ Не удалось загрузить настройки AI-чата, используем значения по умолчанию:', error);
+            
+            // Значения по умолчанию
+            this.isEnabled = true;
+            this.autoOpen = false;
+            this.preferredProvider = 'auto';
+            this.maxHistoryMessages = 50;
+        }
+    }
+
+    /**
+     * Ожидание готовности зависимостей
+     */
+    async waitForDependencies() {
+        // Ждем готовности базы данных
+        let attempts = 0;
+        while (attempts < 50) {
+            try {
+                if (window.db && typeof window.db.isInitialized === 'function' && window.db.isInitialized()) {
+                    break;
+                }
+                if (window.db && typeof window.db.getAll === 'function') {
+                    // Пробуем выполнить простой запрос
+                    await window.db.getAll('addresses');
+                    break;
+                }
+            } catch (error) {
+                // БД ещё не готова, продолжаем ждать
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+
+        if (attempts >= 50) {
+            console.warn('⚠️ База данных не готова, AI-интерфейс может работать с ограничениями');
+        }
     }
 
     /**

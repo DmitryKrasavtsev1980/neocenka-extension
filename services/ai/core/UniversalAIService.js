@@ -54,7 +54,7 @@ class UniversalAIService {
             });
 
         } catch (error) {
-            this.errorHandler.handle('AI_SERVICE_INIT_FAILED', error);
+            this.errorHandler.handleError(error, { context: 'AI_SERVICE_INIT_FAILED' });
             throw error;
         }
     }
@@ -89,6 +89,14 @@ class UniversalAIService {
     async initializePrimaryProvider() {
         try {
             const providerConfig = await this.getProviderConfig(this.settings.primaryProvider);
+            
+            // Проверяем наличие необходимых ключей
+            if (!this.hasRequiredCredentials(this.settings.primaryProvider, providerConfig)) {
+                this.log('warn', `Primary provider ${this.settings.primaryProvider} missing credentials, will show as unavailable`);
+                this.currentProvider = null;
+                return;
+            }
+            
             this.currentProvider = this.providerFactory.create(this.settings.primaryProvider, providerConfig);
             
             this.log('info', `Primary provider initialized: ${this.settings.primaryProvider}`);
@@ -128,6 +136,31 @@ class UniversalAIService {
             return await this.configService.get(`ai.providers.${providerName}`) || {};
         } catch (error) {
             return {};
+        }
+    }
+
+    /**
+     * Проверка наличия необходимых учетных данных для провайдера
+     * @param {string} providerName - имя провайдера
+     * @param {object} config - конфигурация провайдера
+     * @returns {boolean} - есть ли необходимые данные
+     */
+    hasRequiredCredentials(providerName, config) {
+        switch (providerName) {
+            case 'yandex':
+                return !!(config.apiKey && config.folderId);
+            
+            case 'claude':
+                return !!config.apiKey;
+            
+            case 'openai':
+                return !!config.apiKey;
+            
+            case 'gigachat':
+                return !!config.clientId && !!config.clientSecret;
+            
+            default:
+                return false;
         }
     }
 
@@ -700,6 +733,61 @@ ${addresses.slice(0, 100).map(addr => JSON.stringify({
         if (this.eventBus && typeof this.eventBus.emit === 'function') {
             this.eventBus.emit(eventName, data);
         }
+    }
+
+    /**
+     * Проверка доступности AI сервисов
+     * @returns {boolean} - доступен ли хотя бы один провайдер
+     */
+    async isAvailable() {
+        // Если есть активный провайдер, проверяем его доступность
+        if (this.currentProvider) {
+            try {
+                return await this.currentProvider.isAvailable();
+            } catch (error) {
+                this.log('warn', 'Current provider availability check failed:', error.message);
+            }
+        }
+
+        // Проверяем fallback провайдеров
+        for (const provider of this.fallbackProviders) {
+            try {
+                const available = await provider.isAvailable();
+                if (available) return true;
+            } catch (error) {
+                this.log('warn', `Fallback provider ${provider.provider} availability check failed:`, error.message);
+            }
+        }
+
+        // Если провайдеры не инициализированы, но есть учетные данные, считаем доступным
+        if (!this.currentProvider && this.fallbackProviders.length === 0) {
+            const availableProviders = await this.getAvailableProviders();
+            return availableProviders.length > 0;
+        }
+
+        return false;
+    }
+
+    /**
+     * Получение списка доступных провайдеров (с учетными данными)
+     * @returns {Promise<string[]>} - массив имен доступных провайдеров
+     */
+    async getAvailableProviders() {
+        const availableProviders = [];
+        const allProviders = ['yandex', 'claude', 'openai', 'gigachat'];
+
+        for (const providerName of allProviders) {
+            try {
+                const config = await this.getProviderConfig(providerName);
+                if (this.hasRequiredCredentials(providerName, config)) {
+                    availableProviders.push(providerName);
+                }
+            } catch (error) {
+                // Игнорируем ошибки при проверке конфигурации
+            }
+        }
+
+        return availableProviders;
     }
 
     /**
