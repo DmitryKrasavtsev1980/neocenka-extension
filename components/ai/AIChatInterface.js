@@ -65,17 +65,21 @@ class AIChatInterface {
      */
     async loadSettings() {
         try {
-            const config = await this.configService.get('aiChat', {
+            // Получаем настройки с правильным fallback
+            const config = await this.configService.get('aiChat') || {};
+            const defaultConfig = {
                 enabled: true,
                 autoOpen: false,
                 preferredProvider: 'auto',
                 maxHistoryMessages: 50
-            });
+            };
             
-            this.isEnabled = config.enabled;
-            this.autoOpen = config.autoOpen;
-            this.preferredProvider = config.preferredProvider;
-            this.maxHistoryMessages = config.maxHistoryMessages;
+            const mergedConfig = { ...defaultConfig, ...config };
+            
+            this.isEnabled = mergedConfig.enabled;
+            this.autoOpen = mergedConfig.autoOpen;
+            this.preferredProvider = mergedConfig.preferredProvider;
+            this.maxHistoryMessages = mergedConfig.maxHistoryMessages;
             
         } catch (error) {
             console.warn('⚠️ Не удалось загрузить настройки AI-чата, используем значения по умолчанию:', error);
