@@ -149,6 +149,26 @@ class DIContainer {
             const errorHandler = container.has('ErrorHandlingService') ? container.get('ErrorHandlingService') : null;
             return new MarkerManager(mapRenderer, configService, errorHandler);
         }, { singleton: true, dependencies: ['ConfigService'] });
+
+        // AI Services - Универсальные AI сервисы
+        this.registerFactory('UniversalAIService', (container) => {
+            if (typeof UniversalAIService === 'undefined') {
+                throw new Error('UniversalAIService не загружен');
+            }
+            return new UniversalAIService(container);
+        }, { singleton: true, dependencies: ['ConfigService', 'ErrorHandlingService', 'EventBus'] });
+
+        // AI провайдеры регистрируются автоматически через LLMProviderFactory
+        // Базовые классы должны быть доступны глобально для фабрики
+        this.registerFactory('LLMProviderFactory', () => {
+            if (typeof window !== 'undefined' && window.llmProviderFactory) {
+                return window.llmProviderFactory;
+            }
+            if (typeof LLMProviderFactory !== 'undefined') {
+                return new LLMProviderFactory();
+            }
+            throw new Error('LLMProviderFactory не загружен');
+        }, { singleton: true, dependencies: [] });
     }
 
     /**
