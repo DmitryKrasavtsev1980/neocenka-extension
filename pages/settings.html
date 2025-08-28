@@ -94,6 +94,157 @@
             </form>
         </div>
 
+        <!-- Настройки AI-ассистента -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Настройки AI-ассистента</h3>
+                <p class="mt-1 text-sm text-gray-500">Конфигурация провайдеров искусственного интеллекта</p>
+            </div>
+            <form id="aiSettingsForm" class="p-6">
+                <!-- Общие настройки AI -->
+                <div class="mb-8">
+                    <h4 class="text-base font-medium text-gray-900 mb-4">Общие параметры</h4>
+                    
+                    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <div>
+                            <label for="aiEnabled" class="flex items-center">
+                                <input type="checkbox" id="aiEnabled" name="ai_enabled" 
+                                       class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded">
+                                <span class="ml-2 text-sm font-medium text-gray-700">Включить AI-ассистента</span>
+                            </label>
+                            <p class="mt-1 text-xs text-gray-500">Показывать кнопку чата и активировать AI-функции</p>
+                        </div>
+
+                        <div>
+                            <label for="primaryProvider" class="block text-sm font-medium text-gray-700">Основной провайдер</label>
+                            <select id="primaryProvider" name="primary_provider"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <option value="yandex">YandexGPT</option>
+                                <option value="claude">Claude (Anthropic)</option>
+                            </select>
+                            <p class="mt-1 text-xs text-gray-500">Выберите предпочитаемый AI-провайдер</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Настройки YandexGPT -->
+                <div class="mb-8">
+                    <h4 class="text-base font-medium text-gray-900 mb-4">YandexGPT</h4>
+                    
+                    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <div>
+                            <label for="yandexApiKey" class="block text-sm font-medium text-gray-700">API-ключ</label>
+                            <input type="password" id="yandexApiKey" name="yandex_api_key"
+                                   placeholder="AQVN..."
+                                   class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <p class="mt-1 text-xs text-gray-500">API-ключ из Yandex Cloud Console</p>
+                        </div>
+
+                        <div>
+                            <label for="yandexFolderId" class="block text-sm font-medium text-gray-700">Folder ID</label>
+                            <input type="text" id="yandexFolderId" name="yandex_folder_id"
+                                   placeholder="b1g2ab3c4def5gh6"
+                                   class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <p class="mt-1 text-xs text-gray-500">ID каталога из Yandex Cloud</p>
+                        </div>
+
+                        <div>
+                            <label for="yandexModel" class="block text-sm font-medium text-gray-700">Модель</label>
+                            <select id="yandexModel" name="yandex_model"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <option value="yandexgpt-lite">YandexGPT Lite (экономичная)</option>
+                                <option value="yandexgpt">YandexGPT (стандартная)</option>
+                            </select>
+                            <p class="mt-1 text-xs text-gray-500">Lite модель дешевле, стандартная - качественнее</p>
+                        </div>
+
+                        <div class="flex items-end">
+                            <button type="button" id="testYandexBtn"
+                                    class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Проверить подключение
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Настройки Claude -->
+                <div class="mb-8">
+                    <h4 class="text-base font-medium text-gray-900 mb-4">Claude (Anthropic)</h4>
+                    
+                    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+                        <div>
+                            <label for="claudeApiKey" class="block text-sm font-medium text-gray-700">API-ключ</label>
+                            <input type="password" id="claudeApiKey" name="claude_api_key"
+                                   placeholder="sk-ant-api..."
+                                   class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <p class="mt-1 text-xs text-gray-500">API-ключ от Anthropic</p>
+                        </div>
+
+                        <div>
+                            <label for="claudeModel" class="block text-sm font-medium text-gray-700">Модель</label>
+                            <select id="claudeModel" name="claude_model"
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <option value="claude-3-haiku-20240307">Claude 3 Haiku (быстрая)</option>
+                                <option value="claude-3-sonnet-20240229">Claude 3 Sonnet (стандартная)</option>
+                                <option value="claude-3-opus-20240229">Claude 3 Opus (продвинутая)</option>
+                            </select>
+                            <p class="mt-1 text-xs text-gray-500">Haiku дешевле, Opus качественнее</p>
+                        </div>
+
+                        <div class="flex items-end">
+                            <button type="button" id="testClaudeBtn"
+                                    class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Проверить подключение
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Статус подключения -->
+                <div class="mb-6">
+                    <h4 class="text-base font-medium text-gray-900 mb-4">Статус подключения</h4>
+                    <div id="aiStatusContainer" class="space-y-2">
+                        <div id="yandexStatus" class="flex items-center">
+                            <div class="w-3 h-3 rounded-full bg-gray-300 mr-3"></div>
+                            <span class="text-sm text-gray-500">YandexGPT: не настроен</span>
+                        </div>
+                        <div id="claudeStatus" class="flex items-center">
+                            <div class="w-3 h-3 rounded-full bg-gray-300 mr-3"></div>
+                            <span class="text-sm text-gray-500">Claude: не настроен</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Кнопки сохранения -->
+                <div class="flex space-x-3">
+                    <button type="button" id="saveAISettingsBtn"
+                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        Сохранить настройки AI
+                    </button>
+                    
+                    <button type="button" id="testAllAIBtn"
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        <svg class="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                  d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                        Проверить все подключения
+                    </button>
+                </div>
+            </form>
+        </div>
+
         <!-- Полный экспорт/импорт базы данных -->
         <div class="mt-8 bg-white shadow rounded-lg">
             <div class="px-6 py-4 border-b border-gray-200">
@@ -820,6 +971,10 @@
     <script src="../utils/spatial-index-manager.js"></script>
     <script src="../utils/smart-address-matcher.js"></script>
     
+    <!-- AI Settings Handler -->
+    <script src="../utils/ai-setup-helper.js"></script>
+    <script src="ai-settings-handler.js"></script>
+
     <script src="settings_script.js"></script>
 
     <script src="settings_init.js"></script>
