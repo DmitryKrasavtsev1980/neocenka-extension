@@ -207,6 +207,66 @@ class DIContainer {
             const uiContainer = document.body;
             return new AIChatInterface(uiContainer, container);
         }, { singleton: true, dependencies: ['EventBus', 'ConfigService', 'UniversalAIService'] });
+
+        // Listing Update Services - Сервисы обновления объявлений
+        this.registerFactory('ListingUpdateProviderFactory', (container) => {
+            if (typeof ListingUpdateProviderFactory === 'undefined') {
+                throw new Error('ListingUpdateProviderFactory не загружен');
+            }
+            const factory = new ListingUpdateProviderFactory();
+            
+            // Немедленная асинхронная инициализация с зависимостями
+            (async () => {
+                try {
+                    const db = container.get('Database');
+                    const progressManager = window.progressManager; // Legacy компонент
+                    const parsingManager = window.parsingManager; // Legacy компонент
+                    
+                    await factory.initialize({
+                        db: db,
+                        progressManager: progressManager,
+                        parsingManager: parsingManager
+                    });
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации ListingUpdateProviderFactory:', error);
+                }
+            })();
+            
+            return factory;
+        }, { singleton: true, dependencies: ['Database'] });
+
+        this.registerFactory('CianListingUpdateService', (container) => {
+            console.log('🏗️ [DIContainer] Регистрация CianListingUpdateService');
+            
+            if (typeof CianListingUpdateService === 'undefined') {
+                console.error('❌ [DIContainer] CianListingUpdateService класс не загружен');
+                throw new Error('CianListingUpdateService не загружен');
+            }
+            
+            console.log('✅ [DIContainer] CianListingUpdateService класс найден, создаем экземпляр');
+            const service = new CianListingUpdateService();
+            
+            // Немедленная асинхронная инициализация с зависимостями
+            (async () => {
+                try {
+                    console.log('🔄 [DIContainer] Инициализируем CianListingUpdateService...');
+                    const db = container.get('Database');
+                    const progressManager = window.progressManager; // Legacy компонент
+                    const parsingManager = window.parsingManager; // Legacy компонент
+                    
+                    await service.initialize({
+                        db: db,
+                        progressManager: progressManager,
+                        parsingManager: parsingManager
+                    });
+                    console.log('✅ [DIContainer] CianListingUpdateService инициализирован');
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации CianListingUpdateService:', error);
+                }
+            })();
+            
+            return service;
+        }, { singleton: true, dependencies: ['Database'] });
     }
 
     /**

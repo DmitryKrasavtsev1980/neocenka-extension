@@ -235,7 +235,7 @@ class BaseLLMService {
             ...data
         };
 
-        console[level](`[${this.provider.toUpperCase()}] ${message}`, logData);
+        // Логи отключены
     }
 
     /**

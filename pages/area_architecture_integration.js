@@ -64,7 +64,7 @@ class AreaArchitectureIntegration {
      * Инициализация ApplicationController
      */
     async initializeApplicationController() {
-        console.log('🔄 Инициализация ApplicationController...');
+        // console.log('🔄 Инициализация ApplicationController...');
         
         if (typeof ApplicationController === 'undefined') {
             console.error('❌ ApplicationController не загружен');
@@ -73,10 +73,10 @@ class AreaArchitectureIntegration {
         
         // База данных уже готова на этом этапе
         this.applicationController = new ApplicationController();
-        console.log('✅ ApplicationController создан');
+        // console.log('✅ ApplicationController создан');
         
         this.diContainer = this.applicationController.container;
-        console.log('📦 DIContainer получен:', !!this.diContainer);
+        // console.log('📦 DIContainer получен:', !!this.diContainer);
         
         // Ждем инициализации
         let attempts = 0;
@@ -90,7 +90,7 @@ class AreaArchitectureIntegration {
             throw new Error('ApplicationController не смог инициализироваться за 5 секунд');
         }
         
-        console.log('✅ ApplicationController инициализирован');
+        // console.log('✅ ApplicationController инициализирован');
         await this.debugLog('✅ Area: ApplicationController инициализирован');
     }
     
@@ -154,11 +154,11 @@ class AreaArchitectureIntegration {
                 return;
             }
             
-            console.log('🔄 Принудительная пересоздания AI сервисов с актуальными настройками...');
+            // console.log('🔄 Принудительная пересоздания AI сервисов с актуальными настройками...');
             
             // Создаем UniversalAIService заново, он будет использовать актуальные настройки из ConfigService
             const universalAI = this.diContainer.get('UniversalAIService');
-            console.log('✅ UniversalAIService создан заново');
+            // console.log('✅ UniversalAIService создан заново');
             
             // Получаем AI-интерфейс из DI контейнера
             const aiInterface = this.diContainer.get('AIChatInterface');
@@ -172,7 +172,7 @@ class AreaArchitectureIntegration {
             
             if (aiInterface.isInitialized) {
                 await this.debugLog('✅ Area: AI-интерфейс инициализирован');
-                console.log('✅ AI-интерфейс инициализирован');
+                // console.log('✅ AI-интерфейс инициализирован');
                 
                 // Сохраняем ссылки для легкого доступа
                 this.aiInterface = aiInterface;
@@ -183,11 +183,11 @@ class AreaArchitectureIntegration {
                     try {
                         const isAvailable = await universalAI.isAvailable();
                         const providers = await universalAI.getAvailableProviders();
-                        console.log('🎯 AI доступность:', isAvailable);
-                        console.log('📡 Доступные провайдеры:', providers);
+                        // console.log('🎯 AI доступность:', isAvailable);
+                        // console.log('📡 Доступные провайдеры:', providers);
                         
                         if (isAvailable) {
-                            console.log('🎉 AI-ассистент готов к работе!');
+                            // console.log('🎉 AI-ассистент готов к работе!');
                         }
                     } catch (error) {
                         console.warn('⚠️ Ошибка проверки AI доступности:', error);
@@ -449,36 +449,36 @@ class AreaArchitectureIntegration {
      */
     async syncAISettings() {
         try {
-            console.log('🔄 Area: Синхронизация AI настроек из базы данных...');
+            // console.log('🔄 Area: Синхронизация AI настроек из базы данных...');
             await this.debugLog('🔄 Area: Синхронизация AI настроек из базы данных...');
             
-            console.log('🔍 Проверяем доступность:', {
-                'window.db': !!window.db,
-                'window.configService': !!window.configService
-            });
+            // console.log('🔍 Проверяем доступность:', {
+            //     'window.db': !!window.db,
+            //     'window.configService': !!window.configService
+            // });
 
             if (!window.db) {
-                console.log('⚠️ Area: База данных недоступна для синхронизации AI настроек');
+                // console.log('⚠️ Area: База данных недоступна для синхронизации AI настроек');
                 await this.debugLog('⚠️ Area: База данных недоступна для синхронизации AI настроек');
                 return;
             }
 
             if (!window.configService) {
-                console.log('⚠️ Area: ConfigService недоступен для синхронизации AI настроек');
+                // console.log('⚠️ Area: ConfigService недоступен для синхронизации AI настроек');
                 await this.debugLog('⚠️ Area: ConfigService недоступен для синхронизации AI настроек');
                 return;
             }
 
             // Загружаем настройки YandexGPT из базы
-            console.log('🔍 Загружаем настройки YandexGPT из базы...');
+            // console.log('🔍 Загружаем настройки YandexGPT из базы...');
             const yandexApiKey = await window.db.get('settings', 'yandex_api_key');
-            console.log('📋 YandexGPT API Key:', yandexApiKey ? 'найден' : 'не найден');
+            // console.log('📋 YandexGPT API Key:', yandexApiKey ? 'найден' : 'не найден');
             
             const yandexFolderId = await window.db.get('settings', 'yandex_folder_id');
-            console.log('📋 YandexGPT Folder ID:', yandexFolderId ? 'найден' : 'не найден');
+            // console.log('📋 YandexGPT Folder ID:', yandexFolderId ? 'найден' : 'не найден');
             
             const yandexModel = await window.db.get('settings', 'yandex_model');
-            console.log('📋 YandexGPT Model:', yandexModel || 'не найден, будет использован по умолчанию');
+            // console.log('📋 YandexGPT Model:', yandexModel || 'не найден, будет использован по умолчанию');
 
             if (yandexApiKey && yandexFolderId) {
                 const yandexConfig = {
@@ -487,14 +487,14 @@ class AreaArchitectureIntegration {
                     model: (yandexModel && yandexModel.value) || yandexModel || 'yandexgpt-lite/latest'
                 };
                 
-                console.log('💾 Сохраняем конфигурацию YandexGPT в ConfigService:', yandexConfig);
+                // console.log('💾 Сохраняем конфигурацию YandexGPT в ConfigService:', yandexConfig);
                 window.configService.set('ai.providers.yandex', yandexConfig);
                 
                 
-                console.log('✅ Настройки YandexGPT синхронизированы из базы данных');
+                // console.log('✅ Настройки YandexGPT синхронизированы из базы данных');
                 await this.debugLog('✅ Area: Настройки YandexGPT синхронизированы из базы данных');
             } else {
-                console.log('⚠️ Настройки YandexGPT не найдены в базе данных');
+                // console.log('⚠️ Настройки YandexGPT не найдены в базе данных');
                 await this.debugLog('⚠️ Area: Настройки YandexGPT не найдены в базе данных');
             }
 
@@ -511,7 +511,7 @@ class AreaArchitectureIntegration {
                 await this.debugLog('✅ Area: Настройки Claude синхронизированы из базы данных');
             }
 
-            console.log('🎯 Синхронизация AI настроек завершена');
+            // console.log('🎯 Синхронизация AI настроек завершена');
 
         } catch (error) {
             console.error('❌ Area: Ошибка синхронизации AI настроек:', error);
@@ -523,7 +523,7 @@ class AreaArchitectureIntegration {
      */
     async checkDIContainerReady() {
         try {
-            console.log('🔄 Проверка готовности DIContainer для AI инициализации...');
+            // console.log('🔄 Проверка готовности DIContainer для AI инициализации...');
             
             // Получаем diContainer из applicationController если он создан  
             const diContainer = this.diContainer || this.applicationController?.container;
@@ -531,11 +531,11 @@ class AreaArchitectureIntegration {
             
             if (diContainer) {
                 // НЕ создаем AI сервисы заранее - просто подтверждаем готовность DIContainer
-                console.log('✅ DIContainer готов для создания AI сервисов с актуальными настройками');
+                // console.log('✅ DIContainer готов для создания AI сервисов с актуальными настройками');
                 await this.debugLog('🔄 Area: DIContainer готов для AI инициализации');
                 return true;
             } else {
-                console.log('⚠️ DIContainer недоступен');
+                // console.log('⚠️ DIContainer недоступен');
                 await this.debugLog('⚠️ Area: DIContainer недоступен для AI инициализации');
                 return false;
             }

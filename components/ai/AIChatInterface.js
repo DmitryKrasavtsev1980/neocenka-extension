@@ -37,7 +37,7 @@ class AIChatInterface {
             await this.loadSettings();
             
             if (!this.isEnabled) {
-                console.log('🔇 AI-чат отключен в настройках');
+                // console.log('🔇 AI-чат отключен в настройках');
                 return;
             }
 
@@ -52,7 +52,7 @@ class AIChatInterface {
             // Уведомляем о готовности
             this.eventBus.emit('ai-chat-interface-ready');
             
-            console.log('✅ AI-чат интерфейс инициализирован');
+            // console.log('✅ AI-чат интерфейс инициализирован');
             
         } catch (error) {
             console.error('❌ Ошибка инициализации AI-чата:', error);
@@ -201,7 +201,7 @@ class AIChatInterface {
         // Показываем уведомление о доступном контексте
         this.chatButton.pulse();
         
-        console.log('🎯 Установлен контекст для AI:', contextData.type);
+        // console.log('🎯 Установлен контекст для AI:', contextData.type);
     }
 
     /**
@@ -223,7 +223,7 @@ class AIChatInterface {
      * Обработка смены провайдера
      */
     handleProviderChange(provider) {
-        console.log('🔄 Провайдер AI изменен на:', provider);
+        // console.log('🔄 Провайдер AI изменен на:', provider);
         
         // Сохраняем в настройки
         this.configService.set('aiChat.preferredProvider', provider);
@@ -436,7 +436,7 @@ class AIChatInterface {
         
         this.isInitialized = false;
         
-        console.log('🗑️ AI-чат интерфейс уничтожен');
+        // console.log('🗑️ AI-чат интерфейс уничтожен');
     }
 }
 

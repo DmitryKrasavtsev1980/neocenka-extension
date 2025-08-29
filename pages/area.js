@@ -143,8 +143,10 @@ class AreaPage {
             this.parsingManager = new ParsingManager(this.dataState, this.eventBus, this.progressManager);
             this.addressManager = new AddressManager(this.dataState, this.eventBus, this.progressManager);
             this.duplicatesManager = new DuplicatesManager(this.dataState, this.eventBus, this.progressManager, this.uiManager);
-            // Экспортируем duplicatesManager для доступа из других компонентов
+            // Экспортируем менеджеры для доступа из других компонентов
+            window.addressManager = this.addressManager;
             window.duplicatesManager = this.duplicatesManager;
+            window.progressManager = this.progressManager;
             this.segmentsManager = new SegmentsManager(this.dataState, this.eventBus, this.progressManager);
             this.reportsManager = new ReportsManager(this);
             this.comparativeAnalysisManager = new ComparativeAnalysisManager(this);

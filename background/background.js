@@ -152,6 +152,11 @@ class NeocenkaBackground {
           sendResponse(imageResult);
           break;
 
+        case 'parseListingUrl':
+          const parseUrlResult = await this.handleParseListingUrl(request.url);
+          sendResponse(parseUrlResult);
+          break;
+
         default:
           sendResponse({ success: false, error: 'Неизвестное действие' });
       }

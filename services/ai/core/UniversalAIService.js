@@ -92,7 +92,7 @@ class UniversalAIService {
             const providerConfig = await this.getProviderConfig(this.settings.primaryProvider);
             
             // Отладка: выводим полученную конфигурацию
-            console.log(`🔍 [UniversalAI] Конфигурация для ${this.settings.primaryProvider}:`, providerConfig);
+            // console.log(`🔍 [UniversalAI] Конфигурация для ${this.settings.primaryProvider}:`, providerConfig);
             
             // Проверяем наличие необходимых ключей
             if (!this.hasRequiredCredentials(this.settings.primaryProvider, providerConfig)) {
@@ -146,7 +146,7 @@ class UniversalAIService {
             // ConfigService.get() синхронный, не нужен await
             const config = this.configService.get(path);
             
-            console.log(`📋 [UniversalAI] Получение конфигурации по пути '${path}':`, config);
+            // console.log(`📋 [UniversalAI] Получение конфигурации по пути '${path}':`, config);
             return config || {};
         } catch (error) {
             console.error(`❌ [UniversalAI] Ошибка получения конфигурации для ${providerName}:`, error);
@@ -770,7 +770,7 @@ ${addresses.slice(0, 100).map(addr => JSON.stringify({
      * Универсальное логирование
      */
     log(level, message, data = {}) {
-        console[level](`[UniversalAI] ${message}`, data);
+        // Логи отключены
     }
 
     /**

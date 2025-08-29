@@ -330,21 +330,7 @@ class AISetupHelper {
 if (typeof window !== 'undefined') {
     window.aiSetup = new AISetupHelper();
     
-    // Выводим инструкции в консоль
-    console.log(`
-🤖 AI Setup Helper загружен!
-
-Быстрые команды:
-- aiSetup.setupYandexGPT("API_KEY", "FOLDER_ID") - настроить YandexGPT
-- aiSetup.setupClaude("API_KEY") - настроить Claude
-- aiSetup.setupAIGeneral("yandex") - выбрать основной провайдер
-- aiSetup.showCurrentConfig() - показать текущие настройки
-- aiSetup.setupDemo() - демо-режим для тестирования
-- aiSetup.clearAllSettings() - очистить все настройки
-
-Пример настройки YandexGPT:
-aiSetup.setupYandexGPT("AQVN...", "b1g2ab3c4def5gh6");
-`);
+    // AI Setup Helper загружен - команды доступны через объект aiSetup
 }
 
 // Экспорт

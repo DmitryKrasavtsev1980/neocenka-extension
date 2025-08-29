@@ -43,6 +43,14 @@ class AIChatModal {
                 description: 'Анализ области - полная статистика по текущей области',
                 handler: this.handleAreaAnalysis.bind(this)
             },
+            '/listingsupdate': {
+                description: 'Обновление объявлений - запуск процесса обновления данных',
+                handler: this.handleListingUpdate.bind(this)
+            },
+            '/identifyaddresses': {
+                description: 'Определение адресов - запуск умного алгоритма определения адресов для объявлений',
+                handler: this.handleIdentifyAddresses.bind(this)
+            },
             '/help': {
                 description: 'Помощь - список всех доступных команд',
                 handler: this.handleHelp.bind(this)
@@ -106,7 +114,7 @@ class AIChatModal {
                     pointer-events: none !important;
                 }
             </style>
-            <div class="bg-white rounded-lg shadow-2xl flex flex-col relative
+            <div class="bg-white rounded-lg shadow-2xl flex flex-col relative border border-gray-300
                         transform scale-95 transition-all duration-300"
                  style="width: ${this.windowSize.width}px; height: ${this.windowSize.height}px;"
                  data-role="chat-window">
@@ -507,6 +515,41 @@ class AIChatModal {
         const message = this.messageInput.value.trim();
         if (!message || this.isProcessing) return;
 
+        // Проверяем, является ли это быстрой командой
+        if (message.startsWith('/')) {
+            const command = message.split(' ')[0];
+            if (this.quickCommands[command]) {
+                this.isProcessing = true;
+                this.updateSendButton();
+                
+                // Очищаем поле ввода
+                this.messageInput.value = '';
+                this.adjustTextareaHeight();
+                this.updateCharCounter();
+                
+                try {
+                    // Выполняем команду
+                    await this.quickCommands[command].handler();
+                } catch (error) {
+                    console.error(`Ошибка выполнения команды ${command}:`, error);
+                    this.addMessage(`❌ Ошибка выполнения команды ${command}: ${error.message}`, 'error');
+                } finally {
+                    this.isProcessing = false;
+                    this.updateSendButton();
+                    this.hideTypingIndicator();
+                }
+                return;
+            } else {
+                // Неизвестная команда
+                this.addMessage(message, 'user');
+                this.messageInput.value = '';
+                this.adjustTextareaHeight();
+                this.updateCharCounter();
+                this.addMessage(`❌ Unknown slash command: ${command.substring(1)}`, 'error');
+                return;
+            }
+        }
+
         this.isProcessing = true;
         this.updateSendButton();
         
@@ -651,6 +694,37 @@ class AIChatModal {
             timestamp: new Date(),
             metadata
         });
+        
+        return messageElement;
+    }
+
+    /**
+     * Обновление существующего сообщения
+     * @param {HTMLElement} messageElement - Элемент сообщения для обновления
+     * @param {string} content - Новый контент
+     * @param {Object} metadata - Дополнительные данные
+     */
+    updateMessage(messageElement, content, metadata = {}) {
+        if (!messageElement) return;
+
+        const timestamp = new Date().toLocaleString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        // Обновляем контент в AI сообщении
+        const contentDiv = messageElement.querySelector('.bg-gray-100 .text-xs');
+        if (contentDiv) {
+            contentDiv.innerHTML = this.formatAIResponse(content);
+        }
+
+        // Обновляем timestamp
+        const timestampDiv = messageElement.querySelector('.text-gray-400');
+        if (timestampDiv && metadata.provider) {
+            timestampDiv.textContent = `AI • ${timestamp} • ${metadata.provider}`;
+        }
+
+        this.scrollToBottom();
     }
 
     /**
@@ -998,8 +1072,11 @@ class AIChatModal {
             // Отображаем результат
             this.addMessage(result, 'ai', {
                 provider: 'area-analysis',
-                command: '/area'
+                command: '/analysis'
             });
+
+            // Проверяем необходимость автоматического обновления объявлений
+            await this.checkAndTriggerAutoUpdate(areaId, analysisService);
 
         } catch (error) {
             console.error('❌ Ошибка анализа области:', error);
@@ -1011,6 +1088,145 @@ class AIChatModal {
             this.hideTypingIndicator();
             this.isProcessing = false;
             this.updateSendButton();
+        }
+    }
+
+    /**
+     * Обработчик команды /listingsupdate - обновление объявлений
+     */
+    async handleListingUpdate() {
+        this.addMessage('/listingsupdate', 'user');
+
+        try {
+            // Получаем ID текущей области из URL
+            const urlParams = new URLSearchParams(window.location.search);
+            let areaId = urlParams.get('id');
+            
+            if (!areaId) {
+                // Пробуем получить из DataState если доступен
+                if (window.dataState && window.dataState.getState) {
+                    const currentArea = window.dataState.getState('currentArea');
+                    if (currentArea && currentArea.id) {
+                        areaId = currentArea.id;
+                    }
+                }
+            }
+
+            if (!areaId) {
+                this.addMessage('❌ **Ошибка:** Не удалось определить текущую область. Убедитесь, что вы находитесь на странице области.', 'error');
+                return;
+            }
+
+            // Показываем сообщение о начале процесса
+            this.addMessage('🔄 **Запускаю процесс обновления объявлений...**\n\nИнициализирую систему обновления объявлений для области.', 'ai', {
+                provider: 'system',
+                command: '/listingsupdate'
+            });
+
+            // Получаем сервис обновления объявлений из DIContainer
+            let listingUpdateService;
+            try {
+                if (this.diContainer && typeof this.diContainer.get === 'function') {
+                    try {
+                        const providerFactory = this.diContainer.get('ListingUpdateProviderFactory');
+                        if (providerFactory) {
+                            // Ждем инициализации фабрики, если она еще не готова
+                            let attempts = 0;
+                            while (!providerFactory.initialized && attempts < 50) { // до 5 секунд ожидания
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                                attempts++;
+                            }
+                            
+                            if (providerFactory.initialized) {
+                                listingUpdateService = providerFactory.getProvider('cian');
+                            }
+                        }
+                    } catch (diError) {
+                        console.warn('⚠️ Не удалось получить сервис из DIContainer:', diError.message);
+                    }
+                }
+
+                // Fallback: пытаемся создать сервис напрямую
+                if (!listingUpdateService && typeof window.CianListingUpdateService !== 'undefined') {
+                    listingUpdateService = new window.CianListingUpdateService();
+                    await listingUpdateService.initialize({
+                        db: window.db,
+                        progressManager: window.progressManager,
+                        parsingManager: window.parsingManager
+                    });
+                }
+
+                if (!listingUpdateService) {
+                    throw new Error('Сервис обновления объявлений недоступен');
+                }
+
+            } catch (serviceError) {
+                this.addMessage(`❌ **Ошибка инициализации:** ${serviceError.message}`, 'error');
+                return;
+            }
+
+            // Настраиваем callback для прогресса
+            let lastProgressMessage = null;
+            listingUpdateService.setProgressCallback((progressData) => {
+                const { current, total, progress, message, stats } = progressData;
+                
+                const progressText = `🔄 **Прогресс обновления:** ${progress}%\n\n` +
+                    `📊 **Статистика:**\n` +
+                    `• Обработано: ${current}/${total}\n` +
+                    `• Обновлено: ${stats.updated}\n` +
+                    `• Ошибок: ${stats.failed}\n\n` +
+                    `💬 **Статус:** ${message}`;
+
+                // Обновляем последнее сообщение о прогрессе или создаем новое
+                if (lastProgressMessage) {
+                    this.updateMessage(lastProgressMessage, progressText);
+                } else {
+                    lastProgressMessage = this.addMessage(progressText, 'ai', {
+                        provider: 'system',
+                        command: '/listingsupdate',
+                        progress: true
+                    });
+                }
+            });
+
+            // Запускаем обновление объявлений
+            const result = await listingUpdateService.updateListingsByArea(areaId, {
+                source: 'cian',
+                maxAgeDays: 7,
+                batchSize: 5
+            });
+
+            // Отображаем результат
+            if (result.success) {
+                const stats = result.stats;
+                const duration = stats.duration ? Math.round(stats.duration / 1000) : 0;
+                
+                const resultText = `✅ **Обновление завершено успешно!**\n\n` +
+                    `📊 **Итоговая статистика:**\n` +
+                    `• Всего обработано: ${stats.total} объявлений\n` +
+                    `• Успешно обновлено: ${stats.updated}\n` +
+                    `• Ошибок: ${stats.failed}\n` +
+                    `• Пропущено: ${stats.skipped}\n` +
+                    `• Время выполнения: ${duration} секунд\n\n` +
+                    `💡 **Результат:** ${result.message}`;
+
+                this.addMessage(resultText, 'ai', {
+                    provider: 'cian-update',
+                    command: '/listingsupdate',
+                    stats: stats
+                });
+
+            } else {
+                this.addMessage(`❌ **Ошибка обновления:** ${result.message}\n\n` +
+                    (result.stats ? `📊 **Частичные результаты:**\n` +
+                    `• Обновлено: ${result.stats.updated}\n` +
+                    `• Ошибок: ${result.stats.failed}` : ''), 'error');
+            }
+
+        } catch (error) {
+            console.error('❌ Ошибка команды /listingsupdate:', error);
+            this.addMessage(`❌ **Критическая ошибка:** ${error.message}\n\n` +
+                'Проверьте консоль для получения подробной информации.', 'error');
         }
     }
 
@@ -1038,6 +1254,576 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
             provider: 'help',
             command: '/help'
         });
+    }
+
+    /**
+     * Обработчик команды определения адресов
+     */
+    async handleIdentifyAddresses() {
+        this.addMessage('/identifyaddresses', 'user');
+        let progressMessage = null;
+
+        try {
+            // Проверяем наличие зависимостей
+            if (!window.addressManager || !window.smartAddressMatcher) {
+                this.addMessage('❌ **Ошибка**: Сервисы определения адресов не инициализированы', 'ai', {
+                    provider: 'system',
+                    command: '/identifyaddresses'
+                });
+                return;
+            }
+
+            // ЭТАП 1: ML-алгоритм
+            progressMessage = this.addMessage('🧠 **Запускаю ML-алгоритм для определения адресов...**', 'ai', {
+                provider: 'system',
+                command: '/identifyaddresses'
+            });
+
+            const mlResult = await this.runMLAddressIdentification(progressMessage);
+            this.updateMessage(progressMessage, mlResult.message, {
+                provider: 'system'
+            });
+
+            // ЭТАП 2: AI-валидация определённых адресов (строгая проверка)
+            if (mlResult.matched > 0) {
+                this.addMessage('🔍 **AI-валидация точности определённых адресов...**', 'ai', {
+                    provider: 'system',
+                    command: '/identifyaddresses'
+                });
+
+                const validationResult = await this.runAddressValidation();
+                this.addMessage(validationResult.message, 'ai', {
+                    provider: 'system',
+                    command: '/identifyaddresses'
+                });
+            }
+
+            // ЭТАП 3: AI-определение для необработанных объявлений (включая сброшенные на этапе 2)
+            this.addMessage('🤖 **AI-определение адресов для необработанных объявлений...**', 'ai', {
+                provider: 'system',
+                command: '/identifyaddresses'
+            });
+
+            const aiResult = await this.runAIAddressIdentification();
+            this.addMessage(aiResult.message, 'ai', {
+                provider: 'system',
+                command: '/identifyaddresses'
+            });
+
+            // Итоговое сообщение
+            this.addMessage('🎉 **Определение адресов завершено!**', 'ai', {
+                provider: 'system',
+                command: '/identifyaddresses'
+            });
+
+        } catch (error) {
+            console.error('Ошибка при выполнении определения адресов:', error);
+            this.addMessage(`❌ **Критическая ошибка**: ${error.message}`, 'ai', {
+                provider: 'system',
+                command: '/identifyaddresses'
+            });
+        }
+    }
+
+    /**
+     * Запуск ML-алгоритма определения адресов
+     */
+    async runMLAddressIdentification(progressMessage) {
+        try {
+            // Проверяем доступность менеджеров
+            if (!window.addressManager) {
+                throw new Error('AddressManager не инициализирован');
+            }
+            if (!window.progressManager) {
+                throw new Error('ProgressManager не инициализирован');
+            }
+
+            // Перехватываем методы progressManager для отображения прогресса
+            let result = null;
+            const originalShowSuccess = window.progressManager.showSuccess;
+            const originalUpdateProgressBar = window.progressManager.updateProgressBar;
+            
+            // Перехватываем прогресс и обновляем сообщение в чате
+            window.progressManager.updateProgressBar = (id, progress, message) => {
+                if (progressMessage && message && id === 'addresses') {
+                    // Форматируем сообщение с прогрессом
+                    const progressText = progress ? ` (${Math.round(progress)}%)` : '';
+                    this.updateMessage(progressMessage, `🧠 **ML-алгоритм**: ${message}${progressText}`, {
+                        provider: 'system'
+                    });
+                }
+                originalUpdateProgressBar.call(window.progressManager, id, progress, message);
+            };
+            
+            window.progressManager.showSuccess = (message) => {
+                result = this.parseMLResults(message);
+                originalShowSuccess.call(window.progressManager, message);
+            };
+
+            await window.addressManager.processAddressesSmart();
+            
+            // Восстанавливаем оригинальные методы
+            window.progressManager.showSuccess = originalShowSuccess;
+            window.progressManager.updateProgressBar = originalUpdateProgressBar;
+            
+            return result || {
+                message: '⚠️ **ML-алгоритм завершён, но статистика недоступна**',
+                matched: 0
+            };
+
+        } catch (error) {
+            return {
+                message: `❌ **Ошибка ML-алгоритма**: ${error.message}`,
+                matched: 0
+            };
+        }
+    }
+
+    /**
+     * Запуск AI-определения адресов
+     */
+    async runAIAddressIdentification() {
+        try {
+            // Проверяем доступность необходимых сервисов
+            if (typeof AddressValidationService === 'undefined') {
+                throw new Error('AddressValidationService не загружен');
+            }
+            if (!window.db) {
+                throw new Error('Database не инициализирована');
+            }
+            if (!window.addressManager) {
+                throw new Error('AddressManager не инициализирован');
+            }
+
+            // Создаём и инициализируем AddressValidationService
+            const validationService = new AddressValidationService();
+            await validationService.initialize({
+                db: window.db,
+                addressManager: window.addressManager,
+                smartMatcher: window.smartAddressMatcher,
+                universalAI: this.universalAI
+            });
+
+            // Создаём прогресс-коллбек с обновлением сообщения
+            let progressMessage = null;
+            const progressCallback = async (progress) => {
+                const percent = Math.round((progress.processed / progress.total) * 100);
+                const progressText = `⏳ **Обрабатываю:** ${progress.processed}/${progress.total} (${percent}%) | Найдено: ${progress.found} | Ошибок: ${progress.errors}`;
+                
+                if (progressMessage) {
+                    this.updateMessage(progressMessage, progressText);
+                } else {
+                    progressMessage = this.addMessage(progressText, 'ai', {
+                        provider: 'system',
+                        command: '/identifyaddresses'
+                    });
+                }
+            };
+
+            const result = await validationService.findAddressesWithAI(progressCallback);
+            return {
+                message: result.message,
+                foundByAI: result.stats.foundByAI
+            };
+
+        } catch (error) {
+            return {
+                message: `❌ **Ошибка AI-определения**: ${error.message}`,
+                foundByAI: 0
+            };
+        }
+    }
+
+    /**
+     * Запуск проверки точности адресов
+     */
+    async runAddressValidation() {
+        try {
+            // Проверяем доступность необходимых сервисов
+            if (typeof AddressValidationService === 'undefined') {
+                throw new Error('AddressValidationService не загружен');
+            }
+            if (!window.db) {
+                throw new Error('Database не инициализирована');
+            }
+            if (!window.addressManager) {
+                throw new Error('AddressManager не инициализирован');
+            }
+
+            const validationService = new AddressValidationService();
+            await validationService.initialize({
+                db: window.db,
+                addressManager: window.addressManager,
+                smartMatcher: window.smartAddressMatcher,
+                universalAI: this.universalAI
+            });
+
+            // Создаём прогресс-коллбек для проверки точности с обновлением сообщения
+            let validationProgressMessage = null;
+            const validationProgressCallback = async (progress) => {
+                if (progress.stage === 'analysis') {
+                    const progressText = `🔍 **Анализирую расстояния:** ${progress.processed}/${progress.total} адресов`;
+                    
+                    if (validationProgressMessage) {
+                        this.updateMessage(validationProgressMessage, progressText);
+                    } else {
+                        validationProgressMessage = this.addMessage(progressText, 'ai', {
+                            provider: 'system',
+                            command: '/identifyaddresses'
+                        });
+                    }
+                } else if (progress.stage === 'validation') {
+                    const progressText = `🤖 **AI-проверка адресов:** ${progress.processed}/${progress.total} (${Math.round((progress.processed / progress.total) * 100)}%)`;
+                    
+                    if (validationProgressMessage) {
+                        this.updateMessage(validationProgressMessage, progressText);
+                    } else {
+                        validationProgressMessage = this.addMessage(progressText, 'ai', {
+                            provider: 'system',
+                            command: '/identifyaddresses'
+                        });
+                    }
+                }
+            };
+
+            const result = await validationService.validateAddressAccuracy(validationProgressCallback);
+            return {
+                message: result.message
+            };
+
+        } catch (error) {
+            return {
+                message: `❌ **Ошибка проверки точности**: ${error.message}`
+            };
+        }
+    }
+
+    /**
+     * Парсинг результатов ML-алгоритма из сообщения
+     */
+    parseMLResults(message) {
+        try {
+            // Извлекаем статистику из сообщения ML-алгоритма
+            const processedMatch = message.match(/Обработано:\s*(\d+)/);
+            const matchedMatch = message.match(/Найдены адреса:\s*(\d+)/);
+            const improvedMatch = message.match(/Улучшено:\s*(\d+)/);
+            const perfectMatch = message.match(/Идеальная точность:\s*(\d+)/);
+            const highMatch = message.match(/Высокая точность:\s*(\d+)/);
+            const mediumMatch = message.match(/Средняя точность:\s*(\d+)/);
+            const lowMatch = message.match(/Низкая точность:\s*(\d+)/);
+            const veryLowMatch = message.match(/Очень низкая:\s*(\d+)/);
+            const noMatchMatch = message.match(/Не найдено:\s*(\d+)/);
+
+            const stats = {
+                processed: processedMatch ? parseInt(processedMatch[1]) : 0,
+                matched: matchedMatch ? parseInt(matchedMatch[1]) : 0,
+                improved: improvedMatch ? parseInt(improvedMatch[1]) : 0,
+                perfect: perfectMatch ? parseInt(perfectMatch[1]) : 0,
+                high: highMatch ? parseInt(highMatch[1]) : 0,
+                medium: mediumMatch ? parseInt(mediumMatch[1]) : 0,
+                low: lowMatch ? parseInt(lowMatch[1]) : 0,
+                veryLow: veryLowMatch ? parseInt(veryLowMatch[1]) : 0,
+                noMatch: noMatchMatch ? parseInt(noMatchMatch[1]) : 0
+            };
+
+            const formattedMessage = `🧠 **ML-алгоритм завершён:**
+
+📊 **Обработано:** ${stats.processed} объявлений
+✅ **Найдено адресов:** ${stats.matched}
+📈 **Улучшено:** ${stats.improved}
+
+**По уровням точности:**
+• 🎯 Идеальная: ${stats.perfect}
+• 🟢 Высокая: ${stats.high}  
+• 🟡 Средняя: ${stats.medium}
+• 🟠 Низкая: ${stats.low}
+• 🔴 Очень низкая: ${stats.veryLow}
+• ❌ Не найдено: ${stats.noMatch}`;
+
+            return {
+                message: formattedMessage,
+                matched: stats.matched,
+                noMatch: stats.noMatch
+            };
+
+        } catch (error) {
+            return {
+                message: '✅ **ML-алгоритм завершён** (статистика недоступна)',
+                matched: 0
+            };
+        }
+    }
+
+    /**
+     * Проверка необходимости автоматического обновления объявлений
+     * @param {string|number} areaId - ID области
+     * @param {AIAreaAnalysisService} analysisService - Сервис анализа
+     */
+    async checkAndTriggerAutoUpdate(areaId, analysisService) {
+        try {
+            // Получаем статистику по объявлениям в области
+            const areaData = await analysisService.gatherAreaData(areaId);
+            
+            // Проверяем конфигурацию автообновления
+            const autoUpdateConfig = await this.getAutoUpdateConfig();
+            
+            if (!autoUpdateConfig.enabled) {
+                return; // Автообновление отключено
+            }
+
+            // Вычисляем процент объявлений, требующих обновления
+            const totalListings = areaData.listings.total;
+            const needsUpdate = areaData.listings.needsUpdate || 0;
+            
+            if (totalListings === 0) {
+                return; // Нет объявлений для проверки
+            }
+
+            const updatePercentage = (needsUpdate / totalListings) * 100;
+            const threshold = autoUpdateConfig.threshold || 30; // По умолчанию 30%
+
+            if (updatePercentage >= threshold) {
+                // Показываем предложение об автообновлении
+                const shouldUpdate = await this.askUserForAutoUpdate(needsUpdate, totalListings, updatePercentage);
+                
+                if (shouldUpdate) {
+                    // Добавляем сообщение о запуске автообновления
+                    this.addMessage(`🔄 **Автоматический запуск обновления объявлений**\n\n` +
+                        `Найдено ${needsUpdate} объявлений (${Math.round(updatePercentage)}%) требующих обновления. ` +
+                        `Порог для автозапуска: ${threshold}%.\n\n` +
+                        `Запускаю процесс обновления...`, 'ai', {
+                        provider: 'auto-update',
+                        command: '/analysis'
+                    });
+
+                    // Запускаем обновление объявлений
+                    await this.triggerAutoListingUpdate(areaId);
+                }
+            }
+
+        } catch (error) {
+            console.error('❌ Ошибка проверки автообновления:', error);
+            // Не показываем ошибку пользователю, чтобы не прерывать основной поток
+        }
+    }
+
+    /**
+     * Получение конфигурации автообновления
+     * @returns {Promise<Object>} Конфигурация автообновления
+     */
+    async getAutoUpdateConfig() {
+        try {
+            // Попробуем получить из ConfigService
+            if (this.diContainer && typeof this.diContainer.get === 'function') {
+                try {
+                    const configService = this.diContainer.get('ConfigService');
+                    const config = configService.get('ai.listingUpdate');
+                    if (config) {
+                        return {
+                            enabled: config.autoUpdateEnabled !== false,
+                            threshold: config.autoUpdateThreshold || 30,
+                            confirmBeforeUpdate: config.confirmBeforeAutoUpdate !== false
+                        };
+                    }
+                } catch (diError) {
+                    // Fallback к настройкам по умолчанию
+                }
+            }
+
+            // Настройки по умолчанию
+            return {
+                enabled: true,
+                threshold: 30,
+                confirmBeforeUpdate: true
+            };
+
+        } catch (error) {
+            return {
+                enabled: true,
+                threshold: 30,
+                confirmBeforeUpdate: true
+            };
+        }
+    }
+
+    /**
+     * Запрос подтверждения у пользователя для автообновления
+     * @param {number} needsUpdate - Количество объявлений требующих обновления
+     * @param {number} totalListings - Общее количество объявлений
+     * @param {number} updatePercentage - Процент объявлений требующих обновления
+     * @returns {Promise<boolean>} Подтверждение пользователя
+     */
+    async askUserForAutoUpdate(needsUpdate, totalListings, updatePercentage) {
+        return new Promise((resolve) => {
+            const message = `💡 **Обнаружены объявления, требующие обновления**\n\n` +
+                `📊 **Статистика:**\n` +
+                `• Требуют обновления: ${needsUpdate} из ${totalListings} объявлений\n` +
+                `• Процент устаревших: ${Math.round(updatePercentage)}%\n\n` +
+                `🤖 **Автоматическое обновление**\n` +
+                `Запустить процесс обновления объявлений Cian сейчас?\n\n` +
+                `**Примерное время выполнения:** ${Math.ceil(needsUpdate / 5)} минут`;
+
+            // Создаем интерактивное сообщение с кнопками
+            const messageElement = this.addMessage(message, 'ai', {
+                provider: 'auto-update-prompt',
+                command: '/analysis',
+                interactive: true
+            });
+
+            // Добавляем кнопки для подтверждения
+            const buttonsContainer = document.createElement('div');
+            buttonsContainer.className = 'mt-2 flex space-x-2';
+            
+            const yesButton = document.createElement('button');
+            yesButton.className = 'px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded transition-colors';
+            yesButton.textContent = '✅ Да, обновить';
+            yesButton.onclick = () => {
+                buttonsContainer.remove();
+                this.addMessage('✅ Пользователь подтвердил автоматическое обновление объявлений.', 'ai', {
+                    provider: 'auto-update-confirm',
+                    command: '/analysis'
+                });
+                resolve(true);
+            };
+
+            const noButton = document.createElement('button');
+            noButton.className = 'px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white text-xs rounded transition-colors';
+            noButton.textContent = '❌ Нет, пропустить';
+            noButton.onclick = () => {
+                buttonsContainer.remove();
+                this.addMessage('❌ Пользователь отклонил автоматическое обновление объявлений.', 'ai', {
+                    provider: 'auto-update-decline',
+                    command: '/analysis'
+                });
+                resolve(false);
+            };
+
+            buttonsContainer.appendChild(yesButton);
+            buttonsContainer.appendChild(noButton);
+
+            // Добавляем кнопки к сообщению
+            const messageContent = messageElement.querySelector('.bg-gray-100');
+            if (messageContent) {
+                messageContent.appendChild(buttonsContainer);
+            }
+
+            this.scrollToBottom();
+        });
+    }
+
+    /**
+     * Запуск автоматического обновления объявлений
+     * @param {string|number} areaId - ID области
+     */
+    async triggerAutoListingUpdate(areaId) {
+        try {
+            // Получаем сервис обновления объявлений
+            let listingUpdateService;
+            
+            if (this.diContainer && typeof this.diContainer.get === 'function') {
+                try {
+                    const providerFactory = this.diContainer.get('ListingUpdateProviderFactory');
+                    if (providerFactory) {
+                        // Ждем инициализации фабрики, если она еще не готова
+                        let attempts = 0;
+                        while (!providerFactory.initialized && attempts < 50) { // до 5 секунд ожидания
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            attempts++;
+                        }
+                        
+                        if (providerFactory.initialized) {
+                            listingUpdateService = providerFactory.getProvider('cian');
+                        }
+                    }
+                } catch (diError) {
+                    console.warn('⚠️ Не удалось получить сервис из DIContainer:', diError.message);
+                }
+            }
+
+            // Fallback: создаем сервис напрямую
+            if (!listingUpdateService && typeof window.CianListingUpdateService !== 'undefined') {
+                listingUpdateService = new window.CianListingUpdateService();
+                await listingUpdateService.initialize({
+                    db: window.db,
+                    progressManager: window.progressManager,
+                    parsingManager: window.parsingManager
+                });
+            }
+
+            if (!listingUpdateService) {
+                throw new Error('Сервис обновления объявлений недоступен');
+            }
+
+            // Добавим диагностику
+            try {
+                const testListings = await listingUpdateService.getUpdateableListings(areaId, 7);
+                this.addMessage(`🔍 **Диагностика:** Найдено ${testListings.length} объявлений для обновления\n\n` +
+                    `Если это число 0, проблема в логике фильтрации.`, 'ai', {
+                    provider: 'diagnostic-auto',
+                    command: '/analysis'
+                });
+            } catch (diagError) {
+                this.addMessage(`❌ **Диагностика:** Ошибка при получении списка объявлений: ${diagError.message}`, 'error');
+            }
+
+            // Настраиваем callback для прогресса
+            let lastProgressMessage = null;
+            listingUpdateService.setProgressCallback((progressData) => {
+                const { current, total, progress, message, stats } = progressData;
+                
+                const progressText = `🔄 **Автообновление прогресс:** ${progress}%\n\n` +
+                    `📊 **Статистика:**\n` +
+                    `• Обработано: ${current}/${total}\n` +
+                    `• Обновлено: ${stats.updated}\n` +
+                    `• Ошибок: ${stats.failed}\n\n` +
+                    `💬 **Статус:** ${message}`;
+
+                // Обновляем последнее сообщение о прогрессе или создаем новое
+                if (lastProgressMessage) {
+                    this.updateMessage(lastProgressMessage, progressText);
+                } else {
+                    lastProgressMessage = this.addMessage(progressText, 'ai', {
+                        provider: 'auto-update-progress',
+                        command: '/analysis',
+                        progress: true
+                    });
+                }
+            });
+
+            // Запускаем обновление
+            const result = await listingUpdateService.updateListingsByArea(areaId, {
+                source: 'cian',
+                maxAgeDays: 7,
+                batchSize: 5
+            });
+
+            // Показываем результат автообновления
+            if (result.success) {
+                const stats = result.stats;
+                const duration = stats.duration ? Math.round(stats.duration / 1000) : 0;
+                
+                const resultText = `✅ **Автообновление завершено успешно!**\n\n` +
+                    `📊 **Итоговая статистика:**\n` +
+                    `• Всего обработано: ${stats.total} объявлений\n` +
+                    `• Успешно обновлено: ${stats.updated}\n` +
+                    `• Ошибок: ${stats.failed}\n` +
+                    `• Время выполнения: ${duration} секунд\n\n` +
+                    `💡 **Результат:** ${result.message}\n\n` +
+                    `🔄 Данные в области актуализированы. Рекомендую повторить анализ командой \`/analysis\` для получения обновленной статистики.`;
+
+                this.addMessage(resultText, 'ai', {
+                    provider: 'auto-update-result',
+                    command: '/analysis',
+                    stats: stats
+                });
+            } else {
+                this.addMessage(`❌ **Ошибка автообновления:** ${result.message}`, 'error');
+            }
+
+        } catch (error) {
+            console.error('❌ Ошибка автообновления объявлений:', error);
+            this.addMessage(`❌ **Ошибка автообновления:** ${error.message}`, 'error');
+        }
     }
 
     /**

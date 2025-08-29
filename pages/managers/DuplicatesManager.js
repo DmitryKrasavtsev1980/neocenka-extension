@@ -695,8 +695,8 @@ class DuplicatesManager {
                                 const addressFromDbClass = (isAddressNotFound || (hasLowConfidence && !isManualConfidence)) ? 'text-red-500' : 'text-gray-500';
                                 
                                 return `<div class="text-xs max-w-xs">
-                                    <div class="${addressClass} cursor-pointer clickable-address truncate" data-listing-id="${row.id}">${addressText}</div>
-                                    <div class="${addressFromDbClass} truncate">${addressFromDbText}</div>
+                                    <div class="${addressClass} cursor-pointer clickable-address truncate-left" data-listing-id="${row.id}" title="${addressText}">${addressText}</div>
+                                    <div class="${addressFromDbClass} truncate-left" title="${addressFromDbText}">${addressFromDbText}</div>
                                 </div>`;
                             } else {
                                 // Для объектов показываем только адрес из базы (кликабельный)
@@ -704,7 +704,7 @@ class DuplicatesManager {
                                 const addressClass = addressText === 'Адрес не определен' ? 'text-red-500' : 'text-blue-600 hover:text-blue-800 cursor-pointer';
                                 
                                 return `<div class="text-xs max-w-xs">
-                                    <div class="${addressClass} truncate clickable-object-address" data-object-id="${row.id}">${addressText}</div>
+                                    <div class="${addressClass} truncate-left clickable-object-address" data-object-id="${row.id}" title="${addressText}">${addressText}</div>
                                 </div>`;
                             }
                         }
@@ -781,6 +781,24 @@ class DuplicatesManager {
             }
         });
         
+        // Добавляем CSS стили для обрезки адресов слева
+        if (!document.getElementById('truncate-left-styles')) {
+            const style = document.createElement('style');
+            style.id = 'truncate-left-styles';
+            style.textContent = `
+                .truncate-left {
+                    overflow: hidden;
+                    white-space: nowrap;
+                    direction: rtl;
+                    text-align: left;
+                    text-overflow: ellipsis;
+                }
+                .truncate-left * {
+                    direction: ltr;
+                }
+            `;
+            document.head.appendChild(style);
+        }
         
         } catch (error) {
             // console.error('❌ Ошибка инициализации таблицы дублей:', error);
