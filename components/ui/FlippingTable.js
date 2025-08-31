@@ -858,21 +858,93 @@ class FlippingTable {
      * Создание содержимого с подробным расчётом доходности
      */
     createProfitabilityDetailsContent(profitability, objectData) {
-        // Поддержка новой структуры flippingProfitability и старой profitability
-        let current, target;
-        
-        if (objectData.flippingProfitability && objectData.flippingProfitability.fullData) {
-            // Новая структура с двумя сценариями из сервиса
-            current = objectData.flippingProfitability.fullData.currentPrice;
-            target = objectData.flippingProfitability.fullData.targetPrice;
-        } else if (objectData.flippingProfitability) {
-            // Структура из менеджера
-            current = objectData.flippingProfitability.current;
-            target = objectData.flippingProfitability.target;
+        // ОТЛАДКА: Пересчитываем доходность для дочерней таблицы с выводом в консоль
+        if (window.flippingProfitabilityService && this.profitabilityParameters) {
+            try {
+                const objectForService = {
+                    ...objectData,
+                    currentPrice: objectData.current_price || objectData.price,
+                    area_total: objectData.area_total
+                };
+                
+                // Получаем референсную цену из исходных параметров расчета (точное значение)
+                let referencePricePerMeter;
+                if (objectData.flippingProfitability?.calculationParams?.referencePricePerMeter) {
+                    // Используем точное значение из исходных параметров расчета
+                    referencePricePerMeter = objectData.flippingProfitability.calculationParams.referencePricePerMeter;
+                } else if (objectData.flippingProfitability?.fullData?.currentPrice?.salePrice && objectForService.area_total) {
+                    // Fallback: обратный расчёт из цены продажи (может быть неточным из-за округлений)
+                    referencePricePerMeter = objectData.flippingProfitability.fullData.currentPrice.salePrice / objectForService.area_total;
+                } else {
+                    // Fallback: среднее значение для Новосибирска
+                    referencePricePerMeter = 165000;
+                }
+                
+                // Используем те же параметры, что были в основном расчёте
+                let averageExposureDays = this.profitabilityParameters.averageExposureDays || 90;
+                
+                // Пытаемся получить точное значение из исходных параметров расчета, если они сохранены
+                if (objectData.flippingProfitability?.calculationParams?.averageExposureDays) {
+                    averageExposureDays = objectData.flippingProfitability.calculationParams.averageExposureDays;
+                }
+                
+                const parametersWithReference = {
+                    ...this.profitabilityParameters,
+                    referencePricePerMeter: Math.round(referencePricePerMeter),
+                    averageExposureDays: averageExposureDays
+                };
+                
+                // Отладка: проверяем соответствие параметров
+                if (parametersWithReference.debugTaxCalculation) {
+                    console.log('🔍 ДОЧЕРНЯЯ ТАБЛИЦА: Параметры пересчета', {
+                        referencePricePerMeter: parametersWithReference.referencePricePerMeter,
+                        averageExposureDays: parametersWithReference.averageExposureDays,
+                        originalSalePrice: objectData.flippingProfitability?.fullData?.currentPrice?.salePrice,
+                        area_total: objectForService.area_total,
+                        calculatedSalePrice: parametersWithReference.referencePricePerMeter * objectForService.area_total
+                    });
+                }
+                
+                const debugResult = window.flippingProfitabilityService.calculateBothScenariosForDetails(
+                    objectForService, 
+                    parametersWithReference
+                );
+                
+                // Используем пересчитанные данные с отладкой
+                if (debugResult) {
+                    var current = debugResult.currentPrice;
+                    var target = debugResult.targetPrice;
+                    // Сохраняем параметры для отображения в таблице
+                    var calculationParams = parametersWithReference;
+                }
+            } catch (error) {
+                console.warn('❌ Ошибка пересчёта для отладки:', error);
+                // Продолжаем с существующими данными
+                var current, target;
+            }
         } else {
-            // Старая структура (обратная совместимость)
-            current = profitability.currentPrice || profitability;
-            target = profitability.targetPrice || null;
+            var current, target, calculationParams;
+        }
+        
+        // Fallback на существующие данные если пересчёт не удался
+        if (!current || !target) {
+            if (objectData.flippingProfitability && objectData.flippingProfitability.fullData) {
+                // Новая структура с двумя сценариями из сервиса
+                current = objectData.flippingProfitability.fullData.currentPrice;
+                target = objectData.flippingProfitability.fullData.targetPrice;
+                // Получаем параметры из сохранённых данных или используем текущие
+                calculationParams = objectData.flippingProfitability.calculationParams || this.profitabilityParameters;
+            } else if (objectData.flippingProfitability) {
+                // Структура из менеджера
+                current = objectData.flippingProfitability.current;
+                target = objectData.flippingProfitability.target;
+                calculationParams = objectData.flippingProfitability.calculationParams || this.profitabilityParameters;
+            } else {
+                // Старая структура (обратная совместимость)
+                current = profitability.currentPrice || profitability;
+                target = profitability.targetPrice || null;
+                calculationParams = this.profitabilityParameters;
+            }
         }
 
         // Скрываем колонку целевой цены если текущая доходность превышает целевую
@@ -911,6 +983,22 @@ class FlippingTable {
             } else {
                 return `${totalDays} дн.`;
             }
+        };
+        
+        const formatTaxType = (taxType) => {
+            const taxNames = {
+                'ip': 'ИП',
+                'individual': 'Физлицо'
+            };
+            return taxNames[taxType] || taxType || 'Неизвестно';
+        };
+        
+        const formatFinancingType = (financing) => {
+            const financingNames = {
+                'mortgage': 'Ипотека',
+                'cash': 'Наличные'
+            };
+            return financingNames[financing] || financing || 'Наличные';
         };
         
         // Проверка наличия данных для текущего сценария
@@ -964,10 +1052,10 @@ class FlippingTable {
                         </thead>
                         <tbody class="bg-white">
                             <tr class="border-t">
-                                <td class="py-2 px-3 font-medium border-r">Покупка</td>
+                                <td class="py-2 px-3 font-medium border-r">Покупка (${formatFinancingType(calculationParams?.financing)})</td>
                                 <td class="py-2 px-3 text-center border-r">
                                     ${this.profitabilityParameters?.financing === 'mortgage' && current.financing && current.financing.downPayment !== undefined && current.financing.interestCosts !== undefined ? 
-                                        `<div class="font-medium">${formatCurrency(objectData.current_price || objectData.currentPrice || objectData.price)} (${formatCurrency(current.financing.downPayment)} + ${formatCurrency(current.financing.interestCosts)} = ${formatCurrency(current.purchasePrice)})</div>`
+                                        `<div class="font-medium">${formatCurrency(objectData.current_price || objectData.currentPrice || objectData.price)} (затраты: ${formatCurrency(current.financing.downPayment)} + ${formatCurrency(current.financing.interestCosts)} = ${formatCurrency(current.financing.downPayment + current.financing.interestCosts)})</div>`
                                         : `<div class="font-medium">${formatCurrency(objectData.current_price || objectData.currentPrice || objectData.price || current.purchasePrice)}</div>`
                                     }
                                 </td>
@@ -976,7 +1064,7 @@ class FlippingTable {
                                     <div class="text-green-600 text-xs">-${target.discount || 0}%</div>
                                     ${this.profitabilityParameters?.financing === 'mortgage' && target.financing && target.financing.downPayment && target.financing.interestCosts ? 
                                         `<div class="text-xs text-gray-600">
-                                            (${formatCurrency(target.financing.downPayment)} + ${formatCurrency(target.financing.interestCosts)} = ${formatCurrency(target.purchasePrice || target.totalCosts)})
+                                            (затраты: ${formatCurrency(target.financing.downPayment)} + ${formatCurrency(target.financing.interestCosts)} = ${formatCurrency(target.financing.downPayment + target.financing.interestCosts)})
                                         </div>` : ''
                                     }
                                 </td>` : ''}
@@ -991,8 +1079,15 @@ class FlippingTable {
                                 <td class="py-2 px-3 text-center border-r">${formatCurrency(current.additionalExpenses)}</td>
                                 ${target ? `<td class="py-2 px-3 text-center">${formatCurrency(target.additionalExpenses)}</td>` : ''}
                             </tr>
+                            ${(calculationParams?.financing === 'cash' && current.cashCosts > 0) ? `
                             <tr class="border-t">
-                                <td class="py-2 px-3 font-medium border-r">Налоги</td>
+                                <td class="py-2 px-3 font-medium border-r">Стоимость денег</td>
+                                <td class="py-2 px-3 text-center border-r">${formatCurrency(current.cashCosts)}</td>
+                                ${target ? `<td class="py-2 px-3 text-center">${formatCurrency(target.cashCosts || 0)}</td>` : ''}
+                            </tr>
+                            ` : ''}
+                            <tr class="border-t">
+                                <td class="py-2 px-3 font-medium border-r">Налоги (${formatTaxType(calculationParams?.taxType)})</td>
                                 <td class="py-2 px-3 text-center border-r">${formatCurrency(current.taxes)}</td>
                                 ${target ? `<td class="py-2 px-3 text-center">${formatCurrency(target.taxes)}</td>` : ''}
                             </tr>

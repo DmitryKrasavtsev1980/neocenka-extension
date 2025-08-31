@@ -111,6 +111,7 @@ class FlippingProfitabilityManager {
             downPayment: 20,
             mortgageRate: 17,
             mortgageTerm: 20,
+            cashCostRate: 0,
             taxType: 'ip',
             renovationSpeed: 1.5,
             averageExposureDays: 90,
@@ -412,7 +413,9 @@ class FlippingProfitabilityManager {
                             fullData: profitabilityData,
                             // Добавляем структуру current/target для совместимости с таблицей
                             current: profitabilityData.currentPrice,
-                            target: profitabilityData.targetPrice
+                            target: profitabilityData.targetPrice,
+                            // Сохраняем исходные параметры расчёта для точного воспроизведения в дочерней таблице
+                            calculationParams: params
                         };
                         
                         // Для совместимости с картой также сохраняем в profitability
@@ -673,6 +676,7 @@ class FlippingProfitabilityManager {
             'flippingDownPayment': 'downPayment',
             'flippingMortgageRate': 'mortgageRate',
             'flippingMortgageTerm': 'mortgageTerm',
+            'flippingCashCostRate': 'cashCostRate',
             'flippingRenovationSpeed': 'renovationSpeed',
             'flippingWorkCost': 'workCost',
             'flippingMaterialsCost': 'materialsCost',
@@ -696,6 +700,20 @@ class FlippingProfitabilityManager {
                 });
             }
         });
+        
+        // Инициализация видимости условных полей на основе значений по умолчанию
+        // this.initializeConditionalFields(); // Временно отключено для диагностики
+    }
+    
+    /**
+     * Инициализация видимости условных полей на основе значений по умолчанию
+     */
+    initializeConditionalFields() {
+        // Инициализируем видимость полей на основе значений по умолчанию
+        this.toggleConditionalFields('participants', this.currentFilters.participants);
+        this.toggleConditionalFields('financing', this.currentFilters.financing);
+        this.toggleConditionalFields('profitSharing', this.currentFilters.profitSharing);
+        this.toggleConditionalFields('renovation', this.currentFilters.renovationType);
     }
 
     /**
@@ -1103,6 +1121,7 @@ class FlippingProfitabilityManager {
      */
     async calculateSubsegmentReferencePrice(subsegment, weights, segmentName = null) {
         try {
+            
             // Сначала фильтруем объекты по сегменту через адреса
             let segmentObjects = this.filteredObjects;
             
@@ -1185,6 +1204,7 @@ class FlippingProfitabilityManager {
                 obj.current_price > 0 &&
                 obj.area_total > 0
             );
+            
             
             if (evaluatedObjects.length === 0) {
                 return {
@@ -1398,7 +1418,7 @@ class FlippingProfitabilityManager {
             cardsContainer.innerHTML = '';
             
             // Пересчитываем счетчики для отфильтрованных объектов
-            const updatedPrices = this.recalculateSubsegmentCounts(this.referencePrices);
+            const updatedPrices = await this.recalculateSubsegmentCounts(this.referencePrices);
             
             // Создаём карточку для каждого подсегмента (асинхронно)
             for (let index = 0; index < updatedPrices.length; index++) {
@@ -1416,7 +1436,7 @@ class FlippingProfitabilityManager {
     /**
      * Пересчёт счетчиков объектов для подсегментов на основе отфильтрованных данных
      */
-    recalculateSubsegmentCounts(referencePrices) {
+    async recalculateSubsegmentCounts(referencePrices) {
         if (!this.filteredObjects || this.filteredObjects.length === 0) {
             // Если нет отфильтрованных объектов, показываем нули
             return referencePrices.map(price => ({
@@ -1429,25 +1449,39 @@ class FlippingProfitabilityManager {
             }));
         }
 
+        // Создаем Map для быстрого доступа к подсегментам по ID
+        const subsegmentsMap = new Map();
+        if (this.reportsManager?.segments) {
+            for (const segment of this.reportsManager.segments) {
+                const subsegments = await this.database.getSubsegmentsBySegment(segment.id);
+                for (const subsegment of subsegments) {
+                    subsegmentsMap.set(subsegment.id, subsegment);
+                }
+            }
+        }
+
         return referencePrices.map(priceData => {
             // ИСПРАВЛЕНО: Используем originalFilteredObjects если есть фильтрация по подсегменту,
             // иначе используем обычные filteredObjects
-            const objectsToFilter = this.originalFilteredObjects || this.filteredObjects;
+            const objectsToFilter = this.filteredObjects; // Используем тот же источник что и в расчете эталонной цены
             
             // Фильтруем объекты для этого подсегмента из полного набора объектов
+            const subsegmentFromDB = subsegmentsMap.get(priceData.id);
             const subsegmentFilteredObjects = objectsToFilter.filter(obj => {
-                // Проверяем соответствие фильтрам подсегмента
-                if (priceData.filters) {
-                    const subsegment = { id: priceData.id, name: priceData.name, filters: priceData.filters };
-                    return this.reportsManager.objectMatchesSubsegment(obj, subsegment);
+                // Используем подсегмент из базы данных с полными фильтрами
+                if (subsegmentFromDB) {
+                    return this.reportsManager.objectMatchesSubsegment(obj, subsegmentFromDB);
                 }
                 return false;
             });
 
-            // Считаем сколько из них имеют оценки доходности
+            // Считаем сколько из них имеют пользовательские оценки (используем тот же источник что и в расчете эталонной цены)
             const evaluatedFilteredObjects = subsegmentFilteredObjects.filter(obj => 
-                obj.profitability && typeof obj.profitability.annualReturn === 'number'
+                obj.status === 'archive' && // Только проданные
+                this.evaluations.has(obj.id) && // Есть оценка в Map
+                ['flipping', 'designer_renovation', 'euro_renovation'].includes(this.evaluations.get(obj.id)) // Подходящие типы оценок
             );
+
 
             return {
                 ...priceData,
@@ -2434,6 +2468,7 @@ class FlippingProfitabilityManager {
             const median = exposureDays.length % 2 === 0 
                 ? Math.round((exposureDays[exposureDays.length / 2 - 1] + exposureDays[exposureDays.length / 2]) / 2)
                 : exposureDays[Math.floor(exposureDays.length / 2)];
+
                 
             const average = Math.round(exposureDays.reduce((sum, days) => sum + days, 0) / exposureDays.length);
             const min = Math.min(...exposureDays);
@@ -2659,6 +2694,20 @@ class FlippingProfitabilityManager {
                         profitSharingSection.classList.remove('show');
                     }
                 }
+                
+                // Управление секцией стоимости денег
+                const cashCostSection = document.getElementById('flippingCashCostSection');
+                if (cashCostSection) {
+                    const financingValue = this.currentFilters?.financing;
+                    // Показываем секцию стоимости денег только при выборе "cash" и участнике "flipper"
+                    if (value === 'flipper' && financingValue === 'cash') {
+                        cashCostSection.classList.remove('hidden');
+                        cashCostSection.classList.add('show');
+                    } else {
+                        cashCostSection.classList.add('hidden');
+                        cashCostSection.classList.remove('show');
+                    }
+                }
                 break;
                 
             case 'profitSharing':
@@ -2681,6 +2730,8 @@ class FlippingProfitabilityManager {
                 
             case 'financing':
                 const mortgageSection = document.getElementById('flippingMortgageSection');
+                const cashCostSectionFinancing = document.getElementById('flippingCashCostSection');
+                
                 if (mortgageSection) {
                     if (value === 'mortgage') {
                         mortgageSection.classList.remove('hidden');
@@ -2688,6 +2739,18 @@ class FlippingProfitabilityManager {
                     } else {
                         mortgageSection.classList.add('hidden');
                         mortgageSection.classList.remove('show');
+                    }
+                }
+                
+                if (cashCostSectionFinancing) {
+                    // Показываем секцию стоимости денег только при выборе "cash" и участнике "flipper"
+                    const participantsValue = this.currentFilters?.participants;
+                    if (value === 'cash' && participantsValue === 'flipper') {
+                        cashCostSectionFinancing.classList.remove('hidden');
+                        cashCostSectionFinancing.classList.add('show');
+                    } else {
+                        cashCostSectionFinancing.classList.add('hidden');
+                        cashCostSectionFinancing.classList.remove('show');
                     }
                 }
                 break;
@@ -4496,6 +4559,9 @@ class FlippingProfitabilityManager {
             downPayment: this.currentFilters.downPayment,
             mortgageRate: this.currentFilters.mortgageRate,
             mortgageTerm: this.currentFilters.mortgageTerm,
+            
+            // Стоимость денег для финансирования наличными
+            cashCostRate: this.currentFilters.cashCostRate || 0,
             
             // Средний срок экспозиции берется из подсегментов при вызове FlippingProfitabilityService
             // В getCurrentFormData не включаем, так как он зависит от конкретного подсегмента

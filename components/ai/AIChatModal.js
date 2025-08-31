@@ -43,13 +43,17 @@ class AIChatModal {
                 description: 'Анализ области - полная статистика по текущей области',
                 handler: this.handleAreaAnalysis.bind(this)
             },
+            '/identifyaddresses': {
+                description: 'Определение адресов - запуск умного алгоритма определения адресов для объявлений',
+                handler: this.handleIdentifyAddresses.bind(this)
+            },
             '/listingsupdate': {
                 description: 'Обновление объявлений - запуск процесса обновления данных',
                 handler: this.handleListingUpdate.bind(this)
             },
-            '/identifyaddresses': {
-                description: 'Определение адресов - запуск умного алгоритма определения адресов для объявлений',
-                handler: this.handleIdentifyAddresses.bind(this)
+            '/processduplicates': {
+                description: 'Обработка дублей - AI-анализ и объединение дубликатов объявлений',
+                handler: this.handleProcessDuplicates.bind(this)
             },
             '/help': {
                 description: 'Помощь - список всех доступных команд',
@@ -57,6 +61,8 @@ class AIChatModal {
             }
         };
         this.showingQuickCommands = false;
+        this.selectedCommandIndex = -1;
+        this.filteredCommands = [];
         
         // DOM элементы
         this.modal = null;
@@ -144,12 +150,60 @@ class AIChatModal {
                         </select>
                     </div>
                     
-                    <button class="text-gray-400 hover:text-gray-600 transition-colors p-0.5" 
-                            data-role="close-button" title="Закрыть">
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
+                    <div class="flex items-center space-x-1">
+                        <!-- Кнопка фильтра -->
+                        <button class="p-1 rounded hover:bg-gray-100 transition-colors" 
+                                data-role="filter-toggle" 
+                                title="Фильтры сегментов">
+                            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.707A1 1 0 013 7V4z"></path>
+                            </svg>
+                        </button>
+                        
+                        <button class="text-gray-400 hover:text-gray-600 transition-colors p-0.5" 
+                                data-role="close-button" title="Закрыть">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Панель фильтров (скрытая по умолчанию) -->
+                <div class="hidden border-b border-gray-200 bg-gray-50 p-2" data-role="filter-panel">
+                    <div class="space-y-2">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <!-- Фильтр сегментов -->
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Сегменты:</label>
+                                <select multiple data-role="segments-filter" class="w-full text-xs">
+                                    <option value="">Загрузка...</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Фильтр подсегментов -->
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Подсегменты:</label>
+                                <select multiple data-role="subsegments-filter" class="w-full text-xs">
+                                    <option value="">Выберите сначала сегменты</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Кнопки управления фильтрами -->
+                        <div class="flex justify-between items-center">
+                            <div class="text-xs text-gray-600">
+                                <span data-role="filter-summary">Все данные</span>
+                            </div>
+                            <div class="space-x-1">
+                                <button class="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded" 
+                                        data-role="clear-filters">Сбросить</button>
+                                <button class="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded" 
+                                        data-role="apply-filters">Применить</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Контейнер чата -->
@@ -242,6 +296,15 @@ class AIChatModal {
         this.contextHint = this.modal.querySelector('[data-role="context-hint"]');
         this.contextDescription = this.modal.querySelector('[data-role="context-description"]');
         this.charCounter = this.modal.querySelector('[data-role="char-counter"]');
+        
+        // Элементы фильтров
+        this.filterToggle = this.modal.querySelector('[data-role="filter-toggle"]');
+        this.filterPanel = this.modal.querySelector('[data-role="filter-panel"]');
+        this.segmentsFilter = this.modal.querySelector('[data-role="segments-filter"]');
+        this.subsegmentsFilter = this.modal.querySelector('[data-role="subsegments-filter"]');
+        this.filterSummary = this.modal.querySelector('[data-role="filter-summary"]');
+        this.clearFiltersBtn = this.modal.querySelector('[data-role="clear-filters"]');
+        this.applyFiltersBtn = this.modal.querySelector('[data-role="apply-filters"]');
 
         this.container.appendChild(this.modal);
     }
@@ -271,18 +334,35 @@ class AIChatModal {
 
         // Enter для отправки, Shift+Enter для новой строки
         this.messageInput.addEventListener('keydown', (e) => {
+            // Обработка навигации по быстрым командам
+            if (this.showingQuickCommands) {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    this.navigateQuickCommands('down');
+                    return;
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    this.navigateQuickCommands('up');
+                    return;
+                } else if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (this.selectedCommandIndex >= 0) {
+                        this.selectQuickCommand(this.selectedCommandIndex);
+                    } else {
+                        this.hideQuickCommands();
+                        this.sendMessage();
+                    }
+                    return;
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this.hideQuickCommands();
+                    return;
+                }
+            }
+            
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                
-                // Если показываем быстрые команды, скрываем их
-                if (this.showingQuickCommands) {
-                    this.hideQuickCommands();
-                }
-                
                 this.sendMessage();
-            } else if (e.key === 'Escape' && this.showingQuickCommands) {
-                e.preventDefault();
-                this.hideQuickCommands();
             }
         });
 
@@ -307,6 +387,9 @@ class AIChatModal {
                 }
             }
         });
+
+        // Обработчики фильтров
+        this.bindFilterEvents();
 
         // ESC для закрытия
         document.addEventListener('keydown', (e) => {
@@ -957,10 +1040,14 @@ class AIChatModal {
             return;
         }
 
+        // Сохраняем отфильтрованные команды и выделяем первую
+        this.filteredCommands = matchingCommands;
+        this.selectedCommandIndex = 0;
+
         // Создаем список команд
-        menu.innerHTML = matchingCommands.map(([cmd, data]) => `
+        menu.innerHTML = matchingCommands.map(([cmd, data], index) => `
             <div class="px-2 py-1 hover:bg-gray-100 cursor-pointer text-xs border-b border-gray-100 last:border-b-0"
-                 data-command="${cmd}">
+                 data-command="${cmd}" data-index="${index}">
                 <div class="font-medium text-blue-600">${cmd}</div>
                 <div class="text-gray-500 text-xs">${data.description}</div>
             </div>
@@ -976,6 +1063,9 @@ class AIChatModal {
 
         menu.classList.remove('hidden');
         this.showingQuickCommands = true;
+        
+        // Подсвечиваем первый элемент
+        this.updateQuickCommandsHighlight(-1, 0);
     }
 
     /**
@@ -987,6 +1077,76 @@ class AIChatModal {
             menu.classList.add('hidden');
         }
         this.showingQuickCommands = false;
+        this.selectedCommandIndex = -1;
+        this.filteredCommands = [];
+    }
+
+    /**
+     * Навигация по быстрым командам с клавиатуры
+     */
+    navigateQuickCommands(direction) {
+        if (!this.showingQuickCommands || this.filteredCommands.length === 0) return;
+
+        const oldIndex = this.selectedCommandIndex;
+
+        if (direction === 'down') {
+            // Не идём ниже последнего элемента
+            this.selectedCommandIndex = Math.min(this.selectedCommandIndex + 1, this.filteredCommands.length - 1);
+        } else if (direction === 'up') {
+            // Не идём выше первого элемента
+            this.selectedCommandIndex = Math.max(this.selectedCommandIndex - 1, 0);
+        }
+
+        // Обновляем подсветку только если индекс изменился
+        if (oldIndex !== this.selectedCommandIndex) {
+            this.updateQuickCommandsHighlight(oldIndex, this.selectedCommandIndex);
+        }
+    }
+
+    /**
+     * Обновление подсветки команд
+     */
+    updateQuickCommandsHighlight(oldIndex, newIndex) {
+        const menu = this.modal.querySelector('[data-role="quick-commands-menu"]');
+        if (!menu) return;
+
+        const items = menu.querySelectorAll('[data-index]');
+        
+        // Убираем подсветку с предыдущего элемента
+        if (oldIndex >= 0 && oldIndex < items.length && items[oldIndex]) {
+            items[oldIndex].classList.remove('bg-blue-50', 'border-blue-200');
+            items[oldIndex].classList.add('hover:bg-gray-100');
+        }
+
+        // Добавляем подсветку к новому элементу
+        if (newIndex >= 0 && items[newIndex]) {
+            items[newIndex].classList.remove('hover:bg-gray-100');
+            items[newIndex].classList.add('bg-blue-50', 'border-blue-200');
+            
+            // Прокручиваем к выбранному элементу
+            items[newIndex].scrollIntoView({
+                block: 'nearest',
+                behavior: 'smooth'
+            });
+        }
+    }
+
+    /**
+     * Выбор команды по индексу
+     */
+    selectQuickCommand(index) {
+        if (index < 0 || index >= this.filteredCommands.length) return;
+
+        const [command] = this.filteredCommands[index];
+        
+        // Устанавливаем команду в поле ввода
+        this.messageInput.value = command;
+        
+        // Скрываем меню
+        this.hideQuickCommands();
+        
+        // Отправляем команду
+        this.sendMessage();
     }
 
     /**
@@ -1189,11 +1349,15 @@ class AIChatModal {
                 }
             });
 
+            // Получаем текущие фильтры
+            const filters = this.getCurrentFilters();
+            
             // Запускаем обновление объявлений
             const result = await listingUpdateService.updateListingsByArea(areaId, {
                 source: 'cian',
                 maxAgeDays: 7,
-                batchSize: 5
+                batchSize: 5,
+                filters: filters
             });
 
             // Отображаем результат
@@ -1790,11 +1954,15 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
                 }
             });
 
+            // Получаем текущие фильтры  
+            const filters = this.getCurrentFilters();
+            
             // Запускаем обновление
             const result = await listingUpdateService.updateListingsByArea(areaId, {
                 source: 'cian',
                 maxAgeDays: 7,
-                batchSize: 5
+                batchSize: 5,
+                filters: filters
             });
 
             // Показываем результат автообновления
@@ -1829,6 +1997,253 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
     /**
      * Уничтожение компонента
      */
+    /**
+     * Обработчик команды /processduplicates - AI-обработка дублей
+     */
+    async handleProcessDuplicates() {
+        this.addMessage('/processduplicates', 'user');
+
+        try {
+            // Получаем текущую область (несколько способов для надежности)
+            let currentArea = null;
+            
+            // Способ 1: через this.dataState
+            if (this.dataState) {
+                currentArea = this.dataState.getState?.('currentArea') || this.dataState.currentArea;
+            }
+            
+            // Способ 2: через глобальный window.dataState
+            if (!currentArea && window.dataState) {
+                currentArea = window.dataState.getState?.('currentArea') || window.dataState.currentArea;
+            }
+            
+            // Способ 3: через DIContainer
+            if (!currentArea && window.diContainer) {
+                try {
+                    const dataStateFromDI = window.diContainer.get('DataState');
+                    if (dataStateFromDI) {
+                        currentArea = dataStateFromDI.getState?.('currentArea') || dataStateFromDI.currentArea;
+                    }
+                } catch (error) {
+                    // DIContainer недоступен
+                }
+            }
+            
+            // Способ 4: получить ID области из URL
+            if (!currentArea) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const areaIdFromUrl = urlParams.get('id');
+                
+                if (areaIdFromUrl && window.db) {
+                    try {
+                        currentArea = await window.db.getMapArea(areaIdFromUrl);
+                    } catch (error) {
+                        console.warn('⚠️ [AIDuplicateDetection] Не удалось загрузить область из URL:', error);
+                    }
+                }
+            }
+            
+            if (!currentArea) {
+                throw new Error('Не удалось определить текущую область. Убедитесь что область выбрана.');
+            }
+
+            console.log('✅ [AIDuplicateDetection] Текущая область найдена:', currentArea.name || currentArea.id);
+
+            // Инициализируем AI-сервис обработки дублей
+            if (!this.aiDuplicateService) {
+                // Используем глобально подключенный класс (подключен через script в area.html)
+                if (typeof AIDuplicateDetectionService !== 'undefined') {
+                    this.aiDuplicateService = new AIDuplicateDetectionService();
+                } else {
+                    throw new Error('AIDuplicateDetectionService не найден. Проверьте подключение скрипта.');
+                }
+                
+                await this.aiDuplicateService.init();
+            }
+
+            // Получаем статистику до обработки
+            const filters = this.getCurrentFilters();
+            const preStats = await this.aiDuplicateService.getDuplicateProcessingStats(filters);
+
+            // ДИАГНОСТИЧЕСКИЙ РЕЖИМ: выводим подробную информацию о фильтрации
+            let diagnosticMessage = '🔍 **ДИАГНОСТИКА: Анализ объявлений для обработки дублей**\n\n';
+            
+            // Информация о фильтрах
+            if (filters.segments?.length > 0 || filters.subsegments?.length > 0) {
+                diagnosticMessage += '🎯 **Применяемые фильтры:**\n';
+                if (filters.segments?.length > 0) {
+                    diagnosticMessage += `• Сегменты: ${filters.segments.length} выбрано\n`;
+                }
+                if (filters.subsegments?.length > 0) {
+                    diagnosticMessage += `• Подсегменты: ${filters.subsegments.length} выбрано\n`;
+                }
+                diagnosticMessage += '\n';
+            } else {
+                diagnosticMessage += '🌐 **Фильтры:** Не установлены (обрабатываем всю область)\n\n';
+            }
+
+            // Детальная статистика
+            diagnosticMessage += '📊 **Статистика объявлений:**\n';
+            diagnosticMessage += `• Всего объявлений в области: ${preStats.total}\n`;
+            diagnosticMessage += `• Уже обработано на дубли: ${preStats.processed}\n`;
+            diagnosticMessage += `• **Требуют обработки**: ${preStats.needProcessing}\n`;
+            diagnosticMessage += `• Эффективность обработки: ${preStats.efficiency}%\n\n`;
+
+            if (preStats.needProcessing === 0) {
+                diagnosticMessage += '✅ **Результат:** Все объявления уже обработаны!\n' +
+                    'Нет объявлений требующих анализа дублей.';
+                
+                this.addMessage(diagnosticMessage, 'ai', {
+                    provider: 'duplicate-processing-diagnostic',
+                    command: '/processduplicates'
+                });
+                return;
+            }
+
+            // Получаем дополнительную диагностику по группировке
+            const listingsForProcessing = await this.aiDuplicateService.getListingsForDuplicateProcessing(filters);
+            const addressGroups = await this.aiDuplicateService.groupListingsByAddress(listingsForProcessing);
+            
+            diagnosticMessage += '🏠 **Группировка по адресам:**\n';
+            diagnosticMessage += `• Уникальных адресов: ${addressGroups.size}\n`;
+            diagnosticMessage += `• Объявлений для анализа: ${listingsForProcessing.length}\n\n`;
+
+            // Анализ групп по размеру
+            const groupSizes = Array.from(addressGroups.values()).map(group => group.length);
+            const singleListingGroups = groupSizes.filter(size => size === 1).length;
+            const multipleListingGroups = groupSizes.filter(size => size > 1).length;
+            const maxGroupSize = Math.max(...groupSizes);
+
+            diagnosticMessage += '📈 **Анализ групп:**\n';
+            diagnosticMessage += `• Адресов с 1 объявлением: ${singleListingGroups} (создадим ${singleListingGroups} объектов)\n`;
+            diagnosticMessage += `• Адресов с несколькими объявлениями: ${multipleListingGroups} (требуют AI-анализа)\n`;
+            diagnosticMessage += `• Максимальный размер группы: ${maxGroupSize} объявлений\n\n`;
+
+            diagnosticMessage += '⚠️ **ТЕСТОВЫЙ РЕЖИМ:** Процесс обработки НЕ запускается\n';
+            diagnosticMessage += '📋 Для запуска обработки нужно убрать тестовый режим в коде.';
+
+            this.addMessage(diagnosticMessage, 'ai', {
+                provider: 'duplicate-processing-diagnostic',
+                command: '/processduplicates'
+            });
+
+            // ВРЕМЕННО ОСТАНАВЛИВАЕМ ПРОЦЕСС ДЛЯ ДИАГНОСТИКИ
+            console.log('🔍 [ДИАГНОСТИКА] Статистика фильтрации дублей:', {
+                filters,
+                preStats,
+                addressGroups: addressGroups.size,
+                listingsForProcessing: listingsForProcessing.length,
+                groupSizes,
+                singleListingGroups,
+                multipleListingGroups,
+                maxGroupSize
+            });
+
+            // Находим адрес с максимальным количеством объявлений для тестирования
+            let bestAddressForTesting = null;
+            let currentMaxSize = 0;
+            
+            for (const [addressId, listings] of addressGroups.entries()) {
+                if (listings.length > currentMaxSize) {
+                    currentMaxSize = listings.length;
+                    bestAddressForTesting = addressId;
+                }
+            }
+            
+            console.log(`🎯 [ТЕСТИРОВАНИЕ] Выбран адрес для тестирования с ${currentMaxSize} объявлениями:`, bestAddressForTesting);
+            
+            // Получаем информацию об адресе
+            const address = await db.get('addresses', bestAddressForTesting);
+            const testListings = addressGroups.get(bestAddressForTesting);
+            
+            this.addMessage(`🎯 **Тестирование на одном адресе:**\n\n` +
+                          `📍 **Адрес:** ${address?.full_address || 'Неизвестен'}\n` +
+                          `📊 **Объявлений:** ${testListings.length}\n\n` +
+                          `🚀 Запускаем AI-анализ для этого адреса...`, 'ai', {
+                provider: 'test-single-address',
+                command: '/processduplicates'
+            });
+            
+            // Создаем тестовую группу только с одним адресом
+            const testAddressGroups = new Map();
+            testAddressGroups.set(bestAddressForTesting, testListings);
+
+            let lastProgressMessage = null;
+
+            // Запускаем AI-обработку дублей для тестового адреса
+            const result = await this.aiDuplicateService.processSingleAddressTest(
+                bestAddressForTesting,
+                // Callback для отображения прогресса
+                (progress) => {
+                    let progressText = '';
+                    
+                    switch(progress.stage) {
+                        case 'grouping':
+                            progressText = `🔍 **Анализ объявлений:** ${progress.message}`;
+                            break;
+                        case 'analyzing':  
+                            progressText = `📝 **Группировка:** ${progress.message}`;
+                            break;
+                        case 'processing':
+                            progressText = `🤖 **AI-анализ дубликатов:** ${progress.message}`;
+                            break;
+                        case 'completed':
+                            progressText = `✅ **${progress.message}**`;
+                            break;
+                        default:
+                            progressText = progress.message;
+                    }
+                    
+                    // Добавляем прогресс-бар
+                    if (progress.progress !== undefined) {
+                        const progressBar = '█'.repeat(Math.floor(progress.progress / 5)) + 
+                                          '░'.repeat(20 - Math.floor(progress.progress / 5));
+                        progressText += `\n\n[${progressBar}] ${progress.progress}%`;
+                    }
+
+                    if (lastProgressMessage) {
+                        this.updateMessage(lastProgressMessage, progressText);
+                    } else {
+                        lastProgressMessage = this.addMessage(progressText, 'ai', {
+                            provider: 'system',
+                            command: '/processduplicates',
+                            progress: true
+                        });
+                    }
+                },
+                filters
+            );
+
+            // Получаем финальную статистику
+            const postStats = await this.aiDuplicateService.getDuplicateProcessingStats(filters);
+
+            // Показываем результат
+            const resultText = '✅ **AI-обработка дублей завершена!**\n\n' +
+                `📊 **Результаты обработки:**\n` +
+                `• Проанализировано объявлений: ${result.analyzed}\n` +
+                `• Обработано объявлений: ${result.processed}\n` +
+                `• Создано объектов недвижимости: ${result.merged}\n` +
+                `• Ошибок: ${result.errors}\n\n` +
+                `📈 **Финальная статистика:**\n` +
+                `• Эффективность обработки: ${postStats.efficiency}%\n` +
+                `• Объектов недвижимости: ${postStats.hasObjects}\n` +
+                `• Осталось необработанных: ${postStats.needProcessing}\n\n` +
+                `⏱️ **AI-анализ** обеспечил точное определение дублей\n` +
+                `💡 **Результат:** ${result.merged} объектов недвижимости создано из ${result.processed} объявлений`;
+
+            this.addMessage(resultText, 'ai', {
+                provider: 'duplicate-processing-result', 
+                command: '/processduplicates',
+                stats: result
+            });
+
+        } catch (error) {
+            console.error('❌ Ошибка команды /processduplicates:', error);
+            this.addMessage(`❌ **Ошибка AI-обработки дублей:** ${error.message}\n\n` +
+                'Проверьте консоль для получения подробной информации.', 'error');
+        }
+    }
+
     destroy() {
         // Отписываемся от событий
         this.eventBus.off('ai-chat-open');
@@ -1850,6 +2265,423 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
         this.sendButton = null;
         this.container = null;
         this.diContainer = null;
+    }
+
+    /**
+     * Привязка обработчиков событий фильтров
+     */
+    bindFilterEvents() {
+        // Переключение панели фильтров
+        this.filterToggle.addEventListener('click', () => {
+            this.toggleFilterPanel();
+        });
+
+        // Сброс фильтров
+        this.clearFiltersBtn.addEventListener('click', () => {
+            this.clearFilters();
+        });
+
+        // Применение фильтров
+        this.applyFiltersBtn.addEventListener('click', () => {
+            this.applyFilters();
+        });
+
+        // Инициализация фильтров при первом открытии
+        this.initializeFilters();
+    }
+
+    /**
+     * Переключение панели фильтров
+     */
+    toggleFilterPanel() {
+        const isHidden = this.filterPanel.classList.contains('hidden');
+        if (isHidden) {
+            this.filterPanel.classList.remove('hidden');
+        } else {
+            this.filterPanel.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Инициализация фильтров
+     */
+    async initializeFilters() {
+        this.currentFilters = {
+            segments: [],
+            subsegments: []
+        };
+        
+        // Небольшая задержка для инициализации основных компонентов
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Загружаем данные сегментов и подсегментов
+        await this.loadSegmentsData();
+    }
+
+    /**
+     * Ожидание инициализации DataState
+     */
+    async waitForDataState(maxAttempts = 50, delay = 200) {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            
+            // Проверяем глобальный window.dataState
+            if (window.dataState && (window.dataState.getState('currentArea') || window.dataState.currentArea)) {
+                return true;
+            }
+            
+            // Проверяем DataState через DIContainer
+            try {
+                if (window.diContainer && typeof window.diContainer.get === 'function') {
+                    const dataState = window.diContainer.get('DataState');
+                    if (dataState && (dataState.getState('currentArea') || dataState.currentArea)) {
+                        // Устанавливаем глобальную ссылку для удобства
+                        window.dataState = dataState;
+                        return true;
+                    } else if (dataState) {
+                    }
+                }
+            } catch (error) {
+                // DIContainer ещё не готов
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        console.warn('⚠️ [AIChatModal] Превышено время ожидания DataState с данными');
+        return false;
+    }
+
+    /**
+     * Загрузка данных сегментов и подсегментов
+     */
+    async loadSegmentsData() {
+        try {
+            // Проверяем доступность DB
+            if (!window.db) {
+                console.error('❌ [AIChatModal] База данных недоступна');
+                return;
+            }
+
+            // Получаем текущую область через DataState
+            let currentArea = null;
+            
+            // Пробуем получить через глобальный DataState
+            if (window.dataState) {
+                currentArea = window.dataState.getState('currentArea') || window.dataState.currentArea;
+            }
+            
+            // Если не нашли, пробуем через DIContainer
+            if (!currentArea && window.DIContainer) {
+                try {
+                    // Пробуем разные способы доступа к DIContainer
+                    let dataState = null;
+                    
+                    if (typeof window.DIContainer.get === 'function') {
+                        dataState = window.DIContainer.get('DataState');
+                    } else if (window.DIContainer.instance && typeof window.DIContainer.instance.get === 'function') {
+                        dataState = window.DIContainer.instance.get('DataState');
+                    } else if (window.diContainer && typeof window.diContainer.get === 'function') {
+                        dataState = window.diContainer.get('DataState');
+                    }
+                    
+                    if (dataState && dataState.getState) {
+                        
+                        currentArea = dataState.getState('currentArea') || dataState.currentArea;
+                        
+                        // Устанавливаем глобальную ссылку для последующих обращений
+                        if (!window.dataState) {
+                            window.dataState = dataState;
+                        }
+                    }
+                } catch (error) {
+                    // DIContainer ещё не готов
+                }
+            }
+            
+            // Если currentArea всё ещё null, попробуем получить ID области из URL и загрузить область
+            if (!currentArea) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const areaIdFromUrl = urlParams.get('id');
+                
+                if (areaIdFromUrl) {
+                    try {
+                        currentArea = await window.db.getMapArea(areaIdFromUrl);
+                    } catch (error) {
+                        console.error('❌ [AIChatModal] Ошибка загрузки области из БД:', error);
+                    }
+                }
+            }
+            
+            if (!currentArea) {
+                console.warn('⚠️ [AIChatModal] Текущая область не найдена. Фильтры будут недоступны.');
+                return;
+            }
+
+            // Загружаем сегменты для текущей области
+            const areaSegments = await window.db.getSegmentsByMapArea(currentArea.id);
+
+            // Загружаем подсегменты для всех сегментов области
+            const allSubsegments = [];
+            for (const segment of areaSegments) {
+                const subsegments = await window.db.getSubsegmentsBySegment(segment.id);
+                allSubsegments.push(...subsegments);
+            }
+
+            // Инициализируем SlimSelect для сегментов
+            this.initializeSegmentsSelect(areaSegments);
+
+            // Сохраняем данные для дальнейшего использования
+            this.segmentsData = areaSegments;
+            this.subsegmentsData = allSubsegments;
+
+        } catch (error) {
+            console.error('❌ [AIChatModal] Ошибка загрузки данных сегментов:', error);
+        }
+    }
+
+    /**
+     * Инициализация SlimSelect для сегментов
+     */
+    initializeSegmentsSelect(segments) {
+        // Проверяем наличие элемента
+        if (!this.segmentsFilter) {
+            console.error('❌ [AIChatModal] Элемент segmentsFilter не найден!');
+            return;
+        }
+        
+        // Очищаем текущие опции
+        this.segmentsFilter.innerHTML = '';
+
+        if (segments.length === 0) {
+            this.segmentsFilter.innerHTML = '<option value="">Нет сегментов в области</option>';
+            return;
+        }
+        
+        // Добавляем опции сегментов
+        segments.forEach((segment) => {
+            const option = document.createElement('option');
+            option.value = segment.id;
+            option.textContent = segment.name;
+            this.segmentsFilter.appendChild(option);
+        });
+
+        // Инициализируем SlimSelect для сегментов
+        if (this.segmentsSlimSelect) {
+            this.segmentsSlimSelect.destroy();
+        }
+        this.segmentsSlimSelect = new SlimSelect({
+            select: this.segmentsFilter,
+            settings: {
+                placeholderText: 'Выберите сегменты',
+                searchText: 'Поиск...',
+                searchPlaceholder: 'Поиск сегментов',
+                hideSelectedOption: true
+            },
+            events: {
+                afterChange: (newVal) => {
+                    this.onSegmentsChange(newVal);
+                }
+            }
+        });
+    }
+
+    /**
+     * Обработчик изменения выбранных сегментов
+     */
+    onSegmentsChange(newVal) {
+        // SlimSelect может передавать разные форматы данных
+        let selectedSegmentIds = [];
+        
+        if (Array.isArray(newVal)) {
+            // Если это массив, извлекаем значения
+            selectedSegmentIds = newVal.map(item => {
+                if (typeof item === 'string') {
+                    return item;
+                } else if (item && item.value) {
+                    return item.value;
+                } else if (item && item.text) {
+                    return item.value || item.text;
+                }
+                return String(item);
+            }).filter(Boolean);
+        } else if (newVal && typeof newVal === 'object' && newVal.value) {
+            // Если это один объект
+            selectedSegmentIds = [newVal.value];
+        } else if (typeof newVal === 'string') {
+            // Если это строка
+            selectedSegmentIds = [newVal];
+        }
+        
+        // Обновляем список подсегментов в зависимости от выбранных сегментов
+        this.updateSubsegmentsFilter(selectedSegmentIds);
+        this.updateFilterSummary();
+    }
+
+    /**
+     * Обновление фильтра подсегментов
+     */
+    updateSubsegmentsFilter(selectedSegmentIds) {
+        // Очищаем текущие опции подсегментов
+        this.subsegmentsFilter.innerHTML = '';
+
+        if (selectedSegmentIds.length === 0) {
+            this.subsegmentsFilter.innerHTML = '<option value="">Выберите сначала сегменты</option>';
+            if (this.subsegmentsSlimSelect) {
+                this.subsegmentsSlimSelect.destroy();
+                this.subsegmentsSlimSelect = null;
+            }
+            return;
+        }
+
+        // Получаем подсегменты для выбранных сегментов
+        const filteredSubsegments = this.subsegmentsData.filter(subsegment => 
+            selectedSegmentIds.includes(subsegment.segment_id)
+        );
+
+        if (filteredSubsegments.length === 0) {
+            this.subsegmentsFilter.innerHTML = '<option value="">Нет подсегментов для выбранных сегментов</option>';
+            if (this.subsegmentsSlimSelect) {
+                this.subsegmentsSlimSelect.destroy();
+                this.subsegmentsSlimSelect = null;
+            }
+            return;
+        }
+
+        // Группируем подсегменты по сегментам для optgroup
+        const groupedSubsegments = this.groupSubsegmentsBySegments(filteredSubsegments, selectedSegmentIds);
+
+        // Создаем HTML с optgroup
+        this.subsegmentsFilter.innerHTML = this.buildSubsegmentsHTML(groupedSubsegments);
+
+        // Инициализируем SlimSelect для подсегментов
+        if (this.subsegmentsSlimSelect) {
+            this.subsegmentsSlimSelect.destroy();
+        }
+
+        this.subsegmentsSlimSelect = new SlimSelect({
+            select: this.subsegmentsFilter,
+            settings: {
+                placeholderText: 'Выберите подсегменты',
+                searchText: 'Поиск...',
+                searchPlaceholder: 'Поиск подсегментов',
+                hideSelectedOption: true
+            },
+            events: {
+                afterChange: () => {
+                    this.updateFilterSummary();
+                }
+            }
+        });
+    }
+
+    /**
+     * Группировка подсегментов по сегментам
+     */
+    groupSubsegmentsBySegments(subsegments, selectedSegmentIds) {
+        const groups = {};
+        
+        selectedSegmentIds.forEach(segmentId => {
+            const segment = this.segmentsData.find(s => s.id === segmentId);
+            const segmentSubsegments = subsegments.filter(sub => sub.segment_id === segmentId);
+            
+            if (segmentSubsegments.length > 0) {
+                groups[segmentId] = {
+                    name: segment ? segment.name : 'Неизвестный сегмент',
+                    subsegments: segmentSubsegments
+                };
+            }
+        });
+
+        return groups;
+    }
+
+    /**
+     * Построение HTML для подсегментов с группировкой
+     */
+    buildSubsegmentsHTML(groupedSubsegments) {
+        let html = '';
+        
+        Object.entries(groupedSubsegments).forEach(([segmentId, group]) => {
+            html += `<optgroup label="${group.name}">`;
+            group.subsegments.forEach(subsegment => {
+                html += `<option value="${subsegment.id}">${subsegment.name}</option>`;
+            });
+            html += '</optgroup>';
+        });
+
+        return html;
+    }
+
+    /**
+     * Обновление сводки фильтров
+     */
+    updateFilterSummary() {
+        const selectedSegments = this.segmentsSlimSelect ? this.segmentsSlimSelect.getSelected() : [];
+        const selectedSubsegments = this.subsegmentsSlimSelect ? this.subsegmentsSlimSelect.getSelected() : [];
+
+        let summary = 'Все данные';
+        
+        if (selectedSegments.length > 0 || selectedSubsegments.length > 0) {
+            const parts = [];
+            if (selectedSegments.length > 0) {
+                parts.push(`Сегменты: ${selectedSegments.length}`);
+            }
+            if (selectedSubsegments.length > 0) {
+                parts.push(`Подсегменты: ${selectedSubsegments.length}`);
+            }
+            summary = parts.join(', ');
+        }
+
+        this.filterSummary.textContent = summary;
+    }
+
+    /**
+     * Сброс всех фильтров
+     */
+    clearFilters() {
+        if (this.segmentsSlimSelect) {
+            this.segmentsSlimSelect.setSelected([]);
+        }
+        if (this.subsegmentsSlimSelect) {
+            this.subsegmentsSlimSelect.setSelected([]);
+        }
+        
+        this.currentFilters = {
+            segments: [],
+            subsegments: []
+        };
+        
+        this.updateFilterSummary();
+    }
+
+    /**
+     * Применение фильтров
+     */
+    applyFilters() {
+        const selectedSegments = this.segmentsSlimSelect ? this.segmentsSlimSelect.getSelected() : [];
+        const selectedSubsegments = this.subsegmentsSlimSelect ? this.subsegmentsSlimSelect.getSelected() : [];
+
+        this.currentFilters = {
+            segments: selectedSegments,
+            subsegments: selectedSubsegments
+        };
+
+        // Скрываем панель фильтров после применения
+        this.filterPanel.classList.add('hidden');
+
+        // Показываем уведомление о применении фильтров
+        const filterCount = selectedSegments.length + selectedSubsegments.length;
+        if (filterCount > 0) {
+            this.addMessage(`🔍 Применены фильтры: ${selectedSegments.length} сегментов, ${selectedSubsegments.length} подсегментов`, 'system');
+        } else {
+            this.addMessage('🔍 Фильтры сброшены, показываются все данные', 'system');
+        }
+    }
+
+    /**
+     * Получение текущих фильтров для использования в AI-командах
+     */
+    getCurrentFilters() {
+        return this.currentFilters || { segments: [], subsegments: [] };
     }
 }
 

@@ -2003,18 +2003,18 @@ class DuplicatesManager {
      */
     async getAddressesForFilter() {
         try {
-            console.log('🔍 [DEBUG] Загружаем адреса для фильтра');
+            // console.log('🔍 [DEBUG] Загружаем адреса для фильтра');
             
             // Получаем все адреса из базы данных
             const allAddresses = await window.db.getAll('addresses');
-            console.log('🔍 [DEBUG] Всего адресов в БД:', allAddresses.length);
+            // console.log('🔍 [DEBUG] Всего адресов в БД:', allAddresses.length);
             
             // Фильтруем только адреса с координатами
             const validAddresses = allAddresses.filter(address => {
                 return address.coordinates && address.coordinates.lat && address.coordinates.lng;
             });
             
-            console.log('🔍 [DEBUG] Адресов с координатами:', validAddresses.length);
+            // console.log('🔍 [DEBUG] Адресов с координатами:', validAddresses.length);
             
             // Сортируем по полному адресу
             validAddresses.sort((a, b) => {

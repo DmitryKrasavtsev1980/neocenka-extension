@@ -43,10 +43,10 @@ class AddressValidationService {
     /**
      * Основной метод - определение адресов через AI
      */
-    async findAddressesWithAI(progressCallback = null) {
+    async findAddressesWithAI(progressCallback = null, filters = null) {
         try {
             // 1. Находим объявления без адресов
-            const unprocessedListings = await this.getUnprocessedListings();
+            const unprocessedListings = await this.getUnprocessedListings(filters);
             
             if (unprocessedListings.length === 0) {
                 return {
@@ -120,10 +120,10 @@ class AddressValidationService {
     /**
      * Проверка точности определенных адресов
      */
-    async validateAddressAccuracy(progressCallback = null) {
+    async validateAddressAccuracy(progressCallback = null, filters = null) {
         try {
             // Находим объявления с distance > 50м
-            const suspiciousListings = await this.getSuspiciousDistanceListings();
+            const suspiciousListings = await this.getSuspiciousDistanceListings(filters);
             
             if (suspiciousListings.length === 0) {
                 return {
@@ -164,7 +164,7 @@ class AddressValidationService {
     /**
      * Получение объявлений без адресов (используем проверенный метод из DuplicatesManager)
      */
-    async getUnprocessedListings() {
+    async getUnprocessedListings(filters = null) {
         // Используем готовый метод для получения объявлений из области
         let listingsInArea = [];
         
@@ -192,6 +192,12 @@ class AddressValidationService {
         
         console.log(`🎯 Найдено ${listingsInArea.length} объявлений в области`);
         
+        // Применяем фильтры сегментов/подсегментов если они заданы
+        if (filters && (filters.segments.length > 0 || filters.subsegments.length > 0)) {
+            listingsInArea = await this.applySegmentFilters(listingsInArea, filters);
+            console.log(`🔍 После применения фильтров: ${listingsInArea.length} объявлений`);
+        }
+        
         // Статистика по статусам обработки
         const aiProcessed = listingsInArea.filter(l => l.address_match_method === 'ai_analysis').length;
         const withoutAddress = listingsInArea.filter(l => !l.address_id).length;
@@ -213,11 +219,73 @@ class AddressValidationService {
         console.log(`🔍 Итого требуют обработки AI: ${needsProcessing.length}`);
         return needsProcessing;
     }
+
+    /**
+     * Применение фильтров сегментов/подсегментов к объявлениям
+     */
+    async applySegmentFilters(listings, filters) {
+        if (!filters || (!filters.segments.length && !filters.subsegments.length)) {
+            return listings;
+        }
+
+        try {
+            // Загружаем объекты недвижимости для получения связи listing -> segment
+            const allRealEstateObjects = await this.db.getAll('real_estate_objects');
+            
+            // Создаем мапу listing_id -> segment_id через объекты недвижимости
+            const listingToSegmentMap = new Map();
+            
+            allRealEstateObjects.forEach(obj => {
+                if (obj.listings && Array.isArray(obj.listings)) {
+                    obj.listings.forEach(listingId => {
+                        listingToSegmentMap.set(listingId, obj.segment_id);
+                    });
+                }
+            });
+
+            // Фильтруем объявления по сегментам/подсегментам
+            const filteredListings = listings.filter(listing => {
+                const segmentId = listingToSegmentMap.get(listing.id);
+                
+                if (!segmentId) {
+                    return false; // Объявление не привязано к сегменту
+                }
+
+                // Проверяем фильтры по сегментам
+                if (filters.segments.length > 0 && filters.segments.includes(segmentId)) {
+                    return true;
+                }
+
+                // Проверяем фильтры по подсегментам
+                if (filters.subsegments.length > 0) {
+                    // Нужно найти подсегмент для данного объявления
+                    const realEstateObj = allRealEstateObjects.find(obj => 
+                        obj.listings && obj.listings.includes(listing.id)
+                    );
+                    
+                    if (realEstateObj && realEstateObj.subsegment_id && 
+                        filters.subsegments.includes(realEstateObj.subsegment_id)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+
+            console.log(`🔍 Фильтр по сегментам/подсегментам: ${listings.length} → ${filteredListings.length} объявлений`);
+            
+            return filteredListings;
+
+        } catch (error) {
+            console.error('❌ Ошибка применения фильтров сегментов:', error);
+            return listings; // В случае ошибки возвращаем оригинальный список
+        }
+    }
     
     /**
      * Получение объявлений с подозрительными расстояниями
      */
-    async getSuspiciousDistanceListings() {
+    async getSuspiciousDistanceListings(filters = null) {
         // Используем готовый метод для получения объявлений из области
         let listingsInArea = [];
         
