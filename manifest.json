@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Neocenka - Анализ рынка недвижимости",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "description": "Расширение для анализа и мониторинга рынка недвижимости",
   "update_url": "https://raw.githubusercontent.com/DmitryKrasavtsev1980/neocenka-extension/main/updates.xml",
 
