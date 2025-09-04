@@ -3043,17 +3043,16 @@ class UIManager {
             const areaId = this.dataState.currentArea.id;
             const currentArea = this.dataState.currentArea;
             
-            // Загружаем статистику из базы данных
+            // 🚀 ОПТИМИЗИРОВАНО: Загружаем статистику из базы данных
             const allAddresses = await window.dataCacheManager.getAll('addresses');
             const addresses = allAddresses.filter(address => address.map_area_id === areaId);
             
-            // Получаем объявления через адреса (связанные объявления)
+            // 🚀 ОПТИМИЗИРОВАНО: Получаем объявления через оптимизированный запрос
             let addressLinkedListingsCount = 0;
             if (addresses.length > 0) {
                 const addressIds = addresses.map(addr => addr.id);
-                const listingsPromises = addressIds.map(id => window.db.getListingsByAddress(id));
-                const listingsArrays = await Promise.all(listingsPromises);
-                addressLinkedListingsCount = listingsArrays.flat().length;
+                const listings = await IndexedQueries.getListingsForAddresses(addressIds);
+                addressLinkedListingsCount = listings.length;
             }
             
             // Получаем объявления из DataState (уже отфильтрованные AddressManager)

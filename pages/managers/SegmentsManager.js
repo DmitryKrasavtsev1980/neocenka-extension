@@ -1388,19 +1388,18 @@ class SegmentsManager {
     }
     
     /**
-     * Получение объявлений для адресов
+     * Получение объявлений для адресов (ОПТИМИЗИРОВАНО)
+     * Использует IndexedQueries вместо getAll + filter
      */
     async getListingsForAddresses(addresses) {
         try {
             const addressIds = addresses.map(addr => addr.id);
-            const allListings = await window.dataCacheManager.getAll('listings');
             
-            return allListings.filter(listing => 
-                addressIds.includes(listing.address_id)
-            );
+            // 🚀 ОПТИМИЗАЦИЯ: Используем IndexedQueries вместо getAll + filter
+            return await IndexedQueries.getListingsForAddresses(addressIds);
             
         } catch (error) {
-            console.error('Error getting listings for addresses:', error);
+            console.error('❌ [SegmentsManager] Ошибка получения объявлений для адресов:', error);
             return [];
         }
     }

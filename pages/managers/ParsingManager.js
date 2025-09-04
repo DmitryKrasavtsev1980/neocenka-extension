@@ -687,7 +687,7 @@ class ParsingManager {
      */
     async getListingsInArea(areaId) {
         try {
-            const allListings = await window.db.getAll('listings');
+            const allListings = await window.dataCacheManager.getAll('listings');
             return allListings.filter(listing => listing.map_area_id === areaId);
         } catch (error) {
             console.error('Ошибка получения объявлений области:', error);

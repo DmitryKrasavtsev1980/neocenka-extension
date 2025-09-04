@@ -1208,7 +1208,7 @@ class AIChatModal {
         // Fallback для тестирования - используем первую доступную область
         if (!areaId) {
             try {
-                const areas = await window.db.getAll('map_areas');
+                const areas = await window.dataCacheManager.getAll('map_areas');
                 if (areas && areas.length > 0) {
                     areaId = areas[0].id;
                     this.addMessage(
@@ -2079,7 +2079,7 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
             try {
                 // Проверяем глобальные объекты
                 if (window.db) {
-                    listings = await window.db.getAll('listings');
+                    listings = await window.dataCacheManager.getAll('listings');
                 } else {
                     console.warn('⚠️ window.db недоступен, используем count = 0');
                     listings = [];
@@ -2093,9 +2093,9 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
             filteredListings = listings;
             
             // Получаем все необходимые данные
-            const allAddresses = await window.db.getAll('addresses');
-            const allSegments = await window.db.getAll('segments');
-            const allSubsegments = await window.db.getAll('subsegments');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
+            const allSegments = await window.dataCacheManager.getAll('segments');
+            const allSubsegments = await window.dataCacheManager.getAll('subsegments');
             
             // Создаем мапу адресов для быстрого поиска
             const addressMap = new Map(allAddresses.map(addr => [addr.id, addr]));
@@ -3031,7 +3031,7 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
             const filters = this.getCurrentFilters();
             
             // Получаем все подсегменты
-            const allSubsegments = await window.db.getAll('subsegments');
+            const allSubsegments = await window.dataCacheManager.getAll('subsegments');
 
             // Фильтруем подсегменты по выбранным в интерфейсе
             let subsegmentsToAnalyze = allSubsegments;
@@ -3061,8 +3061,8 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
             for (const subsegment of subsegmentsToAnalyze) {
                 try {
                     // Получаем объявления подсегмента через фильтрацию
-                    const allListings = await window.db.getAll('listings');
-                    const allAddresses = await window.db.getAll('addresses');
+                    const allListings = await window.dataCacheManager.getAll('listings');
+                    const allAddresses = await window.dataCacheManager.getAll('addresses');
                     const addressMap = new Map(allAddresses.map(addr => [addr.id, addr]));
 
                     // Фильтруем объявления по подсегменту
@@ -3213,11 +3213,11 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
             this.addMessage('🔍 **Анализ качества обработки дубликатов**\n\nАнализирую уже обработанные объекты недвижимости...', 'ai');
 
             // Получаем данные с той же логикой фильтрации что и в processduplicates
-            const allListings = await window.db.getAll('listings');
-            const allAddresses = await window.db.getAll('addresses');
-            const allSegments = await window.db.getAll('segments');
-            const allSubsegments = await window.db.getAll('subsegments');
-            const allObjects = await window.db.getAll('objects');
+            const allListings = await window.dataCacheManager.getAll('listings');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
+            const allSegments = await window.dataCacheManager.getAll('segments');
+            const allSubsegments = await window.dataCacheManager.getAll('subsegments');
+            const allObjects = await window.dataCacheManager.getAll('objects');
 
             // Фильтруем объявления по текущим фильтрам (копируем логику из checkFiltersBeforeProcessing)
             let filteredListings = allListings;
@@ -3451,11 +3451,11 @@ ${Object.entries(this.quickCommands).map(([cmd, data]) =>
     async prepareReferenceData(filters) {
         try {
             // Получаем данные с теми же фильтрами что и в других командах
-            const allListings = await window.db.getAll('listings');
-            const allAddresses = await window.db.getAll('addresses');
-            const allSegments = await window.db.getAll('segments');
-            const allSubsegments = await window.db.getAll('subsegments');
-            const allObjects = await window.db.getAll('objects');
+            const allListings = await window.dataCacheManager.getAll('listings');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
+            const allSegments = await window.dataCacheManager.getAll('segments');
+            const allSubsegments = await window.dataCacheManager.getAll('subsegments');
+            const allObjects = await window.dataCacheManager.getAll('objects');
             
             // Применяем ТУ ЖЕ логику фильтрации что и в handleEvaluateDuplicates
             let filteredListings = allListings;
