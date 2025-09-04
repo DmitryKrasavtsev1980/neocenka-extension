@@ -1,6 +1,6 @@
 {
   "name": "neocenka-extension",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Chrome extension for real estate market analysis",
   "scripts": {
     "build-css": "npx @tailwindcss/cli -i ./libs/tailwind/tailwind.css -o ./libs/tailwind/tailwind.min.css --watch",
