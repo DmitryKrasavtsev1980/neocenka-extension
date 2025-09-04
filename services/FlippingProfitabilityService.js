@@ -36,11 +36,22 @@ class FlippingProfitabilityService {
                 console.log('🔢 FlippingProfitabilityService: Начинаем расчёт для объекта', object.id);
             }
 
+            // Отладка для дочерней таблицы (отключено)
+            // if (params && params.debugTaxCalculation) {
+            //     console.log('🔍 НАЧАЛО РАСЧЁТА:', { ... });
+            // }
+
             // 1. Расчёт продажной цены
             const salePrice = params.referencePricePerMeter * object.area_total;
+            
 
             // 2. Расчёт стоимости ремонта
             const renovationCost = this.calculateRenovationCost(object.area_total, params);
+            
+            // Отладка расчёта ремонта (отключено)
+            // if (params && params.debugTaxCalculation) {
+            //     console.log('🔍 РАСЧЁТ РЕМОНТА:', { ... });
+            // }
 
             // 3. Расчёт срока проекта
             const renovationDays = object.area_total / params.renovationSpeed;
@@ -67,35 +78,46 @@ class FlippingProfitabilityService {
             const totalCosts = financingResult.downPayment + renovationCost + params.additionalExpenses + financingResult.interestCosts;
 
             // 5. Расчёт прибыли до налогов
-            // При ипотеке нужно вычесть сумму кредита, которую нужно вернуть банку
-            const grossProfit = params.financing === 'mortgage' 
-                ? salePrice - totalCosts - financingResult.loanAmount
-                : salePrice - totalCosts;
+            // ИСПРАВЛЕНО: При ипотеке вычитаем полную стоимость покупки + затраты, без двойного списания кредита
+            const actualPurchasePrice = object.currentPrice; // Реальная цена покупки объекта
+            
+            // Рассчитываем стоимость денег для наличного финансирования
+            const cashCosts = this.calculateCashCosts(object.currentPrice, params, totalProjectMonths);
+            
+            const operationalCosts = renovationCost + params.additionalExpenses + financingResult.interestCosts + cashCosts;
+            const grossProfit = salePrice - actualPurchasePrice - operationalCosts;
 
-            // 6. Расчёт налогов
-            const taxes = this.calculateTaxes(object.currentPrice, salePrice, totalCosts, params.taxType, params);
+            // 6. Расчёт налогов - передаем рассчитанную стоимость ремонта, исключаем стоимость денег из налогооблагаемой базы
+            const taxes = this.calculateTaxes(object.currentPrice, salePrice, totalCosts, params.taxType, params, renovationCost, cashCosts);
             const netProfit = grossProfit - taxes;
 
             // 7. Расчёт доходности
-            const roi = (netProfit / totalCosts) * 100;
+            // ИСПРАВЛЕНО: ROI считаем от инвестированного капитала флиппера, а не от общих затрат
+            const investedCapital = params.financing === 'mortgage' 
+                ? financingResult.downPayment + operationalCosts
+                : totalCosts; // При налике используем общие затраты
+            const roi = (netProfit / investedCapital) * 100;
             const annualROI = (roi / totalProjectMonths) * 12;
 
             // 8. Раздел прибыли между участниками
             const profitSharing = this.calculateProfitSharing(netProfit, params);
 
-            // Для строки "Покупка" в дочерней таблице при ипотеке показываем полную стоимость покупки
-            const displayPurchasePrice = params.financing === 'mortgage' 
-                ? financingResult.downPayment + financingResult.interestCosts
-                : object.currentPrice;
+            // ИСПРАВЛЕНО: Показываем полную цену объекта, а затраты флиппера передаем отдельно
+            const displayPurchasePrice = object.currentPrice; // Всегда полная цена объекта
+            const actualFlipperCosts = params.financing === 'mortgage' 
+                ? financingResult.downPayment + financingResult.interestCosts  // Взнос + проценты
+                : object.currentPrice;  // При налике = полная цена
 
             const result = {
                 salePrice,
                 purchasePrice: displayPurchasePrice, // Полная стоимость покупки для отображения
                 actualPurchasePrice: object.currentPrice, // Реальная цена объекта для справки
+                flipperPurchaseCosts: actualFlipperCosts, // Реальные затраты флиппера на покупку
                 renovationCost,
                 additionalExpenses: params.additionalExpenses,
                 financingCosts: financingResult.interestCosts,
-                totalCosts,
+                cashCosts, // Стоимость денег для наличного финансирования
+                totalCosts: investedCapital, // ИСПРАВЛЕНО: показываем инвестированный капитал флиппера
                 grossProfit,
                 taxes,
                 netProfit,
@@ -243,14 +265,55 @@ class FlippingProfitabilityService {
     }
 
     /**
+     * Расчёт стоимости денег для наличного финансирования
+     * @param {number} purchasePrice - цена покупки
+     * @param {Object} params - параметры расчёта
+     * @param {number} projectMonths - длительность проекта в месяцах
+     * @returns {number} стоимость денег
+     */
+    calculateCashCosts(purchasePrice, params, projectMonths) {
+        // Отладочный вывод для диагностики стоимости денег (отключено)
+        // if (params.debugTaxCalculation) {
+        //     console.log('🔍 СТОИМОСТЬ ДЕНЕГ: Проверка параметров', { ... });
+        // }
+        
+        // Стоимость денег применяется только для наличного финансирования
+        if (params.financing !== 'cash' || !params.cashCostRate || params.cashCostRate <= 0) {
+            // if (params.debugTaxCalculation) {
+            //     console.log('🔍 СТОИМОСТЬ ДЕНЕГ: Не применяется', { ... });
+            // }
+            return 0;
+        }
+        
+        // Рассчитываем стоимость денег только от суммы покупки (не включая ремонт и доп.расходы)
+        // Формула: (сумма * процент годовых * месяцы) / 12
+        const cashCosts = (purchasePrice * (params.cashCostRate / 100) * projectMonths) / 12;
+        
+        // if (params.debugTaxCalculation) {
+        //     console.log('🔍 СТОИМОСТЬ ДЕНЕГ: Рассчитано', { ... });
+        // }
+        
+        return cashCosts;
+    }
+
+    /**
      * Расчёт налогов
      * @param {number} purchasePrice - цена покупки
      * @param {number} salePrice - цена продажи
      * @param {number} totalCosts - общие затраты
      * @param {string} taxType - тип налогообложения
+     * @param {Object} params - параметры расчёта
+     * @param {number} calculatedRenovationCost - рассчитанная стоимость ремонта
+     * @param {number} cashCosts - стоимость денег (не включается в налогооблагаемую базу)
      * @returns {number} сумма налогов
      */
-    calculateTaxes(purchasePrice, salePrice, totalCosts, taxType, params) {
+    calculateTaxes(purchasePrice, salePrice, totalCosts, taxType, params, calculatedRenovationCost = 0, cashCosts = 0) {
+        // Отладка только при специальном флаге (отключено)
+        // if (params && params.debugTaxCalculation) {
+        //     console.log('🔍 НАЛОГИ: Тип налогообложения:', taxType, 'Покупка:', purchasePrice, 'Продажа:', salePrice);
+        //     console.log('🔍 СТОИМОСТЬ РЕМОНТА:', { ... });
+        // }
+        
         if (taxType === 'ip') {
             // ИП: 15% с (доходы - расходы)
             // При ипотеке в расходы включаем полную покупную стоимость + ремонт + доп.расходы + проценты
@@ -258,22 +321,41 @@ class FlippingProfitabilityService {
             if (params && params.financing === 'mortgage') {
                 // Полная стоимость объекта + ремонт + доп.расходы + проценты по ипотеке
                 const financingResult = this.calculateFinancingCosts(purchasePrice, params, params.totalProjectDays || 62);
-                deductibleCosts = purchasePrice + (params.renovationCost || 0) + (params.additionalExpenses || 0) + financingResult.interestCosts;
+                const renovationFromParams = calculatedRenovationCost || params.renovationCost || 0;
+                const additionalFromParams = params.additionalExpenses || 0;
+                deductibleCosts = purchasePrice + renovationFromParams + additionalFromParams + financingResult.interestCosts;
+                
+                // Отладка расчёта расходов к вычету для ИП (отключено)
+                // if (params.debugTaxCalculation) {
+                //     console.log('🔍 ИП РАСХОДЫ К ВЫЧЕТУ:', { ... });
+                // }
             } else {
-                deductibleCosts = totalCosts;
+                // При наличном финансировании исключаем стоимость денег из налогооблагаемой базы
+                deductibleCosts = totalCosts - cashCosts;
+                
+                // Отладка для наличного финансирования (отключено)
+                // if (params.debugTaxCalculation) {
+                //     console.log('🔍 ИП НАЛИЧНОЕ РАСХОДЫ К ВЫЧЕТУ:', { ... });
+                // }
             }
             const taxableIncome = salePrice - deductibleCosts;
-            return Math.max(0, taxableIncome * 0.15);
+            const taxAmount = Math.max(0, taxableIncome * 0.15);
+            // if (params && params.debugTaxCalculation) {
+            //     console.log('🔍 ИП: Расходы к вычету:', deductibleCosts, 'Налогооблагаемый доход:', taxableIncome, 'Налог 15%:', taxAmount);
+            // }
+            return taxAmount;
         } else {
             // Физлицо: прогрессивная ставка с разницы покупки/продажи
             const taxableIncome = salePrice - purchasePrice;
             if (taxableIncome <= 0) return 0;
             
-            if (taxableIncome <= 2400000) {
-                return taxableIncome * 0.13;
-            } else {
-                return (2400000 * 0.13) + ((taxableIncome - 2400000) * 0.15);
-            }
+            const taxAmount = taxableIncome <= 2400000 
+                ? taxableIncome * 0.13
+                : (2400000 * 0.13) + ((taxableIncome - 2400000) * 0.15);
+            // if (params && params.debugTaxCalculation) {
+            //     console.log('🔍 ФИЗЛИЦО: Налогооблагаемый доход:', taxableIncome, 'Налог:', taxAmount, 'Ставка:', taxableIncome <= 2400000 ? '13%' : '13%+15%');
+            // }
+            return taxAmount;
         }
     }
 
@@ -316,6 +398,40 @@ class FlippingProfitabilityService {
                 flipperPercent: params.fixedPlusPercentage,
                 remainingProfit: Math.round(remainingProfit)
             };
+        }
+    }
+
+    /**
+     * Расчёт двух вариантов для дочерней таблицы (с отладкой налогов)
+     * @param {Object} object - объект недвижимости
+     * @param {Object} params - параметры расчёта
+     * @returns {Object} результат с двумя вариантами
+     */
+    calculateBothScenariosForDetails(object, params) {
+        try {
+            // Добавляем флаг отладки для дочерней таблицы
+            const paramsWithDebug = { ...params, debugTaxCalculation: true };
+            
+            // Сценарий 1: при текущей цене
+            const currentPriceResult = this.calculateFlippingProfitability(object, paramsWithDebug);
+
+            // Сценарий 2: целевая цена для заданной доходности
+            const targetPrice = this.calculateTargetPrice(object, params.profitabilityPercent, paramsWithDebug);
+            const targetObject = { ...object, currentPrice: targetPrice };
+            const targetPriceResult = this.calculateFlippingProfitability(targetObject, paramsWithDebug);
+
+            return {
+                currentPrice: currentPriceResult,
+                targetPrice: {
+                    ...targetPriceResult,
+                    targetPurchasePrice: targetPrice,
+                    discount: Math.round(((object.currentPrice - targetPrice) / object.currentPrice) * 100)
+                }
+            };
+
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityService: Ошибка расчёта сценариев для дочерней таблицы:', error);
+            throw error;
         }
     }
 

@@ -35,7 +35,10 @@
     "https://88.img.avito.st/*",
     "https://*.img.avito.st/*",
     "https://llm.api.cloud.yandex.net/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://huggingface.co/*",
+    "https://cdn.huggingface.co/*",
+    "https://cdn.jsdelivr.net/*"
   ],
 
   "background": {
@@ -87,14 +90,16 @@
         "assets/*",
         "components/*",
         "data/*",
-        "utils/*"
+        "utils/*",
+        "workers/*",
+        "services/*"
       ],
       "matches": ["<all_urls>"]
     }
   ],
 
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://inpars.ru https://api.inpars.ru https://overpass-api.de https://nominatim.openstreetmap.org https://api.github.com https://github.com https://raw.githubusercontent.com https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st https://llm.api.cloud.yandex.net https://api.anthropic.com; img-src 'self' data: blob: https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st https://*.tile.openstreetmap.org;"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://inpars.ru https://api.inpars.ru https://overpass-api.de https://nominatim.openstreetmap.org https://api.github.com https://github.com https://raw.githubusercontent.com https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st https://llm.api.cloud.yandex.net https://api.anthropic.com https://huggingface.co https://*.huggingface.co https://cdn.huggingface.co https://*.hf.co https://cas-bridge.xethub.hf.co https://cdn.jsdelivr.net; img-src 'self' data: blob: https://cdn-cian.ru https://*.cdn-cian.ru https://*.img.avito.st https://*.tile.openstreetmap.org;"
   },
 
   "options_page": "pages/settings.html"

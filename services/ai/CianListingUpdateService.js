@@ -4,11 +4,9 @@
  * Переиспользует логику из ParsingManager.updateListings()
  */
 
-console.log('📦 [CianUpdate] Скрипт CianListingUpdateService.js загружен');
 
 class CianListingUpdateService extends BaseListingUpdateService {
     constructor(config = {}) {
-        console.log('🏗️ [CianUpdate] Создается экземпляр CianListingUpdateService');
         super(config);
         this.source = 'cian';
         this.supportedSources = ['cian'];
@@ -41,8 +39,8 @@ class CianListingUpdateService extends BaseListingUpdateService {
             // Проверяем debug режим
             this.debugEnabled = await this.isDebugEnabled();
             
-            // Тестируем связь с background script
-            await this.testBackgroundConnection();
+            // Тестируем связь с background script (временно отключено для тестирования фильтрации)
+            // await this.testBackgroundConnection();
             
             this.initialized = true;
         } catch (error) {
@@ -55,7 +53,6 @@ class CianListingUpdateService extends BaseListingUpdateService {
      * Тест связи с background script
      */
     async testBackgroundConnection() {
-        console.log('🔍 [CianUpdate] Тестируем связь с background script...');
         
         return new Promise((resolve) => {
             if (typeof chrome === 'undefined' || !chrome.runtime) {
@@ -73,7 +70,6 @@ class CianListingUpdateService extends BaseListingUpdateService {
                     return;
                 }
                 
-                console.log('✅ [CianUpdate] Background script отвечает:', response);
                 resolve(true);
             });
         });
@@ -117,7 +113,7 @@ class CianListingUpdateService extends BaseListingUpdateService {
             }
 
             // Получаем объявления для обновления
-            const listingsToUpdate = await this.getUpdateableListings(areaId, config.maxAgeDays);
+            const listingsToUpdate = await this.getUpdateableListings(areaId, config.maxAgeDays, config.filters);
             
             if (listingsToUpdate.length === 0) {
                 await this.debugLog('Нет объявлений Cian для обновления в области:', area.name);
@@ -239,14 +235,62 @@ class CianListingUpdateService extends BaseListingUpdateService {
      * @param {number} maxAgeDays - Максимальный возраст в днях
      * @returns {Promise<Array>} Массив объявлений для обновления
      */
-    async getUpdateableListings(areaId, maxAgeDays = null) {
+    async getUpdateableListings(areaId, maxAgeDays = null, filters = null) {
         try {
             const ageDays = maxAgeDays || this.config.maxAgeDays;
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - ageDays);
 
             // Получаем все объявления в области
-            const allListings = await this.getListingsInArea(areaId);
+            let allListings = await this.getListingsInArea(areaId);
+            
+            // Применяем фильтры сегментов/подсегментов если они заданы
+            if (filters && (filters.segments?.length > 0 || filters.subsegments?.length > 0)) {
+                allListings = await this.applySegmentFilters(allListings, filters);
+                await this.debugLog(`После применения фильтров: ${allListings.length} объявлений`);
+            }
+            
+            // Диагностика источников объявлений
+            const sourceStats = {};
+            const ageStats = { 
+                activeNeedsUpdate: 0, 
+                activeFresh: 0, 
+                archiveNeedsUpdate: 0, 
+                archiveTooOld: 0,
+                noDate: 0 
+            };
+            
+            allListings.forEach(listing => {
+                const source = this.detectSourceFromUrl(listing.url);
+                sourceStats[source] = (sourceStats[source] || 0) + 1;
+                
+                if (source === 'cian') {
+                    // Используем поле 'updated' для определения времени последнего обновления на сайте Cian
+                    if (!listing.updated) {
+                        ageStats.noDate++;
+                    } else {
+                        const lastUpdate = new Date(listing.updated);
+                        const now = new Date();
+                        const oneDayAgo = new Date(now.getTime() - (1 * 24 * 60 * 60 * 1000));
+                        const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+
+                        if (listing.status === 'active') {
+                            if (lastUpdate < oneDayAgo) {
+                                ageStats.activeNeedsUpdate++;
+                            } else {
+                                ageStats.activeFresh++;
+                            }
+                        } else {
+                            if (lastUpdate > sevenDaysAgo) {
+                                ageStats.archiveNeedsUpdate++;
+                            } else {
+                                ageStats.archiveTooOld++;
+                            }
+                        }
+                    }
+                }
+            });
+            
             
             // Фильтруем только объявления Cian, которые нуждаются в обновлении
             const cianListings = allListings.filter(listing => {
@@ -256,18 +300,25 @@ class CianListingUpdateService extends BaseListingUpdateService {
                     return false;
                 }
 
-                // Обновляем только активные объявления
-                if (listing.status !== 'active') {
-                    return false;
-                }
+                // Теперь обновляем и активные, и архивные объявления по разной логике
 
-                // Проверяем дату последнего обновления
-                if (!listing.updated_at) {
+                // Проверяем дату последнего обновления на сайте Cian (поле 'updated')
+                if (!listing.updated) {
                     return true; // Если нет даты обновления, обновляем
                 }
 
-                const lastUpdate = new Date(listing.updated_at);
-                return lastUpdate < cutoffDate;
+                const lastUpdate = new Date(listing.updated);
+                const now = new Date();
+                const oneDayAgo = new Date(now.getTime() - (1 * 24 * 60 * 60 * 1000));
+                const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+
+                if (listing.status === 'active') {
+                    // Активные объявления обновляем если updated больше 1 дня назад
+                    return lastUpdate < oneDayAgo;
+                } else {
+                    // Архивные объявления обновляем если updated меньше 7 дней назад
+                    return lastUpdate > sevenDaysAgo;
+                }
             });
 
             if (this.debugEnabled) {
@@ -291,6 +342,23 @@ class CianListingUpdateService extends BaseListingUpdateService {
         try {
             if (this.debugEnabled) {
                 await this.debugLog(`Поиск объявлений в области ${areaId}`);
+            }
+            
+            // Проверяем инициализацию БД (такая же логика, как в applySegmentFilters)
+            if (!this.db || !this.db.db) {
+                console.warn('⚠️ [CianUpdate] БД не инициализирована для getListingsInArea, ожидаем...');
+                
+                for (let attempt = 0; attempt < 25; attempt++) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    if (this.db && this.db.db) {
+                        break;
+                    }
+                }
+                
+                if (!this.db || !this.db.db) {
+                    console.error('❌ [CianUpdate] Время ожидания БД истекло для getListingsInArea');
+                    return [];
+                }
             }
             
             // Используем существующий метод БД для геопространственного поиска
@@ -701,6 +769,214 @@ class CianListingUpdateService extends BaseListingUpdateService {
      */
     getSupportedSources() {
         return this.supportedSources;
+    }
+
+    /**
+     * Применение фильтров сегментов/подсегментов к объявлениям
+     */
+    async applySegmentFilters(listings, filters) {
+        if (!filters || (!filters.segments?.length && !filters.subsegments?.length)) {
+            return listings;
+        }
+
+        try {
+            await this.debugLog(`🔍 Применение фильтров: сегменты=${filters.segments?.length || 0}, подсегменты=${filters.subsegments?.length || 0}`);
+            
+            // Проверяем и ждём инициализации базы данных
+            if (!this.db || !this.db.db) {
+                console.warn('⚠️ [CianUpdate] База данных не инициализирована, ожидаем...');
+                
+                // Ждём инициализации до 5 секунд
+                for (let attempt = 0; attempt < 25; attempt++) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    if (this.db && this.db.db) {
+                        break;
+                    }
+                }
+                
+                // Если всё ещё не инициализирована
+                if (!this.db || !this.db.db) {
+                    console.error('❌ [CianUpdate] Время ожидания инициализации базы данных истекло');
+                    return listings;
+                }
+            }
+            
+            // Загружаем все адреса и сегменты
+            const allAddresses = await this.db.getAll('addresses');
+            const allSegments = await this.db.getAll('segments');
+            const allSubsegments = await this.db.getAll('subsegments');
+            
+            // Создаем мапу address_id для быстрого поиска
+            const addressMap = new Map(allAddresses.map(addr => [addr.id, addr]));
+            
+            // Получаем адреса для выбранных сегментов
+            let allowedAddressIds = new Set();
+            
+            if (filters.segments?.length > 0) {
+                const selectedSegments = allSegments.filter(seg => filters.segments.includes(seg.id));
+                
+                for (const segment of selectedSegments) {
+                    
+                    // Используем фильтры сегмента для поиска адресов (как в segments-functionality.js)
+                    if (segment.filters) {
+                        
+                        const segmentAddresses = allAddresses.filter(address => {
+                            return this.addressMatchesSegmentFilters(address, segment.filters);
+                        });
+                        
+                        segmentAddresses.forEach(addr => allowedAddressIds.add(addr.id));
+                    } else {
+                        allAddresses.forEach(addr => allowedAddressIds.add(addr.id));
+                    }
+                }
+            } else if (filters.subsegments?.length > 0) {
+                // Если выбраны только подсегменты, получаем адреса их родительских сегментов
+                const selectedSubsegments = allSubsegments.filter(sub => filters.subsegments.includes(sub.id));
+                const parentSegmentIds = [...new Set(selectedSubsegments.map(sub => sub.segment_id))];
+                const parentSegments = allSegments.filter(seg => parentSegmentIds.includes(seg.id));
+                
+                for (const segment of parentSegments) {
+                    if (window.GeometryUtils && typeof window.GeometryUtils.getAddressesForSegment === 'function') {
+                        const segmentAddresses = window.GeometryUtils.getAddressesForSegment(allAddresses, segment);
+                        segmentAddresses.forEach(addr => allowedAddressIds.add(addr.id));
+                    } else {
+                        allAddresses.forEach(addr => allowedAddressIds.add(addr.id));
+                        break;
+                    }
+                }
+            }
+
+            // Фильтруем объявления по адресам
+            let filteredListings = listings.filter(listing => {
+                if (!listing.address_id) return false;
+                return allowedAddressIds.has(listing.address_id);
+            });
+            
+
+            // Дополнительная фильтрация по подсегментам
+            if (filters.subsegments?.length > 0) {
+                const selectedSubsegments = allSubsegments.filter(sub => filters.subsegments.includes(sub.id));
+                
+                
+                const beforeSubsegmentCount = filteredListings.length;
+                
+                
+                filteredListings = filteredListings.filter(listing => {
+                    const address = addressMap.get(listing.address_id);
+                    if (!address) return false;
+                    
+                    // Проверяем соответствие объявления фильтрам подсегментов
+                    return selectedSubsegments.some(subsegment => {
+                        return this.listingMatchesSubsegmentFilters(listing, address, subsegment);
+                    });
+                });
+            }
+
+            await this.debugLog(`✅ Фильтрация завершена: ${listings.length} → ${filteredListings.length} объявлений`);
+            return filteredListings;
+
+        } catch (error) {
+            console.error('❌ Ошибка применения фильтров сегментов в CianListingUpdateService:', error);
+            return listings; // В случае ошибки возвращаем оригинальный список
+        }
+    }
+
+    /**
+     * Проверяет соответствие объявления фильтрам подсегмента
+     */
+    listingMatchesSubsegmentFilters(listing, address, subsegment) {
+        if (!subsegment.filters) return true;
+
+        // Проверяем каждый фильтр подсегмента
+        for (const [filterKey, filterValue] of Object.entries(subsegment.filters)) {
+            if (filterValue === null || filterValue === undefined) continue;
+
+            switch (filterKey) {
+                case 'property_type':
+                    if (Array.isArray(filterValue)) {
+                        if (!filterValue.includes(listing.property_type)) return false;
+                    } else {
+                        if (listing.property_type !== filterValue) return false;
+                    }
+                    break;
+                case 'min_price':
+                case 'price_from':
+                    if (!listing.price || listing.price < filterValue) return false;
+                    break;
+                case 'max_price':
+                case 'price_to':
+                    if (!listing.price || listing.price > filterValue) return false;
+                    break;
+                case 'min_area':
+                case 'area_from':
+                    if (!listing.area_total || listing.area_total < filterValue) return false;
+                    break;
+                case 'max_area':
+                case 'area_to':
+                    if (!listing.area_total || listing.area_total > filterValue) return false;
+                    break;
+                case 'floor_from':
+                    if (!listing.floor || listing.floor < filterValue) return false;
+                    break;
+                case 'floor_to':
+                    if (filterValue && (!listing.floor || listing.floor > filterValue)) return false;
+                    break;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Проверка соответствия адреса фильтрам сегмента (скопировано из segments-functionality.js)
+     */
+    addressMatchesSegmentFilters(address, filters) {
+        // Проверяем тип недвижимости
+        if (filters.type && filters.type.length > 0) {
+            if (!filters.type.includes(address.type)) return false;
+        }
+        
+        // Проверяем класс дома
+        if (filters.house_class_id && filters.house_class_id.length > 0) {
+            if (!filters.house_class_id.includes(address.house_class_id)) return false;
+        }
+        
+        // Проверяем серию дома
+        if (filters.house_series_id && filters.house_series_id.length > 0) {
+            if (!filters.house_series_id.includes(address.house_series_id)) return false;
+        }
+        
+        // Проверяем материал стен
+        if (filters.wall_material_id && filters.wall_material_id.length > 0) {
+            if (!filters.wall_material_id.includes(address.wall_material_id)) return false;
+        }
+        
+        // Проверяем материал перекрытий
+        if (filters.ceiling_material_id && filters.ceiling_material_id.length > 0) {
+            if (!filters.ceiling_material_id.includes(address.ceiling_material_id)) return false;
+        }
+        
+        // Проверяем газификацию
+        if (filters.gas_supply && filters.gas_supply.length > 0) {
+            if (!filters.gas_supply.includes(address.gas_supply)) return false;
+        }
+        
+        // Проверяем год постройки (от)
+        if (filters.build_year_from && address.build_year) {
+            if (address.build_year < filters.build_year_from) return false;
+        }
+        
+        // Проверяем год постройки (до)
+        if (filters.build_year_to && address.build_year) {
+            if (address.build_year > filters.build_year_to) return false;
+        }
+        
+        // Проверяем конкретные адреса
+        if (filters.addresses && filters.addresses.length > 0) {
+            if (!filters.addresses.includes(address.id)) return false;
+        }
+        
+        return true;
     }
 }
 

@@ -1998,6 +1998,40 @@ class DuplicatesManager {
     }
     
     /**
+     * Получение адресов для выпадающего списка фильтра
+     * Специально для инициализации фильтра адресов
+     */
+    async getAddressesForFilter() {
+        try {
+            // console.log('🔍 [DEBUG] Загружаем адреса для фильтра');
+            
+            // Получаем все адреса из базы данных
+            const allAddresses = await window.db.getAll('addresses');
+            // console.log('🔍 [DEBUG] Всего адресов в БД:', allAddresses.length);
+            
+            // Фильтруем только адреса с координатами
+            const validAddresses = allAddresses.filter(address => {
+                return address.coordinates && address.coordinates.lat && address.coordinates.lng;
+            });
+            
+            // console.log('🔍 [DEBUG] Адресов с координатами:', validAddresses.length);
+            
+            // Сортируем по полному адресу
+            validAddresses.sort((a, b) => {
+                const addressA = a.full_address || a.address || '';
+                const addressB = b.full_address || b.address || '';
+                return addressA.localeCompare(addressB, 'ru');
+            });
+            
+            return validAddresses;
+            
+        } catch (error) {
+            console.error('❌ Ошибка получения адресов для фильтра:', error);
+            return [];
+        }
+    }
+
+    /**
      * Получение адресов в области (из старой версии)
      */
     async getAddressesInArea() {
@@ -2018,12 +2052,18 @@ class DuplicatesManager {
                 
                 // Используем AddressModel для проверки принадлежности к области
                 if (window.AddressModel) {
-                    const addressModel = new window.AddressModel(address);
-                    return addressModel.belongsToMapArea(currentArea);
+                    try {
+                        const addressModel = new window.AddressModel(address);
+                        return addressModel.belongsToMapArea(currentArea);
+                    } catch (error) {
+                        console.error('❌ Ошибка проверки адреса в области:', error);
+                        return false;
+                    }
                 }
                 
-                // Fallback: простая проверка точки в полигоне
-                return this.isPointInPolygon([address.coordinates.lat, address.coordinates.lng], currentArea.polygon);
+                // Fallback: если AddressModel недоступна, возвращаем все адреса с координатами
+                console.warn('⚠️ AddressModel недоступна, возвращаем все адреса с координатами');
+                return true;
             });
             
             return areaAddresses;
@@ -2045,8 +2085,8 @@ class DuplicatesManager {
                 return;
             }
 
-            // Загружаем адреса в области
-            const addresses = await this.getAddressesInArea();
+            // Загружаем адреса для фильтра
+            const addresses = await this.getAddressesForFilter();
             
             // Очищаем существующие опции (кроме первой "Все адреса")
             while (selectElement.children.length > 1) {

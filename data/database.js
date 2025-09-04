@@ -2331,8 +2331,11 @@ if (typeof window !== 'undefined') {
     
     // Инициализируем базу данных при загрузке
     db.init().then(() => {
+      // console.log('✅ База данных инициализирована успешно');
+      window.dbReady = true;
     }).catch(error => {
-      console.error('Database initialization failed:', error);
+      console.error('❌ Database initialization failed:', error);
+      window.dbReady = false;
     });
   }
 }

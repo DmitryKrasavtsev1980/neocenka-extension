@@ -312,10 +312,9 @@ class SegmentsManager {
             await this.updateAddressSelectionFromFilters();
             
             // Затем обновляем остальное
-            await this.updateSegmentNameFromFilters();
             this.updateSegmentMapWithFilters();
             this.updateAreaDistributionChart();
-            // checkForChanges вызывается внутри updateSegmentNameFromFilters
+            this.checkForChanges();
         };
 
         // Обработчик только для изменений выбора адресов (без автообновления)
@@ -329,10 +328,9 @@ class SegmentsManager {
             this.manualAddressSelection = true;
             
             // Обновляем только карту и график
-            await this.updateSegmentNameFromFilters();
             this.updateSegmentMapWithFilters();
             this.updateAreaDistributionChart();
-            // checkForChanges вызывается внутри updateSegmentNameFromFilters
+            this.checkForChanges();
         };
         
         // Привязываем к изменениям полей фильтров (кроме адресов)
@@ -396,25 +394,6 @@ class SegmentsManager {
         }
     }
     
-    /**
-     * Обновление названия сегмента на основе текущих фильтров
-     */
-    async updateSegmentNameFromFilters() {
-        const form = document.getElementById('segmentForm');
-        const nameInput = document.getElementById('segmentName');
-        if (!form || !nameInput) return;
-        
-        try {
-            const filters = this.getSegmentFormData().filters;
-            const generatedName = await this.generateSegmentName(filters);
-            nameInput.value = generatedName;
-        } catch (error) {
-            console.warn('Ошибка генерации названия сегмента:', error);
-        }
-        
-        // Проверяем есть ли изменения после обновления названия
-        this.checkForChanges();
-    }
     
     /**
      * Проверка наличия изменений в форме
@@ -772,7 +751,7 @@ class SegmentsManager {
                 // Обновляем карту и график
                 this.updateSegmentMapWithFilters();
                 this.updateAreaDistributionChart();
-                await this.updateSegmentNameFromFilters();
+                this.checkForChanges();
 
                 if (this.progressManager) {
                     this.progressManager.showSuccess('Фильтры очищены');
