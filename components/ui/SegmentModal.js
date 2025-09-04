@@ -123,35 +123,56 @@ class SegmentModal {
             });
         }
 
-        // Валидация в реальном времени
+        // Валидация в реальном времени и активация кнопки сохранения
         if (this.formElements.segmentName) {
             this.formElements.segmentName.addEventListener('input', () => {
                 this.validateField('segmentName');
+                this.updateSaveButtonState();
             });
         }
 
-        // Валидация диапазонов
+        // Валидация диапазонов и обновление кнопки сохранения
         if (this.formElements.floorsFrom) {
             this.formElements.floorsFrom.addEventListener('input', () => {
                 this.validateRangeFields('floors');
+                this.updateSaveButtonState();
             });
         }
 
         if (this.formElements.floorsTo) {
             this.formElements.floorsTo.addEventListener('input', () => {
                 this.validateRangeFields('floors');
+                this.updateSaveButtonState();
             });
         }
 
         if (this.formElements.buildYearFrom) {
             this.formElements.buildYearFrom.addEventListener('input', () => {
                 this.validateRangeFields('buildYear');
+                this.updateSaveButtonState();
             });
         }
 
         if (this.formElements.buildYearTo) {
             this.formElements.buildYearTo.addEventListener('input', () => {
                 this.validateRangeFields('buildYear');
+                this.updateSaveButtonState();
+            });
+        }
+
+        // Обновление кнопки при изменении описания
+        if (this.formElements.segmentDescription) {
+            this.formElements.segmentDescription.addEventListener('input', () => {
+                this.updateSaveButtonState();
+            });
+        }
+
+        // Обновление кнопки при изменении чекбоксов типов недвижимости
+        if (this.formElements.propertyTypeCheckboxes) {
+            this.formElements.propertyTypeCheckboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    this.updateSaveButtonState();
+                });
             });
         }
 
@@ -212,6 +233,9 @@ class SegmentModal {
         // Фокус на поле имени
         this.focusNameField();
         
+        // Обновляем состояние кнопки сохранения
+        this.updateSaveButtonState();
+        
         // Уведомляем слушателей
         this.emit('modal:opened', { mode: 'create', mapAreaId });
     }
@@ -228,6 +252,9 @@ class SegmentModal {
         
         this.currentMode = 'edit';
         this.currentSegmentId = segment.id;
+        
+        // Сохраняем исходные данные для сравнения
+        this.originalSegmentData = JSON.parse(JSON.stringify(segment));
         
         // Заполняем форму данными сегмента
         this.fillForm(segment);
@@ -246,6 +273,9 @@ class SegmentModal {
         
         // Фокус на поле имени
         this.focusNameField();
+        
+        // Обновляем состояние кнопки сохранения
+        this.updateSaveButtonState();
         
         // Уведомляем слушателей
         this.emit('modal:opened', { mode: 'edit', segment });
@@ -356,6 +386,17 @@ class SegmentModal {
      * Заполнение формы данными сегмента
      */
     fillForm(segment) {
+        // Заполняем скрытые поля для валидации
+        const segmentIdInput = document.getElementById('segmentId');
+        if (segmentIdInput) {
+            segmentIdInput.value = segment.id || '';
+        }
+
+        const mapAreaIdInput = document.getElementById('segmentMapAreaId');
+        if (mapAreaIdInput) {
+            mapAreaIdInput.value = segment.map_area_id || '';
+        }
+
         // Основные поля
         if (this.formElements.segmentName) {
             this.formElements.segmentName.value = segment.name || '';
@@ -498,6 +539,19 @@ class SegmentModal {
 
         this.clearValidationErrors();
         return true;
+    }
+
+    /**
+     * Тихая валидация формы (без показа ошибок)
+     */
+    validateFormSilent() {
+        const formData = this.getFormData();
+        if (!this.validationService) {
+            // Простая проверка если нет сервиса валидации
+            return formData.name && formData.name.trim().length > 0;
+        }
+        const validationResult = this.validationService.validate('segment', formData);
+        return validationResult.isValid;
     }
 
     /**
@@ -809,6 +863,16 @@ class SegmentModal {
         // Для режима редактирования нужно сравнить с исходными данными
         // Требует сохранения исходного состояния при открытии
         return false;
+    }
+
+    /**
+     * Обновление состояния кнопки сохранения
+     */
+    updateSaveButtonState() {
+        // Используем проверенный Legacy метод для отслеживания изменений
+        if (typeof window !== 'undefined' && window.segmentsManager && typeof window.segmentsManager.checkForChanges === 'function') {
+            window.segmentsManager.checkForChanges();
+        }
     }
 
     /**
