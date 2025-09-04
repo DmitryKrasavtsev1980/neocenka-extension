@@ -353,6 +353,83 @@ class RealEstateObjectManager {
       throw error;
     }
   }
+
+  /**
+   * Добавляет новые объявления к существующему объекту недвижимости
+   * @param {number} existingObjectId - ID существующего объекта недвижимости
+   * @param {Array} newListingIds - Массив ID новых объявлений для добавления
+   * @returns {Promise<Object>} Обновленный объект недвижимости
+   */
+  async addListingsToExistingObject(existingObjectId, newListingIds) {
+    if (!this.initialized) await this.init();
+    
+    if (!existingObjectId || !newListingIds || newListingIds.length === 0) {
+      throw new Error('Не указан ID объекта или список новых объявлений');
+    }
+
+    try {
+      // ИСПРАВЛЕНО: Проверяем что ID является валидным (строка или число)
+      if (!existingObjectId || (typeof existingObjectId !== 'number' && typeof existingObjectId !== 'string')) {
+        throw new Error(`Неверный ID объекта: ${existingObjectId} (тип: ${typeof existingObjectId})`);
+      }
+
+      // Для строковых ID проверяем что это не пустая строка
+      if (typeof existingObjectId === 'string' && existingObjectId.trim() === '') {
+        throw new Error(`Пустой строковый ID объекта`);
+      }
+
+      // Получаем существующий объект
+      const existingObject = await this.databaseManager.get('objects', existingObjectId);
+      if (!existingObject) {
+        throw new Error(`Объект недвижимости с ID ${existingObjectId} не найден`);
+      }
+
+      // Получаем все существующие объявления этого объекта
+      const existingListings = await this.databaseManager.getByIndex('listings', 'object_id', existingObjectId);
+      
+      // Получаем новые объявления для добавления
+      const newListings = [];
+      for (const listingId of newListingIds) {
+        const listing = await this.databaseManager.get('listings', listingId);
+        if (listing) {
+          newListings.push(listing);
+        }
+      }
+
+      if (newListings.length === 0) {
+        throw new Error('Не найдено ни одного нового объявления для добавления');
+      }
+
+      // Объединяем все объявления (существующие + новые)
+      const allListings = [...existingListings, ...newListings];
+
+      // Обновляем объект на основе всех объявлений
+      const objectModel = new RealEstateObjectModel(existingObject);
+      await objectModel.recalculateFromListings(allListings);
+
+      // Сохраняем обновленный объект
+      objectModel.updated_at = new Date();
+      const updatedObject = await this.databaseManager.update('objects', objectModel);
+      
+      // Привязываем новые объявления к объекту и меняем их статус
+      const updatePromises = newListings.map(async (listing) => {
+        listing.object_id = existingObjectId;
+        listing.processing_status = 'processed';
+        listing.updated_at = new Date();
+        return this.databaseManager.updateListing(listing);
+      });
+
+      await Promise.all(updatePromises);
+
+      console.log(`✅ Добавлено ${newListings.length} объявлений к объекту ${existingObjectId}`);
+
+      return updatedObject;
+
+    } catch (error) {
+      console.error(`❌ Ошибка добавления объявлений к объекту ${existingObjectId}:`, error);
+      throw error;
+    }
+  }
 }
 
 // Создаем глобальный экземпляр

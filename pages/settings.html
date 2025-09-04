@@ -245,6 +245,96 @@
             </form>
         </div>
 
+        <!-- Управление Embedding-моделями -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Управление Embedding-моделями</h3>
+                <p class="mt-1 text-sm text-gray-500">Загрузка и управление моделями для AI-анализа дубликатов</p>
+            </div>
+            <div class="p-6">
+                <!-- Статус embedding системы -->
+                <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-blue-800">О системе Embedding-анализа</h3>
+                            <div class="mt-2 text-sm text-blue-700">
+                                <p>Embedding-модели позволяют точнее определять дубликаты объявлений, анализируя семантическое сходство текстов. После загрузки модели кэшируются в браузере и не требуют повторного скачивания.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Список доступных моделей -->
+                <div class="space-y-6" id="embedding-models-list">
+                    <!-- Модели будут загружены динамически -->
+                </div>
+
+                <!-- Статус загруженных моделей -->
+                <div class="mt-8">
+                    <h4 class="text-sm font-medium text-gray-900 mb-4">Статус загруженных моделей</h4>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div id="loaded-models-status" class="space-y-2">
+                            <p class="text-sm text-gray-600">Информация о загруженных моделях появится здесь</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Настройки системы -->
+                <div class="mt-8">
+                    <h4 class="text-sm font-medium text-gray-900 mb-4">Настройки системы</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="defaultEmbeddingModel" class="block text-sm font-medium text-gray-700">
+                                Модель по умолчанию
+                            </label>
+                            <select id="defaultEmbeddingModel" 
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <option value="">Выберите модель</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="embeddingThreshold" class="block text-sm font-medium text-gray-700">
+                                Порог сходства (0.1-0.9)
+                            </label>
+                            <input type="range" id="embeddingThreshold" min="0.1" max="0.9" step="0.05" value="0.75"
+                                   class="mt-1 block w-full">
+                            <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                <span>Менее строгий</span>
+                                <span id="thresholdValue">0.75</span>
+                                <span>Более строгий</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Управление кэшем -->
+                <div class="mt-8">
+                    <h4 class="text-sm font-medium text-gray-900 mb-4">Управление кэшем</h4>
+                    <div class="flex space-x-4">
+                        <button type="button" id="clearEmbeddingCache"
+                                class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                            Очистить кэш моделей
+                        </button>
+                        <button type="button" id="refreshModelsStatus"
+                                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            Обновить статус
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Полный экспорт/импорт базы данных -->
         <div class="mt-8 bg-white shadow rounded-lg">
             <div class="px-6 py-4 border-b border-gray-200">
@@ -995,9 +1085,19 @@
     <!-- AI Settings Initialization -->
     <script src="ai-settings-init.js"></script>
     
+    <!-- Embedding Services -->
+    <script src="../services/ai/EmbeddingModelsRegistry.js"></script>
+    <script src="../services/ai/ModelDownloadService.js"></script>
+    <script src="../services/ai/LocalEmbeddingService.js"></script>
+    <script src="../services/ai/EmbeddingModelManagerWorker.js"></script>
+    <script src="../services/ai/EmbeddingService.js"></script>
+
     <!-- AI Settings Handler -->
     <script src="../utils/ai-setup-helper.js"></script>
     <script src="ai-settings-handler.js"></script>
+
+    <!-- Embedding Models Manager для настроек -->
+    <script src="embedding-models-settings.js"></script>
 
     <script src="settings_script.js"></script>
 
