@@ -308,6 +308,13 @@ class ComparativeAnalysisManager {
             const dateFrom = new Date(this.reportsManager.dateFromFilter?.value || '2023-01-01');
             const dateTo = new Date(this.reportsManager.dateToFilter?.value || new Date().toISOString().split('T')[0]);
             
+            // 🎯 ОПТИМИЗАЦИЯ ПАМЯТИ: Не загружаем объекты, если подсегмент не выбран
+            if (!subsegmentId) {
+                console.log('🎯 [ПАМЯТЬ] Подсегмент не выбран - Objects Grid остается пустым');
+                this.currentObjects = [];
+                return;
+            }
+            
             if (this.debugEnabled) {
                 console.log('🔍 Параметры сравнительного анализа:', {
                     areaId: currentArea.id,
@@ -443,7 +450,13 @@ class ComparativeAnalysisManager {
         }
         
         if (filteredObjects.length === 0) {
-            grid.innerHTML = '<div class="text-center text-gray-500 col-span-4 py-4">Нет объектов для отображения</div>';
+            // Проверяем, выбран ли подсегмент
+            const subsegmentId = this.reportsManager.currentSubsegment?.id;
+            if (!subsegmentId) {
+                grid.innerHTML = '<div class="text-center text-gray-500 col-span-4 py-4">Выберите подсегмент в фильтре отчётов для отображения объектов</div>';
+            } else {
+                grid.innerHTML = '<div class="text-center text-gray-500 col-span-4 py-4">Нет объектов для отображения</div>';
+            }
             return;
         }
         

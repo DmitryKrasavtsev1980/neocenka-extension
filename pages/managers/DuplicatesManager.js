@@ -309,13 +309,17 @@ class DuplicatesManager {
      */
     async onAreaLoaded(area) {
         try {
+            // console.log('🔍 [DEBUG] DuplicatesManager.onAreaLoaded вызван с областью:', area);
+            
+            // Сохраняем текущую область для использования в фильтрах
+            this.currentArea = area;
             
             // Просто инициализируем фильтры - таблица будет инициализирована при получении ADDRESSES_LOADED
             await this.initProcessingFilters();
             
             
         } catch (error) {
-            // console.error('❌ DuplicatesManager: Ошибка при загрузке области:', error);
+            console.error('❌ DuplicatesManager: Ошибка при загрузке области:', error);
         }
     }
     
@@ -2005,25 +2009,41 @@ class DuplicatesManager {
         try {
             // console.log('🔍 [DEBUG] Загружаем адреса для фильтра');
             
-            // Получаем все адреса из базы данных
-            const allAddresses = await window.dataCacheManager.getAll('addresses');
-            // console.log('🔍 [DEBUG] Всего адресов в БД:', allAddresses.length);
+            // 🎯 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ ПАМЯТИ: Загружаем только адреса текущей области
+            const currentArea = this.currentArea || window.dataState?.getState('currentArea');
+            if (!currentArea) {
+                console.warn('⚠️ Текущая область не найдена');
+                return [];
+            }
             
-            // Фильтруем только адреса с координатами
-            const validAddresses = allAddresses.filter(address => {
-                return address.coordinates && address.coordinates.lat && address.coordinates.lng;
+            if (!currentArea.polygon || currentArea.polygon.length < 3) {
+                console.warn('⚠️ Область не имеет полигона для фильтрации адресов, загружаем все адреса');
+                // Fallback: если полигона нет, загружаем все адреса (для совместимости)
+                const allAddresses = await window.dataCacheManager.getAll('addresses');
+                return allAddresses.slice(0, 1000); // Ограничиваем до 1000 для производительности
+            }
+            
+            // Получаем все адреса из кэша
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
+            
+            // 🎯 ФИЛЬТРАЦИЯ АДРЕСОВ ПО ПОЛИГОНУ ОБЛАСТИ
+            const areaAddresses = allAddresses.filter(address => {
+                if (!address.coordinates || !address.coordinates.lat || !address.coordinates.lng) {
+                    return false;
+                }
+                return GeometryUtils.isPointInPolygon(address.coordinates, currentArea.polygon);
             });
             
-            // console.log('🔍 [DEBUG] Адресов с координатами:', validAddresses.length);
+            // console.log(`🎯 [ПАМЯТЬ] Адресов области "${currentArea.name || currentArea.id}": ${areaAddresses.length} из ${allAddresses.length} общих`);
             
             // Сортируем по полному адресу
-            validAddresses.sort((a, b) => {
+            areaAddresses.sort((a, b) => {
                 const addressA = a.full_address || a.address || '';
                 const addressB = b.full_address || b.address || '';
                 return addressA.localeCompare(addressB, 'ru');
             });
             
-            return validAddresses;
+            return areaAddresses;
             
         } catch (error) {
             console.error('❌ Ошибка получения адресов для фильтра:', error);
@@ -2087,6 +2107,7 @@ class DuplicatesManager {
 
             // Загружаем адреса для фильтра
             const addresses = await this.getAddressesForFilter();
+            // console.log(`🔍 [DEBUG] Получено адресов для фильтра: ${addresses.length}`);
             
             // Очищаем существующие опции (кроме первой "Все адреса")
             while (selectElement.children.length > 1) {
@@ -2097,7 +2118,7 @@ class DuplicatesManager {
             addresses.forEach(address => {
                 const option = document.createElement('option');
                 option.value = address.id;
-                option.textContent = address.address;
+                option.textContent = address.full_address || address.address || 'Адрес не указан';
                 selectElement.appendChild(option);
             });
 
