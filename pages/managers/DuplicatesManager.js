@@ -818,7 +818,7 @@ class DuplicatesManager {
         }
 
         try {
-            const allListings = await window.db.getAll('listings');
+            const allListings = await window.dataCacheManager.getAll('listings');
             
             // Фильтрация объявлений с координатами
             const listingsWithCoords = allListings.filter(listing => {
@@ -2006,7 +2006,7 @@ class DuplicatesManager {
             // console.log('🔍 [DEBUG] Загружаем адреса для фильтра');
             
             // Получаем все адреса из базы данных
-            const allAddresses = await window.db.getAll('addresses');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
             // console.log('🔍 [DEBUG] Всего адресов в БД:', allAddresses.length);
             
             // Фильтруем только адреса с координатами
@@ -2042,7 +2042,7 @@ class DuplicatesManager {
             }
             
             // Получаем все адреса из базы данных
-            const allAddresses = await window.db.getAll('addresses');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
             
             // Фильтруем адреса, которые входят в полигон области
             const areaAddresses = allAddresses.filter(address => {
@@ -3732,7 +3732,7 @@ class DuplicatesManager {
     async getListingsForObject(objectId) {
         try {
             // Получаем объявления из базы данных с фильтром по object_id
-            const allListings = await window.db.getAll('listings');
+            const allListings = await window.dataCacheManager.getAll('listings');
             const objectListings = allListings.filter(listing => listing.object_id === objectId);
             
             

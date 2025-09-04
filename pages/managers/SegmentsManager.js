@@ -1085,11 +1085,11 @@ class SegmentsManager {
         try {
             
             // Загружаем данные из базы данных
-            this.houseSeries = await window.db.getAll('house_series') || [];
-            this.houseClasses = await window.db.getAll('house_classes') || [];
-            this.wallMaterials = await window.db.getAll('wall_materials') || [];
-            this.ceilingMaterials = await window.db.getAll('ceiling_materials') || [];
-            this.houseProblems = await window.db.getAll('house_problems') || [];
+            this.houseSeries = await window.dataCacheManager.getAll('house_series') || [];
+            this.houseClasses = await window.dataCacheManager.getAll('house_classes') || [];
+            this.wallMaterials = await window.dataCacheManager.getAll('wall_materials') || [];
+            this.ceilingMaterials = await window.dataCacheManager.getAll('ceiling_materials') || [];
+            this.houseProblems = await window.dataCacheManager.getAll('house_problems') || [];
             
             
             
@@ -1116,7 +1116,7 @@ class SegmentsManager {
                 return;
             }
             
-            const allSegments = await window.db.getAll('segments');
+            const allSegments = await window.dataCacheManager.getAll('segments');
             this.segmentsState.segments = allSegments.filter(segment => 
                 segment.map_area_id === currentArea.id
             );
@@ -1393,7 +1393,7 @@ class SegmentsManager {
     async getListingsForAddresses(addresses) {
         try {
             const addressIds = addresses.map(addr => addr.id);
-            const allListings = await window.db.getAll('listings');
+            const allListings = await window.dataCacheManager.getAll('listings');
             
             return allListings.filter(listing => 
                 addressIds.includes(listing.address_id)
@@ -1571,6 +1571,9 @@ class SegmentsManager {
         
         try {
             await window.db.delete('segments', segmentId);
+            
+            // 🚀 КРИТИЧНО: Инвалидируем кэш после удаления
+            window.dataCacheManager.invalidate('segments');
             
             // Обновляем данные
             await this.loadSegments();
@@ -1789,6 +1792,9 @@ class SegmentsManager {
                 
                 await window.db.update('segments', segment);
                 
+                // 🚀 КРИТИЧНО: Инвалидируем кэш после обновления
+                window.dataCacheManager.invalidate('segments');
+                
                 // Уведомляем об обновлении
                 this.eventBus.emit(CONSTANTS.EVENTS.SEGMENT_UPDATED, {
                     segment,
@@ -1806,6 +1812,9 @@ class SegmentsManager {
                 };
                 
                 await window.db.add('segments', segment);
+                
+                // 🚀 КРИТИЧНО: Инвалидируем кэш после добавления
+                window.dataCacheManager.invalidate('segments');
                 
                 // Уведомляем о создании
                 this.eventBus.emit(CONSTANTS.EVENTS.SEGMENT_CREATED, {
@@ -3728,6 +3737,9 @@ class SegmentsManager {
                     };
                     
                     await window.db.add('segments', newSegment);
+                    
+                    // 🚀 КРИТИЧНО: Инвалидируем кэш после добавления
+                    window.dataCacheManager.invalidate('segments');
                     importedCount++;
                 }
             }
@@ -4607,7 +4619,7 @@ class SegmentsManager {
             }
             
             // Загружаем подсегменты из базы данных
-            const subsegments = await window.db.getAll('subsegments');
+            const subsegments = await window.dataCacheManager.getAll('subsegments');
             this.subsegmentsState.subsegments = subsegments.filter(s => s.segment_id === currentSegment.id);
             
             

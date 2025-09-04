@@ -3044,7 +3044,7 @@ class UIManager {
             const currentArea = this.dataState.currentArea;
             
             // Загружаем статистику из базы данных
-            const allAddresses = await window.db.getAll('addresses');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
             const addresses = allAddresses.filter(address => address.map_area_id === areaId);
             
             // Получаем объявления через адреса (связанные объявления)
@@ -3066,7 +3066,7 @@ class UIManager {
             }
             
             // Получаем сегменты
-            const allSegments = await window.db.getAll('segments').catch(() => []);
+            const allSegments = await window.dataCacheManager.getAll('segments').catch(() => []);
             const segments = allSegments.filter(segment => segment.map_area_id === areaId);
             
             // Вычисляем площадь области

@@ -480,7 +480,7 @@ class AddressManager {
             await this.initializeSmartMatcher();
             
             // ОПТИМИЗАЦИЯ: Загружаем все объявления один раз вместо множественных запросов
-            const allListings = await window.db.getAll('listings');
+            const allListings = await window.dataCacheManager.getAll('listings');
             
             // Группируем объявления по address_id для быстрого подсчета
             const listingsByAddress = {};
@@ -593,7 +593,7 @@ class AddressManager {
                 return [];
             }
 
-            const allAddresses = await window.db.getAll('addresses');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
             await Helpers.debugLog(`🗺️ Полигон области: ${currentArea.polygon.length} точек`);
             
             // Фильтруем адреса по вхождению координат в полигон области
@@ -615,7 +615,7 @@ class AddressManager {
      */
     async getListingsByAddress(addressId) {
         try {
-            const allListings = await window.db.getAll('listings');
+            const allListings = await window.dataCacheManager.getAll('listings');
             return allListings.filter(listing => listing.address_id === addressId);
         } catch (error) {
             console.error('Error getting listings by address:', error);
@@ -1789,7 +1789,7 @@ class AddressManager {
         
         try {
             // Получаем все адреса из базы данных
-            const allAddresses = await window.db.getAll('addresses');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
             
             // Фильтруем адреса, которые входят в полигон области
             const areaAddresses = allAddresses.filter(address => {
@@ -2203,7 +2203,7 @@ class AddressManager {
             }
             
             // Получаем все адреса из базы данных
-            const allAddresses = await window.db.getAll('addresses');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
             
             // Фильтруем адреса, которые входят в полигон области
             const areaAddresses = allAddresses.filter(address => {
@@ -4187,7 +4187,7 @@ class AddressManager {
             this.progressManager.updateProgressBar('addresses', 0, 'Инициализация умного алгоритма...');
 
             // Загружаем объявления для обработки умным алгоритмом
-            const allListings = await window.db.getAll('listings');
+            const allListings = await window.dataCacheManager.getAll('listings');
             const targetListings = allListings.filter(listing => {
                 const needsProcessing = 
                     !listing.address_id || 
@@ -4211,7 +4211,7 @@ class AddressManager {
                 `🧠 Найдено ${targetListings.length} объявлений для умной обработки`);
 
             // Загружаем все адреса
-            const allAddresses = await window.db.getAll('addresses');
+            const allAddresses = await window.dataCacheManager.getAll('addresses');
             if (allAddresses.length === 0) {
                 this.progressManager.showError('В базе данных нет адресов для сопоставления');
                 return;

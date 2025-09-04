@@ -8,9 +8,11 @@ class LocalEmbeddingService {
         this.downloadService = new window.ModelDownloadService();
         this.registry = new window.EmbeddingModelsRegistry();
         this.loadedTokenizers = new Map();
-        this.vectorCache = new Map();
         
-        console.log('✅ [LocalEmbedding] Инициализирован');
+        // 🚀 КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ: Ограниченный кэш вместо неограниченного Map
+        this.vectorCache = new LimitedVectorCache(1000); // Максимум 1000 векторов
+        
+        console.log('✅ [LocalEmbedding] Инициализирован с ограниченным кэшем векторов (1000 записей)');
     }
 
     /**
@@ -311,5 +313,127 @@ class SimpleTokenizer {
     }
 }
 
+/**
+ * Ограниченный кэш с автоматической LRU очисткой для embedding векторов
+ * КРИТИЧНО: Предотвращает неконтролируемый рост памяти
+ */
+class LimitedVectorCache {
+    constructor(maxSize = 1000) {
+        this.cache = new Map();
+        this.accessCount = new Map();
+        this.accessTime = new Map();
+        this.maxSize = maxSize;
+        
+        console.log(`✅ [LimitedVectorCache] Инициализирован (макс. ${maxSize} векторов)`);
+    }
+
+    get(key) {
+        if (this.cache.has(key)) {
+            // Обновляем статистику использования
+            this.accessCount.set(key, (this.accessCount.get(key) || 0) + 1);
+            this.accessTime.set(key, Date.now());
+            return this.cache.get(key);
+        }
+        return undefined;
+    }
+
+    has(key) {
+        return this.cache.has(key);
+    }
+
+    set(key, value) {
+        // Проверяем лимит размера
+        if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
+            this.evictLRU();
+        }
+        
+        this.cache.set(key, value);
+        this.accessCount.set(key, 1);
+        this.accessTime.set(key, Date.now());
+        
+        // Логируем каждые 100 добавленных векторов
+        if (this.cache.size % 100 === 0) {
+            console.log(`📊 [LimitedVectorCache] Размер кэша: ${this.cache.size}/${this.maxSize} векторов`);
+        }
+    }
+
+    /**
+     * Удаление наименее используемых записей (LRU алгоритм)
+     */
+    evictLRU() {
+        // Находим записи с наименьшим временем последнего доступа
+        const entries = Array.from(this.accessTime.entries())
+            .sort(([,timeA], [,timeB]) => timeA - timeB);
+        
+        // Удаляем старые записи (25% от максимального размера)
+        const toRemove = Math.floor(this.maxSize * 0.25);
+        const keysToRemove = entries.slice(0, toRemove).map(([key]) => key);
+        
+        keysToRemove.forEach(key => {
+            this.cache.delete(key);
+            this.accessCount.delete(key);
+            this.accessTime.delete(key);
+        });
+        
+        console.log(`🧹 [LimitedVectorCache] Удалено ${keysToRemove.length} старых векторов (LRU)`);
+    }
+
+    /**
+     * Принудительная очистка кэша
+     */
+    clear() {
+        const size = this.cache.size;
+        this.cache.clear();
+        this.accessCount.clear();
+        this.accessTime.clear();
+        console.log(`🗑️ [LimitedVectorCache] Очищен кэш: ${size} векторов`);
+        return size;
+    }
+
+    /**
+     * Получение статистики кэша
+     */
+    getStats() {
+        const memoryEstimate = this.estimateMemoryUsage();
+        
+        return {
+            totalEntries: this.cache.size,
+            maxSize: this.maxSize,
+            usagePercent: Math.round((this.cache.size / this.maxSize) * 100),
+            memoryUsageMB: Math.round(memoryEstimate / 1024 / 1024 * 100) / 100,
+            topAccessed: this.getTopAccessedKeys(5)
+        };
+    }
+
+    /**
+     * Оценка использования памяти
+     */
+    estimateMemoryUsage() {
+        let totalSize = 0;
+        for (const [key, value] of this.cache.entries()) {
+            // Ключ + массив из 384 чисел (примерно)
+            const keySize = key.length * 2; // UTF-16
+            const vectorSize = Array.isArray(value) ? value.length * 8 : 0; // 8 байт на число
+            totalSize += keySize + vectorSize;
+        }
+        return totalSize;
+    }
+
+    /**
+     * Получение наиболее используемых ключей
+     */
+    getTopAccessedKeys(limit = 5) {
+        return Array.from(this.accessCount.entries())
+            .sort(([,countA], [,countB]) => countB - countA)
+            .slice(0, limit)
+            .map(([key, count]) => ({ key, accessCount: count }));
+    }
+
+    get size() {
+        return this.cache.size;
+    }
+}
+
 // Экспорт в глобальную область видимости
 window.LocalEmbeddingService = LocalEmbeddingService;
+window.LimitedVectorCache = LimitedVectorCache;
