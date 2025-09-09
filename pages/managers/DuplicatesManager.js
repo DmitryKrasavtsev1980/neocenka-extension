@@ -1357,6 +1357,7 @@ class DuplicatesManager {
             const itemsToMerge = selectedItems.map(key => {
                 const [type, ...idParts] = key.split('_');
                 const id = idParts.join('_'); // Восстанавливаем полный ID
+                window.dataCacheManager.invalidate('listings', id);
                 return { type, id };
             });
             

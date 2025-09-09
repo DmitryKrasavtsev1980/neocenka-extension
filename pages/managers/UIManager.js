@@ -3880,12 +3880,13 @@ class UIManager {
             
             // Сохраняем в базу данных
             await window.db.updateListing(updatedListing);
+
+            await window.dataCacheManager.invalidate('listings', listingId);
             
             // Обновляем связанный объект недвижимости, если объявление входит в объект
             if (listing.object_id && window.realEstateObjectManager) {
                 await window.realEstateObjectManager.updateObjectOnListingChange(listingId, oldListing, updatedListing);
-                if (debugEnabled) {
-                }
+                await window.dataCacheManager.invalidate('objects', listing.object_id);
             }
             
             // Показываем уведомление
@@ -3944,12 +3945,14 @@ class UIManager {
             
             // Сохраняем в базу данных
             await window.db.update('listings', updatedListing);
+
+            await window.dataCacheManager.invalidate('listings', listingId);
+            
             
             // Обновляем связанный объект недвижимости, если объявление входит в объект
             if (listing.object_id && window.realEstateObjectManager) {
                 await window.realEstateObjectManager.updateObjectOnListingChange(listingId, oldListing, updatedListing);
-                if (debugEnabled) {
-                }
+                await window.dataCacheManager.invalidate('objects', listing.object_id);
             }
             
             // Обновляем отображение даты в интерфейсе
@@ -3975,9 +3978,6 @@ class UIManager {
                 message: 'Объявление актуализировано',
                 duration: 3000
             });
-            
-            if (debugEnabled) {
-            }
             
         } catch (error) {
             console.error('❌ Ошибка актуализации объявления:', error);
@@ -4701,6 +4701,7 @@ class UIManager {
             
             // Сохраняем в базу данных
             await window.db.updateListing(updatedListing);
+            await window.dataCacheManager.invalidate('listings', listingId);
             
             // Обновляем таблицу и график
             await this.refreshPriceHistoryTable(listingId, updatedListing);
@@ -4709,6 +4710,7 @@ class UIManager {
             // Обновляем объект недвижимости, если объявление связано с объектом
             if (updatedListing.object_id && window.realEstateObjectManager) {
                 await window.realEstateObjectManager.updateObjectOnListingChange(listingId, listing, updatedListing);
+                await window.dataCacheManager.invalidate('objects', updatedListing.object_id);
             }
             
         } catch (error) {
@@ -4988,14 +4990,7 @@ class UIManager {
                 return;
             }
             
-            console.log('🔄 Парсинг объявления:', {
-                id: listing.id,
-                url: listing.url,
-                price: listing.price,
-                status: listing.status,
-                updated: listing.updated,
-                created: listing.created
-            });
+            console.log('🔄 Парсинг объявления:', listing);
             
             // Блокируем кнопку во время обработки
             const updateBtn = document.getElementById(`updateListingBtn-${listingId}`);
@@ -5024,8 +5019,10 @@ class UIManager {
                 
                 
                 if (response && response.success && response.data) {
-                    // НЕ СОХРАНЯЕМ в базу данных, только выводим в консоль
-                    
+
+                    console.log('Пришли данные: ', response.data);
+
+
                     // Парсим дату обновления из строки типа "Обновлено: 31 июл, 09:01"
                     let updatedDate = new Date();
                     if (response.data.updated_date) {
@@ -5154,6 +5151,7 @@ class UIManager {
                     updatedListing.price_history = priceHistory;
                     
                     // Логируем что сохраняем
+                    console.log('Объявление:', updatedListing);
                     
                     // Сохраняем в базу данных
                     await window.db.update('listings', updatedListing);

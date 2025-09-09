@@ -204,8 +204,6 @@ class NeocenkaBackground {
 
         await this.db.update('listings', listingData);
 
-        // Объекты недвижимости обновляются только при обработке дублей
-
         return {
           success: true,
           action: 'updated',
@@ -423,7 +421,7 @@ class NeocenkaBackground {
                 return;
               } else {
                 // Закрываем вкладку и возвращаем ошибку
-                chrome.tabs.remove(tab.id);
+                //chrome.tabs.remove(tab.id);
                 resolve({
                   success: false,
                   error: 'Не удалось связаться с content script'
@@ -433,7 +431,7 @@ class NeocenkaBackground {
             }
 
             // Закрываем вкладку
-            chrome.tabs.remove(tab.id);
+            //chrome.tabs.remove(tab.id);
 
             if (response && response.success && response.data) {
               // Сохраняем данные в базу

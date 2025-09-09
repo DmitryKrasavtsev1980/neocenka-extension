@@ -182,9 +182,9 @@ class CianParser {
 
         try {
             // ===== 1. ПРОВЕРКА СТАТУСА ОБЪЯВЛЕНИЯ =====
-            this.debugLog('\n🔍 === ШАГ 1: ПРОВЕРКА СТАТУСА ===');
+            ////this.debugLog('\n🔍 === ШАГ 1: ПРОВЕРКА СТАТУСА ===');
             const status = this.checkListingStatus();
-            this.debugLog(`📊 Статус объявления: ${status}`);
+            ////this.debugLog(`📊 Статус объявления: ${status}`);
 
             // Устанавливаем статус в данных объявления (продолжаем парсинг даже для archived)
             data.status = status;
@@ -194,14 +194,14 @@ class CianParser {
                 return null;
             }
             
-            this.debugLog(`✅ Статус определен: ${status}, продолжаем парсинг`);
+            ////this.debugLog(`✅ Статус определен: ${status}, продолжаем парсинг`);
 
             // ===== 2. ИЗВЛЕЧЕНИЕ БАЗОВОЙ ИНФОРМАЦИИ =====
-            this.debugLog('\n📝 === ШАГ 2: БАЗОВАЯ ИНФОРМАЦИЯ ===');
+            ////this.debugLog('\n📝 === ШАГ 2: БАЗОВАЯ ИНФОРМАЦИЯ ===');
 
             try {
                 const external_id = this.extractExternalId();
-                this.debugLog(`🆔 External ID: "${external_id}"`);
+                ////this.debugLog(`🆔 External ID: "${external_id}"`);
                 if (!external_id) {
                     throw new Error('Не удалось извлечь ID объявления');
                 }
@@ -215,12 +215,12 @@ class CianParser {
             // Источник и URL
             data.source = 'cian';
             data.url = this.cleanUrl(window.location.href);
-            this.debugLog(`🔗 Очищенный URL: "${data.url}"`);
+            ////this.debugLog(`🔗 Очищенный URL: "${data.url}"`);
 
             // Заголовок
             try {
                 data.title = this.extractTitle();
-                this.debugLog(`📋 Заголовок: "${data.title}"`);
+                ////this.debugLog(`📋 Заголовок: "${data.title}"`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь заголовок:', error);
                 data.title = 'Без названия';
@@ -230,7 +230,7 @@ class CianParser {
             // Цена
             try {
                 data.price = this.extractPrice();
-                this.debugLog(`💰 Цена: ${data.price} руб.`);
+                //this.debugLog(`💰 Цена: ${data.price} руб.`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь цену:', error);
                 data.price = 0;
@@ -240,7 +240,7 @@ class CianParser {
             // Описание
             try {
                 data.description = this.extractDescription();
-                this.debugLog(`📄 Описание (длина): ${data.description ? data.description.length : 0} символов`);
+                //this.debugLog(`📄 Описание (длина): ${data.description ? data.description.length : 0} символов`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь описание:', error);
                 data.description = '';
@@ -250,7 +250,7 @@ class CianParser {
             // Адрес
             try {
                 data.address = this.extractAddress();
-                this.debugLog(`📍 Адрес: "${data.address}"`);
+                //this.debugLog(`📍 Адрес: "${data.address}"`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь адрес:', error);
                 data.address = '';
@@ -258,11 +258,11 @@ class CianParser {
             }
 
             // ===== 3. ХАРАКТЕРИСТИКИ КВАРТИРЫ =====
-            this.debugLog('\n🏠 === ШАГ 3: ХАРАКТЕРИСТИКИ КВАРТИРЫ ===');
+            //this.debugLog('\n🏠 === ШАГ 3: ХАРАКТЕРИСТИКИ КВАРТИРЫ ===');
 
             try {
                 data.room_count = this.extractRoomCount();
-                this.debugLog(`🚪 Количество комнат: ${data.room_count}`);
+                //this.debugLog(`🚪 Количество комнат: ${data.room_count}`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь количество комнат:', error);
                 data.room_count = null;
@@ -271,7 +271,7 @@ class CianParser {
 
             try {
                 data.total_area = this.extractTotalArea();
-                this.debugLog(`📐 Общая площадь: ${data.total_area} м²`);
+                //this.debugLog(`📐 Общая площадь: ${data.total_area} м²`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь общую площадь:', error);
                 data.total_area = null;
@@ -281,7 +281,7 @@ class CianParser {
             try {
                 data.floor = this.extractFloor();
                 data.total_floors = this.extractTotalFloors();
-                this.debugLog(`🏢 Этаж: ${data.floor} из ${data.total_floors}`);
+                //this.debugLog(`🏢 Этаж: ${data.floor} из ${data.total_floors}`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь этаж:', error);
                 data.floor = null;
@@ -290,11 +290,11 @@ class CianParser {
             }
 
             // ===== 4. ДОПОЛНИТЕЛЬНЫЕ ХАРАКТЕРИСТИКИ =====
-            this.debugLog('\n🔧 === ШАГ 4: ДОПОЛНИТЕЛЬНЫЕ ХАРАКТЕРИСТИКИ ===');
+            //this.debugLog('\n🔧 === ШАГ 4: ДОПОЛНИТЕЛЬНЫЕ ХАРАКТЕРИСТИКИ ===');
 
             try {
                 data.year_built = this.extractYearBuilt();
-                this.debugLog(`🏗️ Год постройки: ${data.year_built}`);
+                //this.debugLog(`🏗️ Год постройки: ${data.year_built}`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь год постройки:', error);
                 data.year_built = null;
@@ -303,7 +303,7 @@ class CianParser {
 
             try {
                 data.bathroom_type = this.extractBathroomType();
-                this.debugLog(`🚿 Тип санузла: "${data.bathroom_type}"`);
+                //this.debugLog(`🚿 Тип санузла: "${data.bathroom_type}"`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь тип санузла:', error);
                 data.bathroom_type = '';
@@ -312,7 +312,7 @@ class CianParser {
 
             try {
                 data.balcony = this.extractBalcony();
-                this.debugLog(`🪟 Балкон: ${data.balcony ? 'есть' : 'нет'}`);
+                //this.debugLog(`🪟 Балкон: ${data.balcony ? 'есть' : 'нет'}`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь информацию о балконе:', error);
                 data.balcony = false;
@@ -321,7 +321,7 @@ class CianParser {
 
             try {
                 data.ceiling_height = this.extractCeilingHeight();
-                this.debugLog(`📏 Высота потолков: ${data.ceiling_height} м`);
+                //this.debugLog(`📏 Высота потолков: ${data.ceiling_height} м`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь высоту потолков:', error);
                 data.ceiling_height = null;
@@ -329,11 +329,11 @@ class CianParser {
             }
 
             // ===== 5. ИСТОРИЯ ЦЕН =====
-            this.debugLog('\n💰 === ШАГ 5: ИСТОРИЯ ЦЕН ===');
+            //this.debugLog('\n💰 === ШАГ 5: ИСТОРИЯ ЦЕН ===');
             
             try {
                 data.price_history = await this.extractPriceHistory();
-                this.debugLog(`📈 История цен: ${data.price_history ? data.price_history.length : 0} записей`);
+                //this.debugLog(`📈 История цен: ${data.price_history ? data.price_history.length : 0} записей`);
             } catch (error) {
                 // console.warn('⚠️ Не удалось извлечь историю цен:', error);
                 data.price_history = [];
@@ -369,7 +369,7 @@ class CianParser {
      * Проверка статуса объявления
      */
     checkListingStatus() {
-        this.debugLog('🔍 Проверяем статус объявления...');
+        //this.debugLog('🔍 Проверяем статус объявления...');
         
         // Проверяем наличие сообщения "Объявление снято с публикации"
         const removedMessages = [
@@ -387,7 +387,7 @@ class CianParser {
             const text = element.textContent || '';
             for (const message of removedMessages) {
                 if (text.includes(message)) {
-                    this.debugLog(`📍 Найдено сообщение о снятии: "${message}"`);
+                    //this.debugLog(`📍 Найдено сообщение о снятии: "${message}"`);
                     return 'archived';
                 }
             }
@@ -407,7 +407,7 @@ class CianParser {
         for (const selector of removedSelectors) {
             const element = document.querySelector(selector);
             if (element) {
-                this.debugLog(`📍 Найден CSS селектор снятого объявления: ${selector}`);
+                //this.debugLog(`📍 Найден CSS селектор снятого объявления: ${selector}`);
                 return 'archived';
             }
         }
@@ -415,7 +415,7 @@ class CianParser {
         // Проверяем заголовок страницы
         const pageTitle = document.title || '';
         if (pageTitle.includes('снято') || pageTitle.includes('неактуально') || pageTitle.includes('удален')) {
-            this.debugLog('📍 Заголовок страницы указывает на снятое объявление');
+            //this.debugLog('📍 Заголовок страницы указывает на снятое объявление');
             return 'archived';
         }
 
@@ -423,17 +423,17 @@ class CianParser {
         const titleElement = document.querySelector('[data-testid="offer-title"], h1');
         
         if (!titleElement) {
-            this.debugLog('❌ Заголовок не найден - статус needs_processing');
+            //this.debugLog('❌ Заголовок не найден - статус needs_processing');
             return 'needs_processing';
         }
 
         // Для архивных объявлений цена может отсутствовать, это нормально
         const priceElement = document.querySelector('[data-testid="price-amount"], [data-testid="offer-price"]');
         if (!priceElement) {
-            this.debugLog('⚠️ Цена не найдена - возможно объявление архивное');
+            //this.debugLog('⚠️ Цена не найдена - возможно объявление архивное');
         }
 
-        this.debugLog('✅ Основные элементы найдены');
+        //this.debugLog('✅ Основные элементы найдены');
         return 'active';
     }
 
@@ -502,7 +502,7 @@ class CianParser {
         }
         
         // Для архивных объявлений цена может отсутствовать
-        this.debugLog('⚠️ Цена не найдена - возможно архивное объявление');
+        //this.debugLog('⚠️ Цена не найдена - возможно архивное объявление');
         return 0;
     }
 
@@ -778,241 +778,21 @@ class CianParser {
      * Извлечение истории цен
      */
     async extractPriceHistory() {
-        this.debugLog('💰 Начинаем извлечение истории цен...');
-        
         try {
-            // Сначала ищем уже видимую историю цен в DOM
-            let priceHistory = this.findVisiblePriceHistory();
-            if (priceHistory.length > 0) {
-                this.debugLog(`✅ Найдена видимая история цен: ${priceHistory.length} записей`);
-                return priceHistory;
-            }
-            
-            // Ищем кнопку истории цен по новой структуре
-            const priceHistoryButton = document.querySelector('[data-name="PriceHistoryButton"]');
-            if (!priceHistoryButton) {
-                this.debugLog('❌ Кнопка истории цен [data-name="PriceHistoryButton"] не найдена');
+            // Ищем виджет истории цен
+            const priceHistoryWidget = document.querySelector('[data-testid="price-history-widget"]');
+            if (!priceHistoryWidget) {
                 return [];
             }
             
-            this.debugLog('📍 Найдена кнопка истории цен');
-            
-            // Наводим мышь на кнопку для появления popup
-            try {
-                this.debugLog('🖱️ Наводим мышь на кнопку истории цен...');
-                
-                // Пробуем несколько способов активации popup
-                const events = [
-                    new MouseEvent('mouseenter', { view: window, bubbles: true, cancelable: true }),
-                    new MouseEvent('mouseover', { view: window, bubbles: true, cancelable: true }),
-                    new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true }),
-                    new MouseEvent('mouseup', { view: window, bubbles: true, cancelable: true })
-                ];
-                
-                for (const event of events) {
-                    priceHistoryButton.dispatchEvent(event);
-                    await this.sleep(100);
-                }
-                
-                // Проверяем появление popup несколько раз
-                let priceHistoryWidget = null;
-                for (let attempt = 1; attempt <= 5; attempt++) {
-                    this.debugLog(`🔍 Попытка ${attempt}/5 найти popup...`);
-                    
-                    await this.sleep(300);
-                    priceHistoryWidget = document.querySelector('[data-testid="price-history-widget"]');
-                    
-                    if (priceHistoryWidget) {
-                        this.debugLog(`✅ Popup найден на попытке ${attempt}`);
-                        break;
-                    }
-                    
-                    // Повторно активируем hover
-                    const hoverEvent = new MouseEvent('mouseover', {
-                        view: window,
-                        bubbles: true,
-                        cancelable: true
-                    });
-                    priceHistoryButton.dispatchEvent(hoverEvent);
-                }
-                
-                if (!priceHistoryWidget) {
-                    this.debugLog('❌ Popup с историей цен так и не появился после всех попыток');
-                    
-                    // Пробуем найти popup в других местах DOM
-                    const allPopups = document.querySelectorAll('.a10a3f92e9--popup--fimrB, .popup, .tooltip');
-                    this.debugLog(`🔍 Найдено ${allPopups.length} других popup элементов`);
-                    
-                    for (const popup of allPopups) {
-                        if (popup.textContent.includes('История цены')) {
-                            this.debugLog('✅ Найден popup с текстом "История цены"');
-                            const widget = popup.querySelector('[data-testid="price-history-widget"]');
-                            if (widget) {
-                                priceHistoryWidget = widget;
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                if (!priceHistoryWidget) {
-                    this.debugLog('❌ Popup с историей цен не найден нигде');
-                    return [];
-                }
-                
-                this.debugLog('✅ Найден popup с историей цен, начинаем парсинг');
-                
-                // Парсим таблицу с историей
-                priceHistory = this.parsePriceHistoryTable(priceHistoryWidget);
-                
-                // Убираем мышь с кнопки для скрытия popup
-                const mouseLeaveEvent = new MouseEvent('mouseleave', {
-                    view: window,
-                    bubbles: true,
-                    cancelable: true
-                });
-                priceHistoryButton.dispatchEvent(mouseLeaveEvent);
-                
-                this.debugLog(`✅ Извлечено ${priceHistory.length} записей истории цен`);
-                return priceHistory;
-                
-            } catch (hoverError) {
-                this.debugLog('⚠️ Ошибка при наведении мыши:', hoverError.message);
-                return [];
-            }
+            return this.parsePriceHistoryTable(priceHistoryWidget);
             
         } catch (error) {
-            this.debugLog('❌ Ошибка при извлечении истории цен:', error.message);
+            //console.error('❌ Ошибка при извлечении истории цен:', error.message);
             return [];
         }
     }
-    
-    /**
-     * Поиск видимой истории цен в DOM
-     */
-    findVisiblePriceHistory() {
-        const priceHistory = [];
-        
-        try {
-            this.debugLog('🔍 Ищем уже видимую историю цен в DOM...');
-            
-            // Сначала проверяем, есть ли уже popup в DOM
-            const existingWidget = document.querySelector('[data-testid="price-history-widget"]');
-            if (existingWidget) {
-                this.debugLog('✅ Найден существующий popup с историей цен');
-                return this.parsePriceHistoryTable(existingWidget);
-            }
-            
-            // Ищем элементы, которые могут содержать историю цен
-            const historySelectors = [
-                '.a10a3f92e9--history-event--xUQ_P', // Строки таблицы истории
-                '.price-history-item',
-                '.history-item',
-                '.price-change-item',
-                '[data-testid*="price-history"]',
-                '[data-testid*="history"]'
-            ];
-            
-            for (const selector of historySelectors) {
-                const items = document.querySelectorAll(selector);
-                this.debugLog(`🔍 Найдено ${items.length} элементов для селектора: ${selector}`);
-                
-                for (const item of items) {
-                    const historyItem = this.parsePriceHistoryItem(item.textContent);
-                    if (historyItem) {
-                        priceHistory.push(historyItem);
-                    }
-                }
-            }
-            
-            this.debugLog(`📊 Найдено ${priceHistory.length} записей в видимой истории`);
-            
-        } catch (error) {
-            this.debugLog('⚠️ Ошибка поиска видимой истории:', error.message);
-        }
-        
-        return priceHistory;
-    }
-    
-    /**
-     * Поиск истории цен в модальных окнах
-     */
-    findModalPriceHistory() {
-        const priceHistory = [];
-        
-        try {
-            // Ищем модальные окна
-            const modalSelectors = [
-                '[data-testid="price-history-modal"]',
-                '.modal',
-                '.popup',
-                '.tooltip',
-                '.price-history-modal',
-                '.overlay'
-            ];
-            
-            for (const selector of modalSelectors) {
-                const elements = document.querySelectorAll(selector);
-                for (const element of elements) {
-                    if (element.textContent.includes('История цены') || 
-                        element.textContent.includes('история цены')) {
-                        
-                        // Парсим историю цен из модального окна
-                        const rows = element.querySelectorAll('tr, .history-item, .price-item, div');
-                        
-                        for (const row of rows) {
-                            const historyItem = this.parsePriceHistoryItem(row.textContent);
-                            if (historyItem) {
-                                priceHistory.push(historyItem);
-                            }
-                        }
-                        
-                        if (priceHistory.length > 0) {
-                            this.debugLog(`📍 Найдено модальное окно с историей: ${selector}`);
-                            return priceHistory;
-                        }
-                    }
-                }
-            }
-            
-        } catch (error) {
-            this.debugLog('⚠️ Ошибка поиска модальной истории:', error.message);
-        }
-        
-        return priceHistory;
-    }
-    
-    /**
-     * Парсинг одного элемента истории цен
-     */
-    parsePriceHistoryItem(text) {
-        try {
-            const trimmedText = text.trim();
-            
-            // Ищем паттерн: дата + цена
-            const dateMatch = trimmedText.match(/(\d{1,2}\s+\w+\s+\d{4})/);
-            const priceMatch = trimmedText.match(/(\d[\d\s]*)\s*[₽р]/);
-            
-            if (dateMatch && priceMatch) {
-                const date = this.parseRussianDate(dateMatch[1]);
-                const price = parseInt(priceMatch[1].replace(/\s/g, ''));
-                
-                if (date && price && price > 0) {
-                    this.debugLog(`📅 Найдена запись истории: ${dateMatch[1]} - ${price} ₽`);
-                    return {
-                        date: date,
-                        price: price
-                    };
-                }
-            }
-            
-        } catch (error) {
-            // Игнорируем ошибки парсинга отдельных элементов
-        }
-        
-        return null;
-    }
-    
+
     /**
      * Парсинг таблицы истории цен из popup
      */
@@ -1020,63 +800,65 @@ class CianParser {
         const priceHistory = [];
         
         try {
-            // Ищем таблицу с историей в widget
-            const historyTable = widget.querySelector('.a10a3f92e9--history--JRbxR');
+            // Ищем таблицу с историей в widget - правильный селектор
+            const historyTable = widget.querySelector('table.xa15a2ab7--f5772f--history');
             if (!historyTable) {
-                this.debugLog('❌ Таблица истории цен не найдена');
+                //console.log('❌ Таблица истории цен не найдена');
                 return [];
             }
             
-            // Парсим строки таблицы
-            const rows = historyTable.querySelectorAll('.a10a3f92e9--history-event--xUQ_P');
-            this.debugLog(`📊 Найдено ${rows.length} строк в таблице истории`);
+            // Парсим строки таблицы - правильный селектор
+            const rows = historyTable.querySelectorAll('tr.xa15a2ab7--f5772f--history-event');
+            //console.log(`📊 Найдено ${rows.length} строк в таблице истории`);
             
             for (const row of rows) {
                 try {
                     // Извлекаем дату
-                    const dateCell = row.querySelector('.a10a3f92e9--event-date--BvijC');
+                    const dateCell = row.querySelector('.xa15a2ab7--f5772f--event-date');
                     if (!dateCell) continue;
                     
                     const dateText = dateCell.textContent.trim();
-                    this.debugLog(`📅 Обрабатываем дату: "${dateText}"`);
+                    //console.log(`📅 Обрабатываем дату: "${dateText}"`);
                     
                     // Извлекаем цену
-                    const priceCell = row.querySelector('.a10a3f92e9--event-price--xNv2v');
+                    const priceCell = row.querySelector('.xa15a2ab7--f5772f--event-price');
                     if (!priceCell) continue;
                     
                     const priceText = priceCell.textContent.trim();
-                    this.debugLog(`💰 Обрабатываем цену: "${priceText}"`);
+                    //console.log(`💰 Обрабатываем цену: "${priceText}"`);
                     
-                    // Парсим дату (формат: "29 июл 2025")
+                    // Парсим дату (формат: "23 авг 2025")
                     const date = this.parseRussianDateWithYear(dateText);
                     if (!date) {
-                        this.debugLog(`⚠️ Не удалось распарсить дату: "${dateText}"`);
+                        //console.log(`⚠️ Не удалось распарсить дату: "${dateText}"`);
                         continue;
                     }
                     
-                    // Парсим цену (формат: "5 300 000 ₽")
-                    const priceMatch = priceText.match(/(\d[\d\s]*)/);
+                    // Парсим цену (формат: "8 100 000 ₽")
+                    const priceMatch = priceText.match(/([\d\s]+)/);
                     if (!priceMatch) {
-                        this.debugLog(`⚠️ Не удалось распарсить цену: "${priceText}"`);
+                        //console.log(`⚠️ Не удалось распарсить цену: "${priceText}"`);
                         continue;
                     }
                     
                     const price = parseInt(priceMatch[1].replace(/\s/g, ''));
                     if (!price || price <= 0) {
-                        this.debugLog(`⚠️ Некорректная цена: ${price}`);
+                        //console.log(`⚠️ Некорректная цена: ${price}`);
                         continue;
                     }
                     
                     // Добавляем запись в историю
                     priceHistory.push({
                         date: date,
-                        price: price
+                        price: price,
+                        dateString: dateText,
+                        priceString: priceText
                     });
                     
-                    this.debugLog(`✅ Добавлена запись: ${dateText} - ${price} ₽`);
+                    //console.log(`✅ Добавлена запись: ${dateText} - ${price} ₽`);
                     
                 } catch (rowError) {
-                    this.debugLog(`⚠️ Ошибка обработки строки: ${rowError.message}`);
+                    //console.log(`⚠️ Ошибка обработки строки: ${rowError.message}`);
                     continue;
                 }
             }
@@ -1084,22 +866,23 @@ class CianParser {
             // Сортируем по дате (от старых к новым)
             priceHistory.sort((a, b) => a.date - b.date);
             
-            this.debugLog(`✅ Успешно извлечено ${priceHistory.length} записей истории цен`);
+            //console.log(`✅ Успешно извлечено ${priceHistory.length} записей истории цен`);
             return priceHistory;
             
         } catch (error) {
-            this.debugLog(`❌ Ошибка парсинга таблицы истории: ${error.message}`);
+            //console.log(`❌ Ошибка парсинга таблицы истории: ${error.message}`);
             return [];
         }
     }
-    
+
     /**
-     * Парсинг русской даты с годом (формат: "29 июл 2025")
+     * Парсинг русской даты с годом (формат: "23 авг 2025")
      */
     parseRussianDateWithYear(dateString) {
         const months = {
             'янв': 0, 'января': 0,
             'фев': 1, 'февраля': 1,
+            'февр': 1,
             'мар': 2, 'марта': 2,
             'апр': 3, 'апреля': 3,
             'мая': 4, 'май': 4,
@@ -1115,7 +898,7 @@ class CianParser {
         try {
             const parts = dateString.trim().split(/\s+/);
             if (parts.length !== 3) {
-                this.debugLog(`⚠️ Неправильный формат даты: "${dateString}", ожидается 3 части`);
+                //console.log(`⚠️ Неправильный формат даты: "${dateString}", ожидается 3 части`);
                 return null;
             }
             
@@ -1123,58 +906,316 @@ class CianParser {
             const monthName = parts[1].toLowerCase();
             const year = parseInt(parts[2]);
             
-            const month = months[monthName];
-            if (month === undefined) {
-                this.debugLog(`⚠️ Неизвестный месяц: "${monthName}"`);
+            // Находим месяц (проверяем разные варианты написания)
+            let month = null;
+            for (const [key, value] of Object.entries(months)) {
+                if (monthName.startsWith(key)) {
+                    month = value;
+                    break;
+                }
+            }
+            
+            if (month === null) {
+                //console.log(`⚠️ Неизвестный месяц: "${monthName}"`);
                 return null;
             }
             
             const date = new Date(year, month, day);
-            this.debugLog(`✅ Дата распарсена: ${date.toISOString().split('T')[0]}`);
+            //console.log(`✅ Дата распарсена: ${date.toISOString().split('T')[0]}`);
             return date;
             
         } catch (error) {
-            this.debugLog(`❌ Ошибка парсинга даты с годом: ${error.message}`);
+            //console.log(`❌ Ошибка парсинга даты с годом: ${error.message}`);
             return null;
         }
     }
+
+
+    /**
+     * Извлечение истории цен
+     */
+    // async extractPriceHistory() {
+    //     //this.debugLog('💰 Начинаем извлечение истории цен...');
+    //     try {
+    //         // Сначала ищем уже видимую историю цен в DOM
+    //         let priceHistory = this.findVisiblePriceHistory();
+    //         if (priceHistory.length > 0) {
+    //             //this.debugLog(`✅ Найдена видимая история цен: ${priceHistory.length} записей`);
+    //             return priceHistory;
+    //         }
+            
+    //         // Ищем кнопку истории цен по новой структуре
+    //         // const priceHistoryButton = document.querySelector('[data-name="PriceHistoryButton"]');
+    //         // if (!priceHistoryButton) {
+    //         //     //this.debugLog('❌ Кнопка истории цен [data-name="PriceHistoryButton"] не найдена');
+    //         //     return [];
+    //         // }
+            
+    //         //this.debugLog('📍 Найдена кнопка истории цен');
+            
+    //         // Наводим мышь на кнопку для появления popup
+    //         // try {
+    //         //     //this.debugLog('🖱️ Наводим мышь на кнопку истории цен...');
+                
+    //         //     // Пробуем несколько способов активации popup
+    //         //     // const events = [
+    //         //     //     new MouseEvent('mouseenter', { view: window, bubbles: true, cancelable: true }),
+    //         //     //     new MouseEvent('mouseover', { view: window, bubbles: true, cancelable: true }),
+    //         //     //     new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true }),
+    //         //     //     new MouseEvent('mouseup', { view: window, bubbles: true, cancelable: true })
+    //         //     // ];
+                
+    //         //     // for (const event of events) {
+    //         //     //     priceHistoryButton.dispatchEvent(event);
+    //         //     //     await this.sleep(100);
+    //         //     // }
+                
+    //         //     // Проверяем появление popup несколько раз
+    //         //     // let priceHistoryWidget = null;
+    //         //     // for (let attempt = 1; attempt <= 5; attempt++) {
+    //         //     //     //this.debugLog(`🔍 Попытка ${attempt}/5 найти popup...`);
+                    
+    //         //     //     await this.sleep(300);
+    //         //     //     priceHistoryWidget = document.querySelector('[data-testid="price-history-widget"]');
+                    
+    //         //     //     if (priceHistoryWidget) {
+    //         //     //         //this.debugLog(`✅ Popup найден на попытке ${attempt}`);
+    //         //     //         break;
+    //         //     //     }
+                    
+    //         //     //     // Повторно активируем hover
+    //         //     //     const hoverEvent = new MouseEvent('mouseover', {
+    //         //     //         view: window,
+    //         //     //         bubbles: true,
+    //         //     //         cancelable: true
+    //         //     //     });
+    //         //     //     priceHistoryButton.dispatchEvent(hoverEvent);
+    //         //     // }
+                
+    //         //     // if (!priceHistoryWidget) {
+    //         //     //     //this.debugLog('❌ Popup с историей цен так и не появился после всех попыток');
+                    
+    //         //     //     // Пробуем найти popup в других местах DOM
+    //         //     //     const allPopups = document.querySelectorAll('.a10a3f92e9--popup--fimrB, .popup, .tooltip');
+    //         //     //     //this.debugLog(`🔍 Найдено ${allPopups.length} других popup элементов`);
+                    
+    //         //     //     for (const popup of allPopups) {
+    //         //     //         if (popup.textContent.includes('История цены')) {
+    //         //     //             //this.debugLog('✅ Найден popup с текстом "История цены"');
+    //         //     //             const widget = popup.querySelector('[data-testid="price-history-widget"]');
+    //         //     //             if (widget) {
+    //         //     //                 priceHistoryWidget = widget;
+    //         //     //                 break;
+    //         //     //             }
+    //         //     //         }
+    //         //     //     }
+    //         //     // }
+                
+    //         //     // if (!priceHistoryWidget) {
+    //         //     //     //this.debugLog('❌ Popup с историей цен не найден нигде');
+    //         //     //     return [];
+    //         //     // }
+                
+    //         //     //this.debugLog('✅ Найден popup с историей цен, начинаем парсинг');
+                
+    //         //     // Парсим таблицу с историей
+    //         //     priceHistoryWidget = document.querySelector('[data-testid="price-history-widget"]');
+    //         //     priceHistory = this.parsePriceHistoryTable(priceHistoryWidget);
+                
+    //         //     // Убираем мышь с кнопки для скрытия popup
+    //         //     // const mouseLeaveEvent = new MouseEvent('mouseleave', {
+    //         //     //     view: window,
+    //         //     //     bubbles: true,
+    //         //     //     cancelable: true
+    //         //     // });
+    //         //     // priceHistoryButton.dispatchEvent(mouseLeaveEvent);
+                
+    //         //     //this.debugLog(`✅ Извлечено ${priceHistory.length} записей истории цен`);
+    //         //     return priceHistory;
+                
+    //         // } catch (hoverError) {
+    //         //     //this.debugLog('⚠️ Ошибка при наведении мыши:', hoverError.message);
+    //         //     return [];
+    //         // }
+            
+    //     } catch (error) {
+    //         //this.debugLog('❌ Ошибка при извлечении истории цен:', error.message);
+    //         return [];
+    //     }
+    // }
     
     /**
-     * Парсинг русской даты в объект Date
+     * Поиск видимой истории цен в DOM
      */
-    parseRussianDate(dateString) {
-        const months = {
-            'янв': 0, 'января': 0,
-            'фев': 1, 'февраля': 1,
-            'мар': 2, 'марта': 2,
-            'апр': 3, 'апреля': 3,
-            'мая': 4, 'май': 4,
-            'июн': 5, 'июня': 5,
-            'июл': 6, 'июля': 6,
-            'авг': 7, 'августа': 7,
-            'сен': 8, 'сентября': 8,
-            'окт': 9, 'октября': 9,
-            'ноя': 10, 'ноября': 10,
-            'дек': 11, 'декабря': 11
-        };
+    // findVisiblePriceHistory() {
+    //     const priceHistory = [];
         
-        try {
-            const parts = dateString.trim().split(/\s+/);
-            if (parts.length !== 3) return null;
+    //     try {
+    //         //this.debugLog('🔍 Ищем уже видимую историю цен в DOM...');
             
-            const day = parseInt(parts[0]);
-            const monthName = parts[1].toLowerCase();
-            const year = parseInt(parts[2]);
+    //         // Сначала проверяем, есть ли уже popup в DOM
+    //         const existingWidget = document.querySelector('[data-testid="price-history-widget"]');
+    //         if (existingWidget) {
+    //             //this.debugLog('✅ Найден существующий popup с историей цен');
+    //             return this.parsePriceHistoryTable(existingWidget);
+    //         }
             
-            const month = months[monthName];
-            if (month === undefined) return null;
+    //         // // Ищем элементы, которые могут содержать историю цен
+    //         // const historySelectors = [
+    //         //     '.a10a3f92e9--history-event--xUQ_P', // Строки таблицы истории
+    //         //     '.price-history-item',
+    //         //     '.history-item',
+    //         //     '.price-change-item',
+    //         //     '[data-testid*="price-history"]',
+    //         //     '[data-testid*="history"]'
+    //         // ];
             
-            return new Date(year, month, day);
-        } catch (error) {
-            // console.error('Ошибка парсинга даты:', error);
-            return null;
-        }
-    }
+    //         // for (const selector of historySelectors) {
+    //         //     const items = document.querySelectorAll(selector);
+    //         //     //this.debugLog(`🔍 Найдено ${items.length} элементов для селектора: ${selector}`);
+                
+    //         //     for (const item of items) {
+    //         //         const historyItem = this.parsePriceHistoryItem(item.textContent);
+    //         //         if (historyItem) {
+    //         //             priceHistory.push(historyItem);
+    //         //         }
+    //         //     }
+    //         // }
+            
+    //         //this.debugLog(`📊 Найдено ${priceHistory.length} записей в видимой истории`);
+            
+    //     } catch (error) {
+    //         //this.debugLog('⚠️ Ошибка поиска видимой истории:', error.message);
+    //     }
+        
+    //     return priceHistory;
+    // }
+    
+    /**
+     * Парсинг таблицы истории цен из popup
+     */
+    // parsePriceHistoryTable(widget) {
+    //     const priceHistory = [];
+        
+    //     try {
+    //         // Ищем таблицу с историей в widget
+    //         const historyTable = widget.querySelector('.xa15a2ab7--f5772f--history');
+    //         if (!historyTable) {
+    //             //this.debugLog('❌ Таблица истории цен не найдена');
+    //             return [];
+    //         }
+            
+    //         // Парсим строки таблицы
+    //         const rows = historyTable.querySelectorAll('.xa15a2ab7--f5772f--history-event');
+    //         //this.debugLog(`📊 Найдено ${rows.length} строк в таблице истории`);
+            
+    //         for (const row of rows) {
+    //             try {
+    //                 // Извлекаем дату
+    //                 const dateCell = row.querySelector('.xa15a2ab7--f5772f--event-date');
+    //                 if (!dateCell) continue;
+                    
+    //                 const dateText = dateCell.textContent.trim();
+    //                 //this.debugLog(`📅 Обрабатываем дату: "${dateText}"`);
+                    
+    //                 // Извлекаем цену
+    //                 const priceCell = row.querySelector('.xa15a2ab7--f5772f--event-price');
+    //                 if (!priceCell) continue;
+                    
+    //                 const priceText = priceCell.textContent.trim();
+    //                 //this.debugLog(`💰 Обрабатываем цену: "${priceText}"`);
+                    
+    //                 // Парсим дату (формат: "29 июл 2025")
+    //                 const date = this.parseRussianDateWithYear(dateText);
+    //                 if (!date) {
+    //                     //this.debugLog(`⚠️ Не удалось распарсить дату: "${dateText}"`);
+    //                     continue;
+    //                 }
+                    
+    //                 // Парсим цену (формат: "5 300 000 ₽")
+    //                 const priceMatch = priceText.match(/(\d[\d\s]*)/);
+    //                 if (!priceMatch) {
+    //                     //this.debugLog(`⚠️ Не удалось распарсить цену: "${priceText}"`);
+    //                     continue;
+    //                 }
+                    
+    //                 const price = parseInt(priceMatch[1].replace(/\s/g, ''));
+    //                 if (!price || price <= 0) {
+    //                     //this.debugLog(`⚠️ Некорректная цена: ${price}`);
+    //                     continue;
+    //                 }
+                    
+    //                 // Добавляем запись в историю
+    //                 priceHistory.push({
+    //                     date: date,
+    //                     price: price
+    //                 });
+                    
+    //                 //this.debugLog(`✅ Добавлена запись: ${dateText} - ${price} ₽`);
+                    
+    //             } catch (rowError) {
+    //                 //this.debugLog(`⚠️ Ошибка обработки строки: ${rowError.message}`);
+    //                 continue;
+    //             }
+    //         }
+            
+    //         // Сортируем по дате (от старых к новым)
+    //         priceHistory.sort((a, b) => a.date - b.date);
+            
+    //         //this.debugLog(`✅ Успешно извлечено ${priceHistory.length} записей истории цен`);
+    //         return priceHistory;
+            
+    //     } catch (error) {
+    //         //this.debugLog(`❌ Ошибка парсинга таблицы истории: ${error.message}`);
+    //         return [];
+    //     }
+    // }
+    
+    /**
+     * Парсинг русской даты с годом (формат: "29 июл 2025")
+     */
+    // parseRussianDateWithYear(dateString) {
+    //     const months = {
+    //         'янв': 0, 'января': 0,
+    //         'фев': 1, 'февраля': 1,
+    //         'мар': 2, 'марта': 2,
+    //         'апр': 3, 'апреля': 3,
+    //         'мая': 4, 'май': 4,
+    //         'июн': 5, 'июня': 5,
+    //         'июл': 6, 'июля': 6,
+    //         'авг': 7, 'августа': 7,
+    //         'сен': 8, 'сентября': 8,
+    //         'окт': 9, 'октября': 9,
+    //         'ноя': 10, 'ноября': 10,
+    //         'дек': 11, 'декабря': 11
+    //     };
+        
+    //     try {
+    //         const parts = dateString.trim().split(/\s+/);
+    //         if (parts.length !== 3) {
+    //             //this.debugLog(`⚠️ Неправильный формат даты: "${dateString}", ожидается 3 части`);
+    //             return null;
+    //         }
+            
+    //         const day = parseInt(parts[0]);
+    //         const monthName = parts[1].toLowerCase();
+    //         const year = parseInt(parts[2]);
+            
+    //         const month = months[monthName];
+    //         if (month === undefined) {
+    //             //this.debugLog(`⚠️ Неизвестный месяц: "${monthName}"`);
+    //             return null;
+    //         }
+            
+    //         const date = new Date(year, month, day);
+    //         //this.debugLog(`✅ Дата распарсена: ${date.toISOString().split('T')[0]}`);
+    //         return date;
+            
+    //     } catch (error) {
+    //         //this.debugLog(`❌ Ошибка парсинга даты с годом: ${error.message}`);
+    //         return null;
+    //     }
+    // }
     
     /**
      * Задержка в миллисекундах

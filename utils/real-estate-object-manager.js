@@ -124,6 +124,7 @@ class RealEstateObjectManager {
       for (const objectId of objectIds) {
         const objectListings = await this.databaseManager.getByIndex('listings', 'object_id', objectId);
         totalListings.push(...objectListings);
+        await window.dataCacheManager.invalidate('objects', objectId);
       }
 
       // Обновляем все объявления - убираем связь с объектом и меняем статус на "Обработать на дубли"
@@ -131,6 +132,7 @@ class RealEstateObjectManager {
         listing.object_id = null;
         listing.processing_status = 'duplicate_check_needed';
         listing.updated_at = new Date();
+        await window.dataCacheManager.invalidate('listings', listing.id);
         return this.databaseManager.updateListing(listing);
       });
 
