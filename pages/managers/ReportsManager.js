@@ -28,11 +28,18 @@ class ReportsManager {
         this.subsegmentSlimSelect = null;
         this.marketCorridorModeSlimSelect = null;
         this.reportFilterSlimSelect = null;
+
+        // Элементы графика создания объявлений
+        this.creationChartPeriod = null;
+        this.creationChartSellerType = null;
+        this.creationChartPeriodSlimSelect = null;
+        this.creationChartSellerTypeSlimSelect = null;
         
         // Графики
         this.liquidityChart = null;
         this.priceChangesChart = null;
         this.marketCorridorChart = null;
+        this.creationChart = null;
         
         // Данные
         this.segments = [];
@@ -52,7 +59,8 @@ class ReportsManager {
         
         // Флаги состояния
         this.isRestoringTemplate = false; // Предотвращает ненужные обработчики при восстановлении шаблона
-        
+        this.isInitializing = false; // Предотвращает повторные обновления во время инициализации
+
         this.debugEnabled = false;
     }
 
@@ -61,6 +69,8 @@ class ReportsManager {
      */
     async initialize() {
         try {
+            this.isInitializing = true; // Устанавливаем флаг инициализации
+
             if (this.debugEnabled) {
             }
 
@@ -129,8 +139,13 @@ class ReportsManager {
             if (this.debugEnabled) {
             }
 
+            // Однократное обновление графиков после завершения инициализации
+            await this.updateReportsVisibility();
+
         } catch (error) {
             console.error('❌ ReportsManager: Ошибка инициализации:', error);
+        } finally {
+            this.isInitializing = false; // Снимаем флаг инициализации
         }
     }
 
@@ -169,6 +184,10 @@ class ReportsManager {
         this.reportsDropdownBtn = document.getElementById('reportsDropdownBtn');
         this.reportsDropdown = document.getElementById('reportsDropdown');
         this.reportsContent = document.getElementById('reportsContent');
+
+        // Элементы графика создания объявлений
+        this.creationChartPeriod = document.getElementById('creationChartPeriod');
+        this.creationChartSellerType = document.getElementById('creationChartSellerType');
 
         if (!this.panelContainer) {
             throw new Error('Элемент reportsPanelContainer не найден');
@@ -383,7 +402,40 @@ class ReportsManager {
                     console.log('🎯 ReportsManager: SlimSelect для reportFilterSelect инициализирован');
                 }
             }
-            
+
+            // Создаем SlimSelect для фильтров графика создания объявлений
+            if (this.creationChartPeriod && typeof SlimSelect !== 'undefined') {
+                this.creationChartPeriodSlimSelect = new SlimSelect({
+                    select: this.creationChartPeriod,
+                    settings: {
+                        showSearch: false
+                    },
+                    events: {
+                        afterChange: (newVal) => {
+                            const period = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value :
+                                         (newVal && newVal.value !== undefined ? newVal.value : newVal);
+                            this.updateCreationChart();
+                        }
+                    }
+                });
+            }
+
+            if (this.creationChartSellerType && typeof SlimSelect !== 'undefined') {
+                this.creationChartSellerTypeSlimSelect = new SlimSelect({
+                    select: this.creationChartSellerType,
+                    settings: {
+                        showSearch: false
+                    },
+                    events: {
+                        afterChange: (newVal) => {
+                            const sellerType = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value :
+                                             (newVal && newVal.value !== undefined ? newVal.value : newVal);
+                            this.updateCreationChart();
+                        }
+                    }
+                });
+            }
+
             if (this.debugEnabled) {
                 console.log('✅ ReportsManager: Все SlimSelect инициализированы');
             }
@@ -490,6 +542,9 @@ class ReportsManager {
                 this.flippingProfitabilityManager.hide();
             }
         }
+
+        // Обновляем график создания объявлений
+        await this.updateCreationChart();
 
         if (this.debugEnabled) {
             console.log('📊 Настройки отчёта:', {
@@ -652,8 +707,10 @@ class ReportsManager {
             }
 
             
-            // Обновляем отчёты при изменении сегмента
-            await this.updateReportsVisibility();
+            // Обновляем отчёты при изменении сегмента (но не во время инициализации)
+            if (!this.isInitializing) {
+                await this.updateReportsVisibility();
+            }
             
             // Проверяем несохранённые изменения
             this.checkForUnsavedChanges();
@@ -670,8 +727,10 @@ class ReportsManager {
     async handleSubsegmentChange(subsegmentId) {
         this.currentSubsegment = subsegmentId ? this.subsegments.find(s => s.id === subsegmentId || s.id === parseInt(subsegmentId)) : null;
 
-        // Обновляем отчёты при изменении подсегмента
-        await this.updateReportsVisibility();
+        // Обновляем отчёты при изменении подсегмента (но не во время инициализации)
+        if (!this.isInitializing) {
+            await this.updateReportsVisibility();
+        }
         
         // Проверяем несохранённые изменения
         this.checkForUnsavedChanges();
@@ -2872,9 +2931,39 @@ class ReportsManager {
                     date_from: this.dateFromFilter?.value || null,
                     date_to: this.dateToFilter?.value || null
                 },
+                // ✅ НОВОЕ: Сохраняем данные всех графиков
+                charts_data: await this.getAllChartsData(),
                 // Сохраняем состояние сравнительного анализа если есть
-                comparative_analysis: null
+                comparative_analysis: null,
+                // ✅ НОВОЕ: Сохраняем данные флиппинг отчёта
+                flipping_data: this.sanitizeDataForStorage(await this.getCurrentFlippingData()),
+                // ✅ НОВОЕ: Сохраняем данные дублей
+                duplicates_data: null
             };
+
+            // Собираем данные дублей для таблицы
+            // Используем метод collectReportDataForDuplicates для сбора объектов и листингов
+            try {
+                const duplicatesInputData = await this.collectReportDataForDuplicates(reportData.filters);
+                if (duplicatesInputData) {
+                    reportData.duplicates_data = this.sanitizeDataForStorage(
+                        this.buildDuplicatesData(
+                            duplicatesInputData.objects,
+                            duplicatesInputData.listings,
+                            duplicatesInputData.addresses
+                        )
+                    );
+                    if (this.debugEnabled) {
+                        console.log('✅ ReportsManager: Данные дублей для сохранения отчёта собраны', {
+                            objects: duplicatesInputData.objects.length,
+                            listings: duplicatesInputData.listings.length,
+                            addresses: duplicatesInputData.addresses.length
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ ReportsManager: Ошибка сбора данных дублей для сохранения отчёта:', error);
+            }
             
             // Получаем данные сравнительного анализа если панель активна
             if (this.areaPage.comparativeAnalysisManager && this.areaPage.comparativeAnalysisManager.evaluations) {
@@ -2886,6 +2975,90 @@ class ReportsManager {
                 };
             }
             
+            // Логируем что сохраняем
+            if (this.debugEnabled) {
+                console.log('📊 ReportsManager: Сохраняем отчёт с данными:', {
+                    name: reportData.name,
+                    hasChartsData: !!reportData.charts_data,
+                    chartsDataKeys: reportData.charts_data ? Object.keys(reportData.charts_data) : [],
+                    hasComparativeAnalysis: !!reportData.comparative_analysis,
+                    hasFlippingData: !!reportData.flipping_data
+                });
+            }
+
+            // Получаем статистику по текущему сегменту/подсегменту для логирования
+            let statsAddresses = 0, statsObjects = 0, statsListings = 0;
+
+            if (this.currentSegment) {
+                try {
+                    // Получаем адреса из структуры сегмента
+                    if (this.currentSegment.filters && this.currentSegment.filters.addresses) {
+                        statsAddresses = this.currentSegment.filters.addresses.length;
+
+                        // Получаем ВСЕ объекты по адресам сегмента
+                        let allSegmentObjects = [];
+                        console.log('🔍 DEBUG: Адреса сегмента:', this.currentSegment.filters.addresses);
+
+                        for (const addressId of this.currentSegment.filters.addresses) {
+                            try {
+                                const addressObjects = await window.db.getObjectsByAddress(addressId);
+                                console.log(`🔍 DEBUG: Адрес ${addressId} - объектов:`, addressObjects?.length || 0);
+                                if (addressObjects && addressObjects.length > 0) {
+                                    allSegmentObjects.push(...addressObjects);
+                                }
+                            } catch (error) {
+                                console.warn('Не удалось получить объекты по адресу:', addressId, error);
+                            }
+                        }
+
+                        console.log('🔍 DEBUG: Всего объектов сегмента:', allSegmentObjects.length);
+
+                        // Фильтруем по подсегменту если указан
+                        let filteredObjects = allSegmentObjects;
+                        if (this.currentSubsegment) {
+                            console.log('🔍 DEBUG: Подсегмент фильтр:', this.currentSubsegment.filters);
+                            filteredObjects = allSegmentObjects.filter(obj => {
+                                const matches = this.objectMatchesSubsegment(obj, this.currentSubsegment);
+                                if (!matches) {
+                                    console.log('🔍 DEBUG: Объект не прошёл фильтр:', obj.property_type, 'vs', this.currentSubsegment.filters.property_type);
+                                }
+                                return matches;
+                            });
+                            console.log('🔍 DEBUG: После фильтрации подсегмента:', filteredObjects.length);
+                        }
+
+                        statsObjects = filteredObjects.length;
+
+                        // Подсчитываем объявления
+                        for (const object of filteredObjects) {
+                            try {
+                                // Получаем объявления принадлежащие конкретному объекту
+                                const objectListings = await window.db.getByIndex('listings', 'object_id', object.id);
+                                if (objectListings) {
+                                    statsListings += objectListings.length;
+                                }
+                            } catch (e) {
+                                // Игнорируем ошибки подсчёта
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Не удалось получить статистику для логирования:', error);
+                }
+            }
+
+            // Логируем параметры сохраняемого отчёта
+            console.log('💾 ReportsManager: Параметры сохранения отчёта:', {
+                addresses: statsAddresses,
+                objects: statsObjects,
+                listings: statsListings,
+                segment: this.currentSegment?.name || 'Вся область',
+                subsegment: this.currentSubsegment?.name || 'Все подсегменты',
+                report_name: reportData.name,
+                date_from: reportData.filters.date_from,
+                date_to: reportData.filters.date_to
+            });
+
             // Сохраняем в IndexedDB
             await window.db.saveSavedReport(reportData);
             
@@ -3804,61 +3977,142 @@ class ReportsManager {
         // Получаем данные области
         const area = await window.db.getMapArea(areaId);
         
-        // Получаем адреса области
-        const allAddresses = await window.db.getAddressesInMapArea(areaId);
-        
-        // Получаем сегменты области
-        const allSegments = await window.db.getSegmentsByMapArea(areaId);
-        
-        // Получаем подсегменты для всех сегментов
-        const allSubsegments = [];
-        for (const segment of allSegments) {
-            const subsegments = await window.db.getSubsegmentsBySegment(segment.id);
-            allSubsegments.push(...subsegments);
-        }
-        
-        // Получаем объекты недвижимости для указанного сегмента/подсегмента
+        // Определяем что именно экспортировать в зависимости от выбора
+        let addresses = [];
+        let segments = [];
+        let subsegments = [];
         let realEstateObjects = [];
         let listings = [];
-        
-        if (report.filters.segment_id) {
+
+        if (!report.filters.segment_id) {
+            // УРОВЕНЬ 1: Только область - экспортируем всё
+            addresses = await window.db.getAddressesInMapArea(areaId);
+            segments = await window.db.getSegmentsByMapArea(areaId);
+
+            // Получаем все подсегменты для всех сегментов
+            for (const segment of segments) {
+                const segmentSubsegments = await window.db.getSubsegmentsBySegment(segment.id);
+                subsegments.push(...segmentSubsegments);
+            }
+
+        } else if (!report.filters.subsegment_id) {
+            // УРОВЕНЬ 2: Выбран сегмент - экспортируем данные сегмента
             try {
-                // Получаем объекты по сегменту
-                const segmentObjects = await window.db.getObjectsBySegment(report.filters.segment_id);
-                
-                // Фильтруем по подсегменту если указан
-                if (report.filters.subsegment_id) {
-                    realEstateObjects = segmentObjects.filter(obj => {
-                        const subsegment = allSubsegments.find(s => s.id === report.filters.subsegment_id);
-                        if (!subsegment) return false;
-                        return this.objectMatchesSubsegment(obj, subsegment);
-                    });
-                } else {
-                    realEstateObjects = segmentObjects;
-                }
-                
-                // Получаем объявления для всех объектов
-                for (const object of realEstateObjects) {
-                    // Получаем объявления по адресу объекта
-                    if (object.address_id) {
+                const segment = await window.db.getSegment(report.filters.segment_id);
+
+                if (segment && segment.filters && segment.filters.addresses) {
+                    // Получаем адреса из структуры сегмента
+                    for (const addressId of segment.filters.addresses) {
                         try {
-                            const objectListings = await window.db.getListingsByAddress(object.address_id);
-                            if (objectListings && objectListings.length > 0) {
-                                listings.push(...objectListings.map(listing => ({
-                                    ...listing,
-                                    object_id: object.id
-                                })));
+                            const address = await window.db.getAddress(addressId);
+                            if (address) addresses.push(address);
+                        } catch (error) {
+                            console.warn('Не удалось получить адрес сегмента:', addressId, error);
+                        }
+                    }
+
+                    // Получаем объекты по адресам сегмента
+                    for (const addressId of segment.filters.addresses) {
+                        try {
+                            const addressObjects = await window.db.getObjectsByAddress(addressId);
+                            if (addressObjects && addressObjects.length > 0) {
+                                realEstateObjects.push(...addressObjects);
                             }
-                        } catch (listingError) {
-                            console.warn('Не удалось получить объявления для объекта:', object.id, listingError);
+                        } catch (error) {
+                            console.warn('Не удалось получить объекты по адресу:', addressId, error);
                         }
                     }
                 }
-            } catch (segmentError) {
-                console.warn('Не удалось получить объекты сегмента:', report.filters.segment_id, segmentError);
+
+                // Получаем подсегменты только для выбранного сегмента
+                subsegments = await window.db.getSubsegmentsBySegment(report.filters.segment_id);
+
+            } catch (error) {
+                console.warn('Не удалось получить данные сегмента:', report.filters.segment_id, error);
+            }
+
+        } else {
+            // УРОВЕНЬ 3: Выбран подсегмент - экспортируем только данные подсегмента
+            try {
+                const targetSubsegment = await window.db.getSubsegment(report.filters.subsegment_id);
+                const segment = await window.db.getSegment(report.filters.segment_id);
+
+                if (segment && segment.filters && segment.filters.addresses && targetSubsegment) {
+                    // Получаем адреса из структуры сегмента
+                    for (const addressId of segment.filters.addresses) {
+                        try {
+                            const address = await window.db.getAddress(addressId);
+                            if (address) addresses.push(address);
+                        } catch (error) {
+                            console.warn('Не удалось получить адрес сегмента:', addressId, error);
+                        }
+                    }
+
+                    // Получаем ВСЕ объекты по адресам сегмента
+                    let allSegmentObjects = [];
+                    for (const addressId of segment.filters.addresses) {
+                        try {
+                            const addressObjects = await window.db.getObjectsByAddress(addressId);
+                            if (addressObjects && addressObjects.length > 0) {
+                                allSegmentObjects.push(...addressObjects);
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось получить объекты по адресу:', addressId, error);
+                        }
+                    }
+
+                    // Фильтруем объекты по условиям подсегмента
+                    realEstateObjects = allSegmentObjects.filter(obj => {
+                        return this.objectMatchesSubsegment(obj, targetSubsegment);
+                    });
+                }
+
+            } catch (error) {
+                console.warn('Не удалось получить данные подсегмента:', report.filters.subsegment_id, error);
             }
         }
-        
+
+        // Получаем объявления для всех найденных объектов
+        for (const object of realEstateObjects) {
+            try {
+                // Получаем объявления принадлежащие конкретному объекту
+                const objectListings = await window.db.getByIndex('listings', 'object_id', object.id);
+
+                if (objectListings && objectListings.length > 0) {
+                    listings.push(...objectListings);
+                }
+            } catch (listingError) {
+                console.warn('Не удалось получить объявления для объекта:', object.id, listingError);
+            }
+        }
+
+        // 🔧 ОБОГАЩЕНИЕ АДРЕСОВ СПРАВОЧНЫМИ ДАННЫМИ
+        if (addresses.length > 0) {
+            if (this.debugEnabled) {
+                console.log('📋 ReportsManager: Обогащаем адреса справочными данными...');
+            }
+
+            addresses = await this.enrichAddressesWithReferenceData(addresses);
+
+            if (this.debugEnabled) {
+                console.log('✅ ReportsManager: Адреса обогащены справочными данными');
+            }
+        }
+
+        // Собираем данные дублей для таблицы используя уже отфильтрованные объекты и листинги
+        let duplicatesData = null;
+        try {
+            duplicatesData = this.buildDuplicatesData(realEstateObjects, listings, addresses);
+            if (this.debugEnabled) {
+                console.log('✅ ReportsManager: Данные дублей собраны', {
+                    tableDataCount: duplicatesData?.tableData?.length || 0,
+                    addressesMapKeys: duplicatesData?.addressesMap ? Object.keys(duplicatesData.addressesMap).length : 0
+                });
+            }
+        } catch (error) {
+            console.warn('⚠️ ReportsManager: Ошибка сбора данных дублей:', error);
+        }
+
         // Формируем полную структуру экспорта
         const exportData = {
             // Метаданные экспорта
@@ -3879,29 +4133,203 @@ class ReportsManager {
                 filters: report.filters,
                 comparative_analysis: report.comparative_analysis,
                 charts_data: report.charts_data,
+                flipping_data: report.flipping_data,
                 created_at: report.created_at
             },
             
             // Данные области
             area: area,
             
-            // Адреса области
-            addresses: allAddresses,
-            
-            // Сегменты и подсегменты
-            segments: allSegments.map(segment => ({
+            // Адреса (уровень зависит от выбора)
+            addresses: addresses,
+
+            // Сегменты и подсегменты (только если нужны)
+            segments: segments.length > 0 ? segments.map(segment => ({
                 ...segment,
-                subsegments: allSubsegments.filter(sub => sub.segment_id === segment.id)
-            })),
+                subsegments: subsegments.filter(sub => sub.segment_id === segment.id)
+            })) : [],
             
             // Объекты недвижимости с объявлениями
             real_estate_objects: realEstateObjects.map(object => ({
                 ...object,
                 listings: listings.filter(listing => listing.object_id === object.id)
-            }))
+            })),
+
+            // Данные дублей для таблицы
+            duplicates_data: duplicatesData
         };
         
+        // Логируем параметры экспорта HTML отчёта
+        const exportLevel = !report.filters.segment_id ? 'ОБЛАСТЬ' :
+                           !report.filters.subsegment_id ? 'СЕГМЕНТ' : 'ПОДСЕГМЕНТ';
+
+        console.log('📊 ReportsManager: Параметры HTML экспорта:', {
+            level: exportLevel,
+            addresses: addresses.length,
+            segments: segments.length,
+            subsegments: subsegments.length,
+            objects: realEstateObjects.length,
+            listings: listings.length,
+            segment: report.filters.segment_name || 'Вся область',
+            subsegment: report.filters.subsegment_name || 'Все подсегменты',
+            report_name: report.name
+        });
+
         return exportData;
+    }
+
+    /**
+     * Сбор данных объектов и листингов для таблицы дублей
+     * Использует ту же логику что и collectReportExportData
+     */
+    async collectReportDataForDuplicates(filters) {
+        try {
+            const areaId = this.areaPage?.currentArea?.id;
+            if (!areaId) return null;
+
+            let addresses = [];
+            let realEstateObjects = [];
+            let listings = [];
+
+            const segmentId = filters.segment_id;
+            const subsegmentId = filters.subsegment_id;
+
+            if (!segmentId) {
+                // УРОВЕНЬ 1: Только область - экспортируем всё
+                addresses = await window.db.getAddressesInMapArea(areaId);
+            } else if (!subsegmentId) {
+                // УРОВЕНЬ 2: Выбран сегмент
+                const segment = await window.db.getSegment(segmentId);
+                if (segment && segment.filters && segment.filters.addresses) {
+                    for (const addressId of segment.filters.addresses) {
+                        try {
+                            const address = await window.db.getAddress(addressId);
+                            if (address) addresses.push(address);
+
+                            const addressObjects = await window.db.getObjectsByAddress(addressId);
+                            if (addressObjects && addressObjects.length > 0) {
+                                realEstateObjects.push(...addressObjects);
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось получить данные по адресу:', addressId, error);
+                        }
+                    }
+                }
+            } else {
+                // УРОВЕНЬ 3: Выбран подсегмент
+                const segment = await window.db.getSegment(segmentId);
+                const subsegment = await window.db.getSubsegment(subsegmentId);
+
+                if (segment && segment.filters && segment.filters.addresses && subsegment) {
+                    for (const addressId of segment.filters.addresses) {
+                        try {
+                            const address = await window.db.getAddress(addressId);
+                            if (address) addresses.push(address);
+
+                            const addressObjects = await window.db.getObjectsByAddress(addressId);
+                            if (addressObjects && addressObjects.length > 0) {
+                                realEstateObjects.push(...addressObjects);
+                            }
+                        } catch (error) {
+                            console.warn('Не удалось получить данные по адресу:', addressId, error);
+                        }
+                    }
+
+                    // Фильтруем по условиям подсегмента
+                    realEstateObjects = realEstateObjects.filter(obj => {
+                        return this.objectMatchesSubsegment(obj, subsegment);
+                    });
+                }
+            }
+
+            // Получаем объявления для всех найденных объектов
+            for (const object of realEstateObjects) {
+                try {
+                    const objectListings = await window.db.getByIndex('listings', 'object_id', object.id);
+                    if (objectListings && objectListings.length > 0) {
+                        listings.push(...objectListings);
+                    }
+                } catch (error) {
+                    console.warn('Не удалось получить объявления для объекта:', object.id, error);
+                }
+            }
+
+            return {
+                objects: realEstateObjects,
+                listings: listings,
+                addresses: addresses
+            };
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка сбора данных для дублей:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Формирование данных дублей из уже отфильтрованных объектов и листингов
+     * @param {Array} realEstateObjects - Уже отфильтрованные объекты
+     * @param {Array} listings - Уже отфильтрованные листинги
+     * @param {Array} addresses - Адреса
+     */
+    buildDuplicatesData(realEstateObjects, listings, addresses) {
+        try {
+            // Создаём addressesMap
+            const addressesObject = {};
+            addresses.forEach(addr => {
+                addressesObject[addr.id] = addr;
+            });
+
+            // Обогащаем объекты информацией об адресе и типе
+            const objectsData = realEstateObjects.map(obj => ({
+                ...obj,
+                address: addressesObject[obj.address_id],
+                type: 'object'
+            }));
+
+            // Добавляем тип к листингам
+            const listingsData = listings.map(listing => ({
+                ...listing,
+                type: 'listing'
+            }));
+
+            // Объединяем данные для таблицы
+            const tableData = [
+                ...listingsData,
+                ...objectsData
+            ];
+
+            return {
+                tableData: tableData,
+                addressesMap: addressesObject
+            };
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка формирования данных дублей:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Проверка точки в полигоне
+     */
+    isPointInPolygon(point, polygon) {
+        const lat = point[0];
+        const lng = point[1];
+        let inside = false;
+
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i][0];
+            const yi = polygon[i][1];
+            const xj = polygon[j][0];
+            const yj = polygon[j][1];
+
+            if (((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi)) {
+                inside = !inside;
+            }
+        }
+
+        return inside;
     }
 
     /**
@@ -4108,7 +4536,7 @@ class ReportsManager {
         const chartsData = report.charts_data || {};
         
         // Подготавливаем данные объектов для таблицы
-        const objectsTableData = this.prepareObjectsTableData(real_estate_objects);
+        const objectsTableData = real_estate_objects;
         
         // Подготавливаем данные сравнительного анализа
         const comparativeAnalysis = report.comparative_analysis || {};
@@ -4204,6 +4632,298 @@ class ReportsManager {
         return htmlContent;
     }
 
+    // ===== МЕТОДЫ ПОЛУЧЕНИЯ ДАННЫХ ГРАФИКОВ ДЛЯ ЭКСПОРТА =====
+
+    /**
+     * Получение текущих данных графика ликвидности
+     */
+    getCurrentLiquidityChartData() {
+        try {
+            if (!this.liquidityChart || !this.liquidityChart.w || !this.liquidityChart.w.config) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: График ликвидности не инициализирован');
+                }
+                return null;
+            }
+
+            const config = this.liquidityChart.w.config;
+
+            return {
+                series: config.series || [],
+                options: {
+                    chart: config.chart || {},
+                    xaxis: config.xaxis || {},
+                    yaxis: config.yaxis || [],
+                    colors: config.colors || [],
+                    plotOptions: config.plotOptions || {},
+                    legend: config.legend || {},
+                    tooltip: config.tooltip || {},
+                    dataLabels: config.dataLabels || {},
+                    grid: config.grid || {}
+                }
+            };
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных графика ликвидности:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение текущих данных графика изменения цен
+     */
+    getCurrentPriceChartData() {
+        try {
+            if (!this.priceChangesChart || !this.priceChangesChart.w || !this.priceChangesChart.w.config) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: График изменения цен не инициализирован');
+                }
+                return null;
+            }
+
+            const config = this.priceChangesChart.w.config;
+
+            return {
+                series: config.series || [],
+                options: {
+                    chart: config.chart || {},
+                    xaxis: config.xaxis || {},
+                    yaxis: config.yaxis || [],
+                    colors: config.colors || [],
+                    stroke: config.stroke || {},
+                    markers: config.markers || {},
+                    legend: config.legend || {},
+                    tooltip: config.tooltip || {},
+                    dataLabels: config.dataLabels || {},
+                    grid: config.grid || {}
+                }
+            };
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных графика цен:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение данных коридора рынка
+     */
+    getCurrentMarketCorridorData() {
+        try {
+            if (!this.marketCorridorChart || !this.marketCorridorChart.w || !this.marketCorridorChart.w.config) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: График коридора рынка не инициализирован');
+                }
+                return null;
+            }
+
+            const config = this.marketCorridorChart.w.config;
+
+            return {
+                series: config.series || [],
+                mode: this.marketCorridorMode || 'sales', // 'sales' или 'history'
+                options: {
+                    chart: config.chart || {},
+                    xaxis: config.xaxis || {},
+                    yaxis: config.yaxis || [],
+                    colors: config.colors || [],
+                    plotOptions: config.plotOptions || {},
+                    legend: config.legend || {},
+                    tooltip: config.tooltip || {},
+                    dataLabels: config.dataLabels || {},
+                    grid: config.grid || {}
+                }
+            };
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных коридора рынка:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение данных графика создания объявлений
+     */
+    getCurrentCreationChartData() {
+        try {
+            if (!this.creationChart || !this.creationChart.w || !this.creationChart.w.config) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: График создания объявлений не инициализирован');
+                }
+                return null;
+            }
+
+            const config = this.creationChart.w.config;
+
+            return {
+                series: config.series || [],
+                period: this.creationChartPeriod?.value || 'month',
+                seller_type: this.creationChartSellerType?.value || 'all',
+                options: {
+                    chart: config.chart || {},
+                    xaxis: config.xaxis || {},
+                    yaxis: config.yaxis || [],
+                    colors: config.colors || [],
+                    plotOptions: config.plotOptions || {},
+                    legend: config.legend || {},
+                    tooltip: config.tooltip || {},
+                    dataLabels: config.dataLabels || {},
+                    grid: config.grid || {}
+                }
+            };
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных графика создания:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение данных флиппинг отчёта
+     */
+    async getCurrentFlippingData() {
+        try {
+            if (!this.flippingProfitabilityManager) {
+                if (this.debugEnabled) {
+                    console.log('🔍 ReportsManager: FlippingProfitabilityManager не инициализирован');
+                }
+                return null;
+            }
+
+            // Проверяем есть ли метод экспорта данных
+            if (typeof this.flippingProfitabilityManager.exportCurrentReportData === 'function') {
+                return await this.flippingProfitabilityManager.exportCurrentReportData();
+            } else {
+                console.warn('⚠️ ReportsManager: Метод exportCurrentReportData не найден в FlippingProfitabilityManager');
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных флиппинг отчёта:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Очистка данных от функций для IndexedDB
+     */
+    sanitizeDataForStorage(obj) {
+        if (obj === null || obj === undefined) {
+            return obj;
+        }
+
+        if (typeof obj === 'function') {
+            return undefined; // Используем undefined вместо null
+        }
+
+        if (Array.isArray(obj)) {
+            return obj.map(item => this.sanitizeDataForStorage(item)).filter(item => item !== undefined);
+        }
+
+        if (typeof obj === 'object') {
+            const cleaned = {};
+            for (const key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    const value = obj[key];
+                    if (typeof value !== 'function') {
+                        const sanitized = this.sanitizeDataForStorage(value);
+                        if (sanitized !== undefined) {
+                            cleaned[key] = sanitized;
+                        }
+                    }
+                    // Функции и undefined значения пропускаем
+                }
+            }
+            return cleaned;
+        }
+
+        return obj; // Примитивные типы возвращаем как есть
+    }
+
+    /**
+     * Получение всех данных графиков для экспорта
+     */
+    async getAllChartsData() {
+        try {
+            // Получаем исходные данные отчётов (не конфигурацию ApexCharts)
+            const reportData = await this.getReportData();
+
+            if (!reportData) {
+                if (this.debugEnabled) {
+                    console.log('📊 ReportsManager: Нет данных для генерации графиков');
+                }
+                return {};
+            }
+
+            // Сохраняем текущий режим коридора рынка
+            const originalMode = this.marketCorridorMode;
+
+            const chartsData = {
+                // Данные для графика ликвидности - исходные данные
+                liquidity: {
+                    new: reportData.new,
+                    close: reportData.close,
+                    active: reportData.active,
+                    datetime: reportData.datetime
+                },
+
+                // Данные для графика изменения цен - исходные данные
+                price_changes: {
+                    averageСost: reportData.averageСost,
+                    averageСostMeter: reportData.averageСostMeter,
+                    averageСostArchive: reportData.averageСostArchive,
+                    averageСostMeterArchive: reportData.averageСostMeterArchive,
+                    datetime: reportData.datetime
+                },
+
+                // Данные для коридора рынка
+                market_corridor: {}
+            };
+
+            // Генерируем данные для обоих режимов коридора рынка
+            try {
+                // Режим продаж
+                this.marketCorridorMode = 'sales';
+                const salesData = await this.getMarketCorridorData();
+                if (salesData && salesData.series) {
+                    chartsData.market_corridor.sales = {
+                        series: salesData.series,
+                        mode: 'sales',
+                        pointsData: salesData.pointsData,
+                        seriesDataMapping: salesData.seriesDataMapping
+                    };
+                }
+
+                // Режим истории
+                this.marketCorridorMode = 'history';
+                const historyData = await this.getMarketCorridorData();
+                if (historyData && historyData.series) {
+                    chartsData.market_corridor.history = {
+                        series: historyData.series,
+                        mode: 'history',
+                        pointsData: historyData.pointsData,
+                        seriesDataMapping: historyData.seriesDataMapping
+                    };
+                }
+            } finally {
+                // Восстанавливаем исходный режим
+                this.marketCorridorMode = originalMode;
+            }
+
+            // Очищаем данные от функций перед сохранением в IndexedDB
+            const cleanedChartsData = this.sanitizeDataForStorage(chartsData);
+
+            if (this.debugEnabled) {
+                console.log('📊 ReportsManager: Собрано данных графиков:', {
+                    liquidity: !!cleanedChartsData.liquidity,
+                    price_changes: !!cleanedChartsData.price_changes,
+                    market_corridor_sales: !!(cleanedChartsData.market_corridor && cleanedChartsData.market_corridor.sales),
+                    market_corridor_history: !!(cleanedChartsData.market_corridor && cleanedChartsData.market_corridor.history)
+                });
+            }
+
+            return cleanedChartsData;
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения всех данных графиков:', error);
+            return {};
+        }
+    }
+
     /**
      * Очистка ресурсов
      */
@@ -4262,6 +4982,519 @@ class ReportsManager {
         this.eventBus.off(CONSTANTS.EVENTS.SUBSEGMENT_DELETED);
 
         if (this.debugEnabled) {
+        }
+    }
+
+    // ===== ГРАФИК СОЗДАНИЯ ОБЪЯВЛЕНИЙ =====
+
+    /**
+     * Обновление графика создания объявлений
+     */
+    async updateCreationChart() {
+        try {
+            if (!this.creationChartPeriod || !this.creationChartSellerType) {
+                return;
+            }
+
+            const period = this.creationChartPeriod.value || 'days';
+            const sellerType = this.creationChartSellerType.value || 'owner';
+
+            // Получаем данные для графика
+            const chartData = await this.getCreationChartData(period, sellerType);
+
+            // Рендерим график
+            this.renderCreationChart(chartData, period, sellerType);
+
+            // Обновляем сводку
+            this.updateCreationSummary(chartData, sellerType, period);
+
+            if (this.debugEnabled) {
+                console.log('📊 График создания объявлений обновлён:', { period, sellerType, dataPoints: chartData.length });
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка обновления графика создания объявлений:', error);
+        }
+    }
+
+    /**
+     * Получение данных для графика создания объявлений
+     */
+    async getCreationChartData(period, sellerType) {
+        try {
+            const currentArea = this.areaPage.dataState?.getState('currentArea');
+            if (!currentArea) return [];
+
+            // Получаем объявления из кеша или напрямую из БД
+            let listings;
+            if (window.dataCacheManager) {
+                listings = await window.dataCacheManager.getAll('listings');
+            } else {
+                // Резервный механизм - прямое обращение к БД
+                console.warn('⚠️ DataCacheManager недоступен, используем прямое обращение к БД');
+                listings = await window.db.getAll('listings');
+            }
+
+            // Фильтруем объявления по области
+            const areaListings = listings.filter(listing => listing.map_area_id === currentArea.id);
+
+            // Фильтруем по типу продавца
+            let filteredListings = areaListings;
+            if (sellerType === 'owner') {
+                filteredListings = areaListings.filter(listing => listing.seller_type === 'owner');
+            } else if (sellerType === 'agent') {
+                filteredListings = areaListings.filter(listing => listing.seller_type === 'agent');
+            }
+
+            // Фильтруем объявления с валидной датой создания
+            const validListings = filteredListings.filter(listing =>
+                listing.created && listing.created !== null && new Date(listing.created).getTime() > 0
+            );
+
+            // Агрегируем данные по периоду
+            if (period === 'days') {
+                return this.aggregateCreationByDays(validListings, 30);
+            } else {
+                return this.aggregateCreationByMonths(validListings, 12);
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения данных графика создания:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Агрегация данных по дням
+     */
+    aggregateCreationByDays(listings, days) {
+        const now = new Date();
+        const result = [];
+
+        for (let i = days - 1; i >= 0; i--) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            date.setHours(0, 0, 0, 0);
+
+            const nextDate = new Date(date);
+            nextDate.setDate(nextDate.getDate() + 1);
+
+            const count = listings.filter(listing => {
+                const createdDate = new Date(listing.created);
+                return createdDate >= date && createdDate < nextDate;
+            }).length;
+
+            result.push({
+                date: date.toISOString().split('T')[0],
+                count: count,
+                label: date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+            });
+        }
+
+        return result;
+    }
+
+    /**
+     * Агрегация данных по месяцам
+     */
+    aggregateCreationByMonths(listings, months) {
+        const now = new Date();
+        const result = [];
+
+        for (let i = months - 1; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const nextDate = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+
+            const count = listings.filter(listing => {
+                const createdDate = new Date(listing.created);
+                return createdDate >= date && createdDate < nextDate;
+            }).length;
+
+            result.push({
+                date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`,
+                count: count,
+                label: date.toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' })
+            });
+        }
+
+        return result;
+    }
+
+    /**
+     * Рендеринг графика создания объявлений
+     */
+    renderCreationChart(data, period, sellerType) {
+        const container = document.getElementById('creationChart');
+        if (!container) return;
+
+        // Уничтожаем предыдущий график
+        if (this.creationChart) {
+            this.creationChart.destroy();
+        }
+
+        const options = {
+            chart: {
+                type: 'line',
+                height: 320,
+                toolbar: {
+                    show: false
+                },
+                zoom: {
+                    enabled: false
+                }
+            },
+            series: [{
+                name: 'Количество объявлений',
+                data: data.map(item => item.count)
+            }],
+            xaxis: {
+                categories: data.map(item => item.label),
+                title: {
+                    text: period === 'days' ? 'Дни' : 'Месяцы'
+                }
+            },
+            yaxis: {
+                title: {
+                    text: 'Количество'
+                },
+                min: 0
+            },
+            title: {
+                text: this.getChartTitle(period, sellerType),
+                align: 'left',
+                style: {
+                    fontSize: '16px',
+                    fontWeight: 500
+                }
+            },
+            stroke: {
+                curve: 'smooth',
+                width: 3
+            },
+            colors: ['#3b82f6'],
+            grid: {
+                show: true,
+                borderColor: '#e5e7eb'
+            },
+            markers: {
+                size: 4,
+                colors: ['#3b82f6'],
+                strokeWidth: 0,
+                hover: {
+                    size: 6
+                }
+            },
+            tooltip: {
+                y: {
+                    formatter: function(value) {
+                        return value + ' объявлений';
+                    }
+                }
+            }
+        };
+
+        this.creationChart = new ApexCharts(container, options);
+        this.creationChart.render();
+    }
+
+    /**
+     * Получение заголовка графика
+     */
+    getChartTitle(period, sellerType) {
+        const periodText = period === 'days' ? 'по дням' : 'по месяцам';
+        const sellerText = sellerType === 'owner' ? 'от собственников' :
+                          sellerType === 'agent' ? 'от агентов' : 'всего';
+        return `Создание объявлений ${periodText} (${sellerText})`;
+    }
+
+    /**
+     * Обновление сводки
+     */
+    async updateCreationSummary(chartData, sellerType, period) {
+        try {
+            const currentArea = this.areaPage.dataState?.getState('currentArea');
+            if (!currentArea) return;
+
+            // Получаем все объявления для подсчета типов продавцов
+            let allListings;
+            if (window.dataCacheManager) {
+                allListings = await window.dataCacheManager.getAll('listings');
+            } else {
+                console.warn('⚠️ DataCacheManager недоступен, используем прямое обращение к БД');
+                allListings = await window.db.getAll('listings');
+            }
+            const areaListings = allListings.filter(listing =>
+                listing.map_area_id === currentArea.id &&
+                listing.created && listing.created !== null && new Date(listing.created).getTime() > 0
+            );
+
+            const totalCreated = chartData.reduce((sum, item) => sum + item.count, 0);
+            const avgPerPeriod = totalCreated > 0 ? (totalCreated / chartData.length).toFixed(1) : 0;
+            const maxPerPeriod = chartData.length > 0 ? Math.max(...chartData.map(item => item.count)) : 0;
+
+            const ownerCount = areaListings.filter(listing => listing.seller_type === 'owner').length;
+            const agentCount = areaListings.filter(listing => listing.seller_type === 'agent').length;
+
+            // Обновляем элементы сводки
+            this.updateSummaryElement('totalCreated', totalCreated);
+            this.updateSummaryElement('avgPerDay', avgPerPeriod);
+            this.updateSummaryElement('maxPerDay', maxPerPeriod);
+            this.updateSummaryElement('ownerCount', ownerCount);
+            this.updateSummaryElement('agentCount', agentCount);
+
+            // Обновляем подписи в зависимости от периода
+            this.updateSummaryLabels(period);
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка обновления сводки:', error);
+        }
+    }
+
+    /**
+     * Обновление элемента сводки
+     */
+    updateSummaryElement(elementId, value) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = value;
+        }
+    }
+
+    /**
+     * Обновление подписей сводки в зависимости от периода
+     */
+    updateSummaryLabels(period) {
+        const avgLabel = period === 'days' ? 'Среднее в день:' : 'Среднее в месяц:';
+        const maxLabel = period === 'days' ? 'Максимум в день:' : 'Максимум в месяц:';
+
+        // Найдем элементы label и обновим их текст
+        const avgLabelElement = document.querySelector('#creationSummary .flex:nth-child(2) .text-gray-600');
+        const maxLabelElement = document.querySelector('#creationSummary .flex:nth-child(3) .text-gray-600');
+
+        if (avgLabelElement) {
+            avgLabelElement.textContent = avgLabel;
+        }
+
+        if (maxLabelElement) {
+            maxLabelElement.textContent = maxLabel;
+        }
+    }
+
+    /**
+     * Экспорт текущих отчётов в HTML
+     */
+    async exportCurrentReportsAsHTML() {
+        try {
+            if (this.debugEnabled) {
+                console.log('📄 ReportsManager: Начинаем экспорт текущих отчётов в HTML');
+            }
+
+            // Проверяем доступность HTMLExportManager
+            if (!this.htmlExportManager) {
+                throw new Error('HTMLExportManager не инициализирован');
+            }
+
+            // Получаем данные текущей области
+            const area = this.areaPage.currentArea;
+            if (!area) {
+                throw new Error('Не выбрана область для экспорта');
+            }
+
+            // Собираем данные дублей для таблицы
+            let duplicatesData = null;
+            try {
+                const filters = {
+                    segment_id: this.currentSegment?.id || null,
+                    subsegment_id: this.currentSubsegment?.id || null
+                };
+                const duplicatesInputData = await this.collectReportDataForDuplicates(filters);
+                if (duplicatesInputData) {
+                    duplicatesData = this.buildDuplicatesData(
+                        duplicatesInputData.objects,
+                        duplicatesInputData.listings,
+                        duplicatesInputData.addresses
+                    );
+                    if (this.debugEnabled) {
+                        console.log('✅ ReportsManager: Данные дублей для текущего экспорта собраны', {
+                            objects: duplicatesInputData.objects.length,
+                            listings: duplicatesInputData.listings.length,
+                            tableDataCount: duplicatesData?.tableData?.length || 0
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ ReportsManager: Ошибка сбора данных дублей для текущего экспорта:', error);
+            }
+
+            // Получаем данные текущих отчётов
+            const exportData = {
+                // Данные области
+                area: {
+                    id: area.id,
+                    name: area.name,
+                    polygon: area.polygon,
+                    created_at: area.created_at
+                },
+
+                // Выбранный сегмент/подсегмент
+                segment: this.currentSegment ? {
+                    id: this.currentSegment.id,
+                    name: this.currentSegment.name,
+                    filters: this.currentSegment.filters
+                } : null,
+
+                subsegment: this.currentSubsegment ? {
+                    id: this.currentSubsegment.id,
+                    name: this.currentSubsegment.name,
+                    filters: this.currentSubsegment.filters
+                } : null,
+
+                // Данные для отчётов
+                reports_data: {
+                    liquidity: this.getCurrentLiquidityChartData(),
+                    price_changes: this.getCurrentPriceChangesChartData(),
+                    market_corridor: this.getCurrentMarketCorridorChartData(),
+                    comparative_analysis: this.getCurrentComparativeAnalysisData(),
+                    flipping_profitability: await this.getCurrentFlippingData()
+                },
+
+                // Адреса для карты
+                addresses: await this.getSubsegmentAddresses(),
+
+                // Данные дублей для таблицы
+                duplicates_data: duplicatesData,
+
+                // Мета-информация
+                export_info: {
+                    generated_at: new Date().toISOString(),
+                    period_from: this.dateFromFilter ? this.dateFromFilter.value : '',
+                    period_to: this.dateToFilter ? this.dateToFilter.value : '',
+                    filter_name: this.getActiveFilterName()
+                }
+            };
+
+            // Генерируем HTML через новый HTMLExportManager
+            const htmlContent = await this.htmlExportManager.generateHTMLReport(exportData);
+
+            // Создаём имя файла
+            const fileName = `отчёт_${area.name}_${new Date().toISOString().slice(0,10)}.html`;
+
+            // Скачиваем файл
+            this.downloadHTMLFile(htmlContent, fileName);
+
+            // Показываем уведомление об успешном экспорте
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'success',
+                    message: `📄 HTML отчёт по области "${area.name}" сгенерирован`,
+                    duration: 3000
+                });
+            }
+
+            if (this.debugEnabled) {
+                console.log('✅ ReportsManager: HTML экспорт текущих отчётов завершён успешно');
+            }
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка экспорта текущих отчётов в HTML:', error);
+
+            // Показываем уведомление об ошибке
+            if (this.areaPage && this.areaPage.uiManager) {
+                this.areaPage.uiManager.showNotification({
+                    type: 'error',
+                    message: 'Ошибка экспорта текущих отчётов в HTML',
+                    duration: 5000
+                });
+            }
+        }
+    }
+
+    /**
+     * Получение адресов подсегмента для карты
+     */
+    async getSubsegmentAddresses() {
+        try {
+            if (!this.areaPage.currentArea) {
+                return [];
+            }
+
+            // Получаем объекты текущего сегмента/подсегмента
+            const objects = await window.db.getRealEstateObjectsByAreaAndSegment(
+                this.areaPage.currentArea.id,
+                this.currentSegment?.id,
+                this.currentSubsegment?.id
+            );
+
+            // Получаем уникальные адреса
+            const addressIds = [...new Set(objects.map(obj => obj.address_id))];
+            const addresses = await Promise.all(
+                addressIds.map(id => window.db.getAddress(id))
+            );
+
+            return addresses.filter(addr => addr && addr.coordinates);
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка получения адресов подсегмента:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Получение названия активного фильтра
+     */
+    getActiveFilterName() {
+        const parts = [];
+
+        if (this.currentSegment) {
+            parts.push(this.currentSegment.name);
+        }
+
+        if (this.currentSubsegment) {
+            parts.push(this.currentSubsegment.name);
+        }
+
+        return parts.length > 0 ? parts.join(' → ') : 'Все объекты';
+    }
+
+    /**
+     * Обогащение адресов справочными данными для отчёта
+     */
+    async enrichAddressesWithReferenceData(addresses) {
+        try {
+            // Получаем все справочники параллельно
+            const [houseSeries, houseClasses, wallMaterials, ceilingMaterials] = await Promise.all([
+                window.db.getAll('house_series'),
+                window.db.getAll('house_classes'),
+                window.db.getAll('wall_materials'),
+                window.db.getAll('ceiling_materials')
+            ]);
+
+            // Создаем мапы для быстрого поиска
+            const houseSeriesMap = new Map(houseSeries.map(item => [item.id, item.name]));
+            const houseClassesMap = new Map(houseClasses.map(item => [item.id, item.name]));
+            const wallMaterialsMap = new Map(wallMaterials.map(item => [item.id, item.name]));
+            const wallMaterialsColorMap = new Map(wallMaterials.map(item => [item.id, item.color]));
+            const ceilingMaterialsMap = new Map(ceilingMaterials.map(item => [item.id, item.name]));
+
+            // Обогащаем каждый адрес
+            return addresses.map(address => ({
+                ...address,
+                // Добавляем текстовые названия справочников
+                house_series: address.house_series_id ? houseSeriesMap.get(address.house_series_id) : null,
+                house_class: address.house_class_id ? houseClassesMap.get(address.house_class_id) : null,
+                wall_material: address.wall_material_id ? wallMaterialsMap.get(address.wall_material_id) : null,
+                wall_material_color: address.wall_material_id ? wallMaterialsColorMap.get(address.wall_material_id) : null,
+                ceiling_material: address.ceiling_material_id ? ceilingMaterialsMap.get(address.ceiling_material_id) : null,
+
+                // Для совместимости с разными названиями полей
+                floors: address.floors_count,
+                house_year: address.build_year
+            }));
+
+        } catch (error) {
+            console.error('❌ ReportsManager: Ошибка обогащения адресов справочными данными:', error);
+            // Возвращаем исходные адреса в случае ошибки
+            return addresses;
         }
     }
 }
