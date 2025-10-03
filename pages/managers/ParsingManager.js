@@ -400,7 +400,13 @@ class ParsingManager {
             }
             
             this.progressManager.updateProgressBar('updating', 100, 'Обновление завершено');
-            
+
+            // Инвалидируем весь кеш после массового обновления
+            if (window.dataCacheManager && updatedCount > 0) {
+                await window.dataCacheManager.invalidate('listings');
+                await window.dataCacheManager.invalidate('objects');
+            }
+
             // Уведомляем о завершении обновления
             this.eventBus.emit(CONSTANTS.EVENTS.LISTINGS_UPDATED, {
                 area: currentArea,
@@ -503,14 +509,22 @@ class ParsingManager {
                     }
                     
                     await window.db.update('listings', updatedListing);
-                    
+
+                    // Инвалидируем кеш объявления
+                    if (window.dataCacheManager) {
+                        await window.dataCacheManager.invalidate('listings', listing.id);
+                        if (updatedListing.object_id) {
+                            await window.dataCacheManager.invalidate('objects', updatedListing.object_id);
+                        }
+                    }
+
                     // Уведомляем об обновлении
                     this.eventBus.emit(CONSTANTS.EVENTS.LISTING_UPDATED, {
                         listing: updatedListing,
                         oldListing: listing,
                         priceChanged: listing.price !== response.data.price
                     });
-                    
+
                     return { success: true, updated: true };
                 } else {
                     // Если объявление не найдено, помечаем как архивное
@@ -522,14 +536,22 @@ class ParsingManager {
                     };
                     
                     await window.db.update('listings', archivedListing);
-                    
+
+                    // Инвалидируем кеш объявления
+                    if (window.dataCacheManager) {
+                        await window.dataCacheManager.invalidate('listings', listing.id);
+                        if (archivedListing.object_id) {
+                            await window.dataCacheManager.invalidate('objects', archivedListing.object_id);
+                        }
+                    }
+
                     // Уведомляем об архивации
                     this.eventBus.emit(CONSTANTS.EVENTS.LISTING_UPDATED, {
                         listing: archivedListing,
                         oldListing: listing,
                         archived: true
                     });
-                    
+
                     return { success: true, archived: true };
                 }
                 

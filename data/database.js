@@ -9,7 +9,7 @@ if (typeof NeocenkaDB === 'undefined') {
 class NeocenkaDB {
   constructor() {
     this.dbName = 'NeocenkaDB';
-    this.version = 25; // Версия 25: добавлено поле filter_template_id в saved_reports для связи отчётов с шаблонами фильтров
+    this.version = 26; // Версия 26: добавлены таблицы custom_parameters и object_custom_values для дополнительных параметров объектов
     this.db = null;
   }
 
@@ -273,6 +273,24 @@ class NeocenkaDB {
       savedReportsStore.createIndex('created_at', 'created_at', { unique: false });
     }
 
+    // Custom Parameters store (версия 26: справочник дополнительных параметров)
+    if (!this.db.objectStoreNames.contains('custom_parameters')) {
+      const customParametersStore = this.db.createObjectStore('custom_parameters', { keyPath: 'id' });
+      customParametersStore.createIndex('name', 'name', { unique: false });
+      customParametersStore.createIndex('type', 'type', { unique: false });
+      customParametersStore.createIndex('is_active', 'is_active', { unique: false });
+      customParametersStore.createIndex('display_order', 'display_order', { unique: false });
+      customParametersStore.createIndex('created_at', 'created_at', { unique: false });
+    }
+
+    // Object Custom Values store (версия 26: значения дополнительных параметров для объектов)
+    if (!this.db.objectStoreNames.contains('object_custom_values')) {
+      const objectCustomValuesStore = this.db.createObjectStore('object_custom_values', { keyPath: 'id' });
+      objectCustomValuesStore.createIndex('object_id', 'object_id', { unique: false });
+      objectCustomValuesStore.createIndex('parameter_id', 'parameter_id', { unique: false });
+      objectCustomValuesStore.createIndex('object_parameter', ['object_id', 'parameter_id'], { unique: true });
+      objectCustomValuesStore.createIndex('created_at', 'created_at', { unique: false });
+    }
 
   }
 
@@ -695,20 +713,37 @@ class NeocenkaDB {
    * Поиск записей по индексу
    */
   async getByIndex(storeName, indexName, value) {
+    if (!this.db) {
+      console.error(`❌ Database.getByIndex: База данных не инициализирована для операции getByIndex(${storeName})`);
+      return [];
+    }
+
+    if (storeName === 'custom_parameters' && indexName === 'is_active') {
+      console.log(`🔍 Database.getByIndex: Поиск в ${storeName} по индексу ${indexName} = ${value} (type: ${typeof value})`);
+    }
+
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readonly');
-      const store = transaction.objectStore(storeName);
-      const index = store.index(indexName);
-      const request = index.getAll(value);
+      try {
+        const transaction = this.db.transaction([storeName], 'readonly');
+        const store = transaction.objectStore(storeName);
+        const index = store.index(indexName);
+        const request = index.getAll(value);
 
       request.onsuccess = () => {
+        if (storeName === 'custom_parameters' && indexName === 'is_active') {
+          console.log(`🔍 Database.getByIndex: Найдено ${request.result?.length || 0} записей`, request.result);
+        }
         resolve(request.result || []);
       };
 
-      request.onerror = () => {
-        console.error(`Error getting records by index from ${storeName}:`, request.error);
-        reject(request.error);
-      };
+        request.onerror = () => {
+          console.error(`Error getting records by index from ${storeName}:`, request.error);
+          reject(request.error);
+        };
+      } catch (error) {
+        console.error(`❌ Database.getByIndex: Ошибка транзакции для ${storeName}:`, error);
+        reject(error);
+      }
     });
   }
 
@@ -829,11 +864,33 @@ class NeocenkaDB {
   }
 
   async addListing(listingData) {
-    return this.add('listings', listingData);
+    const result = await this.add('listings', listingData);
+
+    // Инвалидируем кэш объявлений
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('listings', result.id || listingData.id);
+      // Если объявление связано с объектом, инвалидируем кэш объектов
+      if (listingData.object_id) {
+        await window.dataCacheManager.invalidate('objects', listingData.object_id);
+      }
+    }
+
+    return result;
   }
 
   async updateListing(listingData) {
-    return this.update('listings', listingData);
+    const result = await this.update('listings', listingData);
+
+    // Инвалидируем кэш объявлений
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('listings', listingData.id);
+      // Если объявление связано с объектом, инвалидируем кэш объектов
+      if (listingData.object_id) {
+        await window.dataCacheManager.invalidate('objects', listingData.object_id);
+      }
+    }
+
+    return result;
   }
 
   async getListing(listingId) {
@@ -973,7 +1030,17 @@ class NeocenkaDB {
 
       }
 
-      return this.update('listings', listing);
+      const result = await this.update('listings', listing);
+
+      // Инвалидируем кэш объявлений
+      if (window.dataCacheManager) {
+        await window.dataCacheManager.invalidate('listings', listingId);
+        if (listing.object_id) {
+          await window.dataCacheManager.invalidate('objects', listing.object_id);
+        }
+      }
+
+      return result;
     } catch (error) {
       console.error('Error updating listing price:', error);
       throw error;
@@ -1008,9 +1075,8 @@ class NeocenkaDB {
           // Обновляем существующее объявление
           const oldPrice = existingListing.price;
           const newPrice = listing.price;
-          
-          // Обновляем основные поля
-          existingListing.price = newPrice;
+
+          // Обновляем основные поля (БЕЗ прямого изменения price)
           existingListing.updated_at = new Date();
           existingListing.last_seen = new Date();
           
@@ -1078,7 +1144,10 @@ class NeocenkaDB {
               }
             });
           }
-          
+
+          // ПРАВИЛЬНЫЙ ПОДХОД: Обновляем текущую цену из истории цен
+          this.updateCurrentPriceFromHistory(existingListing);
+
           await this.updateListing(existingListing);
           updated++;
           
@@ -2171,11 +2240,29 @@ class NeocenkaDB {
   }
 
   async addObject(objectData) {
-    return this.add('objects', objectData);
+    const result = await this.add('objects', objectData);
+
+    // Инвалидируем кэш объектов
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('objects', result.id || objectData.id);
+      // Также инвалидируем кэш объявлений, так как могут быть связанные объявления
+      await window.dataCacheManager.invalidate('listings');
+    }
+
+    return result;
   }
 
   async updateObject(objectData) {
-    return this.update('objects', objectData);
+    const result = await this.update('objects', objectData);
+
+    // Инвалидируем кэш объектов
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('objects', objectData.id);
+      // Также инвалидируем кэш объявлений, так как могут быть связанные объявления
+      await window.dataCacheManager.invalidate('listings');
+    }
+
+    return result;
   }
 
   async getObject(objectId) {
@@ -2183,7 +2270,16 @@ class NeocenkaDB {
   }
 
   async deleteObject(objectId) {
-    return this.delete('objects', objectId);
+    const result = await this.delete('objects', objectId);
+
+    // Инвалидируем кэш объектов
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('objects', objectId);
+      // Также инвалидируем кэш объявлений, так как могут быть связанные объявления
+      await window.dataCacheManager.invalidate('listings');
+    }
+
+    return result;
   }
 
   async getObjectsByAddress(addressId) {
@@ -2309,6 +2405,270 @@ class NeocenkaDB {
         sections: 0,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Обновляет текущую цену объявления на основе истории цен
+   * ПРАВИЛЬНЫЙ ПОДХОД: цена всегда рассчитывается из истории
+   */
+  updateCurrentPriceFromHistory(listing) {
+    if (!listing.price_history || !Array.isArray(listing.price_history) || listing.price_history.length === 0) {
+      // Если истории цен нет, оставляем текущую цену как есть
+      return;
+    }
+
+    // Сортируем историю по дате (от старых к новым)
+    const sortedHistory = [...listing.price_history].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Берем последнюю запись как текущую цену
+    const latestEntry = sortedHistory[sortedHistory.length - 1];
+    const newCurrentPrice = latestEntry.price || latestEntry.new_price;
+
+    if (newCurrentPrice && !isNaN(newCurrentPrice)) {
+      listing.price = parseFloat(newCurrentPrice);
+
+      // Пересчитываем цену за м2 если есть площадь
+      if (listing.area_total && listing.area_total > 0) {
+        listing.price_per_meter = Math.round(listing.price / listing.area_total);
+      }
+    }
+  }
+
+  // ===== МЕТОДЫ ДЛЯ ДОПОЛНИТЕЛЬНЫХ ПАРАМЕТРОВ (версия 26) =====
+
+  /**
+   * Получение всех дополнительных параметров
+   */
+  async getCustomParameters() {
+    return this.getAll('custom_parameters');
+  }
+
+  /**
+   * Получение активных дополнительных параметров
+   */
+  async getActiveCustomParameters() {
+    try {
+      // Используем альтернативный способ - получаем все параметры и фильтруем
+      const allParameters = await this.getAll('custom_parameters');
+      const activeParameters = allParameters.filter(param => param.is_active === true);
+      console.log(`🔍 Database: getActiveCustomParameters() результат:`, activeParameters?.length || 0, activeParameters);
+      return activeParameters;
+    } catch (error) {
+      console.error('❌ Database: Ошибка получения активных параметров:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Добавление дополнительного параметра
+   */
+  async addCustomParameter(parameterData) {
+    // Генерируем ID если он отсутствует
+    if (!parameterData.id) {
+      parameterData.id = 'param_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    // Устанавливаем временные метки
+    parameterData.created_at = parameterData.created_at || new Date();
+    parameterData.updated_at = new Date();
+
+    return this.add('custom_parameters', parameterData);
+  }
+
+  /**
+   * Обновление дополнительного параметра
+   */
+  async updateCustomParameter(parameterData) {
+    return this.update('custom_parameters', parameterData);
+  }
+
+  /**
+   * Получение параметра по ID
+   */
+  async getCustomParameter(parameterId) {
+    return this.get('custom_parameters', parameterId);
+  }
+
+  /**
+   * Удаление дополнительного параметра
+   */
+  async deleteCustomParameter(parameterId) {
+    // Сначала удаляем все значения этого параметра
+    await this.deleteCustomValuesByParameter(parameterId);
+    // Затем удаляем сам параметр
+    return this.delete('custom_parameters', parameterId);
+  }
+
+  /**
+   * Получение параметров по типу
+   */
+  async getCustomParametersByType(type) {
+    return this.getByIndex('custom_parameters', 'type', type);
+  }
+
+  /**
+   * Получение всех значений дополнительных параметров для объекта
+   */
+  async getObjectCustomValues(objectId) {
+    return this.getByIndex('object_custom_values', 'object_id', objectId);
+  }
+
+  /**
+   * Получение конкретного значения параметра для объекта
+   */
+  async getObjectCustomValue(objectId, parameterId) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['object_custom_values'], 'readonly');
+      const store = transaction.objectStore('object_custom_values');
+      const index = store.index('object_parameter');
+      const request = index.get([objectId, parameterId]);
+
+      request.onsuccess = () => {
+        resolve(request.result || null);
+      };
+
+      request.onerror = () => {
+        console.error('Error getting object custom value:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Установка значения дополнительного параметра для объекта
+   */
+  async setObjectCustomValue(objectId, parameterId, value) {
+    try {
+      // Проверяем, существует ли уже значение
+      const existingValue = await this.getObjectCustomValue(objectId, parameterId);
+
+      const valueData = {
+        object_id: objectId,
+        parameter_id: parameterId,
+        value: value,
+        updated_at: new Date()
+      };
+
+      if (existingValue) {
+        // Обновляем существующее значение
+        valueData.id = existingValue.id;
+        valueData.created_at = existingValue.created_at;
+        return this.update('object_custom_values', valueData);
+      } else {
+        // Создаем новое значение
+        valueData.id = 'value_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        valueData.created_at = new Date();
+        return this.add('object_custom_values', valueData);
+      }
+    } catch (error) {
+      console.error('Error setting object custom value:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Массовая установка значений параметров для объекта
+   */
+  async setObjectCustomValues(objectId, values) {
+    const results = [];
+    for (const [parameterId, value] of Object.entries(values)) {
+      try {
+        const result = await this.setObjectCustomValue(objectId, parameterId, value);
+        results.push(result);
+      } catch (error) {
+        console.error(`Error setting value for parameter ${parameterId}:`, error);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Удаление значения дополнительного параметра для объекта
+   */
+  async deleteObjectCustomValue(objectId, parameterId) {
+    try {
+      const existingValue = await this.getObjectCustomValue(objectId, parameterId);
+      if (existingValue) {
+        return this.delete('object_custom_values', existingValue.id);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error deleting object custom value:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Удаление всех значений дополнительных параметров для объекта
+   */
+  async deleteAllObjectCustomValues(objectId) {
+    try {
+      const values = await this.getObjectCustomValues(objectId);
+      const results = [];
+      for (const value of values) {
+        const result = await this.delete('object_custom_values', value.id);
+        results.push(result);
+      }
+      return results;
+    } catch (error) {
+      console.error('Error deleting all object custom values:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Удаление всех значений конкретного параметра
+   */
+  async deleteCustomValuesByParameter(parameterId) {
+    try {
+      const values = await this.getByIndex('object_custom_values', 'parameter_id', parameterId);
+      const results = [];
+      for (const value of values) {
+        const result = await this.delete('object_custom_values', value.id);
+        results.push(result);
+      }
+      return results;
+    } catch (error) {
+      console.error('Error deleting custom values by parameter:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Получение всех значений конкретного параметра
+   */
+  async getValuesByCustomParameter(parameterId) {
+    return this.getByIndex('object_custom_values', 'parameter_id', parameterId);
+  }
+
+  /**
+   * Получение статистики использования дополнительных параметров
+   */
+  async getCustomParametersStats() {
+    try {
+      const parameters = await this.getCustomParameters();
+      const stats = {
+        total: parameters.length,
+        active: 0,
+        byType: {}
+      };
+
+      for (const parameter of parameters) {
+        if (parameter.is_active) {
+          stats.active++;
+        }
+
+        if (!stats.byType[parameter.type]) {
+          stats.byType[parameter.type] = 0;
+        }
+        stats.byType[parameter.type]++;
+      }
+
+      return stats;
+    } catch (error) {
+      console.error('Error getting custom parameters stats:', error);
+      return { total: 0, active: 0, byType: {} };
     }
   }
 

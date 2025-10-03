@@ -333,9 +333,47 @@ class AIChatModal {
     }
 
     /**
+     * Инициализация SlimSelect для всех выпадающих списков
+     */
+    initializeSlimSelects() {
+        const selectElements = this.modal.querySelectorAll('select');
+        this.slimSelectInstances = this.slimSelectInstances || [];
+
+        // Очищаем старые экземпляры
+        this.slimSelectInstances.forEach(instance => {
+            try {
+                instance.destroy();
+            } catch (error) {
+                console.warn('Ошибка при очистке SlimSelect экземпляра в AI чате:', error);
+            }
+        });
+        this.slimSelectInstances = [];
+
+        selectElements.forEach(selectElement => {
+            try {
+                const isMultiple = selectElement.hasAttribute('multiple');
+                const instance = new SlimSelect({
+                    select: selectElement,
+                    settings: {
+                        allowDeselect: true,
+                        placeholder: isMultiple ? 'Выберите значения...' : 'Выберите значение...',
+                        closeOnSelect: !isMultiple
+                    }
+                });
+                this.slimSelectInstances.push(instance);
+            } catch (error) {
+                console.warn('Не удалось инициализировать SlimSelect для элемента в AI чате:', selectElement, error);
+            }
+        });
+    }
+
+    /**
      * Привязка обработчиков событий
      */
     bindEvents() {
+        // Инициализация SlimSelect
+        this.initializeSlimSelects();
+
         // Закрытие модального окна
         this.modal.querySelector('[data-role="close-button"]').addEventListener('click', () => {
             this.close();
@@ -602,10 +640,22 @@ class AIChatModal {
     close() {
         if (!this.isOpen) return;
 
+        // Очищаем SlimSelect экземпляры
+        if (this.slimSelectInstances) {
+            this.slimSelectInstances.forEach(instance => {
+                try {
+                    instance.destroy();
+                } catch (error) {
+                    console.warn('Ошибка при очистке SlimSelect экземпляра при закрытии AI чата:', error);
+                }
+            });
+            this.slimSelectInstances = [];
+        }
+
         this.isOpen = false;
         this.modal.style.opacity = '0';
         this.modal.querySelector('.bg-white').style.transform = 'scale(0.95)';
-        
+
         setTimeout(() => {
             this.modal.style.pointerEvents = 'none';
         }, 300);

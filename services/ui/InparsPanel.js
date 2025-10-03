@@ -90,7 +90,16 @@ class InparsPanel {
         this.elements.panel.innerHTML = `
             <h4 class="text-lg font-medium text-gray-900 mb-4">Импорт объявлений</h4>
             <p class="text-sm text-gray-600 mb-4">Загрузка объявлений из сервиса Inpars в пределах области</p>
-            
+
+            <!-- Выбор стартовой даты -->
+            <div class="mb-4">
+                <label for="importStartDate" class="block text-sm font-medium text-gray-700 mb-2">
+                    Дата начала импорта
+                </label>
+                <input type="date" id="importStartDate" class="import-start-date block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                <p class="text-xs text-gray-500 mt-1">Объявления будут загружены начиная с этой даты</p>
+            </div>
+
             <!-- Выбор категорий -->
             <div class="mb-4">
                 <label for="categoriesSelect" class="block text-sm font-medium text-gray-700 mb-2">
@@ -138,12 +147,16 @@ class InparsPanel {
         `;
         
         // Кешируем элементы
+        this.elements.importStartDate = this.elements.panel.querySelector('.import-start-date');
         this.elements.categorySelect = this.elements.panel.querySelector('.category-select');
         this.elements.loadButton = this.elements.panel.querySelector('.load-button');
         this.elements.progressContainer = this.elements.panel.querySelector('.progress-container');
         this.elements.progressBar = this.elements.panel.querySelector('.progress-bar');
         this.elements.progressText = this.elements.panel.querySelector('.progress-text');
         this.elements.statusText = this.elements.panel.querySelector('.status-text');
+
+        // Устанавливаем значение по умолчанию для даты (7 дней назад)
+        this.initializeDateField();
         
         // Добавляем в контейнер
         this.container.appendChild(this.elements.panel);
@@ -157,6 +170,61 @@ class InparsPanel {
         this.elements.loadButton.addEventListener('click', () => {
             this.startImport();
         });
+
+        // Сохранение выбранной даты при изменении
+        this.elements.importStartDate.addEventListener('change', () => {
+            this.saveSelectedDate();
+        });
+    }
+
+    /**
+     * Инициализация поля для выбора даты
+     */
+    initializeDateField() {
+        // Пытаемся загрузить сохраненную дату
+        const savedDate = this.loadSelectedDate();
+
+        if (savedDate) {
+            this.elements.importStartDate.value = savedDate;
+        } else {
+            // Устанавливаем дату по умолчанию (7 дней назад)
+            const defaultDate = new Date();
+            defaultDate.setDate(defaultDate.getDate() - 7);
+            this.elements.importStartDate.value = defaultDate.toISOString().split('T')[0];
+            this.saveSelectedDate();
+        }
+    }
+
+    /**
+     * Сохранение выбранной даты в localStorage
+     */
+    saveSelectedDate() {
+        const selectedDate = this.elements.importStartDate.value;
+        try {
+            localStorage.setItem('inpars_import_start_date', selectedDate);
+        } catch (error) {
+            console.warn('❌ Не удалось сохранить дату импорта:', error);
+        }
+    }
+
+    /**
+     * Загрузка сохраненной даты из localStorage
+     */
+    loadSelectedDate() {
+        try {
+            return localStorage.getItem('inpars_import_start_date');
+        } catch (error) {
+            console.warn('❌ Не удалось загрузить сохраненную дату импорта:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение выбранной стартовой даты как объект Date
+     */
+    getSelectedStartDate() {
+        const dateString = this.elements.importStartDate.value;
+        return dateString ? new Date(dateString) : null;
     }
 
 
@@ -199,10 +267,10 @@ class InparsPanel {
         let filteredCount = 0;
         let excludedRoomsCount = 0;
         
-        // Добавляем категории с фильтрацией по sectionId=1, typeId=2
+        // Добавляем все категории продажи (исключаем только аренду - sectionId: 6,7,8,10)
         for (const category of categoriesArray) {
-            // Фильтруем только категории с sectionId=1 и typeId=2
-            if (category.sectionId === 1 && category.typeId === 2) {
+            // Фильтруем все категории продажи (исключаем аренду)
+            if (![6, 7, 8, 10].includes(category.sectionId)) {
                 filteredCount++;
                 // Исключаем категорию "Комнаты" как требовалось
                 if (category.title && !category.title.toLowerCase().includes('комната')) {
@@ -269,28 +337,37 @@ class InparsPanel {
             
             // Получаем выбранные категории
             const selectedCategories = this.getSelectedCategories();
-            
+
             if (selectedCategories.length === 0) {
                 alert('Выберите хотя бы одну категорию для импорта');
                 return;
             }
-            
+
+            // Получаем выбранную стартовую дату
+            const startDate = this.getSelectedStartDate();
+
+            if (!startDate) {
+                alert('Выберите дату начала импорта');
+                return;
+            }
+
             // Получаем полигон области
             const polygon = this.getAreaPolygon ? this.getAreaPolygon() : [];
-            
+
             if (polygon.length === 0) {
                 alert('Область не определена');
                 return;
             }
-            
+
             // Показываем прогресс
             this.showProgress();
             this.updateProgress('Подготовка к импорту...', 0);
-            
+
             // Загружаем объявления через сервис
             const result = await this.inparsService.loadListings({
                 polygon: polygon,
                 categories: selectedCategories,
+                startDate: startDate, // Передаем выбранную стартовую дату
                 onProgress: (progress) => {
                     this.updateProgress(progress.message || 'Загрузка...', progress.percentage || 0);
                 }

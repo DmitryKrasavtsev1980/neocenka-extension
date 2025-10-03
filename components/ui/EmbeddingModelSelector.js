@@ -143,9 +143,33 @@ class EmbeddingModelSelector {
     }
 
     /**
+     * Инициализация SlimSelect
+     */
+    initializeSlimSelect() {
+        const modelSelector = document.getElementById('model-selector');
+        if (modelSelector) {
+            try {
+                this.slimSelectInstance = new SlimSelect({
+                    select: modelSelector,
+                    settings: {
+                        allowDeselect: true,
+                        placeholder: 'Выберите модель...',
+                        closeOnSelect: true
+                    }
+                });
+            } catch (error) {
+                console.warn('Не удалось инициализировать SlimSelect для селектора моделей:', error);
+            }
+        }
+    }
+
+    /**
      * Настройка обработчиков событий
      */
     setupEventListeners() {
+        // Инициализация SlimSelect
+        this.initializeSlimSelect();
+
         const modelSelector = document.getElementById('model-selector');
         const loadBtn = document.getElementById('load-model-btn');
         const testBtn = document.getElementById('test-model-btn');

@@ -1046,7 +1046,10 @@ class UIManager {
             if (duplicatesManager && duplicatesManager.initializeObjectListingsTable) {
                 duplicatesManager.initializeObjectListingsTable(objectListings, realEstateObject.id);
             }
-            
+
+            // Инициализируем панель дополнительных параметров объекта
+            this.initializeObjectCustomParametersPanel(realEstateObject.id);
+
             // Сохраняем данные для последующей инициализации карты
             this._pendingMapInitialization = {
                 duplicatesManager,
@@ -1058,7 +1061,94 @@ class UIManager {
             console.error('❌ UIManager: Ошибка заполнения модального окна объекта:', error);
         }
     }
-    
+
+    /**
+     * Инициализация панели дополнительных параметров объекта
+     * @param {number} objectId - ID объекта недвижимости
+     */
+    async initializeObjectCustomParametersPanel(objectId) {
+        try {
+            const containerId = `object-custom-parameters-${objectId}`;
+            const container = document.getElementById(containerId);
+
+            if (!container) {
+                console.warn(`❌ UIManager: Контейнер ${containerId} не найден`);
+                return;
+            }
+
+            // Ждем готовности базы данных с использованием флага window.dbReady
+            await this.waitForDatabaseReady();
+
+            // Проверяем доступность всех необходимых компонентов
+            if (typeof ObjectCustomParametersPanel === 'undefined') {
+                console.warn('❌ UIManager: ObjectCustomParametersPanel не загружен');
+                return;
+            }
+
+            if (typeof CustomParametersService === 'undefined') {
+                console.warn('❌ UIManager: CustomParametersService не загружен');
+                return;
+            }
+
+            if (typeof ObjectCustomValuesService === 'undefined') {
+                console.warn('❌ UIManager: ObjectCustomValuesService не загружен');
+                return;
+            }
+
+            // Создаем экземпляры сервисов
+            const customParametersService = new CustomParametersService(window.db);
+            const objectCustomValuesService = new ObjectCustomValuesService(window.db, customParametersService);
+
+            // Инициализируем панель дополнительных параметров
+            const parametersPanelInstance = new ObjectCustomParametersPanel(
+                objectId,
+                customParametersService,
+                objectCustomValuesService
+            );
+            await parametersPanelInstance.initialize(container);
+
+            console.log(`✅ UIManager: Панель дополнительных параметров инициализирована для объекта ${objectId}`);
+
+        } catch (error) {
+            console.error('❌ UIManager: Ошибка инициализации панели дополнительных параметров:', error);
+        }
+    }
+
+    /**
+     * Ожидание готовности базы данных
+     * @param {number} maxWaitTime - Максимальное время ожидания в мс (по умолчанию 5000)
+     */
+    async waitForDatabaseReady(maxWaitTime = 5000) {
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < maxWaitTime) {
+            // Проверяем все условия готовности базы данных
+            const dbExists = window.db;
+            const dbReady = window.dbReady;
+            const dbInitialized = dbExists && dbExists.db;
+            const hasRequiredMethods = dbExists &&
+                typeof dbExists.getCustomParameters === 'function' &&
+                typeof dbExists.getCustomParameter === 'function' &&
+                typeof dbExists.getActiveCustomParameters === 'function';
+
+            if (dbReady && dbInitialized && hasRequiredMethods) {
+                console.log('✅ UIManager: База данных полностью готова для работы с параметрами');
+                return;
+            }
+
+            // Ждем 50мс перед следующей проверкой
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // Если дошли сюда, значит база данных не готова
+        console.warn('⚠️ UIManager: Превышено время ожидания готовности базы данных');
+        console.warn('- window.db:', !!window.db);
+        console.warn('- window.dbReady:', window.dbReady);
+        console.warn('- db.db существует:', !!(window.db && window.db.db));
+
+        throw new Error('База данных не готова для работы с параметрами');
+    }
+
     /**
      * Генерирует HTML для панели управления объявлением (компактная версия для футера)
      * @param {Object} listing - Объект объявления
@@ -4025,7 +4115,16 @@ class UIManager {
             
             // Удаляем объявление из базы данных
             await window.db.deleteListing(listingId);
-            
+
+            // Инвалидируем кэш объявлений
+            if (window.dataCacheManager) {
+                await window.dataCacheManager.invalidate('listings', listingId);
+                // Если объявление входило в объект недвижимости, инвалидируем кэш объектов
+                if (objectId) {
+                    await window.dataCacheManager.invalidate('objects', objectId);
+                }
+            }
+
             // Если объявление входило в объект недвижимости, пересобираем объект
             if (objectId && window.realEstateObjectManager) {
                 try {

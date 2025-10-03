@@ -1362,7 +1362,7 @@ class RealEstateObjectModel {
     
     // Сохраняем объект
     const savedObject = await DatabaseManager.save('objects', realEstateObject);
-    
+
     // Обновляем объявления - связываем с объектом
     for (const listing of listings) {
       listing.object_id = savedObject.id;
@@ -1370,7 +1370,13 @@ class RealEstateObjectModel {
       listing.updated_at = new Date();
       await DatabaseManager.save('listings', listing);
     }
-    
+
+    // Инвалидируем кеш после создания объекта и обновления объявлений
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('objects', savedObject.id);
+      await window.dataCacheManager.invalidate('listings');
+    }
+
     return savedObject;
   }
 
@@ -1404,6 +1410,12 @@ class RealEstateObjectModel {
       await realEstateObject.recalculateFromListings(remainingListings);
       await DatabaseManager.save('objects', realEstateObject);
     }
+
+    // Инвалидируем кеш после разделения объявлений из объекта
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('objects', objectId);
+      await window.dataCacheManager.invalidate('listings');
+    }
   }
 
   /**
@@ -1425,6 +1437,12 @@ class RealEstateObjectModel {
     
     // Сохраняем обновленный объект
     await DatabaseManager.save('objects', realEstateObject);
+
+    // Инвалидируем кеш после обновления объекта
+    if (window.dataCacheManager) {
+      await window.dataCacheManager.invalidate('objects', listingId);
+      await window.dataCacheManager.invalidate('listings');
+    }
   }
 
   /**
@@ -1643,6 +1661,367 @@ class InparsCategoryModel {
   }
 }
 
+/**
+ * Типы дополнительных параметров
+ */
+const PARAMETER_TYPES = {
+  // Базовые типы
+  'string': 'Строка',
+  'textarea': 'Многострочный текст',
+  'number': 'Число',
+  'boolean': 'Да/Нет',
+
+  // Выбор из вариантов
+  'select': 'Выбор из списка',
+  'multiselect': 'Множественный выбор',
+
+  // Специальные типы
+  'currency': 'Денежная сумма',
+  'percentage': 'Проценты',
+  'date': 'Дата',
+  'rating': 'Рейтинг (1-5)',
+  'range': 'Диапазон значений',
+
+  // Расширенные типы
+  'url': 'Ссылка',
+  'coordinates': 'Координаты',
+  'file': 'Файл/Документ'
+};
+
+/**
+ * Модель дополнительного параметра
+ */
+class CustomParameterModel {
+  constructor(data = {}) {
+    this.id = data.id || null;
+    this.name = data.name || '';
+    this.type = data.type || 'string';
+    this.options = data.options || []; // Для select/multiselect
+    this.validation = data.validation || {
+      required: false,
+      min: null,
+      max: null,
+      pattern: null,
+      fileTypes: []
+    };
+    this.display_order = data.display_order || 0;
+    this.is_active = data.is_active !== undefined ? data.is_active : true;
+    this.created_at = data.created_at || new Date();
+    this.updated_at = data.updated_at || new Date();
+  }
+
+  validate() {
+    const errors = [];
+
+    if (!this.name.trim()) {
+      errors.push('Название параметра обязательно');
+    }
+
+    if (!Object.keys(PARAMETER_TYPES).includes(this.type)) {
+      errors.push('Неверный тип параметра');
+    }
+
+    // Для select/multiselect нужны опции
+    if (['select', 'multiselect'].includes(this.type) && (!this.options || this.options.length === 0)) {
+      errors.push('Для типа "выбор" необходимы варианты ответов');
+    }
+
+    // Валидация правил валидации
+    if (this.validation) {
+      if (['number', 'currency', 'percentage', 'rating'].includes(this.type)) {
+        if (this.validation.min !== null && this.validation.max !== null && this.validation.min > this.validation.max) {
+          errors.push('Минимальное значение не может быть больше максимального');
+        }
+      }
+
+      if (this.type === 'rating' && (this.validation.min < 1 || this.validation.max > 5)) {
+        errors.push('Рейтинг должен быть в диапазоне от 1 до 5');
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Получить конфигурацию типа параметра
+   */
+  getTypeConfig() {
+    const config = {
+      name: PARAMETER_TYPES[this.type] || this.type,
+      supportsOptions: ['select', 'multiselect'].includes(this.type),
+      supportsValidation: true,
+      supportsMinMax: ['number', 'currency', 'percentage', 'rating', 'range'].includes(this.type),
+      supportsPattern: ['string', 'textarea', 'url'].includes(this.type),
+      supportsFileTypes: this.type === 'file',
+      inputType: this.getInputType()
+    };
+
+    return config;
+  }
+
+  /**
+   * Получить тип HTML input для параметра
+   */
+  getInputType() {
+    const inputTypes = {
+      'string': 'text',
+      'textarea': 'textarea',
+      'number': 'number',
+      'currency': 'number',
+      'percentage': 'number',
+      'boolean': 'checkbox',
+      'select': 'select',
+      'multiselect': 'select',
+      'date': 'date',
+      'rating': 'range',
+      'range': 'text', // специальный компонент
+      'url': 'url',
+      'coordinates': 'text', // специальный компонент
+      'file': 'file'
+    };
+
+    return inputTypes[this.type] || 'text';
+  }
+}
+
+/**
+ * Модель значения дополнительного параметра объекта
+ */
+class ObjectCustomValueModel {
+  constructor(data = {}) {
+    this.id = data.id || null;
+    this.object_id = data.object_id || null;
+    this.parameter_id = data.parameter_id || null;
+    this.value = data.value;
+    this.created_at = data.created_at || new Date();
+    this.updated_at = data.updated_at || new Date();
+  }
+
+  validate(parameter = null) {
+    const errors = [];
+
+    if (!this.object_id) {
+      errors.push('ID объекта обязателен');
+    }
+
+    if (!this.parameter_id) {
+      errors.push('ID параметра обязателен');
+    }
+
+    // Валидация значения по типу параметра
+    if (parameter) {
+      const valueErrors = this.validateValueByType(parameter);
+      errors.push(...valueErrors);
+    }
+
+    return errors;
+  }
+
+  /**
+   * Валидация значения по типу параметра
+   */
+  validateValueByType(parameter) {
+    const errors = [];
+    const { type, validation, options } = parameter;
+
+    // Проверка обязательности
+    if (validation && validation.required && this.isEmptyValue()) {
+      errors.push(`Параметр "${parameter.name}" обязателен для заполнения`);
+      return errors; // Если поле обязательно, но пусто, дальше не проверяем
+    }
+
+    // Если значение пустое и поле не обязательно, пропускаем валидацию
+    if (this.isEmptyValue()) {
+      return errors;
+    }
+
+    switch (type) {
+      case 'string':
+      case 'textarea':
+        if (typeof this.value !== 'string') {
+          errors.push('Значение должно быть строкой');
+        } else if (validation && validation.pattern) {
+          const regex = new RegExp(validation.pattern);
+          if (!regex.test(this.value)) {
+            errors.push('Значение не соответствует требуемому формату');
+          }
+        }
+        break;
+
+      case 'number':
+      case 'currency':
+      case 'percentage':
+        const numValue = Number(this.value);
+        if (isNaN(numValue)) {
+          errors.push('Значение должно быть числом');
+        } else {
+          if (validation && validation.min !== null && numValue < validation.min) {
+            errors.push(`Значение не может быть меньше ${validation.min}`);
+          }
+          if (validation && validation.max !== null && numValue > validation.max) {
+            errors.push(`Значение не может быть больше ${validation.max}`);
+          }
+        }
+        break;
+
+      case 'boolean':
+        if (typeof this.value !== 'boolean') {
+          errors.push('Значение должно быть true или false');
+        }
+        break;
+
+      case 'select':
+        if (!options || !options.includes(this.value)) {
+          errors.push('Выберите одно из предложенных значений');
+        }
+        break;
+
+      case 'multiselect':
+        if (!Array.isArray(this.value)) {
+          errors.push('Значение должно быть массивом');
+        } else {
+          for (const val of this.value) {
+            if (!options || !options.includes(val)) {
+              errors.push(`Значение "${val}" не входит в список допустимых`);
+              break;
+            }
+          }
+        }
+        break;
+
+      case 'date':
+        const dateValue = new Date(this.value);
+        if (isNaN(dateValue.getTime())) {
+          errors.push('Неверный формат даты');
+        }
+        break;
+
+      case 'rating':
+        const ratingValue = Number(this.value);
+        if (isNaN(ratingValue) || ratingValue < 1 || ratingValue > 5) {
+          errors.push('Рейтинг должен быть числом от 1 до 5');
+        }
+        break;
+
+      case 'range':
+        if (typeof this.value === 'object' && this.value.min !== undefined && this.value.max !== undefined) {
+          const min = Number(this.value.min);
+          const max = Number(this.value.max);
+          if (isNaN(min) || isNaN(max)) {
+            errors.push('Диапазон должен содержать числовые значения');
+          } else if (min > max) {
+            errors.push('Минимальное значение не может быть больше максимального');
+          }
+        } else {
+          errors.push('Диапазон должен содержать минимальное и максимальное значения');
+        }
+        break;
+
+      case 'url':
+        try {
+          new URL(this.value);
+        } catch {
+          errors.push('Неверный формат URL');
+        }
+        break;
+
+      case 'coordinates':
+        if (typeof this.value === 'object' && this.value.lat !== undefined && this.value.lng !== undefined) {
+          const lat = Number(this.value.lat);
+          const lng = Number(this.value.lng);
+          if (isNaN(lat) || isNaN(lng)) {
+            errors.push('Координаты должны быть числами');
+          } else if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            errors.push('Неверные координаты');
+          }
+        } else {
+          errors.push('Координаты должны содержать широту и долготу');
+        }
+        break;
+
+      case 'file':
+        if (typeof this.value !== 'object' || !this.value.name) {
+          errors.push('Неверный формат файла');
+        } else if (validation && validation.fileTypes && validation.fileTypes.length > 0) {
+          const fileExtension = this.value.name.split('.').pop().toLowerCase();
+          if (!validation.fileTypes.includes(fileExtension)) {
+            errors.push(`Допустимые типы файлов: ${validation.fileTypes.join(', ')}`);
+          }
+        }
+        break;
+    }
+
+    return errors;
+  }
+
+  /**
+   * Проверка на пустое значение
+   */
+  isEmptyValue() {
+    if (this.value === null || this.value === undefined) {
+      return true;
+    }
+
+    if (typeof this.value === 'string' && this.value.trim() === '') {
+      return true;
+    }
+
+    if (Array.isArray(this.value) && this.value.length === 0) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Форматирование значения для отображения
+   */
+  formatDisplayValue(parameter = null) {
+    if (this.isEmptyValue()) {
+      return '';
+    }
+
+    if (!parameter) {
+      return String(this.value);
+    }
+
+    switch (parameter.type) {
+      case 'boolean':
+        return this.value ? 'Да' : 'Нет';
+
+      case 'currency':
+        return new Intl.NumberFormat('ru-RU', {
+          style: 'currency',
+          currency: 'RUB'
+        }).format(this.value);
+
+      case 'percentage':
+        return `${this.value}%`;
+
+      case 'date':
+        return new Date(this.value).toLocaleDateString('ru-RU');
+
+      case 'rating':
+        return '★'.repeat(this.value) + '☆'.repeat(5 - this.value);
+
+      case 'range':
+        return `${this.value.min} - ${this.value.max}`;
+
+      case 'multiselect':
+        return Array.isArray(this.value) ? this.value.join(', ') : this.value;
+
+      case 'coordinates':
+        return `${this.value.lat}, ${this.value.lng}`;
+
+      case 'file':
+        return this.value.name || 'Файл';
+
+      default:
+        return String(this.value);
+    }
+  }
+}
+
 // Экспорт моделей
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -1656,7 +2035,10 @@ if (typeof module !== 'undefined' && module.exports) {
     ListingModel,
     RealEstateObjectModel,
     ReportModel,
-    InparsCategoryModel
+    InparsCategoryModel,
+    CustomParameterModel,
+    ObjectCustomValueModel,
+    PARAMETER_TYPES
   };
 }
 
@@ -1667,4 +2049,7 @@ if (typeof window !== 'undefined') {
   window.SegmentModel = SegmentModel;
   window.ListingModel = ListingModel;
   window.RealEstateObjectModel = RealEstateObjectModel;
+  window.CustomParameterModel = CustomParameterModel;
+  window.ObjectCustomValueModel = ObjectCustomValueModel;
+  window.PARAMETER_TYPES = PARAMETER_TYPES;
 }

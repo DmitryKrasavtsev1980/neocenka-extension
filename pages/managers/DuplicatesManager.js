@@ -714,25 +714,31 @@ class DuplicatesManager {
                         }
                     },
                     // 7. Цена
-                    { 
-                        data: null, 
+                    {
+                        data: null,
                         title: 'Цена',
+                        type: 'num',
                         render: (data, type, row) => {
                             const isListing = row.type === 'listing';
                             const priceValue = isListing ? row.price : row.current_price;
-                            
+
+                            // Для сортировки возвращаем числовое значение
+                            if (type === 'type' || type === 'sort') {
+                                return priceValue || 0;
+                            }
+
                             if (!priceValue) return '<div class="text-xs">—</div>';
-                            
+
                             const price = priceValue.toLocaleString();
                             let pricePerMeter = '';
-                            
+
                             if (row.price_per_meter) {
                                 pricePerMeter = row.price_per_meter.toLocaleString();
                             } else if (priceValue && row.area_total) {
                                 const calculated = Math.round(priceValue / row.area_total);
                                 pricePerMeter = calculated.toLocaleString();
                             }
-                            
+
                             return `<div class="text-xs">
                                 <div class="text-green-600 font-medium">${price}</div>
                                 ${pricePerMeter ? `<div class="text-gray-500">${pricePerMeter}</div>` : ''}
@@ -4022,7 +4028,7 @@ class DuplicatesManager {
                 document.getElementById('objectModal').classList.remove('hidden');
                 
                 // Инициализируем компоненты после отображения модального окна
-                setTimeout(() => {
+                setTimeout(async () => {
                     this.renderObjectMap(realEstateObject);
                     this.renderObjectPriceChart(realEstateObject);
                     if (objectListings.length > 0) {
@@ -4031,7 +4037,8 @@ class DuplicatesManager {
                     }
                     this.initializeObjectPriceHistoryPanel(realEstateObject);
                     this.initializeObjectListingsTable(objectListings, realEstateObject.id);
-                
+                    await this.initializeObjectCustomParametersPanel(realEstateObject.id);
+
                 }, 100);
             }
         } catch (error) {
@@ -4061,6 +4068,9 @@ class DuplicatesManager {
         }
         this.currentObject = null;
         this.currentObjectListings = null;
+
+        // Очищаем панель дополнительных параметров
+        this.cleanupObjectCustomParametersPanel();
     }
     
     /**
@@ -4176,7 +4186,14 @@ class DuplicatesManager {
                     </div>
                 </div>
             </div>
-            
+
+            <!-- Дополнительные параметры объекта -->
+            <div class="mb-6">
+                <div id="object-custom-parameters-${realEstateObject.id}" class="w-full">
+                    <!-- ObjectCustomParametersPanel будет инициализирован здесь -->
+                </div>
+            </div>
+
             <!-- Фотогалерея и описание -->
             <div class="mb-6">
                 <h4 class="text-lg font-medium text-gray-900 mb-4">Фотографии и описание</h4>
@@ -4225,6 +4242,7 @@ class DuplicatesManager {
                     </table>
                 </div>
             </div>
+
         `;
     }
 
@@ -5104,6 +5122,81 @@ class DuplicatesManager {
 
         } catch (error) {
             // console.error('Ошибка обновления активной строки таблицы объявлений:', error);
+        }
+    }
+
+    /**
+     * Инициализация панели дополнительных параметров объекта
+     */
+    async initializeObjectCustomParametersPanel(objectId) {
+        try {
+            // Проверяем, что необходимые классы загружены
+            if (typeof ObjectCustomParametersPanel === 'undefined' ||
+                typeof CustomParametersService === 'undefined' ||
+                typeof ObjectCustomValuesService === 'undefined') {
+                console.warn('⚠️ Компоненты дополнительных параметров не загружены');
+                return;
+            }
+
+            // Ждем завершения миграции БД
+            if (window.db && window.db.db && window.db.db.version < 26) {
+                console.log('🔄 Ожидание завершения миграции БД...');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            // Получаем сервисы из DI контейнера
+            let customParametersService, objectCustomValuesService;
+
+            if (window.diContainer) {
+                try {
+                    customParametersService = window.diContainer.get('CustomParametersService');
+                    objectCustomValuesService = window.diContainer.get('ObjectCustomValuesService');
+                } catch (error) {
+                    console.warn('⚠️ Сервисы дополнительных параметров не зарегистрированы в DI контейнере:', error);
+                    return;
+                }
+            } else {
+                console.warn('⚠️ DI контейнер не доступен');
+                return;
+            }
+
+            // Создаем и инициализируем панель
+            const panel = new ObjectCustomParametersPanel(
+                objectId,
+                customParametersService,
+                objectCustomValuesService
+            );
+
+            const success = await panel.initialize('objectCustomParametersPanel');
+
+            if (success) {
+                // Сохраняем ссылку на панель для возможной очистки
+                this.currentObjectCustomParametersPanel = panel;
+
+                // Подписываемся на изменения значений параметров
+                panel.on('valuesChanged', (data) => {
+                    console.log('✅ Дополнительные параметры объекта обновлены:', data);
+                });
+            } else {
+                console.warn('⚠️ Не удалось инициализировать панель дополнительных параметров');
+            }
+
+        } catch (error) {
+            console.error('❌ Ошибка инициализации панели дополнительных параметров:', error);
+        }
+    }
+
+    /**
+     * Очистка панели дополнительных параметров при закрытии модального окна
+     */
+    cleanupObjectCustomParametersPanel() {
+        if (this.currentObjectCustomParametersPanel) {
+            try {
+                this.currentObjectCustomParametersPanel.destroy();
+                this.currentObjectCustomParametersPanel = null;
+            } catch (error) {
+                console.warn('Ошибка при очистке панели дополнительных параметров:', error);
+            }
         }
     }
 }

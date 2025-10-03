@@ -875,11 +875,30 @@ let areaPage;
 // Инициализация при загрузке DOM
 document.addEventListener('DOMContentLoaded', async () => {
     try {
+        // Инициализация навигации
+        const navigation = new NavigationComponent();
+        document.getElementById('navigation-container').innerHTML = navigation.render();
+        navigation.init();
+
+        // Перемещаем контент в основной контейнер
+        const pageContent = document.getElementById('page-content');
+        const areaContent = document.getElementById('area-content');
+        if (pageContent && areaContent) {
+            while (areaContent.firstChild) {
+                pageContent.appendChild(areaContent.firstChild);
+            }
+            areaContent.remove();
+        }
+
+        // Инициализация футера
+        const footer = new FooterComponent();
+        document.getElementById('footer-container').innerHTML = footer.render();
+
         // Ожидание инициализации базы данных
         if (window.db && !window.db.db) {
             await window.db.init();
         }
-        
+
         areaPage = new AreaPage();
         await areaPage.init();
     } catch (error) {

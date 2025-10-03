@@ -18,7 +18,6 @@ class MemoryMonitor {
             maxMemoryUsed: 0
         };
         
-        console.log('✅ [MemoryMonitor] Монитор памяти инициализирован');
     }
 
     /**
@@ -72,7 +71,6 @@ class MemoryMonitor {
             }
         }, intervalMs);
         
-        console.log(`✅ [MemoryMonitor] Мониторинг запущен с интервалом ${intervalMs}ms`);
     }
 
     /**
@@ -96,10 +94,7 @@ class MemoryMonitor {
      * Логирование состояния памяти
      */
     logMemoryStatus(usage) {
-        const level = this.getMemoryLevel(usage.usagePercent);
-        const emoji = this.getMemoryEmoji(level);
-        
-        console.log(`${emoji} [Memory] ${usage.used}MB / ${usage.limit}MB (${usage.usagePercent}%) - ${level}`);
+        // Логирование отключено для снижения количества сообщений в консоли
         
         // Дополнительная статистика каждые 10 измерений
         if (this.measurements.length % 10 === 0) {
@@ -375,7 +370,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Запускаем мониторинг с интервалом 15 секунд
     window.memoryMonitor.startMonitoring(15000);
     
-    console.log('🚀 [MemoryMonitor] Автоматический мониторинг запущен');
 });
 
 // Экспорт для использования в других модулях

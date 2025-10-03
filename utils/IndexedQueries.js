@@ -13,7 +13,7 @@ class IndexedQueries {
             return [];
         }
         
-        console.log(`🔄 [IndexedQueries] Получение объявлений для ${addressIds.length} адресов...`);
+        
         const startTime = Date.now();
         
         // Используем кэшированный способ для небольшого количества адресов
@@ -26,7 +26,7 @@ class IndexedQueries {
             }
             
             const queryTime = Date.now() - startTime;
-            console.log(`✅ [IndexedQueries] ${results.length} объявлений получено за ${queryTime}ms (индексированный запрос)`);
+            
             return results;
         }
         
@@ -37,7 +37,7 @@ class IndexedQueries {
         );
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] ${filteredListings.length} объявлений отфильтровано за ${queryTime}ms (кэш + фильтр)`);
+        
         return filteredListings;
     }
 
@@ -45,14 +45,14 @@ class IndexedQueries {
      * Получение объектов для области (ВМЕСТО getAll + filter)
      */
     static async getObjectsForArea(areaId) {
-        console.log(`🔄 [IndexedQueries] Получение объектов для области ${areaId}...`);
+        
         const startTime = Date.now();
         
         // Используем индексированный запрос если доступен
         try {
             const objects = await window.dataCacheManager.getByIndex('objects', 'area_id', areaId);
             const queryTime = Date.now() - startTime;
-            console.log(`✅ [IndexedQueries] ${objects.length} объектов получено за ${queryTime}ms (индекс по area_id)`);
+            
             return objects;
         } catch (error) {
             // Fallback к кэшированному getAll + filter
@@ -60,7 +60,7 @@ class IndexedQueries {
             const allObjects = await window.dataCacheManager.getAll('objects');
             const filtered = allObjects.filter(obj => obj.area_id === areaId);
             const queryTime = Date.now() - startTime;
-            console.log(`✅ [IndexedQueries] ${filtered.length} объектов отфильтровано за ${queryTime}ms (fallback)`);
+            
             return filtered;
         }
     }
@@ -69,14 +69,14 @@ class IndexedQueries {
      * Получение сегментов для области (ВМЕСТО getAll + filter)
      */
     static async getSegmentsForArea(areaId) {
-        console.log(`🔄 [IndexedQueries] Получение сегментов для области ${areaId}...`);
+        
         const startTime = Date.now();
         
         const allSegments = await window.dataCacheManager.getAll('segments');
         const filtered = allSegments.filter(segment => segment.map_area_id === areaId);
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] ${filtered.length} сегментов отфильтровано за ${queryTime}ms`);
+        
         return filtered;
     }
 
@@ -85,7 +85,7 @@ class IndexedQueries {
      * КРИТИЧНО: оптимизация для больших наборов адресов
      */
     static async getAddressesInPolygon(polygon, areaId = null) {
-        console.log(`🔄 [IndexedQueries] Пространственная фильтрация адресов...`);
+        
         const startTime = Date.now();
         
         // Получаем адреса (с предварительной фильтрацией по области если указана)
@@ -93,7 +93,7 @@ class IndexedQueries {
         if (areaId) {
             addresses = await window.dataCacheManager.getAll('addresses');
             addresses = addresses.filter(addr => addr.map_area_id === areaId);
-            console.log(`📍 [IndexedQueries] Предфильтрация по области: ${addresses.length} адресов`);
+            
         } else {
             addresses = await window.dataCacheManager.getAll('addresses');
         }
@@ -109,7 +109,7 @@ class IndexedQueries {
         });
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] ${filteredAddresses.length} адресов в полигоне за ${queryTime}ms`);
+        
         return filteredAddresses;
     }
 
@@ -118,7 +118,7 @@ class IndexedQueries {
      * Оптимизация для UI компонентов с большими наборами данных
      */
     static async getPaginatedData(tableName, offset = 0, limit = 100, sortField = 'id') {
-        console.log(`🔄 [IndexedQueries] Пагинация ${tableName}: offset=${offset}, limit=${limit}`);
+        
         const startTime = Date.now();
         
         const allData = await window.dataCacheManager.getAll(tableName);
@@ -147,7 +147,7 @@ class IndexedQueries {
         const paginatedData = sortedData.slice(offset, offset + limit);
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] ${paginatedData.length}/${allData.length} записей за ${queryTime}ms`);
+        
         
         return {
             data: paginatedData,
@@ -165,7 +165,7 @@ class IndexedQueries {
     static async searchInTable(tableName, searchFields, query, limit = 50) {
         if (!query || query.length < 2) return [];
         
-        console.log(`🔍 [IndexedQueries] Поиск "${query}" в ${tableName}...`);
+        
         const startTime = Date.now();
         
         const allData = await window.dataCacheManager.getAll(tableName);
@@ -181,7 +181,7 @@ class IndexedQueries {
         }).slice(0, limit);
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] ${results.length} результатов поиска за ${queryTime}ms`);
+        
         return results;
     }
 
@@ -190,7 +190,7 @@ class IndexedQueries {
      * Например: объявления с адресами и сегментами
      */
     static async getListingsWithRelations(filters = {}) {
-        console.log(`🔄 [IndexedQueries] Загрузка объявлений с связанными данными...`);
+        
         const startTime = Date.now();
         
         // Загружаем все необходимые данные параллельно
@@ -237,7 +237,7 @@ class IndexedQueries {
         }
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] ${enrichedListings.length} обогащённых объявлений за ${queryTime}ms`);
+        
         return enrichedListings;
     }
 
@@ -245,7 +245,7 @@ class IndexedQueries {
      * Получение статистики по таблицам без полной загрузки
      */
     static async getTableStats(tableName) {
-        console.log(`📊 [IndexedQueries] Получение статистики для ${tableName}...`);
+        
         const startTime = Date.now();
         
         const data = await window.dataCacheManager.getAll(tableName);
@@ -280,7 +280,6 @@ class IndexedQueries {
         }
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] Статистика ${tableName} за ${queryTime}ms:`, stats);
         return stats;
     }
 
@@ -289,7 +288,7 @@ class IndexedQueries {
      * Оптимизация для проверки дублей
      */
     static async checkExistingRecords(tableName, checkField, values) {
-        console.log(`🔍 [IndexedQueries] Проверка существования ${values.length} записей в ${tableName}...`);
+        
         const startTime = Date.now();
         
         const allData = await window.dataCacheManager.getAll(tableName);
@@ -299,7 +298,7 @@ class IndexedQueries {
         const missing = values.filter(value => !existingValues.has(value));
         
         const queryTime = Date.now() - startTime;
-        console.log(`✅ [IndexedQueries] Найдено: ${existing.length}, отсутствует: ${missing.length} за ${queryTime}ms`);
+        
         
         return {
             existing,

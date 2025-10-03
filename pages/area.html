@@ -669,6 +669,11 @@
     <!-- Навигация -->
     <div id="navigation-container"></div>
 
+    <!-- Основной контент -->
+    <div id="page-content" class="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-lg p-6">
+        <!-- Контент будет перенесен сюда -->
+    </div>
+
     <!-- Скрытый контент для переноса -->
     <div id="area-content" class="hidden max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <!-- Хлебные крошки -->
@@ -844,6 +849,65 @@
                                                 <dt class="text-sm font-medium text-gray-500 truncate">Объявлений</dt>
                                                 <dd id="listingsCount" class="text-lg font-medium text-gray-900">-</dd>
                                             </dl>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- График создания объявлений -->
+                        <div class="bg-gray-50 rounded-lg p-6 mb-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="text-lg font-medium text-gray-900">Создание объявлений</h4>
+                                <div class="flex space-x-3">
+                                    <!-- Фильтр периода -->
+                                    <div class="flex items-center space-x-2">
+                                        <label class="text-sm font-medium text-gray-700">Период:</label>
+                                        <select id="creationChartPeriod" class="text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="days">по дням</option>
+                                            <option value="months">по месяцам</option>
+                                        </select>
+                                    </div>
+                                    <!-- Фильтр типа продавца -->
+                                    <div class="flex items-center space-x-2">
+                                        <label class="text-sm font-medium text-gray-700">Тип:</label>
+                                        <select id="creationChartSellerType" class="text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="owner">от собственников</option>
+                                            <option value="agent">от агентов</option>
+                                            <option value="all">всего</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <!-- График -->
+                                <div class="lg:col-span-2 bg-white rounded-lg p-4">
+                                    <div id="creationChart" class="w-full h-80"></div>
+                                </div>
+                                <!-- Сводка -->
+                                <div class="bg-white rounded-lg p-4">
+                                    <h5 class="text-md font-medium text-gray-900 mb-3">Сводка</h5>
+                                    <div id="creationSummary" class="space-y-3">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Всего за период:</span>
+                                            <span id="totalCreated" class="font-medium">-</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Среднее в день:</span>
+                                            <span id="avgPerDay" class="font-medium">-</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Максимум в день:</span>
+                                            <span id="maxPerDay" class="font-medium">-</span>
+                                        </div>
+                                        <hr class="my-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">От собственников:</span>
+                                            <span id="ownerCount" class="font-medium">-</span>
+                                        </div>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">От агентов:</span>
+                                            <span id="agentCount" class="font-medium">-</span>
                                         </div>
                                     </div>
                                 </div>
@@ -3253,11 +3317,11 @@
 
             <!-- Содержимое модального окна -->
             <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full relative z-10 max-h-[90vh]">
-                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div class="bg-white pl-4 pt-4 pb-4">
                     <div class="sm:flex sm:items-start">
                         <div class="w-full">
                             <!-- Заголовок -->
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center justify-between mb-4 pr-4">
                                 <h3 class="text-lg leading-6 font-medium text-gray-900" id="object-modal-title">
                                     Детали объекта недвижимости
                                 </h3>
@@ -3269,7 +3333,7 @@
                             </div>
 
                             <!-- Содержимое -->
-                            <div id="objectModalContent" class="max-h-[70vh] overflow-y-auto">
+                            <div id="objectModalContent" class="max-h-[70vh] overflow-y-auto pr-4">
                                 <!-- Контент будет загружен динамически -->
                             </div>
                         </div>
@@ -3827,6 +3891,12 @@
     
     <!-- AI Setup Helper (для настройки через консоль) -->
     <script src="../utils/ai-setup-helper.js"></script>
+
+    <!-- Дополнительные параметры объектов (версия 26) -->
+    <script src="../utils/parameter-types.js"></script>
+    <script src="../services/data/CustomParametersService.js"></script>
+    <script src="../services/data/ObjectCustomValuesService.js"></script>
+    <script src="../components/ui/ObjectCustomParametersPanel.js"></script>
 
     <!-- Контроллеры v0.1 -->
     <script src="../controllers/SegmentController.js"></script>

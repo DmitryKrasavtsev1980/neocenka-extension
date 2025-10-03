@@ -95,7 +95,11 @@ class RealEstateObjectManager {
       );
       await Promise.all(deletePromises);
 
-      if (objectsToDelete.length > 0) {
+      // Дополнительная инвалидация кеша после массовых операций
+      if (window.dataCacheManager && (objectsToDelete.length > 0 || allListings.length > 5)) {
+        // При больших операциях инвалидируем весь кеш для этих таблиц
+        await window.dataCacheManager.invalidate('objects');
+        await window.dataCacheManager.invalidate('listings');
       }
 
       return savedObject;
@@ -144,6 +148,12 @@ class RealEstateObjectManager {
       );
       await Promise.all(deletePromises);
 
+      // Дополнительная инвалидация кеша после массовых операций
+      if (window.dataCacheManager && (objectIds.length > 0 || totalListings.length > 5)) {
+        // При больших операциях инвалидируем весь кеш для этих таблиц
+        await window.dataCacheManager.invalidate('objects');
+        await window.dataCacheManager.invalidate('listings');
+      }
 
       return {
         deletedObjectsCount: objectIds.length,

@@ -4287,16 +4287,17 @@ class ReportsManager {
                 type: 'object'
             }));
 
-            // Добавляем тип к листингам
+            // Добавляем тип к листингам (нужны для получения в дочерних таблицах)
             const listingsData = listings.map(listing => ({
                 ...listing,
                 type: 'listing'
             }));
 
-            // Объединяем данные для таблицы
+            // В таблицу дублей добавляем только объекты
+            // Листинги добавляем отдельно для доступа из дочерних таблиц
             const tableData = [
-                ...listingsData,
-                ...objectsData
+                ...objectsData,
+                ...listingsData  // Листинги нужны для поиска по object_id в дочерних таблицах
             ];
 
             return {

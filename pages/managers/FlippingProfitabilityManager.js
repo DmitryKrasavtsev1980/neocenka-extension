@@ -4571,6 +4571,264 @@ class FlippingProfitabilityManager {
             referencePricePerMeter: this.currentFilters.referencePricePerMeter
         };
     }
+
+    /**
+     * Экспорт данных текущего отчёта флиппинга для сохранения в HTML
+     */
+    async exportCurrentReportData() {
+        try {
+            if (this.isDestroyed) {
+                console.warn('⚠️ FlippingProfitabilityManager: Попытка экспорта из уничтоженного экземпляра');
+                return null;
+            }
+
+            // Используем FlippingController для получения текущих данных
+            if (!this.flippingController) {
+                console.warn('⚠️ FlippingProfitabilityManager: FlippingController не инициализирован');
+                return null;
+            }
+
+            // Получаем текущие объекты флиппинга
+            const currentObjects = await this.flippingController.getCurrentObjects();
+            if (!currentObjects || currentObjects.length === 0) {
+                console.warn('⚠️ FlippingProfitabilityManager: Нет данных для экспорта');
+                return null;
+            }
+
+            // Получаем данные графиков
+            const profitabilityChartData = await this.getProfitabilityChartData();
+            const marketCorridorChartData = await this.getMarketCorridorChartData();
+
+            // Рассчитываем сводную статистику
+            const summary = this.calculateSummaryStats(currentObjects);
+
+            // Формируем структуру экспорта
+            const exportData = {
+                // Объекты флиппинга с рассчитанной доходностью
+                objects: currentObjects.map(obj => ({
+                    id: obj.id,
+                    address: obj.address || 'Не указан',
+                    purchase_price: obj.purchase_price || 0,
+                    current_price: obj.current_price || 0,
+                    renovation_cost: obj.renovation_cost || 0,
+                    profit: this.calculateProfit(obj),
+                    roi_percent: this.calculateROI(obj),
+                    holding_period_months: this.calculateHoldingPeriod(obj),
+                    area_total: obj.area_total,
+                    rooms: obj.rooms,
+                    floor: obj.floor
+                })),
+
+                // Данные графиков
+                charts: {
+                    profitability: profitabilityChartData,
+                    market_corridor: marketCorridorChartData
+                },
+
+                // Активные фильтры
+                filters: {
+                    min_profit: this.currentFilters.minProfit,
+                    min_roi: this.currentFilters.minROI,
+                    max_holding_period: this.currentFilters.maxHoldingPeriod,
+                    price_range: {
+                        min: this.currentFilters.minPrice,
+                        max: this.currentFilters.maxPrice
+                    },
+                    area_range: {
+                        min: this.currentFilters.minArea,
+                        max: this.currentFilters.maxArea
+                    },
+                    mortgage_rate: this.currentFilters.mortgageRate,
+                    cash_cost_rate: this.currentFilters.cashCostRate
+                },
+
+                // Сводная статистика
+                summary: summary
+            };
+
+            console.log('📊 FlippingProfitabilityManager: Данные для экспорта подготовлены:', {
+                objectsCount: exportData.objects.length,
+                hasCharts: !!(exportData.charts.profitability || exportData.charts.market_corridor),
+                avgProfit: summary.avg_profit,
+                avgROI: summary.avg_roi
+            });
+
+            return exportData;
+
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityManager: Ошибка экспорта данных отчёта:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение данных графика доходности
+     */
+    async getProfitabilityChartData() {
+        try {
+            // Проверяем наличие графика доходности
+            const chartElement = document.getElementById('flippingProfitabilityChart');
+            if (!chartElement) {
+                return null;
+            }
+
+            // Получаем экземпляр ApexCharts если он есть
+            if (window.flippingProfitabilityChart && window.flippingProfitabilityChart.w) {
+                const config = window.flippingProfitabilityChart.w.config;
+                return {
+                    series: config.series || [],
+                    options: {
+                        chart: config.chart || {},
+                        xaxis: config.xaxis || {},
+                        yaxis: config.yaxis || [],
+                        colors: config.colors || [],
+                        plotOptions: config.plotOptions || {}
+                    }
+                };
+            }
+
+            return null;
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityManager: Ошибка получения данных графика доходности:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Получение данных графика коридора рынка флиппинг
+     */
+    async getMarketCorridorChartData() {
+        try {
+            // Проверяем наличие графика коридора
+            const chartElement = document.getElementById('flippingMarketCorridorChart');
+            if (!chartElement) {
+                return null;
+            }
+
+            // Получаем экземпляр ApexCharts если он есть
+            if (window.flippingMarketCorridorChart && window.flippingMarketCorridorChart.w) {
+                const config = window.flippingMarketCorridorChart.w.config;
+                return {
+                    series: config.series || [],
+                    options: {
+                        chart: config.chart || {},
+                        xaxis: config.xaxis || {},
+                        yaxis: config.yaxis || [],
+                        colors: config.colors || {},
+                        plotOptions: config.plotOptions || {}
+                    }
+                };
+            }
+
+            return null;
+        } catch (error) {
+            console.error('❌ FlippingProfitabilityManager: Ошибка получения данных коридора рынка:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Расчёт прибыли для объекта
+     */
+    calculateProfit(obj) {
+        try {
+            const purchasePrice = obj.purchase_price || 0;
+            const currentPrice = obj.current_price || 0;
+            const renovationCost = obj.renovation_cost || 0;
+
+            return currentPrice - purchasePrice - renovationCost;
+        } catch (error) {
+            console.error('❌ Ошибка расчёта прибыли:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Расчёт ROI для объекта
+     */
+    calculateROI(obj) {
+        try {
+            const purchasePrice = obj.purchase_price || 0;
+            const renovationCost = obj.renovation_cost || 0;
+            const totalInvestment = purchasePrice + renovationCost;
+
+            if (totalInvestment === 0) return 0;
+
+            const profit = this.calculateProfit(obj);
+            return (profit / totalInvestment) * 100;
+        } catch (error) {
+            console.error('❌ Ошибка расчёта ROI:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Расчёт периода владения
+     */
+    calculateHoldingPeriod(obj) {
+        try {
+            // Примерный расчёт на основе данных объекта
+            // В реальной системе должны быть даты покупки и продажи
+            return obj.holding_period_months || 6; // Дефолт 6 месяцев
+        } catch (error) {
+            console.error('❌ Ошибка расчёта периода владения:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Расчёт сводной статистики
+     */
+    calculateSummaryStats(objects) {
+        try {
+            if (!objects || objects.length === 0) {
+                return {
+                    total_objects: 0,
+                    avg_profit: 0,
+                    avg_roi: 0,
+                    total_investment: 0,
+                    profitable_objects: 0
+                };
+            }
+
+            let totalProfit = 0;
+            let totalROI = 0;
+            let totalInvestment = 0;
+            let profitableObjects = 0;
+
+            objects.forEach(obj => {
+                const profit = this.calculateProfit(obj);
+                const roi = this.calculateROI(obj);
+                const investment = (obj.purchase_price || 0) + (obj.renovation_cost || 0);
+
+                totalProfit += profit;
+                totalROI += roi;
+                totalInvestment += investment;
+
+                if (profit > 0) {
+                    profitableObjects++;
+                }
+            });
+
+            return {
+                total_objects: objects.length,
+                avg_profit: totalProfit / objects.length,
+                avg_roi: totalROI / objects.length,
+                total_investment: totalInvestment,
+                profitable_objects: profitableObjects
+            };
+
+        } catch (error) {
+            console.error('❌ Ошибка расчёта сводной статистики:', error);
+            return {
+                total_objects: 0,
+                avg_profit: 0,
+                avg_roi: 0,
+                total_investment: 0,
+                profitable_objects: 0
+            };
+        }
+    }
 }
 
 // Экспорт для использования в других модулях

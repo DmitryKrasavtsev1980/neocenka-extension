@@ -122,6 +122,12 @@ class AIDuplicateDetectionService {
                 });
             }
 
+            // Инвалидируем весь кеш после массовой обработки дублей
+            if (window.dataCacheManager && (results.processed > 0 || results.merged > 0)) {
+                await window.dataCacheManager.invalidate('listings');
+                await window.dataCacheManager.invalidate('objects');
+            }
+
             return results;
 
         } catch (error) {

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Neocenka - Настройки</title>
     <link rel="stylesheet" href="../libs/tailwind/tailwind.min.css">
+    <link rel="stylesheet" href="../libs/slimselect/slimselect.css">
     <link rel="stylesheet" href="../assets/styles/main.css">
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -243,6 +244,20 @@
                     </button>
                 </div>
             </form>
+        </div>
+
+        <!-- Дополнительные параметры -->
+        <div class="mt-8 bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Дополнительные параметры</h3>
+                <p class="mt-1 text-sm text-gray-500">Управление пользовательскими параметрами для обогащения данных об объектах недвижимости</p>
+            </div>
+            <div class="p-6">
+                <!-- Контейнер для компонента управления параметрами -->
+                <div id="custom-parameters-manager-container">
+                    <!-- CustomParametersManagerPanel будет инициализирован здесь -->
+                </div>
+            </div>
         </div>
 
         <!-- Управление Embedding-моделями -->
@@ -1098,6 +1113,19 @@
 
     <!-- Embedding Models Manager для настроек -->
     <script src="embedding-models-settings.js"></script>
+
+    <!-- SlimSelect для выпадающих списков -->
+    <script src="../libs/slimselect/slimselect.min.js"></script>
+
+    <!-- Дополнительные параметры -->
+    <script src="../data/models.js"></script>
+    <script src="../utils/parameter-types.js"></script>
+    <script src="../services/data/CustomParametersService.js"></script>
+    <script src="../services/data/ObjectCustomValuesService.js"></script>
+    <script src="../components/ui/ParameterEditModal.js"></script>
+    <script src="../components/ui/ParameterDeleteModal.js"></script>
+    <script src="../components/ui/CustomParametersManagerPanel.js"></script>
+    <script src="custom-parameters-settings-init.js"></script>
 
     <script src="settings_script.js"></script>
 

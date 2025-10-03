@@ -118,6 +118,29 @@ class DIContainer {
             return new ReferenceDataService(database, configService, errorHandler);
         }, { singleton: true, dependencies: ['Database', 'ConfigService', 'ErrorHandlingService'] });
 
+        // Custom Parameters Services (версия 26)
+        this.registerFactory('CustomParametersService', (container) => {
+            if (typeof CustomParametersService === 'undefined') {
+                throw new Error('CustomParametersService не загружен');
+            }
+            const database = container.get('Database');
+            const validationService = container.get('ValidationService');
+            const configService = container.get('ConfigService');
+            const errorHandler = container.get('ErrorHandlingService');
+            return new CustomParametersService(database, validationService, configService, errorHandler);
+        }, { singleton: true, dependencies: ['Database', 'ValidationService', 'ConfigService', 'ErrorHandlingService'] });
+
+        this.registerFactory('ObjectCustomValuesService', (container) => {
+            if (typeof ObjectCustomValuesService === 'undefined') {
+                throw new Error('ObjectCustomValuesService не загружен');
+            }
+            const database = container.get('Database');
+            const customParametersService = container.get('CustomParametersService');
+            const validationService = container.get('ValidationService');
+            const errorHandler = container.get('ErrorHandlingService');
+            return new ObjectCustomValuesService(database, customParametersService, validationService, errorHandler);
+        }, { singleton: true, dependencies: ['Database', 'CustomParametersService', 'ValidationService', 'ErrorHandlingService'] });
+
         // UI Components
         this.registerFactory('SegmentModal', (container) => {
             if (typeof SegmentModal === 'undefined') {

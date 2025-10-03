@@ -8,18 +8,17 @@ class DataCacheManager {
         this.lastAccess = new Map();
         this.loadingPromises = new Map(); // Предотвращение одновременных загрузок
         
-        // Настройки кэша
+        // Настройки кэша (оптимизированы для снижения потребления памяти)
         this.config = {
-            maxEntries: 1000,           // Максимум записей в кэше
-            ttl: 300000,               // 5 минут TTL
-            memoryThreshold: 50 * 1024 * 1024, // 50MB лимит
-            cleanupInterval: 60000      // Очистка каждую минуту
+            maxEntries: 500,            // Уменьшено с 1000 до 500 записей
+            ttl: 180000,               // Уменьшено с 5 до 3 минут TTL
+            memoryThreshold: 30 * 1024 * 1024, // Уменьшено с 50MB до 30MB лимит
+            cleanupInterval: 30000,     // Увеличена частота очистки с 60сек до 30сек
+            aggressiveCleanupThreshold: 35 * 1024 * 1024 // 35MB - порог агрессивной очистки
         };
         
         // Запуск автоочистки
         this.startCleanupTimer();
-        
-        console.log('✅ [DataCache] Менеджер кэширования инициализирован');
     }
 
     /**
@@ -33,13 +32,11 @@ class DataCacheManager {
         if (this.cache.has(cacheKey)) {
             this.updateAccessTime(cacheKey);
             const data = this.cache.get(cacheKey);
-            console.log(`📋 [Cache HIT] ${tableName}: ${data.length} записей из кэша`);
             return data;
         }
 
         // Проверяем, не загружается ли уже
         if (this.loadingPromises.has(cacheKey)) {
-            console.log(`⏳ [Cache LOADING] Ожидание загрузки ${tableName}...`);
             return await this.loadingPromises.get(cacheKey);
         }
 
@@ -62,21 +59,25 @@ class DataCacheManager {
      * Загрузка данных из базы данных
      */
     async loadFromDatabase(tableName, cacheKey) {
-        console.log(`🔄 [Cache MISS] Загрузка ${tableName} из IndexedDB...`);
-        const startTime = Date.now();
-        
         const data = await window.db.getAll(tableName);
-        
+
+        // Оценка размера данных
+        const dataSize = this.estimateDataSize(data);
+        const isLargeTable = ['addresses', 'listings', 'real_estate_objects'].includes(tableName);
+
+        // Не кэшируем слишком большие таблицы или данные больше 10MB
+        if (dataSize > 10 * 1024 * 1024 || (isLargeTable && dataSize > 5 * 1024 * 1024)) {
+            console.warn(`⚠️ [Cache] Таблица ${tableName} слишком большая (${Math.round(dataSize/1024/1024)}MB), пропускаем кэширование`);
+            return data; // Возвращаем данные без кэширования
+        }
+
         // Кэшируем результат
         this.cache.set(cacheKey, data);
         this.updateAccessTime(cacheKey);
-        
-        const loadTime = Date.now() - startTime;
-        console.log(`✅ [Cache LOADED] ${tableName}: ${data.length} записей за ${loadTime}ms`);
-        
+
         // Проверяем лимиты памяти
         this.checkMemoryLimits();
-        
+
         return data;
     }
 
@@ -90,17 +91,10 @@ class DataCacheManager {
         if (this.cache.has(cacheKey)) {
             this.updateAccessTime(cacheKey);
             const data = this.cache.get(cacheKey);
-            console.log(`📋 [Index Cache HIT] ${tableName}.${indexName} = ${value}: ${data.length} записей`);
             return data;
         }
 
-        console.log(`🔄 [Index Query] ${tableName}.${indexName} = ${value}`);
-        const startTime = Date.now();
-        
         const data = await window.db.getByIndex(tableName, indexName, value);
-        
-        const queryTime = Date.now() - startTime;
-        console.log(`✅ [Index Query] Результат: ${data.length} записей за ${queryTime}ms`);
         
         // Кэшируем только небольшие результаты (< 100 записей)
         if (data.length < 100) {
@@ -191,9 +185,13 @@ class DataCacheManager {
         
         // Проверяем общее потребление памяти
         const memoryUsage = this.estimateMemoryUsage();
-        if (memoryUsage > this.config.memoryThreshold) {
+
+        if (memoryUsage > this.config.aggressiveCleanupThreshold) {
+            console.warn(`🚨 [Cache] Критический уровень памяти: ${Math.round(memoryUsage/1024/1024)}MB - агрессивная очистка`);
+            this.evictLRU(Math.floor(this.cache.size * 0.5)); // Удаляем 50% записей
+        } else if (memoryUsage > this.config.memoryThreshold) {
             console.warn(`⚠️ [Cache] Превышен лимит памяти: ${Math.round(memoryUsage/1024/1024)}MB`);
-            this.evictLRU(Math.floor(this.cache.size * 0.2)); // Удаляем 20% записей
+            this.evictLRU(Math.floor(this.cache.size * 0.3)); // Увеличено с 20% до 30% записей
         }
     }
 
@@ -274,6 +272,20 @@ class DataCacheManager {
             totalSize += keySize + valueSize;
         }
         return totalSize;
+    }
+
+    /**
+     * Оценка размера конкретного массива данных
+     */
+    estimateDataSize(data) {
+        try {
+            if (!data || !Array.isArray(data)) return 0;
+            // Приблизительная оценка размера через JSON.stringify
+            return JSON.stringify(data).length * 2; // UTF-16
+        } catch (error) {
+            console.warn('[Cache] Ошибка оценки размера данных:', error);
+            return 0;
+        }
     }
 
     /**

@@ -1886,7 +1886,16 @@ class MapManager {
         if (confirm(`Удалить объявление "${Helpers.truncateText(listing.title, 30)}"?`)) {
             try {
                 await window.db.delete('listings', listing.id);
-                
+
+                // Инвалидируем кэш объявлений
+                if (window.dataCacheManager) {
+                    await window.dataCacheManager.invalidate('listings', listing.id);
+                    // Если объявление входило в объект недвижимости, инвалидируем кэш объектов
+                    if (listing.object_id) {
+                        await window.dataCacheManager.invalidate('objects', listing.object_id);
+                    }
+                }
+
                 // Удаляем объявление с карты
                 await this.removeListingFromMap(listing);
                 

@@ -168,28 +168,50 @@ class InparsService extends BaseAPIService {
      */
     async loadCategories() {
         const response = await this.request('estate/category');
-        
+
         if (response.data) {
+            // console.log(`🔍 InparsService: Получено ${response.data.length} категорий от API`);
+
             this.categories.clear();
-            
+            let totalFiltered = 0;
+            let excludedBySection = 0;
+            let excludedByRooms = 0;
+
             for (const category of response.data) {
-                // Фильтруем только категории с sectionId=1 и typeId=2
-                if (category.sectionId === 1 && category.typeId === 2) {
+                // console.log(`📋 Категория: "${category.title}", sectionId=${category.sectionId}, typeId=${category.typeId}`);
+
+                // Фильтруем все категории продажи (исключаем аренду: 6,7,8,10)
+                if (![6, 7, 8, 10].includes(category.sectionId)) {
+                    totalFiltered++;
                     // Исключаем категорию "Комната" как указано в требованиях
                     if (category.title && !category.title.toLowerCase().includes('комната')) {
+                        // console.log(`✅ Добавлена категория: "${category.title}"`);
                         this.categories.set(category.id, {
                             id: category.id,
                             title: category.title,
                             typeId: category.typeId,
                             sectionId: category.sectionId
                         });
+                    } else {
+                        excludedByRooms++;
+                        // console.log(`❌ Исключена категория (комнаты): "${category.title}"`);
                     }
+                } else {
+                    excludedBySection++;
+                    // console.log(`❌ Исключена категория (не продажа): "${category.title}", sectionId=${category.sectionId}`);
                 }
             }
-            
-            this.emit('categories:loaded', { 
+
+            // console.log(`📊 Статистика фильтрации:
+            //     Всего получено: ${response.data.length}
+            //     Прошло sectionId=1: ${totalFiltered}
+            //     Исключено по секции: ${excludedBySection}
+            //     Исключено комнаты: ${excludedByRooms}
+            //     Итого добавлено: ${this.categories.size}`);
+
+            this.emit('categories:loaded', {
                 count: this.categories.size,
-                excluded: response.data.length - this.categories.size 
+                excluded: response.data.length - this.categories.size
             });
         }
         
@@ -436,6 +458,7 @@ class InparsService extends BaseAPIService {
         const {
             polygon = [],
             categories = [],
+            startDate = null, // Новый параметр для стартовой даты
             onProgress = null
         } = options;
         
@@ -445,7 +468,10 @@ class InparsService extends BaseAPIService {
             let allListings = [];
             let pageNumber = 1;
             let hasMore = true;
-            let timeStart = this.getStartDate(); // Дата год назад от текущей
+            // Используем переданную дату или дату по умолчанию (7 дней назад)
+            let timeStart = startDate ?
+                Math.floor(startDate.getTime() / 1000) :
+                this.getDefaultStartDate();
             
             while (hasMore) {
                 if (onProgress) {
@@ -534,12 +560,19 @@ class InparsService extends BaseAPIService {
     }
 
     /**
-     * Получить стартовую дату (год назад от текущей)
+     * Получить стартовую дату по умолчанию (7 дней назад от текущей)
+     */
+    getDefaultStartDate() {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        return Math.floor(sevenDaysAgo.getTime() / 1000); // Возвращаем timestamp в секундах
+    }
+
+    /**
+     * Получить стартовую дату (год назад от текущей) - DEPRECATED, для обратной совместимости
      */
     getStartDate() {
-        const oneYearAgo = new Date();
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-        return Math.floor(oneYearAgo.getTime() / 1000); // Возвращаем timestamp в секундах
+        return this.getDefaultStartDate();
     }
 
     /**
