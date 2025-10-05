@@ -4589,9 +4589,49 @@ class FlippingProfitabilityManager {
             }
 
             // Получаем текущие объекты флиппинга
-            const currentObjects = await this.flippingController.getCurrentObjects();
-            if (!currentObjects || currentObjects.length === 0) {
-                console.warn('⚠️ FlippingProfitabilityManager: Нет данных для экспорта');
+            let currentObjects = this.flippingController.filteredObjects || [];
+
+            // Если filteredObjects пустой (панель не открывалась), загружаем данные вручную
+            if (currentObjects.length === 0) {
+                console.log('📥 Загружаем объекты флиппинга для экспорта...');
+                try {
+                    // Получаем глобальные фильтры
+                    const globalFilters = this.reportsManager ? this.reportsManager.getGlobalFilters() : null;
+
+                    if (globalFilters && globalFilters.segment) {
+                        // Устанавливаем сегмент
+                        this.flippingController.setCurrentSegment(globalFilters.segment);
+
+                        // Устанавливаем фильтры
+                        const combinedFilters = {
+                            ...this.currentFilters,
+                            globalSegment: globalFilters.segment,
+                            globalSubsegment: globalFilters.subsegment,
+                            globalDateFrom: globalFilters.dateFrom,
+                            globalDateTo: globalFilters.dateTo
+                        };
+                        this.flippingController.handleFilterChange(combinedFilters);
+
+                        // Применяем фильтры для загрузки данных
+                        await this.flippingController.applyFilters();
+                        currentObjects = this.flippingController.filteredObjects || [];
+                    } else {
+                        console.warn('⚠️ Нет глобальных фильтров для загрузки данных флиппинга');
+                    }
+                } catch (error) {
+                    console.error('❌ Ошибка загрузки объектов флиппинга:', error);
+                }
+            }
+
+            console.log('📊 FlippingProfitabilityManager.exportCurrentReportData:', {
+                hasController: !!this.flippingController,
+                hasFilteredObjects: !!this.flippingController.filteredObjects,
+                objectsCount: currentObjects.length,
+                firstObject: currentObjects[0]
+            });
+
+            if (currentObjects.length === 0) {
+                console.warn('⚠️ FlippingProfitabilityManager: Нет данных для экспорта (filteredObjects пуст даже после загрузки)');
                 return null;
             }
 
@@ -4607,7 +4647,8 @@ class FlippingProfitabilityManager {
                 // Объекты флиппинга с рассчитанной доходностью
                 objects: currentObjects.map(obj => ({
                     id: obj.id,
-                    address: obj.address || 'Не указан',
+                    // Структура адреса как объект (для совместимости с оригиналом)
+                    address: obj.address ? (typeof obj.address === 'object' ? obj.address : { address: obj.address }) : null,
                     purchase_price: obj.purchase_price || 0,
                     current_price: obj.current_price || 0,
                     renovation_cost: obj.renovation_cost || 0,
@@ -4615,9 +4656,26 @@ class FlippingProfitabilityManager {
                     roi_percent: this.calculateROI(obj),
                     holding_period_months: this.calculateHoldingPeriod(obj),
                     area_total: obj.area_total,
-                    rooms: obj.rooms,
-                    floor: obj.floor
+                    area_sqm: obj.area_total || obj.area_sqm || 50,
+                    price_per_sqm: (obj.purchase_price || 0) / ((obj.area_total || obj.area_sqm) || 50),
+                    rooms: obj.rooms || 'studio',
+                    floor: obj.floor,
+                    // Поля для графика и таблицы
+                    status: obj.status || 'active',
+                    created: obj.created || obj.created_at,
+                    updated: obj.updated || obj.updated_at,
+                    // Координаты для карты
+                    coordinates: {
+                        lat: obj.coordinates?.lat || obj.lat || null,
+                        lng: obj.coordinates?.lng || obj.lng || null
+                    }
                 })),
+
+                // Карточки подсегментов с эталонными ценами
+                referencePrices: this.referencePrices || [],
+
+                // Объекты для оценки (архивные объекты)
+                evaluationObjects: this.objectsForEvaluation || [],
 
                 // Данные графиков
                 charts: {
@@ -4648,6 +4706,8 @@ class FlippingProfitabilityManager {
 
             console.log('📊 FlippingProfitabilityManager: Данные для экспорта подготовлены:', {
                 objectsCount: exportData.objects.length,
+                referencePricesCount: exportData.referencePrices.length,
+                evaluationObjectsCount: exportData.evaluationObjects.length,
                 hasCharts: !!(exportData.charts.profitability || exportData.charts.market_corridor),
                 avgProfit: summary.avg_profit,
                 avgROI: summary.avg_roi

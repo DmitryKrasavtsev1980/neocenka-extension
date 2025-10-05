@@ -212,12 +212,31 @@ class ReportsManager {
             });
         }
 
-        // Закрытие выпадающего списка при клике вне его
+        // Показать/скрыть выпадающий список отчётов для шаблона
+        const templateReportsToggleBtn = document.getElementById('templateReportsToggleBtn');
+        const templateReportsDropdown = document.getElementById('templateReportsDropdown');
+
+        if (templateReportsToggleBtn) {
+            templateReportsToggleBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                templateReportsDropdown?.classList.toggle('hidden');
+            });
+        }
+
+        // Закрытие выпадающих списков при клике вне их
         document.addEventListener('click', (e) => {
+            // Закрытие основного списка отчётов
             if (this.reportsDropdown && this.reportsDropdownBtn &&
-                !this.reportsDropdownBtn.contains(e.target) && 
+                !this.reportsDropdownBtn.contains(e.target) &&
                 !this.reportsDropdown.contains(e.target)) {
                 this.reportsDropdown.classList.add('hidden');
+            }
+
+            // Закрытие списка отчётов для шаблона
+            if (templateReportsDropdown && templateReportsToggleBtn &&
+                !templateReportsToggleBtn.contains(e.target) &&
+                !templateReportsDropdown.contains(e.target)) {
+                templateReportsDropdown.classList.add('hidden');
             }
         });
 
@@ -2223,7 +2242,18 @@ class ReportsManager {
         try {
             // Глобальная переменная для доступа из HTML
             window.reportsManager = this;
-            
+
+            // Проверяем существование элемента таблицы
+            if (!document.getElementById('savedReportsTable')) {
+                console.warn('⚠️ ReportsManager: Элемент savedReportsTable не найден');
+                return;
+            }
+
+            // Уничтожаем существующий экземпляр если есть
+            if ($.fn.DataTable.isDataTable('#savedReportsTable')) {
+                $('#savedReportsTable').DataTable().destroy();
+            }
+
             // Инициализация DataTable с пустыми данными
             this.savedReportsDataTable = $('#savedReportsTable').DataTable({
                 language: {
@@ -2231,18 +2261,16 @@ class ReportsManager {
                 },
                 pageLength: 10,
                 responsive: true,
-                order: [[2, 'desc']], // Сортировка по дате создания (новые сверху)
+                order: [[1, 'desc']], // Сортировка по дате создания (новые сверху)
                 columnDefs: [
-                    { orderable: false, targets: [3] }, // Отключаем сортировку для столбца "Действия"
-                    { width: "30%", targets: 0 }, // Название
-                    { width: "35%", targets: 1 }, // Фильтры  
-                    { width: "20%", targets: 2 }, // Дата создания
-                    { width: "15%", targets: 3 }  // Действия
+                    { orderable: false, targets: [2] }, // Отключаем сортировку для столбца "Действия"
+                    { width: "50%", targets: 0 }, // Название
+                    { width: "30%", targets: 1 }, // Дата создания
+                    { width: "20%", targets: 2 }  // Действия
                 ],
                 data: [], // Пустые данные при инициализации
                 columns: [
                     { title: 'Название' },
-                    { title: 'Фильтры' },
                     { title: 'Создан' },
                     { title: 'Действия' }
                 ]
@@ -2401,7 +2429,6 @@ class ReportsManager {
                 
                 return [
                     report.name,
-                    filtersDescription,
                     `${date} ${time}`,
                     actions
                 ];
@@ -2916,7 +2943,17 @@ class ReportsManager {
             // Генерируем автоматическое название отчёта
             const currentDate = new Date().toLocaleDateString('ru-RU');
             const reportName = `${templateName} - ${currentDate}`;
-            
+
+            // Загружаем шаблон для получения reports_config
+            const template = await window.db.getSavedReport(templateId);
+            const reportsConfig = template?.filters?.reports_config || {
+                liquidity: true,
+                price_changes: true,
+                market_corridor: true,
+                comparative_analysis: true,
+                flipping_profitability: true
+            };
+
             // Собираем данные текущих фильтров
             const reportData = {
                 name: reportName,
@@ -2929,17 +2966,44 @@ class ReportsManager {
                     subsegment_id: this.currentSubsegment?.id || null,
                     subsegment_name: this.currentSubsegment?.name || null,
                     date_from: this.dateFromFilter?.value || null,
-                    date_to: this.dateToFilter?.value || null
+                    date_to: this.dateToFilter?.value || null,
+                    reports_config: reportsConfig // Копируем конфигурацию отчётов из шаблона
                 },
-                // ✅ НОВОЕ: Сохраняем данные всех графиков
-                charts_data: await this.getAllChartsData(),
+                // ✅ НОВОЕ: Сохраняем данные графиков для включённых отчётов
+                charts_data: await this.getAllChartsData(reportsConfig),
                 // Сохраняем состояние сравнительного анализа если есть
                 comparative_analysis: null,
-                // ✅ НОВОЕ: Сохраняем данные флиппинг отчёта
-                flipping_data: this.sanitizeDataForStorage(await this.getCurrentFlippingData()),
+                // ✅ НОВОЕ: Сохраняем данные флиппинг отчёта только если отчёт включён
+                flipping_data: null,
                 // ✅ НОВОЕ: Сохраняем данные дублей
                 duplicates_data: null
             };
+
+            // Загрузка данных флиппинга
+            if (reportsConfig.flipping_profitability) {
+                console.log('📥 Загружаем данные флиппинга для сохранения...');
+                const rawFlippingData = await this.getCurrentFlippingData();
+                console.log('📊 Сырые данные флиппинга:', {
+                    hasData: !!rawFlippingData,
+                    objectsCount: rawFlippingData?.objects?.length || 0,
+                    firstObject: rawFlippingData?.objects?.[0]
+                });
+
+                const sanitizedFlippingData = this.sanitizeDataForStorage(rawFlippingData);
+                console.log('🧹 После sanitize:', {
+                    hasData: !!sanitizedFlippingData,
+                    objectsCount: sanitizedFlippingData?.objects?.length || 0
+                });
+
+                reportData.flipping_data = sanitizedFlippingData;
+            }
+
+            // Отладка: проверяем что сохранилось в flipping_data
+            console.log('💾 ReportsManager.saveCurrentReport - итоговый flipping_data:', {
+                configEnabled: reportsConfig.flipping_profitability,
+                hasFlippingData: !!reportData.flipping_data,
+                objectsCount: reportData.flipping_data?.objects?.length || 0
+            });
 
             // Собираем данные дублей для таблицы
             // Используем метод collectReportDataForDuplicates для сбора объектов и листингов
@@ -2965,8 +3029,10 @@ class ReportsManager {
                 console.warn('⚠️ ReportsManager: Ошибка сбора данных дублей для сохранения отчёта:', error);
             }
             
-            // Получаем данные сравнительного анализа если панель активна
-            if (this.areaPage.comparativeAnalysisManager && this.areaPage.comparativeAnalysisManager.evaluations) {
+            // Получаем данные сравнительного анализа если панель активна И отчёт включён в конфигурации
+            if (reportsConfig.comparative_analysis &&
+                this.areaPage.comparativeAnalysisManager &&
+                this.areaPage.comparativeAnalysisManager.evaluations) {
                 reportData.comparative_analysis = {
                     evaluations: Object.fromEntries(this.areaPage.comparativeAnalysisManager.evaluations),
                     corridors: this.areaPage.comparativeAnalysisManager.corridors,
@@ -2997,12 +3063,10 @@ class ReportsManager {
 
                         // Получаем ВСЕ объекты по адресам сегмента
                         let allSegmentObjects = [];
-                        console.log('🔍 DEBUG: Адреса сегмента:', this.currentSegment.filters.addresses);
 
                         for (const addressId of this.currentSegment.filters.addresses) {
                             try {
                                 const addressObjects = await window.db.getObjectsByAddress(addressId);
-                                console.log(`🔍 DEBUG: Адрес ${addressId} - объектов:`, addressObjects?.length || 0);
                                 if (addressObjects && addressObjects.length > 0) {
                                     allSegmentObjects.push(...addressObjects);
                                 }
@@ -3011,20 +3075,12 @@ class ReportsManager {
                             }
                         }
 
-                        console.log('🔍 DEBUG: Всего объектов сегмента:', allSegmentObjects.length);
-
                         // Фильтруем по подсегменту если указан
                         let filteredObjects = allSegmentObjects;
                         if (this.currentSubsegment) {
-                            console.log('🔍 DEBUG: Подсегмент фильтр:', this.currentSubsegment.filters);
                             filteredObjects = allSegmentObjects.filter(obj => {
-                                const matches = this.objectMatchesSubsegment(obj, this.currentSubsegment);
-                                if (!matches) {
-                                    console.log('🔍 DEBUG: Объект не прошёл фильтр:', obj.property_type, 'vs', this.currentSubsegment.filters.property_type);
-                                }
-                                return matches;
+                                return this.objectMatchesSubsegment(obj, this.currentSubsegment);
                             });
-                            console.log('🔍 DEBUG: После фильтрации подсегмента:', filteredObjects.length);
                         }
 
                         statsObjects = filteredObjects.length;
@@ -3059,8 +3115,16 @@ class ReportsManager {
                 date_to: reportData.filters.date_to
             });
 
+            console.log('💾 Перед сохранением в БД - reportData.flipping_data:', {
+                hasFlippingData: !!reportData.flipping_data,
+                objectsCount: reportData.flipping_data?.objects?.length || 0,
+                firstObject: reportData.flipping_data?.objects?.[0]
+            });
+
             // Сохраняем в IndexedDB
             await window.db.saveSavedReport(reportData);
+
+            console.log('✅ Отчёт сохранён в БД, ID:', reportData.id);
             
             // Обновляем таблицу
             await this.loadSavedReportsData();
@@ -3322,6 +3386,20 @@ class ReportsManager {
     }
 
     /**
+     * Получение конфигурации отчётов для сохранения в шаблон
+     * (из выпадающего списка "Отчёты для шаблона")
+     */
+    getTemplateReportsConfig() {
+        return {
+            liquidity: document.getElementById('templateLiquidityCheck')?.checked || false,
+            price_changes: document.getElementById('templatePriceChangesCheck')?.checked || false,
+            market_corridor: document.getElementById('templateMarketCorridorCheck')?.checked || false,
+            comparative_analysis: document.getElementById('templateComparativeAnalysisCheck')?.checked || false,
+            flipping_profitability: document.getElementById('templateFlippingCheck')?.checked || false
+        };
+    }
+
+    /**
      * Получение настроек сравнительного анализа
      */
     getComparativeAnalysisConfig() {
@@ -3443,10 +3521,10 @@ class ReportsManager {
                     subsegment_id: this.currentSubsegment?.id || null,
                     date_from: $('#reportsDateFrom').val() || null,
                     date_to: $('#reportsDateTo').val() || null,
-                    
-                    // Настройки отчётов
-                    reports_config: this.getReportsConfig(),
-                    
+
+                    // Настройки отчётов - берём из выпадающего списка "Отчёты для шаблона"
+                    reports_config: this.getTemplateReportsConfig(),
+
                     // Настройки сравнительного анализа
                     comparative_analysis_config: this.getComparativeAnalysisConfig()
                 }
@@ -3973,7 +4051,14 @@ class ReportsManager {
      */
     async collectReportExportData(report) {
         const areaId = report.area_id;
-        
+
+        console.log('📦 collectReportExportData - входящий report:', {
+            hasFlippingData: !!report.flipping_data,
+            flippingObjectsCount: report.flipping_data?.objects?.length || 0,
+            hasChartsData: !!report.charts_data,
+            hasFilters: !!report.filters
+        });
+
         // Получаем данные области
         const area = await window.db.getMapArea(areaId);
         
@@ -4172,7 +4257,9 @@ class ReportsManager {
             listings: listings.length,
             segment: report.filters.segment_name || 'Вся область',
             subsegment: report.filters.subsegment_name || 'Все подсегменты',
-            report_name: report.name
+            report_name: report.name,
+            hasFlippingData: !!exportData.report.flipping_data,
+            flippingObjectsCount: exportData.report.flipping_data?.objects?.length || 0
         });
 
         return exportData;
@@ -4461,6 +4548,13 @@ class ReportsManager {
                 }
                 return;
             }
+
+            console.log('📄 Отчёт загружен из БД:', {
+                reportId: reportId,
+                hasFlippingData: !!report.flipping_data,
+                flippingObjectsCount: report.flipping_data?.objects?.length || 0,
+                hasChartsData: !!report.charts_data
+            });
             
             // Собираем данные отчёта
             const exportData = await this.collectReportExportData(report);
@@ -4781,15 +4875,19 @@ class ReportsManager {
     async getCurrentFlippingData() {
         try {
             if (!this.flippingProfitabilityManager) {
-                if (this.debugEnabled) {
-                    console.log('🔍 ReportsManager: FlippingProfitabilityManager не инициализирован');
-                }
+                console.warn('⚠️ ReportsManager: FlippingProfitabilityManager не инициализирован');
                 return null;
             }
 
             // Проверяем есть ли метод экспорта данных
             if (typeof this.flippingProfitabilityManager.exportCurrentReportData === 'function') {
-                return await this.flippingProfitabilityManager.exportCurrentReportData();
+                const data = await this.flippingProfitabilityManager.exportCurrentReportData();
+                console.log('📊 ReportsManager.getCurrentFlippingData результат:', {
+                    hasData: !!data,
+                    hasObjects: !!data?.objects,
+                    objectsCount: data?.objects?.length || 0
+                });
+                return data;
             } else {
                 console.warn('⚠️ ReportsManager: Метод exportCurrentReportData не найден в FlippingProfitabilityManager');
                 return null;
@@ -4839,7 +4937,7 @@ class ReportsManager {
     /**
      * Получение всех данных графиков для экспорта
      */
-    async getAllChartsData() {
+    async getAllChartsData(reportsConfig = null) {
         try {
             // Получаем исходные данные отчётов (не конфигурацию ApexCharts)
             const reportData = await this.getReportData();
@@ -4854,56 +4952,64 @@ class ReportsManager {
             // Сохраняем текущий режим коридора рынка
             const originalMode = this.marketCorridorMode;
 
-            const chartsData = {
-                // Данные для графика ликвидности - исходные данные
-                liquidity: {
+            const chartsData = {};
+
+            // Сохраняем данные ликвидности только если отчёт включён
+            if (!reportsConfig || reportsConfig.liquidity) {
+                chartsData.liquidity = {
                     new: reportData.new,
                     close: reportData.close,
                     active: reportData.active,
                     datetime: reportData.datetime
-                },
+                };
+            }
 
-                // Данные для графика изменения цен - исходные данные
-                price_changes: {
+            // Сохраняем данные изменения цен только если отчёт включён
+            if (!reportsConfig || reportsConfig.price_changes) {
+                chartsData.price_changes = {
                     averageСost: reportData.averageСost,
                     averageСostMeter: reportData.averageСostMeter,
                     averageСostArchive: reportData.averageСostArchive,
                     averageСostMeterArchive: reportData.averageСostMeterArchive,
                     datetime: reportData.datetime
-                },
+                };
+            }
 
-                // Данные для коридора рынка
-                market_corridor: {}
-            };
+            // Инициализируем market_corridor только если отчёт включён
+            if (!reportsConfig || reportsConfig.market_corridor) {
+                chartsData.market_corridor = {};
+            }
 
-            // Генерируем данные для обоих режимов коридора рынка
-            try {
-                // Режим продаж
-                this.marketCorridorMode = 'sales';
-                const salesData = await this.getMarketCorridorData();
-                if (salesData && salesData.series) {
-                    chartsData.market_corridor.sales = {
-                        series: salesData.series,
-                        mode: 'sales',
-                        pointsData: salesData.pointsData,
-                        seriesDataMapping: salesData.seriesDataMapping
-                    };
+            // Генерируем данные для обоих режимов коридора рынка только если отчёт включён
+            if (!reportsConfig || reportsConfig.market_corridor) {
+                try {
+                    // Режим продаж
+                    this.marketCorridorMode = 'sales';
+                    const salesData = await this.getMarketCorridorData();
+                    if (salesData && salesData.series) {
+                        chartsData.market_corridor.sales = {
+                            series: salesData.series,
+                            mode: 'sales',
+                            pointsData: salesData.pointsData,
+                            seriesDataMapping: salesData.seriesDataMapping
+                        };
+                    }
+
+                    // Режим истории
+                    this.marketCorridorMode = 'history';
+                    const historyData = await this.getMarketCorridorData();
+                    if (historyData && historyData.series) {
+                        chartsData.market_corridor.history = {
+                            series: historyData.series,
+                            mode: 'history',
+                            pointsData: historyData.pointsData,
+                            seriesDataMapping: historyData.seriesDataMapping
+                        };
+                    }
+                } finally {
+                    // Восстанавливаем исходный режим
+                    this.marketCorridorMode = originalMode;
                 }
-
-                // Режим истории
-                this.marketCorridorMode = 'history';
-                const historyData = await this.getMarketCorridorData();
-                if (historyData && historyData.series) {
-                    chartsData.market_corridor.history = {
-                        series: historyData.series,
-                        mode: 'history',
-                        pointsData: historyData.pointsData,
-                        seriesDataMapping: historyData.seriesDataMapping
-                    };
-                }
-            } finally {
-                // Восстанавливаем исходный режим
-                this.marketCorridorMode = originalMode;
             }
 
             // Очищаем данные от функций перед сохранением в IndexedDB

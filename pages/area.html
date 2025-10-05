@@ -1794,6 +1794,55 @@
                             
                             <!-- Кнопки управления шаблонами -->
                             <div class="flex items-center justify-end space-x-2">
+                                <!-- Кнопка выбора отчётов для шаблона -->
+                                <div class="relative">
+                                    <button type="button" id="templateReportsToggleBtn" class="inline-flex items-center px-3 py-1 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" title="Выбрать отчёты для сохранения в шаблон">
+                                        ⚙️ Отчёты для шаблона
+                                        <svg class="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                        </svg>
+                                    </button>
+                                    <div id="templateReportsDropdown" class="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg z-10 border border-gray-200 hidden">
+                                        <div class="py-1">
+                                            <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" id="templateLiquidityCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                                <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                                </svg>
+                                                Ликвидность
+                                            </label>
+                                            <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" id="templatePriceChangesCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                                <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path>
+                                                </svg>
+                                                Изменение средней цены
+                                            </label>
+                                            <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" id="templateMarketCorridorCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                                <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                                </svg>
+                                                Коридор рынка недвижимости
+                                            </label>
+                                            <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" id="templateComparativeAnalysisCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                                <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h2m0 0h4m0 0h2a2 2 0 002-2V7a2 2 0 00-2-2h-2m-4 8v2m0-2v-2m0 2h.01"></path>
+                                                </svg>
+                                                Сравнительный анализ
+                                            </label>
+                                            <label class="group flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" id="templateFlippingCheck" class="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                                <svg class="mr-2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                </svg>
+                                                Доходность флиппинг
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <button type="button" id="saveReportFilterBtn" class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" title="Сохранить текущие настройки как шаблон для многократного использования">
                                     💾 Сохранить шаблон
                                 </button>
@@ -1875,7 +1924,6 @@
                                     <thead>
                                         <tr>
                                             <th>Название</th>
-                                            <th>Фильтры</th>
                                             <th>Создан</th>
                                             <th>Действия</th>
                                         </tr>

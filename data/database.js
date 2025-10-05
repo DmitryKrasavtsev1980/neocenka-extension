@@ -1244,6 +1244,8 @@ class NeocenkaDB {
       filters: reportData.filters || {},
       comparative_analysis: reportData.comparative_analysis || null,
       charts_data: reportData.charts_data || null,
+      flipping_data: reportData.flipping_data || null, // ✅ ДОБАВЛЕНО: Данные флиппинг отчёта
+      duplicates_data: reportData.duplicates_data || null, // ✅ ДОБАВЛЕНО: Данные дублей
       created_at: reportData.created_at || new Date().toISOString()
     };
 

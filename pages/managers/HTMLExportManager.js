@@ -56,6 +56,15 @@ class HTMLExportManager {
             const reportTitle = report.name || 'Отчёт Neocenka';
             const reportDate = new Date().toLocaleDateString('ru-RU');
 
+            // Извлекаем конфигурацию отчётов (какие отчёты включены)
+            const reportsConfig = report.filters?.reports_config || {
+                liquidity: true,
+                price_changes: true,
+                market_corridor: true,
+                comparative_analysis: true,
+                flipping_profitability: true
+            };
+
             // Генерируем полную HTML-структуру
             const htmlContent = `<!DOCTYPE html>
 <html lang="ru">
@@ -68,7 +77,7 @@ class HTMLExportManager {
 </head>
 <body class="bg-gray-50">
     ${this.generateReportHeader(report, area, reportDate)}
-    ${this.generateAllReportSections(report, area, addresses)}
+    ${this.generateAllReportSections(report, area, addresses, reportsConfig)}
     ${this.generateModalWindows()}
     ${this.generateEmbeddedScripts(exportData)}
 </body>
@@ -182,6 +191,17 @@ class HTMLExportManager {
     height: 400px;
     border-radius: 0.5rem;
     overflow: hidden;
+    z-index: 1;
+    position: relative;
+}
+
+/* Переопределяем z-index для всех элементов Leaflet внутри карты */
+#areaMap .leaflet-pane {
+    z-index: auto !important;
+}
+
+#areaMap .leaflet-map-pane {
+    z-index: 1 !important;
 }
 
 /* Стили для меток адресов - копия из карты области */
@@ -312,6 +332,181 @@ class HTMLExportManager {
     background-color: #fee2e2;
     color: #991b1b;
 }
+
+/* Стили для компонентов флиппинга */
+
+/* Карта доходности флиппинга */
+#flippingProfitabilityMap {
+    height: 550px;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    z-index: 1;
+    position: relative;
+}
+
+#flippingProfitabilityMap .leaflet-pane {
+    z-index: auto !important;
+}
+
+#flippingProfitabilityMap .leaflet-map-pane {
+    z-index: 1 !important;
+}
+
+/* Маркеры доходности на карте флиппинга */
+.flipping-marker {
+    background: transparent !important;
+    border: none !important;
+}
+
+.flipping-marker-positive {
+    color: #10b981;
+}
+
+.flipping-marker-neutral {
+    color: #f59e0b;
+}
+
+.flipping-marker-negative {
+    color: #ef4444;
+}
+
+/* Popup маркеров флиппинга */
+.flipping-popup-container .leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Условные поля в фильтрах флиппинга */
+.conditional-field {
+    transition: all 0.3s ease;
+}
+
+.conditional-field.hidden {
+    display: none;
+}
+
+/* График коридора рынка флиппинга */
+#flippingMarketCorridorChart {
+    min-height: 400px;
+}
+
+/* Панель оценки объектов */
+#flippingObjectsGrid {
+    min-height: 200px;
+}
+
+.flipping-object-card {
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.flipping-object-card:hover {
+    background-color: #f3f4f6;
+    border-color: #3b82f6;
+}
+
+.flipping-object-card.selected {
+    background-color: #dbeafe;
+    border-color: #3b82f6;
+}
+
+/* Карточки эталонных цен подсегментов */
+.reference-price-card {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    border: 1px solid #e5e7eb;
+    background-color: #f9fafb;
+}
+
+.reference-price-card .subsegment-name {
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 4px;
+}
+
+.reference-price-card .reference-price {
+    font-size: 14px;
+    font-weight: 700;
+    color: #3b82f6;
+}
+
+/* Таблица флиппинга - дополнительные стили */
+#flippingTable {
+    font-size: 13px;
+}
+
+#flippingTable thead th {
+    position: sticky;
+    top: 0;
+    background-color: #f9fafb;
+    z-index: 10;
+}
+
+#flippingTable tbody tr:hover {
+    background-color: #f3f4f6;
+}
+
+#flippingTable tbody tr.selected {
+    background-color: #dbeafe;
+}
+
+/* Панель управления выбором флиппинга */
+#flippingSelectionPanel {
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Активные фильтры - теги */
+#flippingActiveFilterTags .filter-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    background-color: #dbeafe;
+    color: #1e40af;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+#flippingActiveFilterTags .filter-tag button {
+    margin-left: 4px;
+    color: #1e40af;
+    cursor: pointer;
+}
+
+/* Обёртка контейнера флиппинга */
+.flipping-profitability-container {
+    min-height: 300px;
+}
+
+/* SlimSelect для режима коридора */
+.slim-select-minimal {
+    padding: 4px 8px;
+    font-size: 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    background-color: white;
+    cursor: pointer;
+}
+
+.slim-select-minimal:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
 </style>
         `;
     }
@@ -387,7 +582,7 @@ class HTMLExportManager {
     /**
      * Все секции отчёта включая карту - в едином контейнере
      */
-    generateAllReportSections(report, area, addresses) {
+    generateAllReportSections(report, area, addresses, reportsConfig) {
         return `
         <div id="reportsPanelContainer" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
@@ -411,6 +606,36 @@ class HTMLExportManager {
                 </div>
             </div>
 
+            <!-- Объекты недвижимости -->
+            <div class="report-section">
+                <div class="section-header px-6 py-4" id="duplicatesReportHeader">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-lg font-medium text-gray-900">Объекты недвижимости</h3>
+                            <p class="mt-1 text-sm text-gray-500">
+                                Таблица с объектами недвижимости и связанными объявлениями
+                            </p>
+                        </div>
+                        <svg class="chevron h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="section-content px-6 pb-6" id="duplicatesReportContent">
+                    <div id="duplicatesContainer" class="duplicates-wrapper">
+                        <table id="duplicatesTable" class="w-full text-sm text-left text-gray-500">
+                            <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                                <!-- Заголовки будут добавлены автоматически -->
+                            </thead>
+                            <tbody>
+                                <!-- Данные будут загружены JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            ${reportsConfig.liquidity ? `
             <!-- Отчёт Ликвидность -->
             <div class="report-section">
                 <div class="section-header px-6 py-4" id="liquidityReportHeader">
@@ -431,7 +656,9 @@ class HTMLExportManager {
                     <div id="liquidityChart" class="chart-container"></div>
                 </div>
             </div>
+            ` : ''}
 
+            ${reportsConfig.price_changes ? `
             <!-- Отчёт Изменение средней цены -->
             <div class="report-section">
                 <div class="section-header px-6 py-4" id="priceReportHeader">
@@ -451,7 +678,9 @@ class HTMLExportManager {
                     <div id="priceChangesChart" class="chart-container"></div>
                 </div>
             </div>
+            ` : ''}
 
+            ${reportsConfig.market_corridor ? `
             <!-- Отчёт Коридор рынка недвижимости -->
             <div class="report-section">
                 <div class="section-header px-6 py-4" id="marketCorridorReportHeader">
@@ -486,7 +715,9 @@ class HTMLExportManager {
                     <div id="marketCorridorChart" class="chart-container"></div>
                 </div>
             </div>
+            ` : ''}
 
+            ${reportsConfig.comparative_analysis ? `
             <!-- Отчёт Сравнительный анализ -->
             <div class="report-section">
                 <div class="section-header px-6 py-4" id="comparativeAnalysisReportHeader">
@@ -510,36 +741,9 @@ class HTMLExportManager {
                     </div>
                 </div>
             </div>
+            ` : ''}
 
-            <!-- Отчёт Дубли -->
-            <div class="report-section">
-                <div class="section-header px-6 py-4" id="duplicatesReportHeader">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-lg font-medium text-gray-900">Дубли объектов недвижимости</h3>
-                            <p class="mt-1 text-sm text-gray-500">
-                                Таблица дублей с объектами недвижимости и связанными объявлениями
-                            </p>
-                        </div>
-                        <svg class="chevron h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-                        </svg>
-                    </div>
-                </div>
-                <div class="section-content px-6 pb-6" id="duplicatesReportContent">
-                    <div id="duplicatesContainer" class="duplicates-wrapper">
-                        <table id="duplicatesTable" class="w-full text-sm text-left text-gray-500">
-                            <thead class="text-xs text-gray-700 uppercase bg-gray-50">
-                                <!-- Заголовки будут добавлены автоматически -->
-                            </thead>
-                            <tbody>
-                                <!-- Данные будут загружены JavaScript -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
+            ${reportsConfig.flipping_profitability ? `
             <!-- Отчёт Доходность флиппинга -->
             <div class="report-section">
                 <div class="section-header px-6 py-4" id="flippingReportHeader">
@@ -557,12 +761,357 @@ class HTMLExportManager {
                 </div>
                 <div class="section-content px-6 pb-6" id="flippingReportContent">
                     <div id="flippingProfitabilityContainer" class="flipping-profitability-wrapper">
-                        <div id="flippingProfitabilityContent">
-                            <!-- Данные флиппинг отчёта отобразятся здесь -->
+                        <div id="flippingProfitabilityContent" class="flipping-profitability-container">
+
+                            <!-- Верхняя секция: карта + фильтр -->
+                            <div class="grid grid-cols-12 gap-6 mb-6 max-h-min">
+
+                                <!-- Карта (2/3 ширины) -->
+                                <div class="col-span-8">
+                                    <div class="bg-white border border-gray-200 rounded-lg h-full flex flex-col">
+                                        <div class="px-4 py-3 border-b border-gray-200 flex-shrink-0">
+                                            <h5 class="text-sm font-semibold text-gray-900">Карта доходности</h5>
+                                        </div>
+                                        <div class="relative flex-1 min-h-0">
+                                            <div id="flippingProfitabilityMap" class="absolute inset-0"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Фильтр (1/3 ширины) -->
+                                <div class="col-span-4">
+                                    <div class="bg-white border border-gray-200 rounded-lg h-[550px] flex flex-col">
+                                        <div class="px-4 py-3 border-b border-gray-200 flex-shrink-0">
+                                            <h5 class="text-sm font-semibold text-gray-900">Фильтр параметров</h5>
+                                        </div>
+                                        <div class="p-4 overflow-y-auto flex-1" id="flippingProfitabilityFilter">
+
+                                            <!-- Количество комнат -->
+                                            <div class="mb-4">
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Количество комнат</label>
+                                                <div class="flex flex-wrap gap-2">
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-rooms="studio">Студия</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-rooms="1">1к</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-rooms="2">2к</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-rooms="3">3к</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-rooms="4+">4+</button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Цена -->
+                                            <div class="mb-4">
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Цена</label>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <input type="number" id="flippingPriceFrom" placeholder="0"
+                                                           class="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <input type="number" id="flippingPriceTo" placeholder="10000000000"
+                                                           class="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                </div>
+                                            </div>
+
+                                            <!-- Процент для пересчёта доходности -->
+                                            <div class="mb-4">
+                                                <label for="flippingProfitabilityPercent" class="block text-sm font-medium text-gray-700 mb-2">Целевая доходность</label>
+                                                <input type="number" id="flippingProfitabilityPercent" value="60"
+                                                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            </div>
+
+                                            <!-- Участники проекта -->
+                                            <div class="mb-4">
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Участники проекта</label>
+                                                <div class="flex gap-2">
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-blue-500 rounded-md bg-blue-500 text-white transition-colors" data-participants="flipper" id="flippingParticipantsFlipper">Флиппер</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-participants="flipper-investor" id="flippingParticipantsFlipperInvestor">Флиппер + Инвестор</button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Форма раздела прибыли (условное поле) -->
+                                            <div class="conditional-field mb-4 hidden" id="flippingProfitSharingSection">
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Форма раздела прибыли</label>
+                                                <div class="flex gap-2 mb-3">
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-blue-500 rounded-md bg-blue-500 text-white transition-colors" data-profit-sharing="percentage" id="flippingProfitSharingPercentage">Раздел в %</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-profit-sharing="fix-plus-percentage" id="flippingProfitSharingFixPlus">Фикс + %</button>
+                                                </div>
+
+                                                <!-- Настройка процентов для раздела -->
+                                                <div id="flippingProfitPercentageSettings" class="space-y-2">
+                                                    <div>
+                                                        <label for="flippingFlipperPercentage" class="block text-xs font-medium text-gray-600 mb-1">Процент флиппера</label>
+                                                        <input type="number" id="flippingFlipperPercentage" value="50" min="0" max="100"
+                                                               class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                    <div>
+                                                        <label for="flippingInvestorPercentage" class="block text-xs font-medium text-gray-600 mb-1">Процент инвестора</label>
+                                                        <input type="number" id="flippingInvestorPercentage" value="50" min="0" max="100" readonly
+                                                               class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-gray-50">
+                                                    </div>
+                                                </div>
+
+                                                <!-- Настройка фиксированной оплаты + процент -->
+                                                <div id="flippingFixedPlusPercentageSettings" class="space-y-2 hidden">
+                                                    <div>
+                                                        <label for="flippingFixedPaymentAmount" class="block text-xs font-medium text-gray-600 mb-1">Фиксированная оплата флиппера, ₽</label>
+                                                        <input type="number" id="flippingFixedPaymentAmount" value="250000"
+                                                               class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                    <div>
+                                                        <label for="flippingFixedPlusPercentage" class="block text-xs font-medium text-gray-600 mb-1">Процент флиппера с остатка прибыли</label>
+                                                        <input type="number" id="flippingFixedPlusPercentage" value="30" min="0" max="100"
+                                                               class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Источник финансирования -->
+                                            <div class="mb-4">
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Источник финансирования</label>
+                                                <div class="flex gap-2">
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-blue-500 rounded-md bg-blue-500 text-white transition-colors" data-financing="cash" id="flippingFinancingCash">Деньги</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-financing="mortgage" id="flippingFinancingMortgage">Ипотека</button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Параметры ипотеки (условные поля) -->
+                                            <div class="conditional-field mb-4 hidden" id="flippingMortgageSection">
+                                                <div class="space-y-3">
+                                                    <div>
+                                                        <label for="flippingDownPayment" class="block text-sm font-medium text-gray-700 mb-2">Первоначальный взнос %</label>
+                                                        <input type="number" id="flippingDownPayment" value="20"
+                                                               class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                    <div>
+                                                        <label for="flippingMortgageRate" class="block text-sm font-medium text-gray-700 mb-2">Ставка ипотеки %</label>
+                                                        <input type="number" id="flippingMortgageRate" value="17"
+                                                               class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                    <div>
+                                                        <label for="flippingMortgageTerm" class="block text-sm font-medium text-gray-700 mb-2">Срок ипотеки, лет</label>
+                                                        <input type="number" id="flippingMortgageTerm" value="20"
+                                                               class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Параметры стоимости денег (условные поля) -->
+                                            <div class="conditional-field mb-4 hidden" id="flippingCashCostSection">
+                                                <div>
+                                                    <label for="flippingCashCostRate" class="block text-sm font-medium text-gray-700 mb-2">Стоимость денег % годовых</label>
+                                                    <input type="number" id="flippingCashCostRate" value="0" step="0.1" min="0"
+                                                           class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                </div>
+                                            </div>
+
+                                            <!-- Тип налогообложения -->
+                                            <div class="mb-4">
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Тип налогообложения</label>
+                                                <div class="flex gap-2">
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-blue-500 rounded-md bg-blue-500 text-white transition-colors" data-tax="ip">ИП</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-tax="individual">Физик</button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Скорость ремонта -->
+                                            <div class="mb-4">
+                                                <label for="flippingRenovationSpeed" class="block text-sm font-medium text-gray-700 mb-2">Скорость ремонта, м2/день</label>
+                                                <input type="number" id="flippingRenovationSpeed" value="1.5" step="0.1"
+                                                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            </div>
+
+                                            <!-- Расчёт стоимости ремонта -->
+                                            <div class="mb-4">
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Расчёт стоимости ремонта</label>
+                                                <div class="flex gap-2">
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-blue-500 rounded-md bg-blue-500 text-white transition-colors" data-renovation="auto" id="flippingRenovationAuto">Автоматический</button>
+                                                    <button type="button" class="px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-renovation="manual" id="flippingRenovationManual">Ручной</button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Ручной расчёт ремонта (условные поля) -->
+                                            <div class="conditional-field mb-4 hidden" id="flippingManualRenovationSection">
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label for="flippingWorkCost" class="block text-sm font-medium text-gray-700 mb-2">Работа, руб/м2</label>
+                                                        <input type="number" id="flippingWorkCost" value="10000"
+                                                               class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                    <div>
+                                                        <label for="flippingMaterialsCost" class="block text-sm font-medium text-gray-700 mb-2">Материалы, руб/м2</label>
+                                                        <input type="number" id="flippingMaterialsCost" value="10000"
+                                                               class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Дополнительные расходы -->
+                                            <div class="mb-4">
+                                                <label for="flippingAdditionalExpenses" class="block text-sm font-medium text-gray-700 mb-2">Дополнительные расходы</label>
+                                                <input type="number" id="flippingAdditionalExpenses" value="100000"
+                                                       class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- График коридора рынка недвижимости с боковой панелью объектов -->
+                            <div class="bg-gray-50 border border-gray-200 rounded-lg mb-6">
+                                <div class="p-4 border-b border-gray-200 bg-white rounded-t-lg">
+                                    <div class="flex items-center justify-between">
+                                        <h5 class="text-md font-medium text-gray-900">Коридор рынка недвижимости</h5>
+                                        <div class="flex items-center space-x-2">
+                                            <label for="flippingMarketCorridorMode" class="text-sm text-gray-600">Режим:</label>
+                                            <select id="flippingMarketCorridorMode" class="slim-select-minimal">
+                                                <option value="sales">Коридор продаж</option>
+                                                <option value="history">История активных</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-4 bg-white rounded-b-lg">
+                                    <div class="grid grid-cols-3 gap-4 h-[40rem]">
+                                        <!-- График (2/3 ширины) -->
+                                        <div class="col-span-2">
+                                            <div id="flippingMarketCorridorChart" class="h-full">
+                                                <div class="flex items-center justify-center h-full text-gray-500">
+                                                    Примените фильтры для отображения данных
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Панель объектов (1/3 ширины) -->
+                                        <div class="col-span-1 border-l border-gray-200 pl-4 h-[40rem] overflow-hidden">
+                                            <div class="h-full flex flex-col">
+                                                <!-- Карточки подсегментов с эталонными ценами -->
+                                                <div id="referencePriceCardsContainer" class="mb-3 flex-shrink-0 flex flex-col gap-2 max-h-48 overflow-y-auto p-2 hidden">
+                                                    <!-- Карточки подсегментов будут динамически добавляться через JavaScript -->
+                                                </div>
+
+                                                <h6 class="text-sm font-medium text-gray-900 mb-3 flex-shrink-0">Оценка эталонных объектов</h6>
+
+                                                <!-- Селектор оценки объекта -->
+                                                <div class="mb-3 flex-shrink-0">
+                                                    <label for="objectEvaluationSelect" class="block text-xs font-medium text-gray-700 mb-1">Оценка</label>
+                                                    <select id="objectEvaluationSelect" class="w-full text-sm">
+                                                        <option value="">Выберите оценку</option>
+                                                        <option value="flipping">Флиппинг</option>
+                                                        <option value="designer_renovation">Дизайнерский ремонт</option>
+                                                        <option value="euro_renovation">Евроремонт</option>
+                                                    </select>
+                                                </div>
+
+                                                <div class="flex-1 overflow-y-auto min-h-0 max-h-80">
+                                                    <div id="flippingObjectsGrid" class="grid grid-cols-1 gap-2 p-2">
+                                                        <div class="text-center text-gray-500 py-4 text-sm">
+                                                            Примените фильтры для отображения объектов
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Таблица объектов -->
+                            <div class="bg-gray-50 border border-gray-200 rounded-lg">
+                                <div class="p-4 border-b border-gray-200 bg-white rounded-t-lg">
+                                    <h5 class="text-md font-medium text-gray-900">Объекты для инвестирования</h5>
+                                </div>
+
+                                <!-- Контейнер для таблицы -->
+                                <div class="p-4 bg-white rounded-b-lg">
+                                    <div id="flippingTableContainer">
+                                        <!-- Панель управления выбором -->
+                                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 hidden" id="flippingSelectionPanel">
+                                            <div class="flex items-center justify-between">
+                                                <span id="flippingSelectedItemsCount" class="text-sm font-medium text-blue-800">0 элементов выбрано</span>
+                                                <button type="button" id="flippingClearSelectionBtn" class="ml-4 text-sm text-blue-600 hover:text-blue-800 underline">
+                                                    Очистить выбор
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <!-- Фильтры таблицы флиппинг -->
+                                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <h4 class="text-sm font-medium text-gray-900">Фильтры отчёта</h4>
+                                                <button type="button" id="clearAllFlippingFiltersBtn" class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                                    <svg class="-ml-0.5 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                    </svg>
+                                                    Очистить все
+                                                </button>
+                                            </div>
+
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                                <!-- Фильтр по адресу -->
+                                                <div>
+                                                    <label for="flippingAddressFilter" class="block text-xs font-medium text-gray-700 mb-1">Адрес</label>
+                                                    <select id="flippingAddressFilter">
+                                                        <option value="">Все адреса</option>
+                                                        <!-- Опции будут загружены динамически -->
+                                                    </select>
+                                                </div>
+
+                                                <!-- Фильтр по типу недвижимости -->
+                                                <div>
+                                                    <label for="flippingPropertyTypeFilter" class="block text-xs font-medium text-gray-700 mb-1">Тип недвижимости</label>
+                                                    <select id="flippingPropertyTypeFilter">
+                                                        <option value="">Все типы</option>
+                                                        <option value="studio">Студия</option>
+                                                        <option value="1k">1-к квартира</option>
+                                                        <option value="2k">2-к квартира</option>
+                                                        <option value="3k">3-к квартира</option>
+                                                        <option value="4k+">4+ к квартира</option>
+                                                    </select>
+                                                </div>
+
+                                                <!-- Фильтр по статусу -->
+                                                <div>
+                                                    <label for="flippingStatusFilter" class="block text-xs font-medium text-gray-700 mb-1">Статус</label>
+                                                    <select id="flippingStatusFilter">
+                                                        <option value="">Все статусы</option>
+                                                        <option value="active">Активные</option>
+                                                        <option value="archive">Архивные</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <!-- Активные фильтры -->
+                                            <div id="flippingActiveFiltersContainer" class="mt-3 hidden">
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="text-xs text-gray-500">Активные фильтры:</span>
+                                                    <div id="flippingActiveFilterTags" class="flex flex-wrap gap-1">
+                                                        <!-- Теги активных фильтров будут добавляться динамически -->
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="overflow-x-auto">
+                                            <table id="flippingTable" class="min-w-full divide-y divide-gray-200">
+                                                <!-- DataTables будет автоматически создавать заголовки -->
+                                            </table>
+                                        </div>
+
+                                        <!-- Заглушка для пустой таблицы -->
+                                        <div id="flippingTableEmpty" class="text-center py-12 hidden">
+                                            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                            </svg>
+                                            <h3 class="mt-2 text-sm font-medium text-gray-900">Нет данных</h3>
+                                            <p class="mt-1 text-sm text-gray-500">Объекты для инвестирования не найдены</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
                 </div>
             </div>
+            ` : ''}
 
         </div>
         `;
@@ -574,16 +1123,16 @@ class HTMLExportManager {
     generateModalWindows() {
         return `
         <!-- Модальное окно просмотра объявления -->
-        <div id="listingModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="listing-modal-title" role="dialog" aria-modal="true">
-            <div class="mx-auto flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0">
-                <!-- Затемнённый фон -->
-                <div class="fixed inset-0 z-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1);" aria-hidden="true"></div>
+        <div id="listingModal" class="fixed inset-0 overflow-y-auto hidden" style="z-index: 9999;" aria-labelledby="listing-modal-title" role="dialog" aria-modal="true">
+            <!-- Затемнённый фон -->
+            <div class="fixed inset-0 transition-opacity" style="background-color: rgba(0, 0, 0, 0.1); z-index: 1;" aria-hidden="true"></div>
 
+            <div class="mx-auto flex items-center justify-center min-h-screen pt-4 px-4 pb-4 text-center sm:block sm:p-0" style="position: relative; z-index: 2;">
                 <!-- Центрирование модального окна -->
                 <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
 
                 <!-- Содержимое модального окна -->
-                <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full relative z-10 max-h-[90vh]">
+                <div class="inline-block align-bottom bg-white border rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full relative max-h-[90vh]">
                     <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                         <div class="sm:flex sm:items-start">
                             <div class="w-full">
@@ -623,11 +1172,11 @@ class HTMLExportManager {
         </div>
 
         <!-- Модальное окно просмотра объекта недвижимости -->
-        <div id="objectModal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="object-modal-title" role="dialog" aria-modal="true">
-            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-                <!-- Затемнённый фон -->
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+        <div id="objectModal" class="fixed inset-0 overflow-y-auto hidden" style="z-index: 9999;" aria-labelledby="object-modal-title" role="dialog" aria-modal="true">
+            <!-- Затемнённый фон -->
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" style="z-index: 1;" aria-hidden="true"></div>
 
+            <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0" style="position: relative; z-index: 2;">
                 <!-- Центрирование модального окна -->
                 <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
 
@@ -686,11 +1235,11 @@ class HTMLExportManager {
                 // Управление всеми секциями отчётов включая карту
                 const allSections = [
                     { headerId: 'areaMapHeader', contentId: 'areaMapContent' },
+                    { headerId: 'duplicatesReportHeader', contentId: 'duplicatesReportContent' },
                     { headerId: 'liquidityReportHeader', contentId: 'liquidityReportContent' },
                     { headerId: 'priceReportHeader', contentId: 'priceReportContent' },
                     { headerId: 'marketCorridorReportHeader', contentId: 'marketCorridorReportContent' },
                     { headerId: 'comparativeAnalysisReportHeader', contentId: 'comparativeAnalysisReportContent' },
-                    { headerId: 'duplicatesReportHeader', contentId: 'duplicatesReportContent' },
                     { headerId: 'flippingReportHeader', contentId: 'flippingReportContent' }
                 ];
 
@@ -738,19 +1287,8 @@ class HTMLExportManager {
                         attribution: '© OpenStreetMap contributors'
                     }).addTo(areaMap);
 
-                    // Полигон области
-                    if (REPORT_DATA.area.polygon && REPORT_DATA.area.polygon.length > 0) {
-                        const polygon = L.polygon(REPORT_DATA.area.polygon, {
-                            color: '#3b82f6',
-                            fillColor: '#3b82f6',
-                            fillOpacity: 0.2,
-                            weight: 2
-                        }).addTo(areaMap);
-
-                        areaMap.fitBounds(polygon.getBounds());
-                    }
-
                     // Маркеры адресов подсегмента
+                    const markers = [];
 
                     if (REPORT_DATA.addresses && REPORT_DATA.addresses.length > 0) {
                         let markersAdded = 0;
@@ -781,9 +1319,16 @@ class HTMLExportManager {
                             const marker = createAddressMarker(address, coordinates);
                             if (marker) {
                                 marker.addTo(areaMap);
+                                markers.push(marker);
                                 markersAdded++;
                             }
                         });
+
+                        // Центрируем карту вокруг маркеров
+                        if (markers.length > 0) {
+                            const group = L.featureGroup(markers);
+                            areaMap.fitBounds(group.getBounds(), { padding: [50, 50] });
+                        }
                     } else {
                         console.warn('⚠️ Нет адресов для отображения на карте');
                     }
@@ -1289,7 +1834,14 @@ class HTMLExportManager {
                                     }
                                 }
                             }],
-                            defaultLocale: "ru"
+                            defaultLocale: "ru",
+                            events: {
+                                dataPointSelection: function(event, chartContext, config) {
+                                    if (config.dataPointIndex >= 0 && config.seriesIndex >= 0) {
+                                        handleMarketCorridorPointClick(config, mode, pointsData);
+                                    }
+                                }
+                            }
                         },
                         stroke: {
                             width: mode === 'history' ? 2 : 0,
@@ -1484,6 +2036,88 @@ class HTMLExportManager {
                 }
             }
 
+            // Обработка клика по точке на графике коридора рынка
+            function handleMarketCorridorPointClick(config, mode, pointsData) {
+                try {
+                    let point = null;
+
+                    // Получаем данные точки
+                    if (pointsData && pointsData.pointsData) {
+                        if (mode === 'history') {
+                            // В режиме истории ищем по координатам
+                            const seriesData = window.marketCorridorChart.w.config.series[config.seriesIndex];
+                            if (seriesData && seriesData.data && seriesData.data[config.dataPointIndex]) {
+                                const [timestamp, price] = seriesData.data[config.dataPointIndex];
+                                point = pointsData.pointsData.find(p =>
+                                    Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                                );
+                            }
+                        } else {
+                            // В режиме коридора продаж используем серии-маппинг
+                            if (pointsData.seriesDataMapping &&
+                                pointsData.seriesDataMapping[config.seriesIndex] &&
+                                pointsData.seriesDataMapping[config.seriesIndex][config.dataPointIndex]) {
+                                point = pointsData.seriesDataMapping[config.seriesIndex][config.dataPointIndex];
+                            } else {
+                                // Fallback - ищем по координатам
+                                const seriesData = window.marketCorridorChart.w.config.series[config.seriesIndex];
+                                if (seriesData && seriesData.data && seriesData.data[config.dataPointIndex]) {
+                                    const [timestamp, price] = seriesData.data[config.dataPointIndex];
+                                    point = pointsData.pointsData.find(p =>
+                                        Math.abs(p.x - timestamp) < 1000 && Math.abs(p.y - price) < 0.01
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    if (!point || !point.objectId) {
+                        console.warn('⚠️ Не удалось найти данные объекта для точки на графике');
+                        return;
+                    }
+
+                    // Ищем объект в таблице дублей (там объекты с правильной структурой для модального окна)
+                    const object = REPORT_DATA.duplicates_data?.tableData?.find(item =>
+                        item.type === 'object' && item.id === point.objectId
+                    );
+
+                    if (!object) {
+                        console.warn(\`⚠️ Объект #\${point.objectId} не найден в данных отчёта\`, {
+                            pointObjectId: point.objectId,
+                            hasDuplicatesData: !!REPORT_DATA.duplicates_data,
+                            tableDataLength: REPORT_DATA.duplicates_data?.tableData?.length || 0
+                        });
+                        return;
+                    }
+
+                    // Показываем модальное окно с данными объекта
+                    showObjectModalFromGraph(object);
+
+                } catch (error) {
+                    console.error('❌ Ошибка обработки клика по графику:', error);
+                }
+            }
+
+            // Показ модального окна объекта из графика
+            function showObjectModalFromGraph(object) {
+                try {
+                    const modalContent = renderObjectModal(object);
+                    $('#objectModalContent').html(modalContent);
+                    $('#object-modal-title').text(\`Объект недвижимости #\${object.id}\`);
+                    $('#objectModal').removeClass('hidden');
+
+                    // Инициализируем компоненты после открытия модального окна (карта, графики и т.д.)
+                    setTimeout(function() {
+                        initializeObjectComponents(object.id);
+                    }, 100);
+
+                    console.log('✅ Открыто модальное окно объекта #' + object.id);
+
+                } catch (error) {
+                    console.error('❌ Ошибка показа модального окна:', error);
+                }
+            }
+
             // Инициализация сравнительного анализа
             function initComparativeAnalysis() {
                 try {
@@ -1577,150 +2211,920 @@ class HTMLExportManager {
             // Инициализация флиппинг отчёта
             function initFlippingReport() {
                 try {
-                    const flippingData = REPORT_DATA.report.flipping_data;
+                    console.log('🔍 Проверка данных флиппинга:', {
+                        hasReport: !!REPORT_DATA.report,
+                        hasFlippingData: !!REPORT_DATA.report?.flipping_data,
+                        flippingData: REPORT_DATA.report?.flipping_data
+                    });
+
+                    const flippingData = REPORT_DATA.report?.flipping_data;
                     if (!flippingData) {
+                        console.warn('⚠️ flipping_data отсутствует');
                         showNoDataMessage('flippingProfitabilityContent', 'Нет данных по флиппингу');
                         return;
                     }
 
-                    const container = document.getElementById('flippingProfitabilityContent');
-                    let html = '<div class="space-y-6">';
-
-                    // Сводная статистика
-                    if (flippingData.summary) {
-                        html += \`
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 bg-blue-50 p-4 rounded-md">
-                                <div class="text-center">
-                                    <div class="text-2xl font-bold text-blue-600">\${flippingData.summary.total_objects}</div>
-                                    <div class="text-sm text-gray-600">Объектов</div>
-                                </div>
-                                <div class="text-center">
-                                    <div class="text-2xl font-bold text-green-600">\${formatPrice(flippingData.summary.avg_profit)}</div>
-                                    <div class="text-sm text-gray-600">Средняя прибыль</div>
-                                </div>
-                                <div class="text-center">
-                                    <div class="text-2xl font-bold text-purple-600">\${flippingData.summary.avg_roi.toFixed(1)}%</div>
-                                    <div class="text-sm text-gray-600">Средний ROI</div>
-                                </div>
-                                <div class="text-center">
-                                    <div class="text-2xl font-bold text-orange-600">\${formatPrice(flippingData.summary.total_investment)}</div>
-                                    <div class="text-sm text-gray-600">Общие инвестиции</div>
-                                </div>
-                            </div>
-                        \`;
+                    if (!flippingData.objects) {
+                        console.warn('⚠️ flipping_data.objects отсутствует');
+                        showNoDataMessage('flippingProfitabilityContent', 'Нет объектов флиппинга');
+                        return;
                     }
 
-                    // Графики флиппинга
-                    if (flippingData.charts) {
-                        html += '<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">';
-
-                        if (flippingData.charts.profitability) {
-                            html += '<div><h6 class="text-lg font-medium mb-4">График доходности</h6><div id="flippingProfitabilityChart" class="chart-container"></div></div>';
-                        }
-
-                        if (flippingData.charts.market_corridor) {
-                            html += '<div><h6 class="text-lg font-medium mb-4">Коридор рынка флиппинг</h6><div id="flippingMarketCorridorChart" class="chart-container"></div></div>';
-                        }
-
-                        html += '</div>';
-
-                        // Инициализируем графики флиппинга после добавления в DOM
-                        setTimeout(() => {
-                            if (flippingData.charts.profitability) {
-                                try {
-                                    flippingProfitabilityChart = new ApexCharts(
-                                        document.querySelector("#flippingProfitabilityChart"),
-                                        {
-                                            ...flippingData.charts.profitability.options,
-                                            series: flippingData.charts.profitability.series,
-                                            chart: {
-                                                ...flippingData.charts.profitability.options?.chart,
-                                                height: 300
-                                            }
-                                        }
-                                    );
-                                    flippingProfitabilityChart.render();
-                                } catch (error) {
-                                    console.error('❌ Ошибка инициализации графика доходности флиппинг:', error);
-                                }
-                            }
-
-                            if (flippingData.charts.market_corridor) {
-                                try {
-                                    flippingMarketCorridorChart = new ApexCharts(
-                                        document.querySelector("#flippingMarketCorridorChart"),
-                                        {
-                                            ...flippingData.charts.market_corridor.options,
-                                            series: flippingData.charts.market_corridor.series,
-                                            chart: {
-                                                ...flippingData.charts.market_corridor.options?.chart,
-                                                height: 300
-                                            }
-                                        }
-                                    );
-                                    flippingMarketCorridorChart.render();
-                                } catch (error) {
-                                    console.error('❌ Ошибка инициализации коридора рынка флиппинг:', error);
-                                }
-                            }
-                        }, 100);
+                    if (flippingData.objects.length === 0) {
+                        console.warn('⚠️ flipping_data.objects пустой массив');
+                        showNoDataMessage('flippingProfitabilityContent', 'Нет объектов для отображения');
+                        return;
                     }
 
-                    // Таблица объектов флиппинга
-                    if (flippingData.objects && flippingData.objects.length > 0) {
-                        html += \`
-                            <div class="bg-white border rounded-lg overflow-hidden">
-                                <div class="px-6 py-4 bg-gray-50 border-b">
-                                    <h5 class="text-lg font-medium text-gray-900">Объекты флиппинга (\${flippingData.objects.length} шт.)</h5>
-                                </div>
-                                <div class="overflow-x-auto">
-                                    <table class="flipping-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Адрес</th>
-                                                <th>Покупка</th>
-                                                <th>Текущая цена</th>
-                                                <th>Ремонт</th>
-                                                <th>Прибыль</th>
-                                                <th>ROI</th>
-                                                <th>Период</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                        \`;
+                    console.log('🎯 Инициализация отчёта флиппинга с', flippingData.objects.length, 'объектами');
 
-                        flippingData.objects.forEach(obj => {
-                            const roiClass = obj.roi_percent >= 20 ? 'roi-high' : obj.roi_percent >= 10 ? 'roi-medium' : 'roi-low';
-                            const profitClass = obj.profit >= 500000 ? 'profit-positive' : obj.profit >= 0 ? 'profit-neutral' : 'profit-negative';
+                    // Сохраняем данные для использования в других функциях
+                    window.flippingObjects = flippingData.objects || [];
+                    window.flippingFilters = flippingData.filters || {};
+                    window.flippingFilteredObjects = [...window.flippingObjects];
+                    window.flippingReferencePrices = flippingData.referencePrices || [];
+                    window.flippingEvaluationObjects = flippingData.evaluationObjects || [];
 
-                            html += \`
-                                <tr>
-                                    <td>\${obj.address}</td>
-                                    <td>\${formatPrice(obj.purchase_price)}</td>
-                                    <td>\${formatPrice(obj.current_price)}</td>
-                                    <td>\${formatPrice(obj.renovation_cost)}</td>
-                                    <td class="\${profitClass}">\${formatPrice(obj.profit)}</td>
-                                    <td class="\${roiClass}">\${obj.roi_percent.toFixed(1)}%</td>
-                                    <td>\${obj.holding_period_months} мес.</td>
-                                </tr>
-                            \`;
-                        });
-
-                        html += \`
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        \`;
-                    }
-
-                    html += '</div>';
-                    container.innerHTML = html;
+                    // Инициализация компонентов
+                    setTimeout(() => {
+                        initFlippingMap();
+                        initFlippingFilters();
+                        initFlippingReferencePriceCards();
+                        initFlippingEvaluationPanel();
+                        initFlippingMarketCorridorChart();
+                        initFlippingTable();
+                    }, 100);
 
                 } catch (error) {
                     console.error('❌ Ошибка инициализации флиппинг отчёта:', error);
                     showNoDataMessage('flippingProfitabilityContent', 'Ошибка загрузки флиппинг отчёта');
                 }
+            }
+
+            // Вспомогательная функция: получение цвета по доходности
+            function getProfitabilityColor(profitability) {
+                if (profitability >= 80) return '#22c55e';  // Зелёный
+                if (profitability >= 50) return '#eab308';  // Жёлтый
+                if (profitability >= 20) return '#f97316';  // Оранжевый
+                if (profitability > 0)   return '#ef4444';  // Красный
+                return '#6b7280';                           // Серый
+            }
+
+            // Подготовка адресов для карты (группировка объектов по адресам)
+            function prepareAddressesForMap(objects) {
+                const addressMap = new Map();
+
+                // Группируем объекты по адресам
+                for (const obj of objects) {
+                    if (!obj.address || !obj.address.id) continue;
+
+                    const addressId = obj.address.id;
+                    if (!addressMap.has(addressId)) {
+                        addressMap.set(addressId, {
+                            ...obj.address,
+                            activeObjects: []
+                        });
+                    }
+                    addressMap.get(addressId).activeObjects.push(obj);
+                }
+
+                // Рассчитываем maxProfitability для каждого адреса
+                const addresses = [];
+                for (const address of addressMap.values()) {
+                    let maxProfitability = null;
+                    let maxProfitabilityText = '';
+
+                    for (const obj of address.activeObjects) {
+                        const annualROI = obj.roi_percent || 0;
+                        if (maxProfitability === null || annualROI > maxProfitability) {
+                            maxProfitability = annualROI;
+                            maxProfitabilityText = \`Макс. доходность: \${Math.round(annualROI * 10) / 10}% годовых\`;
+                        }
+                    }
+
+                    if (maxProfitability === null) {
+                        maxProfitability = 0;
+                        maxProfitabilityText = address.activeObjects.length > 0
+                            ? \`Активных объектов: \${address.activeObjects.length}\`
+                            : 'Нет данных';
+                    }
+
+                    addresses.push({
+                        ...address,
+                        maxProfitability,
+                        maxProfitabilityText,
+                        markerColor: getProfitabilityColor(maxProfitability),
+                        activeObjectsCount: address.activeObjects.length
+                    });
+                }
+
+                return addresses;
+            }
+
+            // Инициализация карты флиппинга
+            function initFlippingMap() {
+                try {
+                    const mapElement = document.getElementById('flippingProfitabilityMap');
+                    if (!mapElement || !window.flippingFilteredObjects) return;
+
+                    // Подготавливаем адреса с доходностью
+                    const addresses = prepareAddressesForMap(window.flippingFilteredObjects);
+
+                    // Определяем центр карты
+                    let centerLat = REPORT_DATA.area?.center_lat || 55.7558;
+                    let centerLng = REPORT_DATA.area?.center_lng || 37.6176;
+
+                    const flippingMap = L.map('flippingProfitabilityMap').setView([centerLat, centerLng], 12);
+
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© OpenStreetMap contributors'
+                    }).addTo(flippingMap);
+
+                    // Создаём маркеры для адресов
+                    const markers = [];
+                    for (const address of addresses) {
+                        const lat = address.coordinates?.lat;
+                        const lng = address.coordinates?.lng;
+
+                        if (!lat || !lng || isNaN(lat) || isNaN(lng)) continue;
+
+                        // Размер маркера зависит от доходности
+                        let radius = 6;
+                        if (address.maxProfitability >= 80) radius = 10;
+                        else if (address.maxProfitability >= 50) radius = 8;
+                        else if (address.maxProfitability >= 20) radius = 6;
+                        else if (address.maxProfitability > 0) radius = 5;
+
+                        const marker = L.circleMarker([lat, lng], {
+                            radius: radius,
+                            fillColor: address.markerColor,
+                            color: 'white',
+                            weight: 2,
+                            opacity: 1,
+                            fillOpacity: 0.8
+                        });
+
+                        // Popup
+                        const addressText = address.address_string || address.address || 'Адрес не определён';
+                        let textColor = address.maxProfitability > 20 ? '#059669' :
+                                       address.maxProfitability > 0 ? '#D97706' : '#DC2626';
+
+                        const popupContent = \`
+                            <div class="p-3">
+                                <div class="font-semibold text-sm mb-2">\${addressText}</div>
+                                <div class="text-sm font-bold mb-1" style="color: \${textColor}">
+                                    \${address.maxProfitabilityText}
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    Этажей: \${address.floors_count || '?'}
+                                </div>
+                            </div>
+                        \`;
+
+                        marker.bindPopup(popupContent, {
+                            maxWidth: 250,
+                            className: 'simple-address-popup'
+                        });
+
+                        marker.addTo(flippingMap);
+                        markers.push(marker);
+                    }
+
+                    // Auto-zoom
+                    if (markers.length > 0) {
+                        const group = L.featureGroup(markers);
+                        flippingMap.fitBounds(group.getBounds().pad(0.1));
+                    }
+
+                    window.flippingMapInstance = flippingMap;
+                    window.flippingAddresses = addresses;
+
+                    console.log('✅ Карта флиппинга инициализирована');
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации карты флиппинга:', error);
+                }
+            }
+
+            // Инициализация фильтров флиппинга
+            function initFlippingFilters() {
+                try {
+                    // Кнопки количества комнат (точная копия логики из оригинала)
+                    const roomButtons = document.querySelectorAll('[data-rooms]');
+                    roomButtons.forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            // Проверяем текущее состояние кнопки
+                            const isActive = this.classList.contains('bg-blue-500');
+
+                            if (isActive) {
+                                // Деактивировать кнопку
+                                setButtonInactive(this);
+                            } else {
+                                // Активировать кнопку
+                                setButtonActive(this);
+                            }
+
+                            applyFlippingFilters();
+                        });
+                    });
+
+                    // Фильтр цены
+                    const priceFrom = document.getElementById('flippingPriceFrom');
+                    const priceTo = document.getElementById('flippingPriceTo');
+                    if (priceFrom) priceFrom.addEventListener('input', debounce(applyFlippingFilters, 500));
+                    if (priceTo) priceTo.addEventListener('input', debounce(applyFlippingFilters, 500));
+
+                    // Условные поля - участники проекта
+                    const flipperBtn = document.getElementById('flippingParticipantsFlipper');
+                    const flipperInvestorBtn = document.getElementById('flippingParticipantsFlipperInvestor');
+                    const profitSharingSection = document.getElementById('flippingProfitSharingSection');
+
+                    if (flipperBtn && flipperInvestorBtn) {
+                        flipperBtn.addEventListener('click', () => {
+                            toggleButton(flipperBtn, flipperInvestorBtn);
+                            if (profitSharingSection) profitSharingSection.classList.add('hidden');
+                        });
+                        flipperInvestorBtn.addEventListener('click', () => {
+                            toggleButton(flipperInvestorBtn, flipperBtn);
+                            if (profitSharingSection) profitSharingSection.classList.remove('hidden');
+                        });
+                    }
+
+                    // Условные поля - источник финансирования
+                    const cashBtn = document.getElementById('flippingFinancingCash');
+                    const mortgageBtn = document.getElementById('flippingFinancingMortgage');
+                    const mortgageSection = document.getElementById('flippingMortgageSection');
+                    const cashCostSection = document.getElementById('flippingCashCostSection');
+
+                    if (cashBtn && mortgageBtn) {
+                        cashBtn.addEventListener('click', () => {
+                            toggleButton(cashBtn, mortgageBtn);
+                            if (mortgageSection) mortgageSection.classList.add('hidden');
+                            if (cashCostSection) cashCostSection.classList.remove('hidden');
+                        });
+                        mortgageBtn.addEventListener('click', () => {
+                            toggleButton(mortgageBtn, cashBtn);
+                            if (mortgageSection) mortgageSection.classList.remove('hidden');
+                            if (cashCostSection) cashCostSection.classList.add('hidden');
+                        });
+                    }
+
+                    // Условные поля - расчёт ремонта
+                    const autoBtn = document.getElementById('flippingRenovationAuto');
+                    const manualBtn = document.getElementById('flippingRenovationManual');
+                    const manualSection = document.getElementById('flippingManualRenovationSection');
+
+                    if (autoBtn && manualBtn) {
+                        autoBtn.addEventListener('click', () => {
+                            toggleButton(autoBtn, manualBtn);
+                            if (manualSection) manualSection.classList.add('hidden');
+                        });
+                        manualBtn.addEventListener('click', () => {
+                            toggleButton(manualBtn, autoBtn);
+                            if (manualSection) manualSection.classList.remove('hidden');
+                        });
+                    }
+
+                    console.log('✅ Фильтры флиппинга инициализированы');
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации фильтров флиппинга:', error);
+                }
+            }
+
+            // Вспомогательная функция переключения кнопок
+            function toggleButton(activeBtn, inactiveBtn) {
+                activeBtn.classList.add('bg-blue-500', 'text-white', 'border-blue-500');
+                activeBtn.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+                inactiveBtn.classList.remove('bg-blue-500', 'text-white', 'border-blue-500');
+                inactiveBtn.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+            }
+
+            // Установка активного состояния кнопки (без hover-эффектов)
+            function setButtonActive(button) {
+                button.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+                button.classList.add('bg-blue-500', 'text-white', 'border-blue-500');
+            }
+
+            // Установка неактивного состояния кнопки (без hover-эффектов)
+            function setButtonInactive(button) {
+                button.classList.remove('bg-blue-500', 'text-white', 'border-blue-500');
+                button.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+            }
+
+            // Применение фильтров флиппинга
+            function applyFlippingFilters() {
+                try {
+                    let filtered = [...window.flippingObjects];
+
+                    // Фильтр по комнатам
+                    const selectedRooms = Array.from(document.querySelectorAll('[data-rooms].bg-blue-500'))
+                        .map(btn => btn.dataset.rooms);
+                    if (selectedRooms.length > 0) {
+                        filtered = filtered.filter(obj => selectedRooms.includes(obj.rooms));
+                    }
+
+                    // Фильтр по цене
+                    const priceFrom = document.getElementById('flippingPriceFrom')?.value;
+                    const priceTo = document.getElementById('flippingPriceTo')?.value;
+                    if (priceFrom) {
+                        filtered = filtered.filter(obj => obj.purchase_price >= parseFloat(priceFrom));
+                    }
+                    if (priceTo) {
+                        filtered = filtered.filter(obj => obj.purchase_price <= parseFloat(priceTo));
+                    }
+
+                    window.flippingFilteredObjects = filtered;
+
+                    // Обновляем компоненты
+                    updateFlippingMap();
+                    updateFlippingTable();
+
+                    console.log(\`🔍 Применены фильтры: \${filtered.length} из \${window.flippingObjects.length} объектов\`);
+                } catch (error) {
+                    console.error('❌ Ошибка применения фильтров:', error);
+                }
+            }
+
+            // Обновление карты флиппинга
+            function updateFlippingMap() {
+                try {
+                    if (!window.flippingMapInstance) {
+                        initFlippingMap();
+                        return;
+                    }
+
+                    // Очищаем старые маркеры
+                    window.flippingMapInstance.eachLayer(layer => {
+                        if (layer instanceof L.CircleMarker) {
+                            window.flippingMapInstance.removeLayer(layer);
+                        }
+                    });
+
+                    // Подготавливаем адреса
+                    const addresses = prepareAddressesForMap(window.flippingFilteredObjects);
+
+                    // Создаём новые маркеры
+                    const markers = [];
+                    for (const address of addresses) {
+                        const lat = address.coordinates?.lat;
+                        const lng = address.coordinates?.lng;
+
+                        if (!lat || !lng || isNaN(lat) || isNaN(lng)) continue;
+
+                        let radius = 6;
+                        if (address.maxProfitability >= 80) radius = 10;
+                        else if (address.maxProfitability >= 50) radius = 8;
+                        else if (address.maxProfitability >= 20) radius = 6;
+                        else if (address.maxProfitability > 0) radius = 5;
+
+                        const marker = L.circleMarker([lat, lng], {
+                            radius: radius,
+                            fillColor: address.markerColor,
+                            color: 'white',
+                            weight: 2,
+                            opacity: 1,
+                            fillOpacity: 0.8
+                        });
+
+                        const addressText = address.address_string || address.address || 'Адрес не определён';
+                        let textColor = address.maxProfitability > 20 ? '#059669' :
+                                       address.maxProfitability > 0 ? '#D97706' : '#DC2626';
+
+                        marker.bindPopup(\`
+                            <div class="p-3">
+                                <div class="font-semibold text-sm mb-2">\${addressText}</div>
+                                <div class="text-sm font-bold mb-1" style="color: \${textColor}">
+                                    \${address.maxProfitabilityText}
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    Этажей: \${address.floors_count || '?'}
+                                </div>
+                            </div>
+                        \`, {
+                            maxWidth: 250,
+                            className: 'simple-address-popup'
+                        });
+
+                        marker.addTo(window.flippingMapInstance);
+                        markers.push(marker);
+                    }
+
+                    // Auto-zoom
+                    if (markers.length > 0) {
+                        const group = L.featureGroup(markers);
+                        window.flippingMapInstance.fitBounds(group.getBounds().pad(0.1));
+                    }
+
+                    window.flippingAddresses = addresses;
+                } catch (error) {
+                    console.error('❌ Ошибка обновления карты флиппинга:', error);
+                }
+            }
+
+            // Подготовка данных для графика флиппинга (точная копия из оригинала prepareChartData)
+            function prepareFlippingChartData(mode = 'sales') {
+                try {
+                    if (!window.flippingFilteredObjects || window.flippingFilteredObjects.length === 0) {
+                        return { series: [], colors: [] };
+                    }
+
+                    const activePointsData = [];
+                    const archivePointsData = [];
+
+                    // Формируем точки данных
+                    window.flippingFilteredObjects.forEach(obj => {
+                        if (!obj.current_price || obj.current_price <= 0) return;
+
+                        if (obj.status === 'archive') {
+                            if (obj.updated) {
+                                archivePointsData.push({
+                                    x: new Date(obj.updated).getTime(),
+                                    y: obj.current_price,
+                                    objectId: obj.id,
+                                    address: obj.address
+                                });
+                            }
+                        } else if (obj.status === 'active') {
+                            activePointsData.push({
+                                x: new Date().getTime(),
+                                y: obj.current_price,
+                                objectId: obj.id,
+                                address: obj.address
+                            });
+                        }
+                    });
+
+                    // Сортируем по дате
+                    activePointsData.sort((a, b) => a.x - b.x);
+                    archivePointsData.sort((a, b) => a.x - b.x);
+
+                    const series = [];
+                    const colors = [];
+
+                    // Режим "Коридор продаж"
+                    if (activePointsData.length > 0) {
+                        series.push({
+                            name: 'Активные объекты',
+                            data: activePointsData.map(point => [point.x, point.y])
+                        });
+                        colors.push('#56c2d6');
+                    }
+
+                    if (archivePointsData.length > 0) {
+                        series.push({
+                            name: 'Архивные объекты',
+                            data: archivePointsData.map(point => [point.x, point.y])
+                        });
+                        colors.push('#dc2626');
+                    }
+
+                    return { series, colors };
+
+                } catch (error) {
+                    console.error('❌ Ошибка подготовки данных графика флиппинга:', error);
+                    return { series: [], colors: [] };
+                }
+            }
+
+            // Инициализация графика коридора рынка флиппинга (точная копия из оригинала createMarketCorridorChart)
+            function initFlippingMarketCorridorChart() {
+                try {
+                    if (!window.flippingFilteredObjects || window.flippingFilteredObjects.length === 0) {
+                        console.log('⚠️ Нет объектов для графика флиппинга');
+                        return;
+                    }
+
+                    const { series: chartData, colors } = prepareFlippingChartData();
+
+                    if (!chartData || chartData.length === 0) {
+                        console.log('⚠️ Нет данных для графика флиппинга');
+                        return;
+                    }
+
+                    const options = {
+                        series: chartData,
+                        colors: colors,
+                        chart: {
+                            type: 'scatter',
+                            height: 600,
+                            locales: [{
+                                "name": "ru",
+                                "options": {
+                                    "months": ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"],
+                                    "shortMonths": ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"],
+                                    "days": ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"],
+                                    "shortDays": ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"]
+                                }
+                            }],
+                            defaultLocale: "ru",
+                            zoom: {
+                                enabled: true
+                            },
+                            toolbar: {
+                                show: true
+                            }
+                        },
+                        xaxis: {
+                            type: 'datetime',
+                            labels: {
+                                datetimeUTC: false,
+                                format: 'dd MMM yyyy'
+                            }
+                        },
+                        yaxis: {
+                            title: {
+                                text: 'Цена объекта, ₽'
+                            },
+                            labels: {
+                                formatter: function(val) {
+                                    if (!val) return '0';
+                                    return new Intl.NumberFormat('ru-RU').format(Math.round(val));
+                                }
+                            }
+                        },
+                        tooltip: {
+                            x: {
+                                format: 'dd MMM yyyy'
+                            },
+                            y: {
+                                formatter: function(val) {
+                                    return formatPrice(val);
+                                }
+                            }
+                        },
+                        legend: {
+                            show: false
+                        }
+                    };
+
+                    const chartContainer = document.querySelector("#flippingMarketCorridorChart");
+                    if (!chartContainer) {
+                        console.error('❌ Контейнер графика флиппинга не найден');
+                        return;
+                    }
+
+                    chartContainer.innerHTML = '';
+                    const chart = new ApexCharts(chartContainer, options);
+                    chart.render();
+
+                    window.flippingMarketCorridorChartInstance = chart;
+
+                    console.log(\`✅ График коридора флиппинга инициализирован (\${chartData.length} серий)\`);
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации графика коридора:', error);
+                }
+            }
+
+            // Инициализация карточек подсегментов с эталонными ценами
+            function initFlippingReferencePriceCards() {
+                try {
+                    const container = document.getElementById('referencePriceCardsContainer');
+                    if (!container) return;
+
+                    const referencePrices = window.flippingReferencePrices || [];
+
+                    if (referencePrices.length === 0) {
+                        container.classList.add('hidden');
+                        return;
+                    }
+
+                    container.classList.remove('hidden');
+                    container.innerHTML = '';
+
+                    referencePrices.forEach((priceData, index) => {
+                        const card = document.createElement('div');
+                        card.className = 'bg-blue-50 border border-blue-200 rounded p-2 cursor-pointer hover:bg-blue-100';
+                        card.dataset.subsegmentId = priceData.id || index;
+
+                        const perMeter = priceData.referencePrice?.perMeter || 0;
+                        const count = priceData.referencePrice?.count || 0;
+
+                        card.innerHTML = \`
+                            <div class="text-xs font-medium text-gray-700">\${priceData.name || 'Подсегмент'}</div>
+                            <div class="text-sm font-semibold text-blue-600">\${new Intl.NumberFormat('ru-RU').format(Math.round(perMeter))} ₽/м²</div>
+                            <div class="text-xs text-gray-500">\${count} объект(ов)</div>
+                        \`;
+
+                        container.appendChild(card);
+                    });
+
+                    console.log(\`✅ Карточки подсегментов инициализированы (\${referencePrices.length} карточек)\`);
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации карточек подсегментов:', error);
+                }
+            }
+
+            // Инициализация панели оценки объектов
+            function initFlippingEvaluationPanel() {
+                try {
+                    const select = document.getElementById('objectEvaluationSelect');
+                    const gridContainer = document.getElementById('flippingObjectsGrid');
+
+                    if (!select || !gridContainer) return;
+
+                    const evaluationObjects = window.flippingEvaluationObjects || [];
+
+                    if (evaluationObjects.length === 0) {
+                        gridContainer.innerHTML = '<div class="text-xs text-gray-400 text-center py-4">Нет объектов для оценки</div>';
+                        return;
+                    }
+
+                    // Обработчик изменения селектора
+                    select.addEventListener('change', () => {
+                        updateEvaluationObjectsGrid();
+                    });
+
+                    console.log(\`✅ Панель оценки инициализирована (\${evaluationObjects.length} объектов)\`);
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации панели оценки:', error);
+                }
+            }
+
+            // Обновление сетки объектов оценки
+            function updateEvaluationObjectsGrid() {
+                try {
+                    const gridContainer = document.getElementById('flippingObjectsGrid');
+                    const select = document.getElementById('objectEvaluationSelect');
+
+                    if (!gridContainer || !select) return;
+
+                    const evaluationType = select.value;
+                    const evaluationObjects = window.flippingEvaluationObjects || [];
+
+                    if (!evaluationType || evaluationObjects.length === 0) {
+                        gridContainer.innerHTML = '<div class="text-xs text-gray-400 text-center py-4">Выберите тип оценки</div>';
+                        return;
+                    }
+
+                    gridContainer.innerHTML = '';
+
+                    evaluationObjects.slice(0, 10).forEach(obj => {
+                        const card = document.createElement('div');
+                        card.className = 'bg-gray-50 border border-gray-200 rounded p-2 cursor-pointer hover:bg-gray-100';
+
+                        const address = typeof obj.address === 'object' ? obj.address.address : obj.address;
+                        const price = obj.current_price || obj.purchase_price || 0;
+
+                        card.innerHTML = \`
+                            <div class="text-xs text-gray-600 mb-1">\${address || 'Адрес не указан'}</div>
+                            <div class="text-sm font-semibold text-gray-900">\${new Intl.NumberFormat('ru-RU').format(price)} ₽</div>
+                            <div class="text-xs text-gray-500">\${obj.rooms || 'studio'} комн.</div>
+                        \`;
+
+                        gridContainer.appendChild(card);
+                    });
+
+                } catch (error) {
+                    console.error('❌ Ошибка обновления сетки объектов:', error);
+                }
+            }
+
+            // Инициализация таблицы флиппинга (100% соответствие с FlippingTable.js)
+            function initFlippingTable() {
+                try {
+                    if (!window.flippingFilteredObjects || window.flippingFilteredObjects.length === 0) {
+                        document.getElementById('flippingTableEmpty')?.classList.remove('hidden');
+                        return;
+                    }
+
+                    if (window.flippingDataTable) {
+                        window.flippingDataTable.destroy();
+                    }
+
+                    window.flippingDataTable = new DataTable('#flippingTable', {
+                        data: window.flippingFilteredObjects,
+                        pageLength: 10,
+                        language: {
+                            url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/ru.json'
+                        },
+                        order: [[4, 'desc']], // Сортировка по дате обновления
+                        columnDefs: [
+                            {
+                                targets: 0, // Чекбокс
+                                orderable: false,
+                                searchable: false,
+                                className: 'dt-body-center',
+                                width: '30px'
+                            },
+                            {
+                                targets: 1, // Доходность
+                                orderable: true,
+                                searchable: false,
+                                className: 'dt-body-center text-xs',
+                                width: '80px'
+                            },
+                            {
+                                targets: [3, 4], // Даты
+                                className: 'text-xs'
+                            },
+                            {
+                                targets: [5, 6, 7, 8], // Характеристики, адрес, цена, контакт
+                                className: 'text-xs'
+                            }
+                        ],
+                        columns: [
+                            // 0. Чекбокс
+                            {
+                                data: null,
+                                title: '<input type="checkbox" id="selectAllFlippingObjects" class="focus:ring-indigo-500 h-3 w-3 text-indigo-600 border-gray-300 rounded">',
+                                render: (data, type, row) => {
+                                    return \`<input type="checkbox" class="flipping-object-checkbox focus:ring-indigo-500 h-3 w-3 text-indigo-600 border-gray-300 rounded" data-object-id="\${row.id}">\`;
+                                }
+                            },
+                            // 1. Доходность
+                            {
+                                data: null,
+                                title: 'Доходность',
+                                render: (data, type, row) => {
+                                    const annualROI = row.roi_percent || 0;
+                                    const profit = row.profit || 0;
+                                    let colorClass = 'text-gray-600';
+                                    if (annualROI >= 20) colorClass = 'text-green-600';
+                                    else if (annualROI >= 10) colorClass = 'text-yellow-600';
+                                    else if (annualROI < 0) colorClass = 'text-red-600';
+
+                                    return \`<div class="text-xs text-center cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                        <div class="\${colorClass} font-medium">\${annualROI.toFixed(1)}% год.</div>
+                                        <div class="text-gray-400" style="font-size: 10px;">прибыль: \${new Intl.NumberFormat('ru-RU').format(Math.round(profit))} ₽</div>
+                                    </div>\`;
+                                }
+                            },
+                            // 2. Статус
+                            {
+                                data: null,
+                                title: 'Статус',
+                                render: (data, type, row) => {
+                                    const statusBadges = {
+                                        'active': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Активный</span>',
+                                        'archived': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>',
+                                        'archive': '<span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Архивный</span>'
+                                    };
+                                    return statusBadges[row.status] || '<span class="text-xs text-gray-500">Активный</span>';
+                                }
+                            },
+                            // 3. Дата создания
+                            {
+                                data: 'created',
+                                title: 'Создано',
+                                render: (data, type, row) => {
+                                    const dateValue = data || row.created_at;
+                                    if (!dateValue) return '—';
+                                    const createdDate = new Date(dateValue);
+
+                                    if (type === 'sort' || type === 'type') {
+                                        return createdDate.getTime();
+                                    }
+
+                                    const dateStr = createdDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+                                    const updatedValue = row.updated || row.updated_at;
+                                    const endDate = updatedValue ? new Date(updatedValue) : new Date();
+                                    const diffTime = Math.abs(endDate - createdDate);
+                                    const exposureDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                    return \`<div class="text-xs">
+                                        \${dateStr}<br>
+                                        <span class="text-gray-500" style="font-size: 10px;">эксп. \${exposureDays} дн.</span>
+                                    </div>\`;
+                                }
+                            },
+                            // 4. Дата обновления
+                            {
+                                data: 'updated',
+                                title: 'Обновлено',
+                                render: (data, type, row) => {
+                                    const dateValue = data || row.updated_at;
+                                    if (!dateValue) return '—';
+                                    const date = new Date(dateValue);
+
+                                    if (type === 'sort' || type === 'type') {
+                                        return date.getTime();
+                                    }
+
+                                    const now = new Date();
+                                    const diffTime = Math.abs(now - date);
+                                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                    const dateStr = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+                                    const daysAgo = diffDays === 1 ? '1 день назад' : \`\${diffDays} дн. назад\`;
+                                    const color = diffDays > 7 ? 'text-red-600' : 'text-green-600';
+
+                                    return \`<div class="text-xs">
+                                        \${dateStr}<br>
+                                        <span class="\${color}" style="font-size: 10px;">\${daysAgo}</span>
+                                    </div>\`;
+                                }
+                            },
+                            // 5. Характеристики
+                            {
+                                data: null,
+                                title: 'Характеристики',
+                                render: (data, type, row) => {
+                                    const parts = [];
+
+                                    if (row.rooms) {
+                                        const rooms = row.rooms === 'studio' ? 'Студия' : \`\${row.rooms}-к\`;
+                                        parts.push(rooms);
+                                        parts.push('квартира');
+                                    }
+
+                                    if (row.area_total) parts.push(\`\${row.area_total}м²\`);
+                                    if (row.floor) parts.push(\`\${row.floor} эт.\`);
+
+                                    const characteristicsText = parts.length > 0 ? parts.join(', ') : 'Не указано';
+                                    return \`<div class="text-xs text-gray-900 max-w-xs" title="\${characteristicsText}">\${characteristicsText}</div>\`;
+                                }
+                            },
+                            // 6. Адрес
+                            {
+                                data: null,
+                                title: 'Адрес',
+                                render: (data, type, row) => {
+                                    const addressText = (typeof row.address === 'object' ? row.address.address : row.address) || 'Адрес не определен';
+                                    const addressClass = addressText === 'Адрес не определен' ? 'text-red-500' : 'text-blue-600';
+
+                                    return \`<div class="text-xs max-w-xs">
+                                        <div class="\${addressClass} truncate">\${addressText}</div>
+                                    </div>\`;
+                                }
+                            },
+                            // 7. Цена
+                            {
+                                data: null,
+                                title: 'Цена',
+                                render: (data, type, row) => {
+                                    const priceValue = row.current_price || row.price || 0;
+                                    const price = priceValue.toLocaleString();
+                                    let pricePerMeter = '';
+
+                                    if (row.price_per_sqm) {
+                                        pricePerMeter = Math.round(row.price_per_sqm).toLocaleString();
+                                    }
+
+                                    return \`<div class="text-xs">
+                                        <div class="text-green-600 font-medium">\${price}</div>
+                                        \${pricePerMeter ? \`<div class="text-gray-500">\${pricePerMeter} ₽/м²</div>\` : ''}
+                                    </div>\`;
+                                }
+                            },
+                            // 8. Контакт
+                            {
+                                data: null,
+                                title: 'Контакт',
+                                render: (data, type, row) => {
+                                    return \`<div class="text-xs max-w-xs">
+                                        <div class="text-gray-600">—</div>
+                                    </div>\`;
+                                }
+                            }
+                        ]
+                    });
+
+                    console.log('✅ Таблица флиппинга инициализирована');
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации таблицы флиппинга:', error);
+                }
+            }
+
+            // Обновление таблицы флиппинга (100% соответствие с FlippingTable.js)
+            function updateFlippingTable() {
+                try {
+                    // Если таблица не инициализирована, инициализируем её
+                    if (!window.flippingDataTable) {
+                        initFlippingTable();
+                        return;
+                    }
+
+                    // Обновляем данные напрямую (используем те же объекты)
+                    window.flippingDataTable.clear();
+                    if (window.flippingFilteredObjects.length > 0) {
+                        window.flippingDataTable.rows.add(window.flippingFilteredObjects);
+                    }
+                    window.flippingDataTable.draw();
+
+                    // Управление видимостью заглушки
+                    const emptyElement = document.getElementById('flippingTableEmpty');
+                    if (emptyElement) {
+                        if (window.flippingFilteredObjects.length === 0) {
+                            emptyElement.classList.remove('hidden');
+                        } else {
+                            emptyElement.classList.add('hidden');
+                        }
+                    }
+                } catch (error) {
+                    console.error('❌ Ошибка обновления таблицы флиппинга:', error);
+                }
+            }
+
+            // Debounce функция
+            function debounce(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
             }
 
             // Вспомогательная функция форматирования цены
@@ -1756,7 +3160,7 @@ class HTMLExportManager {
                         pageLength: 10,
                         ordering: true,
                         searching: true,
-                        order: [[4, 'desc']], // Сортировка по дате обновления
+                        order: [[2, 'desc']], // Сортировка по дате обновления (колонка 2)
                         language: {
                             "decimal":        "",
                             "emptyTable":     "Нет данных",

@@ -320,11 +320,12 @@ class AreaPage {
      */
     showMainContent() {
         try {
-            const contentElement = document.getElementById('area-content');
+            // Ищем page-content вместо area-content (т.к. area-content был перемещён в page-content при инициализации)
+            const contentElement = document.getElementById('page-content');
             if (contentElement) {
                 contentElement.classList.remove('hidden');
             } else {
-                console.error('❌ Элемент area-content не найден');
+                console.warn('⚠️ Элемент page-content не найден');
             }
         } catch (error) {
             console.error('❌ Ошибка отображения контента:', error);

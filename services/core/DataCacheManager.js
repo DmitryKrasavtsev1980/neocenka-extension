@@ -59,6 +59,12 @@ class DataCacheManager {
      * Загрузка данных из базы данных
      */
     async loadFromDatabase(tableName, cacheKey) {
+        // Проверка инициализации базы данных
+        if (!window.db || !window.db.db) {
+            console.warn(`⚠️ [Cache] База данных не инициализирована для загрузки ${tableName}`);
+            return [];
+        }
+
         const data = await window.db.getAll(tableName);
 
         // Оценка размера данных
@@ -87,11 +93,17 @@ class DataCacheManager {
      */
     async getByIndex(tableName, indexName, value) {
         const cacheKey = `index_${tableName}_${indexName}_${value}`;
-        
+
         if (this.cache.has(cacheKey)) {
             this.updateAccessTime(cacheKey);
             const data = this.cache.get(cacheKey);
             return data;
+        }
+
+        // Проверка инициализации базы данных
+        if (!window.db || !window.db.db) {
+            console.warn(`⚠️ [Cache] База данных не инициализирована для загрузки ${tableName}[${indexName}]`);
+            return [];
         }
 
         const data = await window.db.getByIndex(tableName, indexName, value);
@@ -111,10 +123,16 @@ class DataCacheManager {
     async getBatchByIndex(tableName, indexName, values) {
         console.log(`🔄 [Batch Index Query] ${tableName}.${indexName}: ${values.length} значений`);
         const startTime = Date.now();
-        
+
+        // Проверка инициализации базы данных
+        if (!window.db || !window.db.db) {
+            console.warn(`⚠️ [Cache] База данных не инициализирована для пакетной загрузки ${tableName}[${indexName}]`);
+            return new Map();
+        }
+
         const results = new Map();
         const uncachedValues = [];
-        
+
         // Проверяем кэш для каждого значения
         for (const value of values) {
             const cacheKey = `index_${tableName}_${indexName}_${value}`;
@@ -125,7 +143,7 @@ class DataCacheManager {
                 uncachedValues.push(value);
             }
         }
-        
+
         // Загружаем некэшированные значения
         for (const value of uncachedValues) {
             const data = await window.db.getByIndex(tableName, indexName, value);
