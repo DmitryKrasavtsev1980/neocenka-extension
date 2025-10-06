@@ -117,6 +117,10 @@ class HTMLExportManager {
             <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
             <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
 
+            <!-- SlimSelect -->
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/slim-select@2.8.2/dist/slimselect.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/slim-select@2.8.2/dist/slimselect.min.js"></script>
+
             <!-- Fotorama -->
             <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fotorama/4.6.4/fotorama.css">
             <script src="https://cdnjs.cloudflare.com/ajax/libs/fotorama/4.6.4/fotorama.js"></script>
@@ -186,22 +190,22 @@ class HTMLExportManager {
     transform: rotate(-90deg);
 }
 
-/* Стили для карты */
+/* Стили для карты - как в оригинале */
 #areaMap {
-    height: 400px;
-    border-radius: 0.5rem;
-    overflow: hidden;
-    z-index: 1;
-    position: relative;
+    height: 500px;
+    width: 100%;
+    z-index: 0;
 }
 
-/* Переопределяем z-index для всех элементов Leaflet внутри карты */
-#areaMap .leaflet-pane {
-    z-index: auto !important;
+/* Popup стили - как в оригинале */
+.leaflet-popup-content {
+    margin: 8px 12px !important;
+    line-height: 1.4 !important;
+    max-width: 300px !important;
 }
 
-#areaMap .leaflet-map-pane {
-    z-index: 1 !important;
+.leaflet-popup-content strong {
+    font-weight: 600 !important;
 }
 
 /* Стили для меток адресов - копия из карты области */
@@ -507,6 +511,11 @@ class HTMLExportManager {
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
+
+/* Выравнивание высоты фильтров SlimSelect */
+.ss-main {
+    min-height: 38px !important;
+}
 </style>
         `;
     }
@@ -593,7 +602,7 @@ class HTMLExportManager {
                         <div>
                             <h3 class="text-lg font-medium text-gray-900">Карта области</h3>
                             <p class="mt-1 text-sm text-gray-500">
-                                Границы области и адреса подсегмента (${addresses ? addresses.length : 0} адресов)
+                                Адреса подсегмента (${addresses ? addresses.length : 0} адресов)
                             </p>
                         </div>
                         <svg class="chevron h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
@@ -602,6 +611,23 @@ class HTMLExportManager {
                     </div>
                 </div>
                 <div class="section-content px-6 pb-6" id="areaMapContent">
+                    <!-- Переключение режимов отображения подписей на маркерах -->
+                    <div class="mb-4 flex gap-2 flex-wrap">
+                        <button type="button" class="area-map-label-mode px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-blue-500 text-white transition-colors" data-mode="year">
+                            Год постройки
+                        </button>
+                        <button type="button" class="area-map-label-mode px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-mode="series">
+                            Серия дома
+                        </button>
+                        <button type="button" class="area-map-label-mode px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-mode="floors">
+                            Этажность
+                        </button>
+                        <button type="button" class="area-map-label-mode px-3 py-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-700 transition-colors" data-mode="objects">
+                            Количество объектов
+                        </button>
+                    </div>
+
+                    <!-- Карта -->
                     <div id="areaMap"></div>
                 </div>
             </div>
@@ -622,7 +648,70 @@ class HTMLExportManager {
                     </div>
                 </div>
                 <div class="section-content px-6 pb-6" id="duplicatesReportContent">
-                    <div id="duplicatesContainer" class="duplicates-wrapper">
+                    <!-- Панель фильтров -->
+                    <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-md">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-sm font-medium text-gray-900">Фильтр</h4>
+                            <button type="button" id="clearDuplicatesFiltersBtn" class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                <svg class="-ml-0.5 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                                Очистить все
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <!-- Фильтр по статусу объекта -->
+                            <div>
+                                <label for="duplicatesStatusFilter" class="block text-xs font-medium text-gray-700 mb-1">Статус</label>
+                                <select id="duplicatesStatusFilter">
+                                    <option value="">Все статусы</option>
+                                    <option value="active">Активный</option>
+                                    <option value="archived">Архивный</option>
+                                </select>
+                            </div>
+
+                            <!-- Фильтр по адресу -->
+                            <div>
+                                <label for="duplicatesAddressFilter" class="block text-xs font-medium text-gray-700 mb-1">Адрес</label>
+                                <select id="duplicatesAddressFilter">
+                                    <option value="">Все адреса</option>
+                                    <!-- Опции будут загружены динамически -->
+                                </select>
+                            </div>
+
+                            <!-- Фильтр по типу недвижимости -->
+                            <div>
+                                <label for="duplicatesPropertyTypeFilter" class="block text-xs font-medium text-gray-700 mb-1">Тип недвижимости</label>
+                                <select id="duplicatesPropertyTypeFilter">
+                                    <option value="">Все типы</option>
+                                    <option value="studio">Студия</option>
+                                    <option value="1k">1-к квартира</option>
+                                    <option value="2k">2-к квартира</option>
+                                    <option value="3k">3-к квартира</option>
+                                    <option value="4k+">4+ к квартира</option>
+                                </select>
+                            </div>
+
+                            <!-- Фильтр по этажу -->
+                            <div>
+                                <label for="duplicatesFloorFilter" class="block text-xs font-medium text-gray-700 mb-1">Этаж</label>
+                                <input type="number" id="duplicatesFloorFilter" min="1" max="100" placeholder="Любой этаж" class="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                        </div>
+
+                        <!-- Активные фильтры -->
+                        <div id="activeFiltersContainer" class="mt-3 hidden">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs text-gray-500">Активные фильтры:</span>
+                                <div id="activeFilterTags" class="flex flex-wrap gap-1">
+                                    <!-- Теги активных фильтров будут добавляться динамически -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="duplicatesContainer" class="duplicates-wrapper overflow-x-auto">
                         <table id="duplicatesTable" class="w-full text-sm text-left text-gray-500">
                             <thead class="text-xs text-gray-700 uppercase bg-gray-50">
                                 <!-- Заголовки будут добавлены автоматически -->
@@ -705,7 +794,7 @@ class HTMLExportManager {
                         <!-- Переключатель режимов (интерактивный) -->
                         <div class="ml-4">
                             <label for="marketCorridorModeSelect" class="block text-sm font-medium text-gray-700 mb-1">Режим графика</label>
-                            <select id="marketCorridorModeSelect" class="min-w-[180px] p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500">
+                            <select id="marketCorridorModeSelect" class="min-w-[180px]">
                                 <option value="sales">Коридор продаж</option>
                                 <option value="history">История активных</option>
                             </select>
@@ -1270,6 +1359,10 @@ class HTMLExportManager {
                 }
             }
 
+            // Глобальные переменные для карты области
+            let areaMapMarkers = [];
+            let areaMapLabelMode = 'year'; // Режим отображения подписей по умолчанию
+
             // Инициализация карты области
             function initAreaMap() {
                 try {
@@ -1287,54 +1380,94 @@ class HTMLExportManager {
                         attribution: '© OpenStreetMap contributors'
                     }).addTo(areaMap);
 
-                    // Маркеры адресов подсегмента
-                    const markers = [];
+                    // Инициализация обработчиков кнопок переключения режимов
+                    initAreaMapLabelModeButtons();
 
-                    if (REPORT_DATA.addresses && REPORT_DATA.addresses.length > 0) {
-                        let markersAdded = 0;
-                        REPORT_DATA.addresses.forEach((address, index) => {
-                            // Поддержка разных форматов координат
-                            let coordinates = null;
+                    // Отрисовываем маркеры
+                    renderAreaMapMarkers();
 
-                            if (address.coordinates) {
-                                // Формат массива [lat, lng]
-                                if (Array.isArray(address.coordinates) && address.coordinates.length === 2) {
-                                    coordinates = address.coordinates;
-                                }
-                                // Формат объекта {lat, lng}
-                                else if (typeof address.coordinates === 'object' &&
-                                        address.coordinates.lat !== undefined &&
-                                        address.coordinates.lng !== undefined) {
-                                    coordinates = [address.coordinates.lat, address.coordinates.lng];
-                                }
-                            }
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации карты:', error);
+                }
+            }
 
-                            // Отладочная информация только для адресов без координат
-                            if (!coordinates) {
-                                console.warn(\`⚠️ Адрес без корректных координат: \${address.address}\`, address.coordinates);
-                                return;
-                            }
+            // Инициализация кнопок переключения режимов отображения подписей
+            function initAreaMapLabelModeButtons() {
+                const buttons = document.querySelectorAll('.area-map-label-mode');
+                buttons.forEach(button => {
+                    button.addEventListener('click', function() {
+                        const mode = this.dataset.mode;
 
-                            // Создаем маркер точно как в карте области
-                            const marker = createAddressMarker(address, coordinates);
-                            if (marker) {
-                                marker.addTo(areaMap);
-                                markers.push(marker);
-                                markersAdded++;
-                            }
+                        // Обновляем состояние кнопок
+                        buttons.forEach(btn => {
+                            btn.classList.remove('bg-blue-500', 'text-white');
+                            btn.classList.add('bg-white', 'text-gray-700');
                         });
+                        this.classList.remove('bg-white', 'text-gray-700');
+                        this.classList.add('bg-blue-500', 'text-white');
 
-                        // Центрируем карту вокруг маркеров
-                        if (markers.length > 0) {
-                            const group = L.featureGroup(markers);
-                            areaMap.fitBounds(group.getBounds(), { padding: [50, 50] });
-                        }
-                    } else {
+                        // Меняем режим и перерисовываем маркеры
+                        areaMapLabelMode = mode;
+                        renderAreaMapMarkers();
+                    });
+                });
+            }
+
+            // Отрисовка маркеров на карте области
+            function renderAreaMapMarkers() {
+                try {
+                    // Очищаем старые маркеры
+                    areaMapMarkers.forEach(marker => {
+                        areaMap.removeLayer(marker);
+                    });
+                    areaMapMarkers = [];
+
+                    if (!REPORT_DATA.addresses || REPORT_DATA.addresses.length === 0) {
                         console.warn('⚠️ Нет адресов для отображения на карте');
+                        return;
                     }
 
-            // Функция создания маркера адреса - копия из MapManager
-            function createAddressMarker(address, coordinates) {
+                    // Создаём маркеры с текущим режимом отображения
+                    REPORT_DATA.addresses.forEach((address) => {
+                        // Поддержка разных форматов координат
+                        let coordinates = null;
+
+                        if (address.coordinates) {
+                            if (Array.isArray(address.coordinates) && address.coordinates.length === 2) {
+                                coordinates = address.coordinates;
+                            }
+                            else if (typeof address.coordinates === 'object' &&
+                                    address.coordinates.lat !== undefined &&
+                                    address.coordinates.lng !== undefined) {
+                                coordinates = [address.coordinates.lat, address.coordinates.lng];
+                            }
+                        }
+
+                        if (!coordinates) {
+                            return;
+                        }
+
+                        // Создаем маркер с подписью в зависимости от режима
+                        const marker = createAddressMarker(address, coordinates, areaMapLabelMode);
+                        if (marker) {
+                            marker.addTo(areaMap);
+                            areaMapMarkers.push(marker);
+                        }
+                    });
+
+                    // Центрируем карту вокруг маркеров при первой отрисовке
+                    if (areaMapMarkers.length > 0 && areaMapMarkers.length === REPORT_DATA.addresses.length) {
+                        const group = L.featureGroup(areaMapMarkers);
+                        areaMap.fitBounds(group.getBounds(), { padding: [50, 50] });
+                    }
+
+                } catch (error) {
+                    console.error('❌ Ошибка отрисовки маркеров:', error);
+                }
+            }
+
+            // Функция создания маркера адреса с поддержкой разных режимов отображения
+            function createAddressMarker(address, coordinates, labelMode) {
                 try {
                     // Определяем высоту маркера по этажности
                     const floorCount = address.floors_count || address.floors || 0;
@@ -1357,8 +1490,28 @@ class HTMLExportManager {
                         markerColor = address.wall_material_color;
                     }
 
-                    // Определяем текст на маркере (показываем год постройки как в карте области)
-                    const labelText = address.build_year || address.house_year || '';
+                    // Определяем текст на маркере в зависимости от режима
+                    let labelText = '';
+                    switch(labelMode || 'year') {
+                        case 'year':
+                            labelText = address.build_year || address.house_year || '';
+                            break;
+                        case 'series':
+                            labelText = address.house_series || '';
+                            break;
+                        case 'floors':
+                            labelText = (address.floors_count || address.floors) ? (address.floors_count || address.floors) + ' эт.' : '';
+                            break;
+                        case 'objects':
+                            // Подсчитываем количество объектов по адресу
+                            const objectsCount = REPORT_DATA.real_estate_objects?.filter(obj =>
+                                obj.address_id === address.id
+                            ).length || 0;
+                            labelText = objectsCount > 0 ? objectsCount + ' об.' : '';
+                            break;
+                        default:
+                            labelText = address.build_year || address.house_year || '';
+                    }
 
                     const marker = L.marker(coordinates, {
                         icon: L.divIcon({
@@ -1407,7 +1560,7 @@ class HTMLExportManager {
                 }
             }
 
-            // Функция создания popup для адреса - копия из MapManager
+            // Функция создания popup для адреса - копия из MapManager (без кнопок)
             function createAddressPopup(address) {
                 // Подготавливаем текстовые значения
                 const houseSeriesText = address.house_series || 'Не указана';
@@ -1433,17 +1586,11 @@ class HTMLExportManager {
                             <div><strong>Материал перекрытий:</strong> \${ceilingMaterialText}</div>
                             <div><strong>Газоснабжение:</strong> \${gasSupplyText}</div>
                             <div><strong>Индивидуальное отопление:</strong> \${individualHeatingText}</div>
-                            <div><strong>Этажей:</strong> \${address.floors_count || address.floors || 'Не указано'}</div>
-                            <div><strong>Год постройки:</strong> \${address.build_year || address.house_year || 'Не указан'}</div>
+                            <div><strong>Этажей:</strong> \${address.floors_count || 'Не указано'}</div>
+                            <div><strong>Год постройки:</strong> \${address.build_year || 'Не указан'}</div>
                         </div>
-
                     </div>
                 \`;
-            }
-
-                } catch (error) {
-                    console.error('❌ Ошибка инициализации карты:', error);
-                }
             }
 
             // Инициализация всех отчётов
@@ -1766,15 +1913,28 @@ class HTMLExportManager {
                     // Отображаем график для начального режима
                     renderMarketCorridorChart(initialMode);
 
-                    // Настраиваем селектор режима
-                    const modeSelect = document.getElementById('marketCorridorModeSelect');
-                    if (modeSelect) {
-                        modeSelect.value = initialMode;
-
-                        // Добавляем обработчик переключения режима
-                        modeSelect.addEventListener('change', function() {
-                            switchMarketCorridorMode(this.value);
+                    // Инициализируем SlimSelect для селектора режима
+                    const modeSelectElement = document.getElementById('marketCorridorModeSelect');
+                    if (modeSelectElement && typeof SlimSelect !== 'undefined') {
+                        const marketCorridorModeSlimSelect = new SlimSelect({
+                            select: modeSelectElement,
+                            settings: {
+                                showSearch: false
+                            },
+                            events: {
+                                afterChange: (newVal) => {
+                                    const mode = Array.isArray(newVal) && newVal.length > 0 ? newVal[0].value :
+                                                (newVal && newVal.value !== undefined ? newVal.value : newVal);
+                                    switchMarketCorridorMode(mode);
+                                }
+                            }
                         });
+
+                        // Устанавливаем начальное значение
+                        marketCorridorModeSlimSelect.setSelected([initialMode]);
+
+                        // Сохраняем ссылку на SlimSelect в глобальной области для использования в switchMarketCorridorMode
+                        window.marketCorridorModeSlimSelect = marketCorridorModeSlimSelect;
                     }
 
                 } catch (error) {
@@ -2007,11 +2167,10 @@ class HTMLExportManager {
                         console.warn(\`⚠️ В отчёте нет данных для режима \${mode}\`);
 
                         // Возвращаем селект к предыдущему режиму
-                        const modeSelect = document.getElementById('marketCorridorModeSelect');
-                        if (modeSelect) {
+                        if (window.marketCorridorModeSlimSelect) {
                             // Находим первый доступный режим
                             const currentMode = availableModes.length > 0 ? availableModes[0] : 'sales';
-                            modeSelect.value = currentMode;
+                            window.marketCorridorModeSlimSelect.setSelected([currentMode]);
                         }
 
                         // Показываем уведомление пользователю
@@ -3149,7 +3308,8 @@ class HTMLExportManager {
                     }
 
                     const tableData = REPORT_DATA.duplicates_data.tableData;
-                    const addressesMap = REPORT_DATA.duplicates_data.addressesMap || new Map();
+                    // Присваиваем глобальной переменной addressesMap
+                    addressesMap = REPORT_DATA.duplicates_data.addressesMap || new Map();
 
                     // Фильтруем только объекты для основной таблицы (листинги показываются в дочерних таблицах)
                     const objectsData = tableData.filter(item => item.type === 'object');
@@ -3160,7 +3320,7 @@ class HTMLExportManager {
                         pageLength: 10,
                         ordering: true,
                         searching: true,
-                        order: [[2, 'desc']], // Сортировка по дате обновления (колонка 2)
+                        order: [[3, 'desc']], // Сортировка по дате обновления (колонка 3)
                         language: {
                             "decimal":        "",
                             "emptyTable":     "Нет данных",
@@ -3183,23 +3343,42 @@ class HTMLExportManager {
                         },
                         columnDefs: [
                             {
-                                targets: 0, // Статус
+                                targets: 0, // Фильтр
+                                orderable: false,
+                                searchable: false,
+                                className: 'dt-body-center text-xs',
+                                width: '60px'
+                            },
+                            {
+                                targets: 1, // Статус
                                 orderable: false,
                                 searchable: false,
                                 className: 'dt-body-center text-xs',
                                 width: '120px'
                             },
                             {
-                                targets: [1, 2], // Даты
+                                targets: [2, 3], // Даты
                                 className: 'text-xs'
                             },
                             {
-                                targets: [3, 4, 5], // Характеристики, адрес, цена
+                                targets: [4, 5, 6], // Характеристики, адрес, цена
                                 className: 'text-xs'
                             }
                         ],
                         columns: [
-                            // 0. Статус
+                            // 0. Фильтр
+                            {
+                                data: null,
+                                title: 'Фильтр',
+                                render: function(data, type, row) {
+                                    return '<button class="text-gray-600 hover:text-gray-900 p-1 filter-btn" data-object-id="' + row.id + '" title="Заполнить фильтры данными объекта">' +
+                                        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                                            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path>' +
+                                        '</svg>' +
+                                    '</button>';
+                                }
+                            },
+                            // 1. Статус
                             {
                                 data: null,
                                 title: 'Статус',
@@ -3234,7 +3413,7 @@ class HTMLExportManager {
                                     return html;
                                 }
                             },
-                            // 1. Дата создания
+                            // 2. Дата создания
                             {
                                 data: 'created',
                                 title: 'Создано',
@@ -3261,7 +3440,7 @@ class HTMLExportManager {
                                     '</div>';
                                 }
                             },
-                            // 2. Дата обновления
+                            // 3. Дата обновления
                             {
                                 data: 'updated',
                                 title: 'Обновлено',
@@ -3288,7 +3467,7 @@ class HTMLExportManager {
                                     '</div>';
                                 }
                             },
-                            // 3. Характеристики
+                            // 4. Характеристики
                             {
                                 data: null,
                                 title: 'Характеристики',
@@ -3327,7 +3506,7 @@ class HTMLExportManager {
                                     return '<div class="text-xs text-gray-900 max-w-xs" title="' + characteristicsText + '">' + characteristicsText + '</div>';
                                 }
                             },
-                            // 4. Адрес
+                            // 5. Адрес
                             {
                                 data: 'address',
                                 title: 'Адрес',
@@ -3369,7 +3548,7 @@ class HTMLExportManager {
                                     }
                                 }
                             },
-                            // 5. Цена
+                            // 6. Цена
                             {
                                 data: null,
                                 title: 'Цена',
@@ -3398,11 +3577,369 @@ class HTMLExportManager {
                         ]
                     });
 
+                    // Сохраняем ссылку на таблицу в глобальную переменную для фильтров
+                    window.duplicatesTable = duplicatesTable;
+
                     console.log('✅ Таблица дублей инициализирована');
+
+                    // Инициализируем фильтры после создания таблицы
+                    initDuplicatesFilters();
 
                 } catch (error) {
                     console.error('❌ Ошибка инициализации таблицы дублей:', error);
                     showNoDataMessage('duplicatesContainer', 'Ошибка загрузки таблицы дублей: ' + error.message);
+                }
+            }
+
+            // ========== ФИЛЬТРЫ ТАБЛИЦЫ ДУБЛЕЙ ==========
+
+            // Глобальные переменные для SlimSelect и данных
+            let duplicatesStatusSlimSelect = null;
+            let duplicatesAddressSlimSelect = null;
+            let duplicatesPropertyTypeSlimSelect = null;
+            let addressesMap = null; // Карта адресов для фильтров
+
+            // Инициализация фильтров таблицы дублей
+            function initDuplicatesFilters() {
+                try {
+                    console.log('🔍 Инициализация фильтров таблицы дублей');
+
+                    // Заполняем фильтр адресов опциями
+                    populateAddressFilter();
+
+                    // Инициализируем SlimSelect для статуса
+                    const statusSelect = document.getElementById('duplicatesStatusFilter');
+                    if (statusSelect) {
+                        duplicatesStatusSlimSelect = new SlimSelect({
+                            select: statusSelect,
+                            settings: {
+                                placeholderText: 'Все статусы',
+                                allowDeselect: true,
+                                closeOnSelect: true
+                            },
+                            events: {
+                                afterChange: () => applyDuplicatesFilters()
+                            }
+                        });
+                    }
+
+                    // Инициализируем SlimSelect для адресов
+                    const addressSelect = document.getElementById('duplicatesAddressFilter');
+                    if (addressSelect) {
+                        duplicatesAddressSlimSelect = new SlimSelect({
+                            select: addressSelect,
+                            settings: {
+                                placeholderText: 'Все адреса',
+                                allowDeselect: true,
+                                closeOnSelect: true,
+                                searchHighlight: true
+                            },
+                            events: {
+                                afterChange: () => applyDuplicatesFilters()
+                            }
+                        });
+                    }
+
+                    // Инициализируем SlimSelect для типа недвижимости
+                    const propertyTypeSelect = document.getElementById('duplicatesPropertyTypeFilter');
+                    if (propertyTypeSelect) {
+                        duplicatesPropertyTypeSlimSelect = new SlimSelect({
+                            select: propertyTypeSelect,
+                            settings: {
+                                placeholderText: 'Все типы',
+                                allowDeselect: true,
+                                closeOnSelect: true
+                            },
+                            events: {
+                                afterChange: () => applyDuplicatesFilters()
+                            }
+                        });
+                    }
+
+                    // Обработчик изменения этажа
+                    const floorInput = document.getElementById('duplicatesFloorFilter');
+                    if (floorInput) {
+                        floorInput.addEventListener('input', () => applyDuplicatesFilters());
+                    }
+
+                    // Обработчик кнопки "Очистить все"
+                    const clearBtn = document.getElementById('clearDuplicatesFiltersBtn');
+                    if (clearBtn) {
+                        clearBtn.addEventListener('click', clearAllDuplicatesFilters);
+                    }
+
+                    // Обработчик кликов на кнопки фильтра в таблице
+                    $(document).on('click', '.filter-btn', function(e) {
+                        e.stopPropagation();
+                        const objectId = $(this).data('object-id');
+                        handleFilterButtonClick(objectId);
+                    });
+
+                    // Обработчик кликов на кнопки удаления активных фильтров
+                    $(document).on('click', '.remove-filter-btn', function(e) {
+                        e.stopPropagation();
+                        const filterType = $(this).data('filter-type');
+                        removeActiveFilter(filterType);
+                    });
+
+                    console.log('✅ Фильтры таблицы дублей инициализированы');
+                } catch (error) {
+                    console.error('❌ Ошибка инициализации фильтров:', error);
+                }
+            }
+
+            // Заполнение фильтра адресов опциями из данных
+            function populateAddressFilter() {
+                const addressSelect = document.getElementById('duplicatesAddressFilter');
+                if (!addressSelect) return;
+
+                // Собираем уникальные адреса из объектов
+                const addressesSet = new Set();
+                const objectsData = REPORT_DATA.duplicates_data?.tableData?.filter(item => item.type === 'object') || [];
+
+                objectsData.forEach(obj => {
+                    if (obj.address_id) {
+                        addressesSet.add(obj.address_id);
+                    }
+                });
+
+                // Создаём опции для select
+                addressesSet.forEach(addressId => {
+                    const addressName = getAddressNameById(addressId, addressesMap);
+                    if (addressName) {
+                        const option = document.createElement('option');
+                        option.value = addressId;
+                        option.textContent = addressName;
+                        addressSelect.appendChild(option);
+                    }
+                });
+            }
+
+            // Обработчик клика на кнопку фильтра в строке таблицы
+            function handleFilterButtonClick(objectId) {
+                try {
+                    // Находим объект в данных
+                    const object = REPORT_DATA.duplicates_data?.tableData?.find(item =>
+                        item.type === 'object' && item.id === objectId
+                    );
+
+                    if (!object) {
+                        console.error('⚠️ Объект не найден:', objectId);
+                        return;
+                    }
+
+                    // Заполняем фильтр адреса
+                    if (object.address_id && duplicatesAddressSlimSelect) {
+                        duplicatesAddressSlimSelect.setSelected([object.address_id]);
+                    }
+
+                    // Заполняем фильтр типа недвижимости
+                    if (object.property_type && duplicatesPropertyTypeSlimSelect) {
+                        duplicatesPropertyTypeSlimSelect.setSelected([object.property_type]);
+                    }
+
+                    // Заполняем фильтр этажа
+                    if (object.floor) {
+                        const floorInput = document.getElementById('duplicatesFloorFilter');
+                        if (floorInput) {
+                            floorInput.value = object.floor;
+                        }
+                    }
+
+                    // Применяем фильтры (для SlimSelect вызовется через afterChange, но для этажа нужно явно)
+                    // Небольшая задержка, чтобы SlimSelect успел обновиться
+                    setTimeout(() => applyDuplicatesFilters(), 100);
+
+                } catch (error) {
+                    console.error('❌ Ошибка заполнения фильтров:', error);
+                }
+            }
+
+            // Применение фильтров к таблице дублей
+            function applyDuplicatesFilters() {
+                try {
+                    if (!window.duplicatesTable) return;
+
+                    // Получаем значения фильтров
+                    const statusFilter = duplicatesStatusSlimSelect?.getSelected()?.[0] || '';
+                    const addressFilter = duplicatesAddressSlimSelect?.getSelected()?.[0] || '';
+                    const propertyTypeFilter = duplicatesPropertyTypeSlimSelect?.getSelected()?.[0] || '';
+                    const floorFilter = document.getElementById('duplicatesFloorFilter')?.value || '';
+
+                    // Очищаем предыдущие кастомные фильтры для этой таблицы
+                    $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(fn =>
+                        !fn.toString().includes('duplicatesTableFilter')
+                    );
+
+                    // Применяем фильтр к DataTables
+                    $.fn.dataTable.ext.search.push(function duplicatesTableFilter(settings, data, dataIndex) {
+                        // Проверяем, что это наша таблица
+                        if (settings.nTable.id !== 'duplicatesTable') {
+                            return true;
+                        }
+
+                        const rowData = window.duplicatesTable.row(dataIndex).data();
+
+                        // Фильтр по статусу
+                        if (statusFilter && rowData.status !== statusFilter) {
+                            return false;
+                        }
+
+                        // Фильтр по адресу
+                        if (addressFilter && rowData.address_id !== addressFilter) {
+                            return false;
+                        }
+
+                        // Фильтр по типу недвижимости
+                        if (propertyTypeFilter && rowData.property_type !== propertyTypeFilter) {
+                            return false;
+                        }
+
+                        // Фильтр по этажу
+                        if (floorFilter && rowData.floor != parseInt(floorFilter)) {
+                            return false;
+                        }
+
+                        return true;
+                    });
+
+                    // Перерисовываем таблицу
+                    window.duplicatesTable.draw();
+
+                    // Обновляем отображение активных фильтров
+                    updateActiveFiltersDisplay();
+
+                } catch (error) {
+                    console.error('❌ Ошибка применения фильтров:', error);
+                }
+            }
+
+            // Отображение активных фильтров
+            function updateActiveFiltersDisplay() {
+                try {
+                    const activeFilters = [];
+
+                    // Статус
+                    const statusFilter = duplicatesStatusSlimSelect?.getSelected()?.[0];
+                    if (statusFilter) {
+                        const statusText = statusFilter === 'active' ? 'Активный' : 'Архивный';
+                        activeFilters.push({ type: 'status', text: 'Статус: ' + statusText });
+                    }
+
+                    // Адрес
+                    const addressFilter = duplicatesAddressSlimSelect?.getSelected()?.[0];
+                    if (addressFilter) {
+                        const addressText = getAddressNameById(addressFilter, addressesMap) || addressFilter;
+                        activeFilters.push({ type: 'address', text: 'Адрес: ' + addressText });
+                    }
+
+                    // Тип недвижимости
+                    const propertyTypeFilter = duplicatesPropertyTypeSlimSelect?.getSelected()?.[0];
+                    if (propertyTypeFilter) {
+                        const propertyTypeMap = {
+                            'studio': 'Студия',
+                            '1k': '1-к квартира',
+                            '2k': '2-к квартира',
+                            '3k': '3-к квартира',
+                            '4k+': '4+ к квартира'
+                        };
+                        const propertyTypeText = propertyTypeMap[propertyTypeFilter] || propertyTypeFilter;
+                        activeFilters.push({ type: 'property_type', text: 'Тип: ' + propertyTypeText });
+                    }
+
+                    // Этаж
+                    const floorFilter = document.getElementById('duplicatesFloorFilter')?.value;
+                    if (floorFilter) {
+                        activeFilters.push({ type: 'floor', text: 'Этаж: ' + floorFilter });
+                    }
+
+                    // Отображаем теги
+                    const container = document.getElementById('activeFiltersContainer');
+                    const tagsContainer = document.getElementById('activeFilterTags');
+
+                    if (activeFilters.length > 0) {
+                        container?.classList.remove('hidden');
+                        if (tagsContainer) {
+                            tagsContainer.innerHTML = activeFilters.map(filter =>
+                                '<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">' +
+                                    filter.text +
+                                    '<button type="button" class="ml-1 text-blue-600 hover:text-blue-800 remove-filter-btn" data-filter-type="' + filter.type + '">' +
+                                        '<svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">' +
+                                            '<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>' +
+                                        '</svg>' +
+                                    '</button>' +
+                                '</span>'
+                            ).join('');
+                        }
+                    } else {
+                        container?.classList.add('hidden');
+                    }
+
+                } catch (error) {
+                    console.error('❌ Ошибка обновления активных фильтров:', error);
+                }
+            }
+
+            // Удаление отдельного фильтра
+            function removeActiveFilter(filterType) {
+                try {
+                    switch (filterType) {
+                        case 'status':
+                            if (duplicatesStatusSlimSelect) {
+                                duplicatesStatusSlimSelect.setSelected([]);
+                            }
+                            break;
+                        case 'address':
+                            if (duplicatesAddressSlimSelect) {
+                                duplicatesAddressSlimSelect.setSelected([]);
+                            }
+                            break;
+                        case 'property_type':
+                            if (duplicatesPropertyTypeSlimSelect) {
+                                duplicatesPropertyTypeSlimSelect.setSelected([]);
+                            }
+                            break;
+                        case 'floor':
+                            const floorInput = document.getElementById('duplicatesFloorFilter');
+                            if (floorInput) {
+                                floorInput.value = '';
+                            }
+                            break;
+                    }
+
+                    // Применяем фильтры после очистки
+                    applyDuplicatesFilters();
+
+                } catch (error) {
+                    console.error('❌ Ошибка удаления фильтра:', error);
+                }
+            }
+
+            // Очистка всех фильтров
+            function clearAllDuplicatesFilters() {
+                try {
+                    // Очищаем все SlimSelect
+                    if (duplicatesStatusSlimSelect) {
+                        duplicatesStatusSlimSelect.setSelected([]);
+                    }
+                    if (duplicatesAddressSlimSelect) {
+                        duplicatesAddressSlimSelect.setSelected([]);
+                    }
+                    if (duplicatesPropertyTypeSlimSelect) {
+                        duplicatesPropertyTypeSlimSelect.setSelected([]);
+                    }
+
+                    // Очищаем поле этажа
+                    const floorInput = document.getElementById('duplicatesFloorFilter');
+                    if (floorInput) {
+                        floorInput.value = '';
+                    }
+
+                    // Применяем фильтры после очистки
+                    applyDuplicatesFilters();
+
+                } catch (error) {
+                    console.error('❌ Ошибка очистки фильтров:', error);
                 }
             }
 
@@ -3713,7 +4250,7 @@ class HTMLExportManager {
                                     <div id="object-description-\${realEstateObject.id}" class="text-sm text-gray-600 leading-relaxed">
                                         <!-- Описание будет загружено из первого объявления -->
                                         <div class="text-center text-gray-400 py-8">
-                                            Описание недоступно в отчёте
+                                            Нет описания
                                         </div>
                                     </div>
                                 </div>
@@ -4374,6 +4911,9 @@ class HTMLExportManager {
                         },
                         toolbar: {
                             show: false
+                        },
+                        zoom: {
+                            enabled: false
                         }
                     },
                     stroke: {
@@ -4475,9 +5015,10 @@ class HTMLExportManager {
                 // 4. Инициализация таблицы объявлений
                 initializeObjectListingsTable(objectListings, realEstateObject.id);
 
-                // 5. Инициализация фотогалереи (из первого объявления)
+                // 5. Инициализация фотогалереи и описания (из первого объявления)
                 if (objectListings.length > 0) {
                     initializeObjectPhotosGallery(objectListings[0], realEstateObject.id);
+                    loadObjectDescription(objectListings[0], realEstateObject.id);
                 }
             }
 
@@ -4619,7 +5160,10 @@ class HTMLExportManager {
                         }],
                         defaultLocale: 'ru',
                         type: 'line',
-                        toolbar: { show: false }
+                        toolbar: { show: false },
+                        zoom: {
+                            enabled: false
+                        }
                     },
                     stroke: {
                         curve: 'stepline',
