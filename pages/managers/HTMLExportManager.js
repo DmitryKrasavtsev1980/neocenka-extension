@@ -4615,10 +4615,11 @@ class HTMLExportManager {
 
                     // 7. Контакт с источником
                     html += '<td class="px-3 py-2 whitespace-nowrap text-xs">';
-                    const sellerType = listing.seller_type === 'private' ? 'Собственник' :
-                                      listing.seller_type === 'agency' ? 'Агент' :
+                    const sellerType = listing.seller_type === 'owner' ? 'Собственник' :
+                                      listing.seller_type === 'private' ? 'Собственник' :
                                       listing.seller_type === 'agent' ? 'Агент' :
-                                      listing.seller_type === 'owner' ? 'Собственник' :
+                                      listing.seller_type === 'agency' ? 'Агент' :
+                                      listing.seller_type === 'developer' ? 'Застройщик' :
                                       listing.seller_type || 'Не указано';
                     const sellerName = listing.seller_name || 'Не указано';
                     const sourceUrl = listing.url || '#';

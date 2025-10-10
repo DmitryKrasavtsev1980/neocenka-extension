@@ -261,7 +261,7 @@ class InparsService extends BaseAPIService {
             limit,
             sortBy,
             isNew: 0,
-            withAgent: 1, // Включаем агентов и собственников
+            sellerType: '1,2,3', // Все типы: 1=собственник, 2=агент, 3=застройщик (заменяет устаревший withAgent)
             expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house'
         };
         
@@ -278,12 +278,13 @@ class InparsService extends BaseAPIService {
             }
         }
         
-        // Добавляем временные фильтры
+        // Добавляем временные фильтры (timeStart уже должен быть Unix timestamp в секундах)
         if (timeStart) {
-            params.timeStart = Math.floor(timeStart.getTime() / 1000);
+            // Если передан Date объект, конвертируем в timestamp
+            params.timeStart = timeStart instanceof Date ? Math.floor(timeStart.getTime() / 1000) : timeStart;
         }
         if (timeEnd) {
-            params.timeEnd = Math.floor(timeEnd.getTime() / 1000);
+            params.timeEnd = timeEnd instanceof Date ? Math.floor(timeEnd.getTime() / 1000) : timeEnd;
         }
         
         try {
@@ -468,6 +469,7 @@ class InparsService extends BaseAPIService {
             let allListings = [];
             let pageNumber = 1;
             let hasMore = true;
+
             // Используем переданную дату или дату по умолчанию (7 дней назад)
             let timeStart = startDate ?
                 Math.floor(startDate.getTime() / 1000) :
@@ -481,12 +483,11 @@ class InparsService extends BaseAPIService {
                         percentage: percentage 
                     });
                 }
-                
-                
+
                 const result = await this.getListingsByPolygon(polygon, {
                     categoryIds: categories,
                     limit: 500,
-                    timeStart: timeStart ? new Date(timeStart * 1000) : null,
+                    timeStart: timeStart || null,
                     sortBy: 'updated_asc' // Важно для правильной пагинации
                 });
                 

@@ -96,7 +96,7 @@ class InparsPanel {
                 <label for="importStartDate" class="block text-sm font-medium text-gray-700 mb-2">
                     Дата начала импорта
                 </label>
-                <input type="date" id="importStartDate" class="import-start-date block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                <input type="date" id="importStartDate" class="import-start-date w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 <p class="text-xs text-gray-500 mt-1">Объявления будут загружены начиная с этой даты</p>
             </div>
 
@@ -181,18 +181,13 @@ class InparsPanel {
      * Инициализация поля для выбора даты
      */
     initializeDateField() {
-        // Пытаемся загрузить сохраненную дату
-        const savedDate = this.loadSelectedDate();
+        // Всегда устанавливаем дату по умолчанию (7 дней назад от текущей даты)
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() - 7);
+        const defaultDateString = defaultDate.toISOString().split('T')[0];
 
-        if (savedDate) {
-            this.elements.importStartDate.value = savedDate;
-        } else {
-            // Устанавливаем дату по умолчанию (7 дней назад)
-            const defaultDate = new Date();
-            defaultDate.setDate(defaultDate.getDate() - 7);
-            this.elements.importStartDate.value = defaultDate.toISOString().split('T')[0];
-            this.saveSelectedDate();
-        }
+        // Устанавливаем дату 7 дней назад
+        this.elements.importStartDate.value = defaultDateString;
     }
 
     /**

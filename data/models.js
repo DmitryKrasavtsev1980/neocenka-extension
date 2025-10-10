@@ -671,8 +671,11 @@ class ListingModel {
       
       // Контакты (обратная совместимость)
       seller_name: inparsData.name || '',
-      seller_type: inparsData.agent ? 'agent' : 'owner',
-      phone: Array.isArray(inparsData.phones) && inparsData.phones.length > 0 ? 
+      seller_type: inparsData.agent === 0 ? 'owner' :
+                   inparsData.agent === 1 ? 'agent' :
+                   inparsData.agent === 2 ? 'developer' :
+                   'owner', // По умолчанию собственник
+      phone: Array.isArray(inparsData.phones) && inparsData.phones.length > 0 ?
              inparsData.phones[0] : '',
       
       // Даты (версия 14 - унифицированные)
@@ -900,8 +903,11 @@ class ListingModel {
     };
     
     if (source === 'inpars') {
-      result.type = sellerData.agent === 1 ? 'agent' : 'owner';
-      result.is_agent = sellerData.agent === 1;
+      // Поле agent теперь имеет значения: 0 - собственник, 1 - агент, 2 - застройщик
+      result.type = sellerData.agent === 0 ? 'owner' :
+                   sellerData.agent === 1 ? 'agent' :
+                   sellerData.agent === 2 ? 'developer' : 'owner';
+      result.is_agent = sellerData.agent === 1 || sellerData.agent === 2;
     } else if (source === 'avito' || source === 'cian') {
       const type = (sellerData.seller_type || '').toLowerCase();
       if (type === 'частное лицо' || type === 'owner') {

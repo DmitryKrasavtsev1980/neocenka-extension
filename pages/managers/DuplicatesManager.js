@@ -756,10 +756,11 @@ class DuplicatesManager {
                                 const sourceName = row.source_metadata.original_source;
                                 const sourceUrl = row.url;
 
-                                const sellerType = row.seller_type === 'private' ? 'Собственник' : 
-                                                 row.seller_type === 'agency' ? 'Агент' : 
+                                const sellerType = row.seller_type === 'owner' ? 'Собственник' :
+                                                 row.seller_type === 'private' ? 'Собственник' :
                                                  row.seller_type === 'agent' ? 'Агент' :
-                                                 row.seller_type === 'owner' ? 'Собственник' :
+                                                 row.seller_type === 'agency' ? 'Агент' :
+                                                 row.seller_type === 'developer' ? 'Застройщик' :
                                                  row.seller_type || 'Не указано';
                                 
                                 const sellerName = row.seller_name || 'Не указано';
@@ -3940,10 +3941,11 @@ class DuplicatesManager {
         }
         
         // 7. Контакт с источником
-        const sellerType = listing.seller_type === 'private' ? 'Собственник' : 
-                          listing.seller_type === 'agency' ? 'Агент' : 
+        const sellerType = listing.seller_type === 'owner' ? 'Собственник' :
+                          listing.seller_type === 'private' ? 'Собственник' :
                           listing.seller_type === 'agent' ? 'Агент' :
-                          listing.seller_type === 'owner' ? 'Собственник' :
+                          listing.seller_type === 'agency' ? 'Агент' :
+                          listing.seller_type === 'developer' ? 'Застройщик' :
                           listing.seller_type || 'Не указано';
         
         const sellerName = listing.seller_name || 'Не указано';
