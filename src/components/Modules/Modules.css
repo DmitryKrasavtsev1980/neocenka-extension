@@ -1,0 +1,476 @@
+/* === Modules Page === */
+.modules-page {
+  padding: 16px;
+  max-width: 900px;
+}
+
+.modules-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 16px;
+  color: #1f2937;
+}
+
+.modules-loading,
+.modules-error {
+  padding: 32px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.modules-error {
+  color: #ef4444;
+}
+
+/* === Modules Grid === */
+.modules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+/* === Module Card === */
+.module-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  transition: box-shadow 0.2s;
+}
+
+.module-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.module-card.locked {
+  border-color: #f3f4f6;
+  background: #fafafa;
+}
+
+.module-card.pending {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.module-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.module-icon {
+  font-size: 24px;
+}
+
+.module-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.module-status.active {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.module-status.inactive {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.module-status.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.module-name {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  color: #1f2937;
+}
+
+.module-description {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
+
+/* === Access Info === */
+.module-access-info {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.module-expires {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.module-regions {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+/* === Pending Payment Info === */
+.module-pending-info {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #fef9c3;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #854d0e;
+}
+
+.pending-label {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.pending-detail {
+  font-size: 12px;
+  color: #a16207;
+}
+
+.pending-hint {
+  font-size: 11px;
+  color: #a16207;
+  margin-top: 4px;
+  opacity: 0.8;
+}
+
+/* === Pricing === */
+.module-pricing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.price-tag {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #f3f4f6;
+  color: #374151;
+  font-weight: 500;
+}
+
+.price-tag.price-secondary {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.price-tag.price-highlight {
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 600;
+}
+
+/* === Module Button === */
+.module-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s;
+}
+
+.module-btn.open {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.module-btn.open:hover {
+  background: #dbeafe;
+}
+
+.module-btn.buy {
+  background: #f59e0b;
+  color: #fff;
+}
+
+.module-btn.buy:hover {
+  background: #d97706;
+}
+
+.module-btn.pending {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.module-btn.pending:hover {
+  background: #f3f4f6;
+}
+
+/* === Modal === */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.modal-close:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: #1f2937;
+  padding-right: 24px;
+}
+
+.modal-description {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0 0 16px;
+  line-height: 1.4;
+}
+
+/* === Period Options === */
+.modal-periods {
+  margin-bottom: 16px;
+}
+
+.modal-periods h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: #374151;
+}
+
+.period-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 14px;
+}
+
+.period-option:hover {
+  border-color: #93c5fd;
+}
+
+.period-option.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.period-option input[type="radio"] {
+  accent-color: #3b82f6;
+}
+
+/* === Promo Code Section === */
+.promo-section {
+  margin-bottom: 16px;
+  padding-top: 8px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.promo-section label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.promo-input-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.promo-input-group input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.promo-input-group input:focus {
+  border-color: #3b82f6;
+}
+
+.promo-input-group input:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+}
+
+.promo-apply-btn {
+  padding: 8px 14px;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.promo-apply-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.promo-apply-btn:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+.promo-remove-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.promo-remove-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.promo-message {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.promo-message.success {
+  color: #059669;
+}
+
+.promo-message.error {
+  color: #ef4444;
+}
+
+.promo-discount-info {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #ecfdf5;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #065f46;
+  line-height: 1.5;
+}
+
+.promo-discount-info .original-price {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
+
+/* === Modal Submit === */
+.modal-submit-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: #3b82f6;
+  color: #fff;
+  transition: background 0.2s;
+}
+
+.modal-submit-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.modal-submit-btn:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+/* === Modal Result === */
+.modal-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.modal-result.success {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.modal-result.error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* === Price Summary in Modal === */
+.price-summary {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.price-summary .final-price {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.price-summary .final-price.discounted {
+  color: #059669;
+}

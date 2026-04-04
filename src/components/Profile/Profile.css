@@ -1,0 +1,78 @@
+.profile-page {
+  max-width: 600px;
+}
+
+.profile-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 20px;
+}
+
+.profile-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.profile-row:last-child {
+  border-bottom: none;
+}
+
+.profile-label {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.profile-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.profile-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-top: 24px;
+  margin-bottom: 8px;
+}
+
+.profile-hint {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.profile-unlink-btn {
+  padding: 8px 16px;
+  border: 1px solid #ef4444;
+  background: white;
+  color: #ef4444;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.profile-unlink-btn:hover {
+  background: #ef4444;
+  color: white;
+}
+
+.profile-message {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #eff6ff;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #1d4a6;
+}

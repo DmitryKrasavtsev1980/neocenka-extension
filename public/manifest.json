@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Поиск сделок Росреестр",
+  "version": "1.0.0",
+  "description": "Расширение для поиска сделок с недвижимостью из данных Росреестра",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "http://admin.test/*",
+    "https://admin.test/*"
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Поиск сделок Росреестр"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/pages/*", "assets/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

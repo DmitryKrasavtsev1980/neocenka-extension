@@ -1,0 +1,34 @@
+{
+  "name": "rosreestr-deals-extension",
+  "version": "1.0.0",
+  "description": "Chrome Extension для поиска сделок с недвижимостью из данных Росреестра",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@types/leaflet": "^1.9.21",
+    "dexie": "^4.0.7",
+    "dexie-react-hooks": "^1.1.7",
+    "leaflet": "^1.9.4",
+    "papaparse": "^5.4.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-window": "^1.8.10",
+    "recharts": "^3.8.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.263",
+    "@types/node": "^20.11.0",
+    "@types/papaparse": "^5.3.14",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@types/react-window": "^1.8.8",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12"
+  }
+}
