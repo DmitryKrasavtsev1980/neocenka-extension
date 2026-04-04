@@ -305,6 +305,43 @@ export function getAuthHeader(): string | null {
   return null;
 }
 
+// === Cadastral Quarters ===
+
+export interface CadastralManifestQuarter {
+  id: number;
+  cad_number: string;
+  center_lat: number | null;
+  center_lon: number | null;
+}
+
+export interface CadastralBatchQuarter {
+  id: number;
+  cad_number: string;
+  geojson: GeoJSON.Feature<GeoJSON.Polygon>;
+  center_lat: number | null;
+  center_lon: number | null;
+}
+
+export async function getCadastralManifest(moduleCode: string): Promise<{
+  quarters: CadastralManifestQuarter[];
+  total: number;
+}> {
+  return apiRequest<{ quarters: CadastralManifestQuarter[]; total: number }>(
+    'GET',
+    `/data/cadastral/manifest?module=${moduleCode}`
+  );
+}
+
+export async function getCadastralBatch(ids: number[]): Promise<{
+  quarters: CadastralBatchQuarter[];
+}> {
+  return apiRequest<{ quarters: CadastralBatchQuarter[] }>(
+    'POST',
+    '/data/cadastral/batch',
+    { ids }
+  );
+}
+
 // === Payments ===
 
 export interface PaymentInfo {

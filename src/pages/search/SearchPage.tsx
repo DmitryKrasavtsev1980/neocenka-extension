@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { dealsRepository, getDatabaseStats } from '@/db';
-import { Deal, SearchFilters, SearchResult, DealsStats } from '@/types';
+import { dealsRepository, getDatabaseStats, cadastralRepository } from '@/db';
+import { Deal, SearchFilters, SearchResult, DealsStats, CadastralQuarter } from '@/types';
 import {
   REAL_ESTATE_TYPES,
   DOCUMENT_TYPES,
@@ -10,10 +10,13 @@ import {
 } from '@/constants/catalogs';
 import { Dashboard } from '@/components/Dashboard';
 import DealMap from '@/components/DealMap';
+import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
+import HeatMap from '@/components/HeatMap/HeatMap';
 import './SearchPage.css';
 
 type SortField = 'period' | 'price' | 'area' | 'year_quarter';
 type SortOrder = 'asc' | 'desc';
+type ViewTab = 'table' | 'map' | 'heatmap';
 
 export const SearchPage: React.FC = () => {
   const [stats, setStats] = useState<DealsStats | null>(null);
@@ -45,6 +48,9 @@ export const SearchPage: React.FC = () => {
   const [searchStreet, setSearchStreet] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedDealForMap, setSelectedDealForMap] = useState<Deal | null>(null);
+  const [activeTab, setActiveTab] = useState<ViewTab>('table');
+  const [cadastralQuarters, setCadastralQuarters] = useState<CadastralQuarter[]>([]);
+  const [selectedCadNumbers, setSelectedCadNumbers] = useState<string[]>([]);
 
   // Генерируем список доступных периодов из статистики
   const availablePeriods = useMemo(() => {
@@ -60,7 +66,13 @@ export const SearchPage: React.FC = () => {
 
   useEffect(() => {
     loadStats();
+    loadCadastralQuarters();
   }, []);
+
+  const loadCadastralQuarters = async () => {
+    const quarters = await cadastralRepository.getAllWithGeojson();
+    setCadastralQuarters(quarters);
+  };
 
   // Начальная загрузка данных
   useEffect(() => {
@@ -104,6 +116,7 @@ export const SearchPage: React.FC = () => {
         wall_material_codes: selectedWallMaterials.length > 0 ? selectedWallMaterials : undefined,
         search_city: searchCity || undefined,
         search_street: searchStreet || undefined,
+        quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
       };
 
       console.log('[SearchPage] Выполняем поиск с фильтрами:', searchFilters);
@@ -129,7 +142,7 @@ export const SearchPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, page]);
+  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers, page]);
 
   // Поиск при смене страницы
   useEffect(() => {
@@ -159,9 +172,15 @@ export const SearchPage: React.FC = () => {
     setYearBuildMax('');
     setSearchCity('');
     setSearchStreet('');
+    setSelectedCadNumbers([]);
     setPage(1);
     setResult(null);
     setAllFilteredDeals([]);
+  };
+
+  const handleQuartersSelected = (cadNumbers: string[]) => {
+    setSelectedCadNumbers(cadNumbers);
+    setPage(1);
   };
 
   const toggleRegion = (region: string) => {
@@ -517,6 +536,35 @@ export const SearchPage: React.FC = () => {
         </div>
       </header>
 
+      {/* Табы навигации */}
+      <div className="view-tabs">
+        <button
+          className={`view-tab ${activeTab === 'table' ? 'active' : ''}`}
+          onClick={() => setActiveTab('table')}
+        >
+          Таблица
+        </button>
+        <button
+          className={`view-tab ${activeTab === 'map' ? 'active' : ''}`}
+          onClick={() => setActiveTab('map')}
+        >
+          Карта (поиск по полигону)
+        </button>
+        <button
+          className={`view-tab ${activeTab === 'heatmap' ? 'active' : ''}`}
+          onClick={() => setActiveTab('heatmap')}
+        >
+          Тепловая карта
+        </button>
+        {selectedCadNumbers.length > 0 && (
+          <span className="tab-filter-badge">
+            Фильтр: {selectedCadNumbers.length} кварталов
+          </span>
+        )}
+      </div>
+
+      {/* Таб: Таблица (поиск + фильтры + результаты) */}
+      {activeTab === 'table' && (
       <div className="search-container">
         {/* Быстрый поиск */}
         <div className="quick-search">
@@ -891,8 +939,26 @@ export const SearchPage: React.FC = () => {
           )}
         </div>
       </div>
+      )}
 
-      {/* Карта */}
+      {/* Таб: Карта (поиск по полигону) */}
+      {activeTab === 'map' && (
+        <SearchByPolygon
+          quarters={cadastralQuarters}
+          deals={allFilteredDeals}
+          onQuartersSelected={handleQuartersSelected}
+        />
+      )}
+
+      {/* Таб: Тепловая карта */}
+      {activeTab === 'heatmap' && (
+        <HeatMap
+          quarters={cadastralQuarters}
+          deals={allFilteredDeals}
+        />
+      )}
+
+      {/* Карта сделки */}
       {selectedDealForMap && (
         <DealMap
           deals={allFilteredDeals}

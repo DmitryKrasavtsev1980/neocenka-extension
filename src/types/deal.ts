@@ -133,6 +133,8 @@ export interface SearchFilters {
   search_city?: string;
   /** Поиск по улице */
   search_street?: string;
+  /** Фильтр по кадастровым кварталам (выбор на карте) */
+  quarter_cad_numbers?: string[];
 }
 
 /**
@@ -192,4 +194,19 @@ export interface DealsStats {
   years: number[];
   /** Доступные регионы */
   regions: string[];
+}
+
+/**
+ * Кадастровый квартал с геометрией
+ */
+export interface CadastralQuarter {
+  id?: number;
+  /** Кадастровый номер */
+  cad_number: string;
+  /** GeoJSON Feature (геометрия квартала в WGS84) */
+  geojson?: GeoJSON.Feature<GeoJSON.Polygon> | null;
+  /** Центр квартала — широта */
+  center_lat: number | null;
+  /** Центр квартала — долгота */
+  center_lon: number | null;
 }

@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Deal, ImportRecord } from '@/types';
+import { Deal, ImportRecord, CadastralQuarter } from '@/types';
 
 /**
  * Класс базы данных для хранения сделок с недвижимостью
@@ -7,6 +7,7 @@ import { Deal, ImportRecord } from '@/types';
 export class DealsDatabase extends Dexie {
   deals!: Table<Deal, number>;
   imports!: Table<ImportRecord, number>;
+  cadastral_quarters!: Table<CadastralQuarter, number>;
 
   constructor() {
     super('RosreestrDealsDB');
@@ -38,6 +39,14 @@ export class DealsDatabase extends Dexie {
         year,
         quarter,
         imported_at
+      `,
+    });
+
+    // Version 2: добавляем таблицу кадастровых кварталов
+    this.version(2).stores({
+      cadastral_quarters: `
+        ++id,
+        cad_number
       `,
     });
   }

@@ -138,6 +138,12 @@ export const dealsRepository = {
       }
     }
 
+    // Фильтр по кадастровым кварталам (выбор на карте)
+    if (filters.quarter_cad_numbers?.length) {
+      const cadSet = new Set(filters.quarter_cad_numbers);
+      filteredDeals = filteredDeals.filter((d) => cadSet.has(d.quarter_cad_number));
+    }
+
     // Ограничиваем количество для производительности
     return filteredDeals.slice(0, maxRecords);
   },
@@ -260,6 +266,12 @@ export const dealsRepository = {
           terms.some((term) => d.street.toLowerCase().includes(term))
         );
       }
+    }
+
+    // Фильтр по кадастровым кварталам (выбор на карте)
+    if (filters.quarter_cad_numbers?.length) {
+      const cadSet = new Set(filters.quarter_cad_numbers);
+      filteredDeals = filteredDeals.filter((d) => cadSet.has(d.quarter_cad_number));
     }
 
     // Сортировка по дате (новые первые)
