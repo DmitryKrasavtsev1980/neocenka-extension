@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { importFromUrl, type S3ImportParams } from '@/services/csv-parser';
 import { getModules, getManifest, logImport, type ModuleInfo, type ManifestFile } from '@/services/api-service';
-import { importsRepository, clearDatabase } from '@/db';
+import { importsRepository, clearDatabase, cadastralRepository } from '@/db';
 import { ImportRecord } from '@/types';
+import { downloadCadastralData, CadastralDownloadProgress } from '@/services/cadastral.service';
 import './ImportPage.css';
 
 interface ImportPageProps {
@@ -31,9 +32,16 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
   const [importHistory, setImportHistory] = useState<ImportRecord[]>([]);
   const [regionSearch, setRegionSearch] = useState('');
 
+  // Кадастровые кварталы
+  const [selectedCadastralRegions, setSelectedCadastralRegions] = useState<Set<string>>(new Set());
+  const [cadastralDownloading, setCadastralDownloading] = useState(false);
+  const [cadastralProgress, setCadastralProgress] = useState<CadastralDownloadProgress | null>(null);
+  const [cadastralRegionStats, setCadastralRegionStats] = useState<Record<string, number>>({});
+
   useEffect(() => {
     loadModules();
     loadHistory();
+    loadCadastralStats();
   }, []);
 
   useEffect(() => {
@@ -80,6 +88,15 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
     setImportHistory(history);
   };
 
+  const loadCadastralStats = async () => {
+    try {
+      const stats = await cadastralRepository.getRegionStats();
+      setCadastralRegionStats(stats);
+    } catch {
+      // Не критично
+    }
+  };
+
   // Группировка файлов по годам и кварталам
   const groupedFiles = useMemo(() => {
     const groups: Record<number, Record<number, ManifestFile[]>> = {};
@@ -121,6 +138,19 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
     return result;
   }, [groupedFiles, regionSearch]);
 
+  // Уникальные регионы для кадастровых кварталов
+  const availableRegions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of manifestFiles) {
+      if (!map.has(f.region_code)) {
+        map.set(f.region_code, f.region_name);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [manifestFiles]);
+
   const toggleFile = (fileId: number) => {
     setSelectedFileIds((prev) => {
       const next = new Set(prev);
@@ -139,6 +169,26 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
 
   const selectNone = () => {
     setSelectedFileIds(new Set());
+  };
+
+  const toggleCadastralRegion = (code: string) => {
+    setSelectedCadastralRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      return next;
+    });
+  };
+
+  const selectAllCadastralRegions = () => {
+    setSelectedCadastralRegions(new Set(availableRegions.map((r) => r.code)));
+  };
+
+  const selectNoneCadastralRegions = () => {
+    setSelectedCadastralRegions(new Set());
   };
 
   const selectedFiles = useMemo(
@@ -254,6 +304,25 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
     await loadHistory();
   };
 
+  const handleDownloadCadastral = async () => {
+    if (selectedCadastralRegions.size === 0 || !selectedModuleCode) return;
+    setCadastralDownloading(true);
+    setCadastralProgress(null);
+    try {
+      await downloadCadastralData(
+        selectedModuleCode,
+        setCadastralProgress,
+        Array.from(selectedCadastralRegions)
+      );
+      await loadCadastralStats();
+    } catch (err: any) {
+      console.error('Ошибка загрузки кадастровых данных:', err);
+      setError(err?.message || 'Ошибка загрузки кадастровых данных');
+    }
+    setCadastralProgress(null);
+    setCadastralDownloading(false);
+  };
+
   const handleDeleteImport = async (importId: number) => {
     if (confirm('Удалить этот импорт и все связанные данные?')) {
       await importsRepository.delete(importId);
@@ -265,6 +334,8 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
     if (confirm('Удалить ВСЕ данные из базы? Это действие нельзя отменить.')) {
       await clearDatabase();
       await loadHistory();
+      await loadCadastralStats();
+      setSelectedCadastralRegions(new Set());
     }
   };
 
@@ -393,6 +464,86 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
 
         {selectedModuleCode && !manifestLoading && manifestFiles.length === 0 && !error && (
           <div className="no-files">Нет доступных файлов для этого модуля</div>
+        )}
+
+        {/* Секция: Кадастровые кварталы */}
+        {selectedModuleCode && !manifestLoading && availableRegions.length > 0 && (
+          <div className="cadastral-section">
+            <div className="cadastral-header">
+              <h3>Кадастровые кварталы</h3>
+              <div className="files-actions">
+                <button className="btn-link" onClick={selectAllCadastralRegions} disabled={cadastralDownloading}>
+                  Выбрать все
+                </button>
+                <button className="btn-link" onClick={selectNoneCadastralRegions} disabled={cadastralDownloading}>
+                  Убрать все
+                </button>
+              </div>
+            </div>
+            <p className="cadastral-desc">
+              Выберите регионы для загрузки границ кадастровых кварталов. Позволит отображать кварталы на карте.
+              Повторная загрузка региона пропустит уже загруженные кварталы.
+            </p>
+            <div className="cadastral-regions">
+              {availableRegions.map((region) => {
+                const loaded = cadastralRegionStats[region.code] || 0;
+                return (
+                  <label key={region.code} className="cadastral-region-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedCadastralRegions.has(region.code)}
+                      onChange={() => toggleCadastralRegion(region.code)}
+                      disabled={cadastralDownloading}
+                    />
+                    <span className="cadastral-region-name">
+                      {region.code} — {region.name}
+                    </span>
+                    {loaded > 0 ? (
+                      <span className="cadastral-region-badge loaded">
+                        {formatNumber(loaded)} загружено
+                      </span>
+                    ) : (
+                      <span className="cadastral-region-badge empty">не загружен</span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+
+            {selectedCadastralRegions.size > 0 && (
+              <div className="selection-summary">
+                Выбрано регионов: {selectedCadastralRegions.size}
+              </div>
+            )}
+
+            {cadastralProgress && (
+              <div className="progress-card">
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${cadastralProgress.percent}%` }}
+                  />
+                </div>
+                <div className="progress-label">
+                  {cadastralProgress.stage === 'manifest' && 'Загрузка манифеста...'}
+                  {cadastralProgress.stage === 'downloading' &&
+                    `Скачивание: ${cadastralProgress.downloaded} / ${cadastralProgress.total}`}
+                  {cadastralProgress.stage === 'done' && 'Готово'}
+                  {cadastralProgress.stage === 'error' && 'Ошибка'}
+                </div>
+              </div>
+            )}
+
+            <button
+              className="btn btn-primary btn-large"
+              onClick={handleDownloadCadastral}
+              disabled={cadastralDownloading || selectedCadastralRegions.size === 0}
+            >
+              {cadastralDownloading
+                ? 'Загрузка...'
+                : `Скачать кадастровые кварталы (${selectedCadastralRegions.size} регион.)`}
+            </button>
+          </div>
         )}
 
         {/* Прогресс */}

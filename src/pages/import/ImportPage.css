@@ -451,3 +451,81 @@ body {
 .history-table tr:hover {
   background: #f8f9fa;
 }
+
+/* Cadastral section */
+.cadastral-section {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e8eaed;
+  padding: 20px;
+}
+
+.cadastral-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cadastral-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.cadastral-desc {
+  font-size: 13px;
+  color: #5f6368;
+  margin-bottom: 16px;
+}
+
+.cadastral-regions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.cadastral-region-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.cadastral-region-checkbox:hover {
+  background: #f5f5f5;
+}
+
+.cadastral-region-name {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.cadastral-region-badge.loaded {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #e6f4ea;
+  color: #137333;
+}
+
+.cadastral-region-badge.empty {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: #fef7e0;
+  color: #b06000;
+}

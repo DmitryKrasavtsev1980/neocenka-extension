@@ -73,10 +73,15 @@ export async function getDatabaseStats() {
     db.imports.orderBy('imported_at').last(),
   ]);
 
-  // Получаем уникальные годы и регионы
-  const deals = await db.deals.toArray();
-  const years = [...new Set(deals.map((d) => parseInt(d.year_quarter.split('-')[0])))].sort((a, b) => b - a);
-  const regions = [...new Set(deals.map((d) => d.region_code))].sort();
+  // Получаем уникальные годы и регионы через each() — без загрузки всех объектов в массив
+  const yearsSet = new Set<number>();
+  const regionsSet = new Set<string>();
+  await db.deals.each((d) => {
+    yearsSet.add(parseInt(d.year_quarter.split('-')[0]));
+    regionsSet.add(d.region_code);
+  });
+  const years = [...yearsSet].sort((a, b) => b - a);
+  const regions = [...regionsSet].sort();
 
   return {
     totalDeals,

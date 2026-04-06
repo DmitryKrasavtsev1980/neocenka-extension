@@ -322,23 +322,27 @@ export interface CadastralBatchQuarter {
   center_lon: number | null;
 }
 
-export async function getCadastralManifest(moduleCode: string): Promise<{
+export async function getCadastralManifest(moduleCode: string, regions?: string[]): Promise<{
   quarters: CadastralManifestQuarter[];
   total: number;
 }> {
+  const params = new URLSearchParams({ module: moduleCode });
+  if (regions?.length) {
+    regions.forEach(r => params.append('regions[]', r));
+  }
   return apiRequest<{ quarters: CadastralManifestQuarter[]; total: number }>(
     'GET',
-    `/data/cadastral/manifest?module=${moduleCode}`
+    `/data/cadastral/manifest?${params}`
   );
 }
 
-export async function getCadastralBatch(ids: number[]): Promise<{
+export async function getCadastralBatch(ids: number[], moduleCode: string): Promise<{
   quarters: CadastralBatchQuarter[];
 }> {
   return apiRequest<{ quarters: CadastralBatchQuarter[] }>(
     'POST',
     '/data/cadastral/batch',
-    { ids }
+    { ids, module: moduleCode }
   );
 }
 

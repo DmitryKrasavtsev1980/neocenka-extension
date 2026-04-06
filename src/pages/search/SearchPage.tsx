@@ -16,7 +16,7 @@ import './SearchPage.css';
 
 type SortField = 'period' | 'price' | 'area' | 'year_quarter';
 type SortOrder = 'asc' | 'desc';
-type ViewTab = 'table' | 'map' | 'heatmap';
+type ViewTab = 'table' | 'heatmap';
 
 export const SearchPage: React.FC = () => {
   const [stats, setStats] = useState<DealsStats | null>(null);
@@ -51,6 +51,13 @@ export const SearchPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ViewTab>('table');
   const [cadastralQuarters, setCadastralQuarters] = useState<CadastralQuarter[]>([]);
   const [selectedCadNumbers, setSelectedCadNumbers] = useState<string[]>([]);
+  const [showMapFilter, setShowMapFilter] = useState(false);
+  const [polygonCoords, setPolygonCoords] = useState<[number, number][] | null>(() => {
+    try {
+      const saved = localStorage.getItem('ret_polygon_coords');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
 
   // Генерируем список доступных периодов из статистики
   const availablePeriods = useMemo(() => {
@@ -121,21 +128,11 @@ export const SearchPage: React.FC = () => {
 
       console.log('[SearchPage] Выполняем поиск с фильтрами:', searchFilters);
 
-      // Загружаем страницу результатов
-      const searchResult = await dealsRepository.search(searchFilters, page);
-      console.log('[SearchPage] Результат поиска:', searchResult.total, 'сделок');
-      setResult(searchResult);
+      // Загружаем данные ОДИН раз — и страница, и все данные для аналитики
+      const { pageResult, allDeals } = await dealsRepository.searchCombined(searchFilters, page);
+      console.log('[SearchPage] Результат поиска:', pageResult.total, 'сделок, для аналитики:', allDeals.length);
 
-      // Загружаем все отфильтрованные данные для аналитики
-      const allDeals = await dealsRepository.searchAll(searchFilters);
-      console.log('[SearchPage] Загружено для аналитики:', allDeals.length, 'сделок');
-
-      // Проверяем year_quarter в данных
-      if (allDeals.length > 0) {
-        const periods = [...new Set(allDeals.map(d => d.year_quarter))];
-        console.log('[SearchPage] Периоды в данных:', periods);
-      }
-
+      setResult(pageResult);
       setAllFilteredDeals(allDeals);
     } catch (error) {
       console.error('Ошибка поиска:', error);
@@ -173,13 +170,22 @@ export const SearchPage: React.FC = () => {
     setSearchCity('');
     setSearchStreet('');
     setSelectedCadNumbers([]);
+    setPolygonCoords(null);
+    localStorage.removeItem('ret_polygon_coords');
     setPage(1);
     setResult(null);
     setAllFilteredDeals([]);
   };
 
-  const handleQuartersSelected = (cadNumbers: string[]) => {
+  const handleQuartersSelected = (cadNumbers: string[], polyCoords?: [number, number][]) => {
     setSelectedCadNumbers(cadNumbers);
+    if (polyCoords && polyCoords.length >= 3) {
+      setPolygonCoords(polyCoords);
+      localStorage.setItem('ret_polygon_coords', JSON.stringify(polyCoords));
+    } else if (cadNumbers.length === 0) {
+      setPolygonCoords(null);
+      localStorage.removeItem('ret_polygon_coords');
+    }
     setPage(1);
   };
 
@@ -545,12 +551,6 @@ export const SearchPage: React.FC = () => {
           Таблица
         </button>
         <button
-          className={`view-tab ${activeTab === 'map' ? 'active' : ''}`}
-          onClick={() => setActiveTab('map')}
-        >
-          Карта (поиск по полигону)
-        </button>
-        <button
           className={`view-tab ${activeTab === 'heatmap' ? 'active' : ''}`}
           onClick={() => setActiveTab('heatmap')}
         >
@@ -784,6 +784,28 @@ export const SearchPage: React.FC = () => {
               </div>
             )}
 
+            {/* Секция поиска по карте */}
+            <div className="map-filter-section">
+              <button
+                className="map-filter-toggle"
+                onClick={() => setShowMapFilter(!showMapFilter)}
+              >
+                <span>Поиск по карте</span>
+                {selectedCadNumbers.length > 0 && (
+                  <span className="map-filter-badge">Активен: {selectedCadNumbers.length} кварталов</span>
+                )}
+                <span className={`map-filter-arrow ${showMapFilter ? 'open' : ''}`}>&#9660;</span>
+              </button>
+              <div className={`map-filter-content ${showMapFilter ? 'expanded' : ''}`}>
+                <SearchByPolygon
+                  quarters={cadastralQuarters}
+                  deals={allFilteredDeals}
+                  onQuartersSelected={handleQuartersSelected}
+                  initialPolygon={polygonCoords}
+                />
+              </div>
+            </div>
+
             <div className="filter-actions">
               <button className="btn btn-primary" onClick={handleSearch}>
                 Применить фильтры
@@ -939,15 +961,6 @@ export const SearchPage: React.FC = () => {
           )}
         </div>
       </div>
-      )}
-
-      {/* Таб: Карта (поиск по полигону) */}
-      {activeTab === 'map' && (
-        <SearchByPolygon
-          quarters={cadastralQuarters}
-          deals={allFilteredDeals}
-          onQuartersSelected={handleQuartersSelected}
-        />
       )}
 
       {/* Таб: Тепловая карта */}

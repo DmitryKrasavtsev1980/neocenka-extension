@@ -1,13 +1,7 @@
 import { db } from '../database';
 import { CadastralQuarter } from '@/types';
 
-/**
- * Репозиторий для работы с кадастровыми кварталами в IndexedDB
- */
 export const cadastralRepository = {
-  /**
-   * Массовая вставка кварталов
-   */
   async bulkUpsert(quarters: CadastralQuarter[]): Promise<void> {
     for (const quarter of quarters) {
       const existing = await db.cadastral_quarters
@@ -27,25 +21,24 @@ export const cadastralRepository = {
     }
   },
 
-  /**
-   * Получить все кварталы с геометрией
-   */
   async getAllWithGeojson(): Promise<CadastralQuarter[]> {
     return db.cadastral_quarters
       .filter((q) => q.geojson != null)
       .toArray();
   },
 
-  /**
-   * Получить все кварталы (без геометрии — для списка)
-   */
+  async getAllCadNumbers(): Promise<string[]> {
+    const numbers: string[] = [];
+    await db.cadastral_quarters.each((q) => {
+      numbers.push(q.cad_number);
+    });
+    return numbers;
+  },
+
   async getAll(): Promise<CadastralQuarter[]> {
     return db.cadastral_quarters.toArray();
   },
 
-  /**
-   * Получить кварталы по cad_numbers
-   */
   async getByCadNumbers(cadNumbers: string[]): Promise<CadastralQuarter[]> {
     return db.cadastral_quarters
       .where('cad_number')
@@ -53,25 +46,25 @@ export const cadastralRepository = {
       .toArray();
   },
 
-  /**
-   * Количество кварталов
-   */
   async count(): Promise<number> {
     return db.cadastral_quarters.count();
   },
 
-  /**
-   * Количество кварталов с геометрией
-   */
   async countWithGeojson(): Promise<number> {
     return db.cadastral_quarters
       .filter((q) => q.geojson != null)
       .count();
   },
 
-  /**
-   * Удалить все
-   */
+  async getRegionStats(): Promise<Record<string, number>> {
+    const stats: Record<string, number> = {};
+    await db.cadastral_quarters.each((quarter) => {
+      const regionCode = quarter.cad_number.split(':')[0];
+      stats[regionCode] = (stats[regionCode] || 0) + 1;
+    });
+    return stats;
+  },
+
   async clear(): Promise<void> {
     return db.cadastral_quarters.clear();
   },
