@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { register } from '@/services/api-service';
-import './Auth.css';
+import { Button } from '@/components/catalyst/button';
+import { Input } from '@/components/catalyst/input';
+import { Heading } from '@/components/catalyst/heading';
+import { Field, Label } from '@/components/catalyst/fieldset';
+import { TextLink } from '@/components/catalyst/text';
+import { ThemeProvider } from '@/components/ThemeProvider';
+import '@/styles/tailwind.css';
 
 interface RegisterPageProps {
   onRegisterSuccess: () => void;
@@ -36,57 +42,81 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onSwitch
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-card">
-        <div className="auth-logo">Rosreestr Deals</div>
-        <h2 className="auth-title">Регистрация</h2>
+    <ThemeProvider>
+      <div className="flex min-h-screen items-center justify-center bg-zinc-100 px-4 dark:bg-zinc-950">
+        <div className="w-full max-w-sm">
+          <div className="rounded-xl bg-white p-8 shadow-sm dark:bg-zinc-900">
+            <div className="mb-8 text-center">
+              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
+                RD
+              </div>
+              <Heading level={1} className="text-center">
+                Регистрация
+              </Heading>
+            </div>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <label>Имя</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Ваше имя"
-            required
-          />
-          <label>Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your@email.com"
-            required
-          />
-          <label>Пароль</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Минимум 6 символов"
-            required
-            minLength={6}
-          />
-          <label>Подтверждение пароля</label>
-          <input
-            type="password"
-            value={passwordConfirmation}
-            onChange={(e) => setPasswordConfirmation(e.target.value)}
-            placeholder="Повторите пароль"
-            required
-          />
-          <button type="submit" className="auth-btn" disabled={loading}>
-            {loading ? 'Регистрация...' : 'Зарегистрироваться'}
-          </button>
-        </form>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <Field>
+                <Label>Имя</Label>
+                <Input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Ваше имя"
+                  required
+                />
+              </Field>
 
-        {error && <div className="auth-error">{error}</div>}
+              <Field>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  required
+                />
+              </Field>
 
-        <a className="auth-link" onClick={onSwitchToLogin}>
-          Уже есть аккаунт? Войти
-        </a>
+              <Field>
+                <Label>Пароль</Label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Минимум 6 символов"
+                  required
+                  minLength={6}
+                />
+              </Field>
+
+              <Field>
+                <Label>Подтверждение пароля</Label>
+                <Input
+                  type="password"
+                  value={passwordConfirmation}
+                  onChange={(e) => setPasswordConfirmation(e.target.value)}
+                  placeholder="Повторите пароль"
+                  required
+                />
+              </Field>
+
+              <Button type="submit" color="blue" className="w-full" disabled={loading}>
+                {loading ? 'Регистрация...' : 'Зарегистрироваться'}
+              </Button>
+            </form>
+
+            {error && (
+              <p className="mt-4 text-center text-sm text-red-500">{error}</p>
+            )}
+
+            <div className="mt-6 text-center">
+              <TextLink onClick={onSwitchToLogin}>Уже есть аккаунт? Войти</TextLink>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </ThemeProvider>
   );
 };
 

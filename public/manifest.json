@@ -8,8 +8,8 @@
     "unlimitedStorage"
   ],
   "host_permissions": [
-    "http://admin.test/*",
-    "https://admin.test/*"
+    "https://55ff837e6c44-neo-maps.s3.ru1.storage.beget.cloud/*",
+    "https://map.ru/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html",

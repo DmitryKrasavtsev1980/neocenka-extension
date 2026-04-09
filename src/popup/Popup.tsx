@@ -1,118 +1,43 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { getDatabaseStats, importsRepository } from '@/db';
-import { DealsStats, ImportRecord } from '@/types';
-import './Popup.css';
+import '@/styles/tailwind.css';
 
 const Popup: React.FC = () => {
-  const [stats, setStats] = useState<DealsStats | null>(null);
-  const [recentImports, setRecentImports] = useState<ImportRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      const [dbStats, imports] = await Promise.all([
-        getDatabaseStats(),
-        importsRepository.getAll(),
-      ]);
-      setStats(dbStats);
-      setRecentImports(imports.slice(0, 5));
-    } catch (error) {
-      console.error('Ошибка загрузки данных:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const openSearchPage = () => {
+  const openMainPage = () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/pages/search/search.html') });
   };
 
-  const openImportPage = () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('src/pages/import/import.html') });
-  };
-
-  const formatNumber = (num: number): string => {
-    return new Intl.NumberFormat('ru-RU').format(num);
-  };
-
-  const formatDate = (date: Date): string => {
-    return new Intl.DateTimeFormat('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(date));
-  };
-
-  if (loading) {
-    return (
-      <div className="popup">
-        <div className="loading">Загрузка...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="popup">
-      <header className="popup-header">
-        <h1>🏠 Сделки Росреестр</h1>
-      </header>
-
-      <div className="stats">
-        <div className="stat-item">
-          <span className="stat-value">{stats ? formatNumber(stats.totalDeals) : 0}</span>
-          <span className="stat-label">Сделок в базе</span>
+    <div className="w-[280px] p-5 bg-white dark:bg-zinc-900">
+      {/* Logo */}
+      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-zinc-200 dark:border-zinc-700">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white">
+          RD
         </div>
-        <div className="stat-item">
-          <span className="stat-value">{stats?.totalImports || 0}</span>
-          <span className="stat-label">Импортов</span>
-        </div>
-      </div>
-
-      <div className="actions">
-        <button className="btn btn-primary" onClick={openSearchPage}>
-          🔍 Поиск сделок
-        </button>
-        <button className="btn btn-secondary" onClick={openImportPage}>
-          📥 Импорт данных
-        </button>
-      </div>
-
-      {recentImports.length > 0 && (
-        <div className="recent-imports">
-          <h3>Последние импорты</h3>
-          <ul>
-            {recentImports.map((imp) => (
-              <li key={imp.id}>
-                <span className="import-filename">{imp.filename}</span>
-                <span className="import-meta">
-                  {imp.year}-Q{imp.quarter} • {formatNumber(imp.records_count)} записей
-                </span>
-                <span className="import-date">{formatDate(imp.imported_at)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {stats && stats.years.length > 0 && (
-        <div className="available-data">
-          <h3>Доступные данные</h3>
-          <div className="years-list">
-            {stats.years.map((year) => (
-              <span key={year} className="year-badge">
-                {year}
-              </span>
-            ))}
+        <div>
+          <div className="text-sm font-semibold text-zinc-950 dark:text-white">
+            Rosreestr Deals
+          </div>
+          <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
+            Сделки Росреестр
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Main action */}
+      <button
+        onClick={openMainPage}
+        className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 cursor-pointer border-none"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+          <path d="M10.75 14.69v3.06a.75.75 0 0 1-1.5 0v-3.06l-1.22 1.22a.75.75 0 1 1-1.06-1.06l2.5-2.5a.75.75 0 0 1 1.06 0l2.5 2.5a.75.75 0 1 1-1.06 1.06l-1.22-1.22ZM10.75 5.31V2.25a.75.75 0 0 0-1.5 0v3.06L8.03 4.09a.75.75 0 0 0-1.06 1.06l2.5 2.5a.75.75 0 0 0 1.06 0l2.5-2.5a.75.75 0 0 0-1.06-1.06l-1.22 1.22Z" />
+        </svg>
+        Открыть расширение
+      </button>
+
+      <div className="mt-4 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+        Поиск и аналитика сделок с недвижимостью
+      </div>
     </div>
   );
 };

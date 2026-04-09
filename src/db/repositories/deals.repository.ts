@@ -76,7 +76,11 @@ function applyFilters(filters: SearchFilters): Promise<Deal[]> {
       if (yearBuildMax !== undefined && (d.year_build === null || d.year_build > yearBuildMax)) return false;
       if (floorMin !== undefined && (d.floor === null || d.floor < floorMin)) return false;
       if (floorMax !== undefined && (d.floor === null || d.floor > floorMax)) return false;
-      if (wallCodesSet && !wallCodesSet.has(d.wall_material_code)) return false;
+      if (wallCodesSet) {
+        // Нормализация: код в БД может быть с ведущим нулём (061...) или без (61...)
+        const wm = d.wall_material_code;
+        if (!wallCodesSet.has(wm) && !wallCodesSet.has(wm.startsWith('0') ? wm.substring(1) : '0' + wm)) return false;
+      }
 
       if (cityTerms) {
         const cityLower = d.city.toLowerCase();

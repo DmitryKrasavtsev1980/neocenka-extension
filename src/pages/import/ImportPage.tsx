@@ -4,10 +4,17 @@ import { getModules, getManifest, logImport, type ModuleInfo, type ManifestFile 
 import { importsRepository, clearDatabase, cadastralRepository } from '@/db';
 import { ImportRecord } from '@/types';
 import { downloadCadastralData, CadastralDownloadProgress } from '@/services/cadastral.service';
-import './ImportPage.css';
+import '@/styles/tailwind.css';
+
+import { Button } from '@/components/catalyst/button';
+import { Heading } from '@/components/catalyst/heading';
+import { Badge } from '@/components/catalyst/badge';
+import { Input } from '@/components/catalyst/input';
+import { Field } from '@/components/catalyst/fieldset';
 
 interface ImportPageProps {
   initialModuleCode?: string;
+  onNavigate?: (page: 'modules' | 'search' | 'import' | 'profile') => void;
 }
 
 interface FileProgress {
@@ -18,7 +25,7 @@ interface FileProgress {
   error?: string;
 }
 
-const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
+const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }) => {
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [selectedModuleCode, setSelectedModuleCode] = useState<string>(initialModuleCode || '');
   const [manifestFiles, setManifestFiles] = useState<ManifestFile[]>([]);
@@ -342,31 +349,41 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
   const activeModules = modules.filter((m) => m.access?.status === 'active');
 
   if (loading) {
-    return <div className="import-page"><div className="loading">Загрузка...</div></div>;
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="text-center py-6 text-zinc-500 dark:text-zinc-400">Загрузка...</div>
+      </div>
+    );
   }
 
   return (
-    <div className="import-page">
-      <header className="page-header">
-        <h1>Импорт данных</h1>
-        <a href="../search/search.html" className="nav-link">
+    <div className="max-w-4xl mx-auto p-6">
+      {/* Заголовок */}
+      <header className="flex justify-between items-center mb-6">
+        <Heading level={1}>Импорт данных</Heading>
+        <button
+          onClick={() => onNavigate?.('search')}
+          className="text-blue-600 hover:underline text-sm bg-transparent border-none cursor-pointer dark:text-blue-400"
+        >
           Перейти к поиску
-        </a>
+        </button>
       </header>
 
-      <div className="import-container">
+      <div className="flex flex-col gap-6">
         {/* Выбор модуля */}
-        <div className="module-select-card">
-          <label className="module-label">Модуль</label>
+        <div className="bg-white rounded-xl p-5 shadow-sm dark:bg-zinc-900">
+          <label className="block text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wide dark:text-zinc-400">
+            Модуль
+          </label>
           {activeModules.length === 0 ? (
-            <div className="no-modules">
+            <div className="p-4 bg-amber-50 rounded-lg text-amber-700 text-sm text-center dark:bg-amber-900/20 dark:text-amber-400">
               У вас нет активных модулей. Купите подписку на странице «Мои модули».
             </div>
           ) : (
             <select
               value={selectedModuleCode}
               onChange={(e) => setSelectedModuleCode(e.target.value)}
-              className="module-select"
+              className="w-full px-3.5 py-3 border border-zinc-200 rounded-lg text-sm text-zinc-900 bg-white cursor-pointer focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
               disabled={importing}
             >
               <option value="">Выберите модуль</option>
@@ -381,55 +398,77 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
 
         {/* Список файлов */}
         {selectedModuleCode && manifestLoading && (
-          <div className="loading">Загрузка списка файлов...</div>
+          <div className="text-center py-6 text-zinc-500 dark:text-zinc-400">
+            Загрузка списка файлов...
+          </div>
         )}
 
         {selectedModuleCode && !manifestLoading && manifestFiles.length > 0 && (
-          <div className="files-card">
-            <div className="files-header">
-              <h3>Доступные файлы</h3>
-              <div className="files-actions">
-                <button className="btn-link" onClick={selectAll} disabled={importing}>
+          <div className="bg-white rounded-xl p-6 shadow-sm dark:bg-zinc-900">
+            <div className="flex justify-between items-center mb-4">
+              <Heading level={3} className="text-base font-semibold text-zinc-900 m-0 dark:text-white">
+                Доступные файлы
+              </Heading>
+              <div className="flex gap-2">
+                <button
+                  className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
+                  onClick={selectAll}
+                  disabled={importing}
+                >
                   Выбрать все
                 </button>
-                <button className="btn-link" onClick={selectNone} disabled={importing}>
+                <button
+                  className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
+                  onClick={selectNone}
+                  disabled={importing}
+                >
                   Убрать все
                 </button>
               </div>
             </div>
 
-            <input
-              type="text"
-              placeholder="Поиск региона..."
-              value={regionSearch}
-              onChange={(e) => setRegionSearch(e.target.value)}
-              className="region-search"
-              disabled={importing}
-            />
+            <Field>
+              <Input
+                type="text"
+                placeholder="Поиск региона..."
+                value={regionSearch}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRegionSearch(e.target.value)}
+                disabled={importing}
+                className="mb-4"
+              />
+            </Field>
 
-            <div className="files-tree">
+            <div className="max-h-[400px] overflow-y-auto mb-4 border border-zinc-200 rounded-lg dark:border-zinc-700">
               {years.map((year) => (
-                <div key={year} className="year-group">
-                  <div className="year-header">{year}</div>
+                <div key={year} className="border-b border-zinc-200 last:border-b-0 dark:border-zinc-700">
+                  <div className="py-2.5 px-4 font-semibold text-sm text-zinc-900 bg-zinc-50 sticky top-0 z-10 dark:bg-zinc-800 dark:text-zinc-100">
+                    {year}
+                  </div>
                   {Object.keys(filteredGroupedFiles[year] || {})
                     .map(Number)
                     .sort((a, b) => b - a)
                     .map((quarter) => (
-                      <div key={quarter} className="quarter-group">
-                        <div className="quarter-header">Q{quarter}</div>
-                        <div className="files-list">
+                      <div key={quarter} className="border-t border-zinc-100 dark:border-zinc-800">
+                        <div className="py-1.5 px-4 pl-6 font-medium text-xs text-zinc-500 bg-zinc-50/50 dark:bg-zinc-800/50 dark:text-zinc-400">
+                          Q{quarter}
+                        </div>
+                        <div className="p-1 px-2">
                           {(filteredGroupedFiles[year]?.[quarter] || []).map((file) => (
-                            <label key={file.id} className="file-checkbox">
+                            <label
+                              key={file.id}
+                              className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer rounded-md hover:bg-zinc-100 transition-colors duration-150 dark:hover:bg-zinc-800"
+                            >
                               <input
                                 type="checkbox"
                                 checked={selectedFileIds.has(file.id)}
                                 onChange={() => toggleFile(file.id)}
                                 disabled={importing}
+                                className="w-4 h-4 shrink-0 cursor-pointer"
                               />
-                              <span className="file-region">
+                              <span className="flex-1 text-xs text-zinc-900 dark:text-zinc-100">
                                 {file.region_code} — {file.region_name}
                               </span>
-                              <span className="file-meta">
+                              <span className="text-[11px] text-zinc-400 whitespace-nowrap dark:text-zinc-500">
                                 {formatNumber(file.records)} зап., {formatSize(file.size)}
                               </span>
                             </label>
@@ -443,67 +482,90 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
 
             {/* Итого */}
             {selectedFileIds.size > 0 && (
-              <div className="selection-summary">
+              <div className="py-3 px-4 bg-blue-50 rounded-lg text-sm text-blue-700 mb-4 font-medium dark:bg-blue-900/20 dark:text-blue-300">
                 Выбрано: {selectedFileIds.size} файлов,{' '}
                 {formatNumber(totalSelectedRecords)} записей,{' '}
                 {formatSize(totalSelectedSize)}
               </div>
             )}
 
-            {error && <div className="error-message">{error}</div>}
+            {error && (
+              <div className="py-3 px-4 bg-red-50 text-red-600 rounded-md mb-4 text-sm dark:bg-red-900/20 dark:text-red-400">
+                {error}
+              </div>
+            )}
 
-            <button
-              className="btn btn-primary btn-large"
+            <Button
+              color="blue"
+              className="w-full py-3.5 text-base"
               onClick={handleImport}
               disabled={importing || selectedFileIds.size === 0}
             >
               {importing ? 'Загрузка...' : `Скачать выбранное (${selectedFileIds.size})`}
-            </button>
+            </Button>
           </div>
         )}
 
         {selectedModuleCode && !manifestLoading && manifestFiles.length === 0 && !error && (
-          <div className="no-files">Нет доступных файлов для этого модуля</div>
+          <div className="text-center py-6 text-zinc-500 bg-white rounded-xl shadow-sm dark:bg-zinc-900 dark:text-zinc-400">
+            Нет доступных файлов для этого модуля
+          </div>
         )}
 
         {/* Секция: Кадастровые кварталы */}
         {selectedModuleCode && !manifestLoading && availableRegions.length > 0 && (
-          <div className="cadastral-section">
-            <div className="cadastral-header">
-              <h3>Кадастровые кварталы</h3>
-              <div className="files-actions">
-                <button className="btn-link" onClick={selectAllCadastralRegions} disabled={cadastralDownloading}>
+          <div className="bg-white rounded-xl shadow-sm border border-zinc-200 p-5 dark:bg-zinc-900 dark:border-zinc-700">
+            <div className="flex items-center justify-between mb-2">
+              <Heading level={3} className="m-0 text-base font-semibold text-zinc-900 dark:text-white">
+                Кадастровые кварталы
+              </Heading>
+              <div className="flex gap-2">
+                <button
+                  className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
+                  onClick={selectAllCadastralRegions}
+                  disabled={cadastralDownloading}
+                >
                   Выбрать все
                 </button>
-                <button className="btn-link" onClick={selectNoneCadastralRegions} disabled={cadastralDownloading}>
+                <button
+                  className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
+                  onClick={selectNoneCadastralRegions}
+                  disabled={cadastralDownloading}
+                >
                   Убрать все
                 </button>
               </div>
             </div>
-            <p className="cadastral-desc">
+            <p className="text-xs text-zinc-500 mb-4 dark:text-zinc-400">
               Выберите регионы для загрузки границ кадастровых кварталов. Позволит отображать кварталы на карте.
               Повторная загрузка региона пропустит уже загруженные кварталы.
             </p>
-            <div className="cadastral-regions">
+            <div className="flex flex-col gap-1.5 mb-3 max-h-[300px] overflow-y-auto border border-zinc-200 rounded-lg p-2 dark:border-zinc-700">
               {availableRegions.map((region) => {
                 const loaded = cadastralRegionStats[region.code] || 0;
                 return (
-                  <label key={region.code} className="cadastral-region-checkbox">
+                  <label
+                    key={region.code}
+                    className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
                     <input
                       type="checkbox"
                       checked={selectedCadastralRegions.has(region.code)}
                       onChange={() => toggleCadastralRegion(region.code)}
                       disabled={cadastralDownloading}
+                      className="w-4 h-4 cursor-pointer"
                     />
-                    <span className="cadastral-region-name">
+                    <span className="flex-1 whitespace-nowrap text-zinc-900 dark:text-zinc-100">
                       {region.code} — {region.name}
                     </span>
                     {loaded > 0 ? (
-                      <span className="cadastral-region-badge loaded">
+                      <Badge color="green" className="text-[10px] font-semibold">
                         {formatNumber(loaded)} загружено
-                      </span>
+                      </Badge>
                     ) : (
-                      <span className="cadastral-region-badge empty">не загружен</span>
+                      <Badge color="amber" className="text-[10px]">
+                        не загружен
+                      </Badge>
                     )}
                   </label>
                 );
@@ -511,20 +573,20 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
             </div>
 
             {selectedCadastralRegions.size > 0 && (
-              <div className="selection-summary">
+              <div className="py-3 px-4 bg-blue-50 rounded-lg text-sm text-blue-700 mb-4 font-medium dark:bg-blue-900/20 dark:text-blue-300">
                 Выбрано регионов: {selectedCadastralRegions.size}
               </div>
             )}
 
             {cadastralProgress && (
-              <div className="progress-card">
-                <div className="progress-bar">
+              <div className="bg-white rounded-xl p-6 shadow-sm mb-4 dark:bg-zinc-900">
+                <div className="h-2 bg-zinc-200 rounded-full overflow-hidden mb-2 dark:bg-zinc-700">
                   <div
-                    className="progress-fill"
+                    className="h-full bg-blue-600 transition-[width] duration-300 ease-in-out dark:bg-blue-500"
                     style={{ width: `${cadastralProgress.percent}%` }}
                   />
                 </div>
-                <div className="progress-label">
+                <div className="text-sm font-medium text-zinc-900 mb-4 dark:text-zinc-100">
                   {cadastralProgress.stage === 'manifest' && 'Загрузка манифеста...'}
                   {cadastralProgress.stage === 'downloading' &&
                     `Скачивание: ${cadastralProgress.downloaded} / ${cadastralProgress.total}`}
@@ -534,43 +596,57 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
               </div>
             )}
 
-            <button
-              className="btn btn-primary btn-large"
+            <Button
+              color="blue"
+              className="w-full py-3.5 text-base"
               onClick={handleDownloadCadastral}
               disabled={cadastralDownloading || selectedCadastralRegions.size === 0}
             >
               {cadastralDownloading
                 ? 'Загрузка...'
                 : `Скачать кадастровые кварталы (${selectedCadastralRegions.size} регион.)`}
-            </button>
+            </Button>
           </div>
         )}
 
         {/* Прогресс */}
         {fileProgress.length > 0 && (
-          <div className="progress-card">
-            <div className="progress-bar">
+          <div className="bg-white rounded-xl p-6 shadow-sm dark:bg-zinc-900">
+            <div className="h-2 bg-zinc-200 rounded-full overflow-hidden mb-2 dark:bg-zinc-700">
               <div
-                className="progress-fill"
+                className="h-full bg-blue-600 transition-[width] duration-300 ease-in-out dark:bg-blue-500"
                 style={{ width: `${totalProgress}%` }}
               />
             </div>
-            <div className="progress-label">
+            <div className="text-sm font-medium text-zinc-900 mb-4 dark:text-zinc-100">
               {totalProgress}% ({fileProgress.filter((p) => p.status === 'done' || p.status === 'skipped').length} / {fileProgress.length} файлов)
             </div>
 
-            <div className="file-progress-list">
+            <div className="max-h-[200px] overflow-y-auto">
               {fileProgress.map((fp) => (
-                <div key={fp.fileId} className={`file-progress-item ${fp.status}`}>
-                  <span className="fp-status-icon">
+                <div
+                  key={fp.fileId}
+                  className={`flex items-center gap-2 py-1.5 px-2 text-xs rounded ${
+                    fp.status === 'done'
+                      ? 'text-green-600 dark:text-green-400'
+                      : fp.status === 'error'
+                      ? 'text-red-600 dark:text-red-400'
+                      : fp.status === 'skipped'
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : fp.status === 'downloading'
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-zinc-400 dark:text-zinc-500'
+                  }`}
+                >
+                  <span className="w-5 text-center">
                     {fp.status === 'pending' && '...'}
-                    {fp.status === 'downloading' && '⏳'}
-                    {fp.status === 'done' && '✓'}
-                    {fp.status === 'skipped' && '⊘'}
-                    {fp.status === 'error' && '✕'}
+                    {fp.status === 'downloading' && '\u23F3'}
+                    {fp.status === 'done' && '\u2713'}
+                    {fp.status === 'skipped' && '\u2298'}
+                    {fp.status === 'error' && '\u2715'}
                   </span>
-                  <span className="fp-name">{fp.regionName}</span>
-                  <span className="fp-detail">
+                  <span className="flex-1">{fp.regionName}</span>
+                  <span className="text-zinc-400 text-[11px] dark:text-zinc-500">
                     {fp.status === 'done' && `${formatNumber(fp.recordsCount)} зап.`}
                     {fp.status === 'skipped' && 'Уже загружен'}
                     {fp.status === 'error' && fp.error}
@@ -583,43 +659,67 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode }) => {
         )}
 
         {/* История импортов */}
-        <div className="import-history">
-          <div className="history-header">
-            <h3>История импортов</h3>
+        <div className="bg-white rounded-xl p-6 shadow-sm dark:bg-zinc-900">
+          <div className="flex justify-between items-center mb-4">
+            <Heading level={3} className="m-0 text-zinc-900 dark:text-white">
+              История импортов
+            </Heading>
             {importHistory.length > 0 && (
-              <button
-                className="btn btn-danger btn-small"
+              <Button
+                color="red"
+                className="text-xs px-3 py-1"
                 onClick={handleClearAll}
                 disabled={importing}
               >
                 Очистить всё
-              </button>
+              </Button>
             )}
           </div>
 
           {importHistory.length === 0 ? (
-            <p className="no-data">Нет импортированных данных</p>
+            <p className="text-center text-zinc-500 py-6 dark:text-zinc-400">
+              Нет импортированных данных
+            </p>
           ) : (
-            <table className="history-table">
+            <table className="w-full border-collapse">
               <thead>
                 <tr>
-                  <th>Файл</th>
-                  <th>Период</th>
-                  <th>Записей</th>
-                  <th>Дата</th>
-                  <th></th>
+                  <th className="py-3 px-3 text-left border-b border-zinc-200 text-[11px] font-medium text-zinc-500 uppercase dark:border-zinc-700 dark:text-zinc-400">
+                    Файл
+                  </th>
+                  <th className="py-3 px-3 text-left border-b border-zinc-200 text-[11px] font-medium text-zinc-500 uppercase dark:border-zinc-700 dark:text-zinc-400">
+                    Период
+                  </th>
+                  <th className="py-3 px-3 text-left border-b border-zinc-200 text-[11px] font-medium text-zinc-500 uppercase dark:border-zinc-700 dark:text-zinc-400">
+                    Записей
+                  </th>
+                  <th className="py-3 px-3 text-left border-b border-zinc-200 text-[11px] font-medium text-zinc-500 uppercase dark:border-zinc-700 dark:text-zinc-400">
+                    Дата
+                  </th>
+                  <th className="py-3 px-3 border-b border-zinc-200 dark:border-zinc-700"></th>
                 </tr>
               </thead>
               <tbody>
                 {importHistory.map((imp) => (
-                  <tr key={imp.id}>
-                    <td className="filename">{imp.filename}</td>
-                    <td>{imp.year}-Q{imp.quarter}</td>
-                    <td>{formatNumber(imp.records_count)}</td>
-                    <td>{formatDate(imp.imported_at)}</td>
-                    <td>
+                  <tr
+                    key={imp.id}
+                    className="hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  >
+                    <td className="py-3 px-3 text-sm text-zinc-900 border-b border-zinc-100 max-w-[300px] overflow-hidden text-ellipsis whitespace-nowrap dark:text-zinc-100 dark:border-zinc-800">
+                      {imp.filename}
+                    </td>
+                    <td className="py-3 px-3 text-sm text-zinc-900 border-b border-zinc-100 dark:text-zinc-100 dark:border-zinc-800">
+                      {imp.year}-Q{imp.quarter}
+                    </td>
+                    <td className="py-3 px-3 text-sm text-zinc-900 border-b border-zinc-100 dark:text-zinc-100 dark:border-zinc-800">
+                      {formatNumber(imp.records_count)}
+                    </td>
+                    <td className="py-3 px-3 text-sm text-zinc-900 border-b border-zinc-100 dark:text-zinc-100 dark:border-zinc-800">
+                      {formatDate(imp.imported_at)}
+                    </td>
+                    <td className="py-3 px-3 border-b border-zinc-100 dark:border-zinc-800">
                       <button
-                        className="btn-icon"
+                        className="bg-transparent border-none cursor-pointer p-1 text-base hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
                         onClick={() => handleDeleteImport(imp.id!)}
                         title="Удалить"
                         disabled={importing}

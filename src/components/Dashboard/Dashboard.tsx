@@ -22,7 +22,7 @@ import {
   getRealEstateTypeName,
   getWallMaterialName,
 } from '@/constants/catalogs';
-import './Dashboard.css';
+import { Heading } from '@/components/catalyst/heading';
 
 interface DashboardProps {
   deals: Deal[];
@@ -188,55 +188,85 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
     return null;
   }
 
+  const tooltipStyle = {
+    backgroundColor: 'var(--tw-bg-opacity, #fff)',
+    border: '1px solid #ccc',
+    borderRadius: '4px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+  };
+
   return (
-    <div className={`dashboard ${isExpanded ? 'expanded' : 'collapsed'}`}>
-      <div className="dashboard-header" onClick={() => setIsExpanded(!isExpanded)}>
-        <h2>📊 Аналитика</h2>
-        <div className="dashboard-toggle">
+    <div className="rounded-xl bg-white shadow-sm mb-4 overflow-hidden dark:bg-zinc-900 dark:shadow-zinc-950/50">
+      {/* Header */}
+      <div
+        className="flex justify-between items-center px-5 py-4 cursor-pointer select-none transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <Heading level={2} className="!text-base !font-semibold !text-zinc-800 !m-0 dark:!text-white">
+          Аналитика
+        </Heading>
+        <div className="flex items-center gap-2 text-[13px] text-zinc-500 dark:text-zinc-400">
           <span>{isExpanded ? 'Свернуть' : 'Развернуть'}</span>
-          <span className="toggle-icon">{isExpanded ? '▲' : '▼'}</span>
+          <span
+            className={`text-xs transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+          >
+            ▲
+          </span>
         </div>
       </div>
 
       {/* Ключевые метрики - всегда видны */}
-      <div className="metrics-row">
-        <div className="metric-card">
-          <div className="metric-value">{formatNumber(analytics.totalCount)}</div>
-          <div className="metric-label">Сделок</div>
+      <div className="flex gap-3 px-5 pb-4 overflow-x-auto">
+        <div className="flex-1 min-w-[140px] bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg px-4 py-3 text-center dark:from-zinc-800 dark:to-zinc-800">
+          <div className="text-lg font-bold text-blue-600 whitespace-nowrap dark:text-blue-400">
+            {formatNumber(analytics.totalCount)}
+          </div>
+          <div className="text-[11px] mt-1 text-zinc-500 uppercase tracking-wide dark:text-zinc-400">
+            Сделок
+          </div>
         </div>
-        <div className="metric-card">
-          <div className="metric-value">{formatPrice(analytics.totalSum)}</div>
-          <div className="metric-label">Общая сумма</div>
+        <div className="flex-1 min-w-[140px] bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg px-4 py-3 text-center dark:from-zinc-800 dark:to-zinc-800">
+          <div className="text-lg font-bold text-blue-600 whitespace-nowrap dark:text-blue-400">
+            {formatPrice(analytics.totalSum)}
+          </div>
+          <div className="text-[11px] mt-1 text-zinc-500 uppercase tracking-wide dark:text-zinc-400">
+            Общая сумма
+          </div>
         </div>
-        <div className="metric-card">
-          <div className="metric-value">{formatPrice(analytics.priceRange.avg)}</div>
-          <div className="metric-label">Средняя цена</div>
+        <div className="flex-1 min-w-[140px] bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg px-4 py-3 text-center dark:from-zinc-800 dark:to-zinc-800">
+          <div className="text-lg font-bold text-blue-600 whitespace-nowrap dark:text-blue-400">
+            {formatPrice(analytics.priceRange.avg)}
+          </div>
+          <div className="text-[11px] mt-1 text-zinc-500 uppercase tracking-wide dark:text-zinc-400">
+            Средняя цена
+          </div>
         </div>
-        <div className="metric-card">
-          <div className="metric-value">{formatPrice(analytics.priceRange.median)}</div>
-          <div className="metric-label">Медианная цена</div>
+        <div className="flex-1 min-w-[140px] bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg px-4 py-3 text-center dark:from-zinc-800 dark:to-zinc-800">
+          <div className="text-lg font-bold text-blue-600 whitespace-nowrap dark:text-blue-400">
+            {formatPrice(analytics.priceRange.median)}
+          </div>
+          <div className="text-[11px] mt-1 text-zinc-500 uppercase tracking-wide dark:text-zinc-400">
+            Медианная цена
+          </div>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="dashboard-content">
+        <div className="px-5 pb-5 border-t border-gray-200 pt-4 dark:border-zinc-700">
           {/* Графики */}
-          <div className="charts-grid">
+          <div className="grid grid-cols-2 gap-4 mb-4 max-md:grid-cols-1">
             {/* Динамика по кварталам - количество сделок */}
-            <div className="chart-card chart-wide">
-              <h3>Динамика сделок по периодам</h3>
+            <div className="col-span-full bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                Динамика сделок по периодам
+              </h3>
               <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={analytics.byQuarter}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#fff',
-                      border: '1px solid #ccc',
-                      borderRadius: '4px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-                    }}
+                    contentStyle={tooltipStyle}
                     itemStyle={{ color: '#333' }}
                     labelStyle={{ color: '#333', fontWeight: 'bold' }}
                     formatter={(value: number) => formatNumber(value)}
@@ -256,8 +286,10 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
             </div>
 
             {/* Динамика средней цены по периодам */}
-            <div className="chart-card chart-wide">
-              <h3>Динамика средней цены по периодам</h3>
+            <div className="col-span-full bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                Динамика средней цены по периодам
+              </h3>
               <ResponsiveContainer width="100%" height={250}>
                 <ComposedChart data={analytics.byQuarter}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -265,12 +297,7 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
                   <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
                   <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#fff',
-                      border: '1px solid #ccc',
-                      borderRadius: '4px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-                    }}
+                    contentStyle={tooltipStyle}
                     itemStyle={{ color: '#333' }}
                     labelStyle={{ color: '#333', fontWeight: 'bold' }}
                     formatter={(value: number, name: string) => {
@@ -311,8 +338,10 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
             </div>
 
             {/* Распределение по типам объектов */}
-            <div className="chart-card">
-              <h3>По типу объекта</h3>
+            <div className="bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                По типу объекта
+              </h3>
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
                   <Pie
@@ -335,8 +364,10 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
             </div>
 
             {/* По типу документа */}
-            <div className="chart-card">
-              <h3>По типу договора</h3>
+            <div className="bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                По типу договора
+              </h3>
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
                   <Pie
@@ -359,8 +390,10 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
             </div>
 
             {/* По материалу стен */}
-            <div className="chart-card">
-              <h3>По материалу стен</h3>
+            <div className="bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                По материалу стен
+              </h3>
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
                   <Pie
@@ -383,8 +416,10 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
             </div>
 
             {/* Топ регионов */}
-            <div className="chart-card chart-wide">
-              <h3>Топ-10 регионов по количеству сделок</h3>
+            <div className="col-span-full bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                Топ-10 регионов по количеству сделок
+              </h3>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={analytics.topRegions} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" />
@@ -398,34 +433,48 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
           </div>
 
           {/* Дополнительные метрики */}
-          <div className="additional-metrics">
-            <div className="metric-group">
-              <h4>Ценовой диапазон</h4>
-              <div className="metric-items">
-                <div className="metric-item">
-                  <span className="label">Мин:</span>
-                  <span className="value">{formatPrice(analytics.priceRange.min)}</span>
+          <div className="flex gap-6 pt-4 border-t border-gray-200 max-md:flex-col max-md:gap-4 dark:border-zinc-700">
+            <div className="flex-1">
+              <h4 className="text-xs font-medium text-zinc-500 m-0 mb-2 uppercase dark:text-zinc-400">
+                Ценовой диапазон
+              </h4>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Мин:</span>
+                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                    {formatPrice(analytics.priceRange.min)}
+                  </span>
                 </div>
-                <div className="metric-item">
-                  <span className="label">Макс:</span>
-                  <span className="value">{formatPrice(analytics.priceRange.max)}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Макс:</span>
+                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                    {formatPrice(analytics.priceRange.max)}
+                  </span>
                 </div>
               </div>
             </div>
-            <div className="metric-group">
-              <h4>Площадь (м²)</h4>
-              <div className="metric-items">
-                <div className="metric-item">
-                  <span className="label">Мин:</span>
-                  <span className="value">{analytics.areaRange.min.toLocaleString('ru-RU')}</span>
+            <div className="flex-1">
+              <h4 className="text-xs font-medium text-zinc-500 m-0 mb-2 uppercase dark:text-zinc-400">
+                Площадь (м²)
+              </h4>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Мин:</span>
+                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                    {analytics.areaRange.min.toLocaleString('ru-RU')}
+                  </span>
                 </div>
-                <div className="metric-item">
-                  <span className="label">Макс:</span>
-                  <span className="value">{analytics.areaRange.max.toLocaleString('ru-RU')}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Макс:</span>
+                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                    {analytics.areaRange.max.toLocaleString('ru-RU')}
+                  </span>
                 </div>
-                <div className="metric-item">
-                  <span className="label">Средняя:</span>
-                  <span className="value">{analytics.areaRange.avg.toLocaleString('ru-RU')}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Средняя:</span>
+                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                    {analytics.areaRange.avg.toLocaleString('ru-RU')}
+                  </span>
                 </div>
               </div>
             </div>

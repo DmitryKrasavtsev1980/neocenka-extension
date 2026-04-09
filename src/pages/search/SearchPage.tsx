@@ -11,14 +11,27 @@ import {
 import { Dashboard } from '@/components/Dashboard';
 import DealMap from '@/components/DealMap';
 import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
-import HeatMap from '@/components/HeatMap/HeatMap';
-import './SearchPage.css';
+import { Button } from '@/components/catalyst/button';
+import { Input } from '@/components/catalyst/input';
+import { Checkbox, CheckboxField } from '@/components/catalyst/checkbox';
+import { Badge } from '@/components/catalyst/badge';
+import { Heading } from '@/components/catalyst/heading';
+import {
+  ArrowDownTrayIcon,
+  FunnelIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
+  ChevronDownIcon,
+} from '@heroicons/react/16/solid';
 
-type SortField = 'period' | 'price' | 'area' | 'year_quarter';
+type SortField = 'period' | 'price' | 'area' | 'year_quarter' | 'floor' | 'year_build' | 'type' | 'material' | 'doc';
 type SortOrder = 'asc' | 'desc';
-type ViewTab = 'table' | 'heatmap';
 
-export const SearchPage: React.FC = () => {
+interface SearchPageProps {
+  onNavigate?: (page: 'modules' | 'search' | 'import' | 'profile') => void;
+}
+
+export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [stats, setStats] = useState<DealsStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -26,15 +39,14 @@ export const SearchPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
 
-  // Сортировка
   const [sortField, setSortField] = useState<SortField>('period');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [pageSize, setPageSize] = useState<number>(50);
 
-  // Фильтры
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>([]);
-  const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]); // Формат: "2024-Q1"
+  const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
   const [selectedWallMaterials, setSelectedWallMaterials] = useState<string[]>([]);
   const [priceMin, setPriceMin] = useState<string>('');
   const [priceMax, setPriceMax] = useState<string>('');
@@ -48,7 +60,6 @@ export const SearchPage: React.FC = () => {
   const [searchStreet, setSearchStreet] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedDealForMap, setSelectedDealForMap] = useState<Deal | null>(null);
-  const [activeTab, setActiveTab] = useState<ViewTab>('table');
   const [cadastralQuarters, setCadastralQuarters] = useState<CadastralQuarter[]>([]);
   const [selectedCadNumbers, setSelectedCadNumbers] = useState<string[]>([]);
   const [showMapFilter, setShowMapFilter] = useState(false);
@@ -59,7 +70,6 @@ export const SearchPage: React.FC = () => {
     } catch { return null; }
   });
 
-  // Генерируем список доступных периодов из статистики
   const availablePeriods = useMemo(() => {
     if (!stats) return [];
     const periods: string[] = [];
@@ -81,7 +91,6 @@ export const SearchPage: React.FC = () => {
     setCadastralQuarters(quarters);
   };
 
-  // Начальная загрузка данных
   useEffect(() => {
     if (stats && stats.totalDeals > 0 && !initialLoadDone) {
       setInitialLoadDone(true);
@@ -97,13 +106,8 @@ export const SearchPage: React.FC = () => {
   const doSearch = useCallback(async () => {
     setLoading(true);
     try {
-      // Парсим выбранные периоды
-      let yearFilter: number | undefined;
-      let quarterFilter: number[] | undefined;
       let yearQuartersFilter: string[] | undefined;
-
       if (selectedPeriods.length > 0) {
-        // Если выбраны конкретные периоды, используем их
         yearQuartersFilter = selectedPeriods;
       }
 
@@ -126,27 +130,17 @@ export const SearchPage: React.FC = () => {
         quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
       };
 
-      console.log('[SearchPage] Выполняем поиск с фильтрами:', searchFilters);
-
-      // Загружаем данные ОДИН раз — и страница, и все данные для аналитики
-      const { pageResult, allDeals } = await dealsRepository.searchCombined(searchFilters, page);
-      console.log('[SearchPage] Результат поиска:', pageResult.total, 'сделок, для аналитики:', allDeals.length);
-
-      setResult(pageResult);
+      const allDeals = await dealsRepository.searchAll(searchFilters);
       setAllFilteredDeals(allDeals);
+      setPage(1);
     } catch (error) {
       console.error('Ошибка поиска:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers, page]);
+  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers]);
 
-  // Поиск при смене страницы
-  useEffect(() => {
-    if (initialLoadDone) {
-      doSearch();
-    }
-  }, [page]);
+  // Пагинация полностью клиентская — useEffect не нужен
 
   const handleSearch = () => {
     setPage(1);
@@ -253,6 +247,21 @@ export const SearchPage: React.FC = () => {
         case 'year_quarter':
           comparison = a.year_quarter.localeCompare(b.year_quarter);
           break;
+        case 'floor':
+          comparison = (a.floor || 0) - (b.floor || 0);
+          break;
+        case 'year_build':
+          comparison = (a.year_build || 0) - (b.year_build || 0);
+          break;
+        case 'type':
+          comparison = getRealEstateTypeName(a.realestate_type_code).localeCompare(getRealEstateTypeName(b.realestate_type_code));
+          break;
+        case 'material':
+          comparison = getWallMaterialName(a.wall_material_code).localeCompare(getWallMaterialName(b.wall_material_code));
+          break;
+        case 'doc':
+          comparison = (a.doc_type || '').localeCompare(b.doc_type || '');
+          break;
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
@@ -273,12 +282,6 @@ export const SearchPage: React.FC = () => {
     return `${formatNumber(pricePerMeter)} ₽/м²`;
   };
 
-  const formatPricePerMeterShort = (price: number, area: number): string | null => {
-    if (!area || area <= 0) return null;
-    const pricePerMeter = Math.round(price / area);
-    return `${formatNumber(pricePerMeter)} ₽/м²`;
-  };
-
   const formatPeriod = (yearQuarter: string): string => {
     const [year, quarter] = yearQuarter.split('-Q');
     return `Q${quarter} ${year}`;
@@ -289,7 +292,6 @@ export const SearchPage: React.FC = () => {
     return sortOrder === 'asc' ? '↑' : '↓';
   };
 
-  // Экспорт в HTML
   const exportToHtml = () => {
     const deals = allFilteredDeals;
     if (deals.length === 0) {
@@ -297,7 +299,6 @@ export const SearchPage: React.FC = () => {
       return;
     }
 
-    // Вычисляем статистику
     const totalSum = deals.reduce((acc, d) => acc + d.deal_price, 0);
     const avgPrice = Math.round(totalSum / deals.length);
     const prices = deals.map(d => d.deal_price).filter(p => p > 0).sort((a, b) => a - b);
@@ -305,7 +306,6 @@ export const SearchPage: React.FC = () => {
     const areas = deals.map(d => d.area).filter(a => a > 0);
     const avgArea = areas.length > 0 ? Math.round(areas.reduce((a, b) => a + b, 0) / areas.length) : 0;
 
-    // Формируем описание фильтров
     const filterDescriptions: string[] = [];
     if (selectedRegions.length > 0) filterDescriptions.push(`Регионы: ${selectedRegions.join(', ')}`);
     if (selectedTypes.length > 0) filterDescriptions.push(`Типы: ${selectedTypes.map(t => getRealEstateTypeName(t)).join(', ')}`);
@@ -319,190 +319,654 @@ export const SearchPage: React.FC = () => {
     if (searchCity) filterDescriptions.push(`Город: ${searchCity}`);
     if (searchStreet) filterDescriptions.push(`Улица: ${searchStreet}`);
 
+    const dealCadNumbers = new Set(deals.map(d => d.quarter_cad_number).filter(Boolean));
+    const hasMapData = polygonCoords || dealCadNumbers.size > 0;
+
+    const quartersData = cadastralQuarters
+      .filter(q => q.geojson && q.center_lat && q.center_lon && dealCadNumbers.has(q.cad_number))
+      .map(q => ({
+        cad_number: q.cad_number,
+        center_lat: q.center_lat,
+        center_lon: q.center_lon,
+        geometry: q.geojson!.geometry,
+      }));
+
+    const dealsData = deals.map(d => ({
+      id: d.id,
+      quarter_cad_number: d.quarter_cad_number,
+      city: d.city,
+      street: d.street,
+      district: d.district,
+      deal_price: d.deal_price,
+      area: d.area,
+      year_quarter: d.year_quarter,
+      realestate_type_code: d.realestate_type_code,
+      floor: d.floor,
+      year_build: d.year_build,
+      wall_material_code: d.wall_material_code,
+      doc_type: d.doc_type,
+      number: d.number,
+      region_code: d.region_code,
+    }));
+
+    // === Analytics data ===
+    const COLORS = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#9c27b0', '#00bcd4', '#ff5722', '#795548'];
+
+    const typeGroups: Record<string, number> = {};
+    deals.forEach(d => { const n = getRealEstateTypeName(d.realestate_type_code); typeGroups[n] = (typeGroups[n] || 0) + 1; });
+    const byType = Object.entries(typeGroups).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+
+    const docTypeGroups: Record<string, number> = {};
+    deals.forEach(d => { const n = DOCUMENT_TYPES[d.doc_type] || d.doc_type; docTypeGroups[n] = (docTypeGroups[n] || 0) + 1; });
+    const byDocType = Object.entries(docTypeGroups).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+
+    const wmGroups: Record<string, number> = {};
+    deals.forEach(d => { if (d.wall_material_code) { const n = getWallMaterialName(d.wall_material_code); wmGroups[n] = (wmGroups[n] || 0) + 1; } });
+    const byWallMaterial = Object.entries(wmGroups).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 8);
+
+    const qGroups: Record<string, { count: number; sum: number; prices: number[]; ppms: number[] }> = {};
+    deals.forEach(d => {
+      if (!qGroups[d.year_quarter]) qGroups[d.year_quarter] = { count: 0, sum: 0, prices: [], ppms: [] };
+      qGroups[d.year_quarter].count += d.number || 1;
+      qGroups[d.year_quarter].sum += d.deal_price;
+      qGroups[d.year_quarter].prices.push(d.deal_price);
+      if (d.area > 0) qGroups[d.year_quarter].ppms.push(d.deal_price / d.area);
+    });
+    const byQuarter = Object.entries(qGroups).map(([name, data]) => ({
+      name: name.replace('-Q', ' Q'),
+      sortKey: name,
+      count: data.count,
+      avgPrice: data.prices.length > 0 ? Math.round(data.prices.reduce((a, b) => a + b, 0) / data.prices.length) : 0,
+      avgPricePerMeter: data.ppms.length > 0 ? Math.round(data.ppms.reduce((a, b) => a + b, 0) / data.ppms.length) : 0,
+    })).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+    const regGroups: Record<string, number> = {};
+    deals.forEach(d => { if (d.region_code) regGroups[d.region_code] = (regGroups[d.region_code] || 0) + 1; });
+    const topRegions = Object.entries(regGroups).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 10);
+
+    const priceMinVal = prices[0] || 0;
+    const priceMaxVal = prices[prices.length - 1] || 0;
+    const areaMinVal = areas.length > 0 ? Math.min(...areas) : 0;
+    const areaMaxVal = areas.length > 0 ? Math.max(...areas) : 0;
+
+    // SVG chart helpers
+    const renderPieChart = (data: { name: string; value: number }[], maxLabelLen = 10): string => {
+      if (data.length === 0) return '<div style="text-align:center;color:#a1a1aa;padding:40px 0">Нет данных</div>';
+      const total = data.reduce((s, d) => s + d.value, 0);
+      const cx = 150, cy = 120, r = 90;
+      let cumAngle = -90;
+      const slices = data.map((d, i) => {
+        const pct = d.value / total;
+        const startAngle = cumAngle;
+        const endAngle = cumAngle + pct * 360;
+        cumAngle = endAngle;
+        const startRad = (startAngle * Math.PI) / 180;
+        const endRad = (endAngle * Math.PI) / 180;
+        const x1 = cx + r * Math.cos(startRad);
+        const y1 = cy + r * Math.sin(startRad);
+        const x2 = cx + r * Math.cos(endRad);
+        const y2 = cy + r * Math.sin(endRad);
+        const largeArc = pct > 0.5 ? 1 : 0;
+        const color = COLORS[i % COLORS.length];
+        const midRad = ((startAngle + (endAngle - startAngle) / 2) * Math.PI) / 180;
+        const labelR = r + 24;
+        const lx = cx + labelR * Math.cos(midRad);
+        const ly = cy + labelR * Math.sin(midRad);
+        const labelName = d.name.length > maxLabelLen ? d.name.substring(0, maxLabelLen) + '...' : d.name;
+        const label = pct >= 0.04 ? `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" fill="#52525b" font-size="10" font-family="Inter,sans-serif">${labelName} (${Math.round(pct * 100)}%)</text>` : '';
+        return pct > 0
+          ? `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc},1 ${x2},${y2} Z" fill="${color}" stroke="#fff" stroke-width="1.5"/>${label}`
+          : '';
+      });
+      return `<svg viewBox="0 0 300 240" style="width:100%;height:auto">${slices.join('')}</svg>`;
+    };
+
+    const renderLineChart = (data: { name: string; count: number }[]): string => {
+      if (data.length === 0) return '<div style="text-align:center;color:#a1a1aa;padding:40px 0">Нет данных</div>';
+      const w = 700, h = 220, padL = 60, padR = 20, padT = 20, padB = 40;
+      const maxVal = Math.max(...data.map(d => d.count), 1);
+      const chartW = w - padL - padR;
+      const chartH = h - padT - padB;
+      const step = data.length > 1 ? chartW / (data.length - 1) : chartW;
+      const points = data.map((d, i) => ({
+        x: padL + (data.length > 1 ? i * step : chartW / 2),
+        y: padT + chartH - (d.count / maxVal) * chartH,
+        ...d,
+      }));
+      const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+      const yTicks = [0, Math.round(maxVal * 0.25), Math.round(maxVal * 0.5), Math.round(maxVal * 0.75), maxVal];
+      const yTickLabels = yTicks.map(v => `<text x="${padL - 8}" y="${padT + chartH - (v / maxVal) * chartH}" text-anchor="end" dominant-baseline="middle" fill="#a1a1aa" font-size="11" font-family="Inter,sans-serif">${formatNumber(v)}</text>`).join('');
+      const xLabels = points.map(p => {
+        const label = p.name.length > 7 ? p.name.substring(0, 7) : p.name;
+        return `<text x="${p.x}" y="${h - 8}" text-anchor="middle" fill="#a1a1aa" font-size="10" font-family="Inter,sans-serif">${label}</text>`;
+      }).join('');
+      const dots = points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#1a73e8" stroke="#fff" stroke-width="1.5"/>`).join('');
+      const gridLines = yTicks.map(v => `<line x1="${padL}" y1="${padT + chartH - (v / maxVal) * chartH}" x2="${w - padR}" y2="${padT + chartH - (v / maxVal) * chartH}" stroke="#e4e4e7" stroke-dasharray="3 3"/>`).join('');
+      return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto">${gridLines}${yTickLabels}${xLabels}<path d="${linePath}" fill="none" stroke="#1a73e8" stroke-width="2"/>${dots}</svg>`;
+    };
+
+    const renderComposedChart = (data: { name: string; count: number; avgPrice: number; avgPricePerMeter: number }[]): string => {
+      if (data.length === 0) return '<div style="text-align:center;color:#a1a1aa;padding:40px 0">Нет данных</div>';
+      const w = 700, h = 250, padL = 70, padR = 50, padT = 20, padB = 40;
+      const chartW = w - padL - padR;
+      const chartH = h - padT - padB;
+      const maxCount = Math.max(...data.map(d => d.count), 1);
+      const maxPrice = Math.max(...data.map(d => Math.max(d.avgPrice, d.avgPricePerMeter)), 1);
+      const barW = Math.min(data.length > 1 ? (chartW / data.length) * 0.5 : 30, 30);
+      const gridLinesY = [0, 0.25, 0.5, 0.75, 1].map(pct => {
+        const y = padT + chartH - pct * chartH;
+        return `<line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#e4e4e7" stroke-dasharray="3 3"/>`;
+      }).join('');
+      const yLeftLabels = [0, 0.25, 0.5, 0.75, 1].map(pct => {
+        const v = Math.round(pct * maxPrice);
+        const y = padT + chartH - pct * chartH;
+        return `<text x="${padL - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" fill="#a1a1aa" font-size="10" font-family="Inter,sans-serif">${v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(0) + 'K' : String(v)}</text>`;
+      }).join('');
+      const yRightLabels = [0, 0.25, 0.5, 0.75, 1].map(pct => {
+        const v = Math.round(pct * maxCount);
+        const y = padT + chartH - pct * chartH;
+        return `<text x="${w - padR + 8}" y="${y}" dominant-baseline="middle" fill="#a1a1aa" font-size="10" font-family="Inter,sans-serif">${formatNumber(v)}</text>`;
+      }).join('');
+      const step = data.length > 1 ? chartW / data.length : chartW;
+      const bars = data.map((d, i) => {
+        const cx = padL + step * i + step / 2;
+        const barH = (d.count / maxCount) * chartH;
+        return `<rect x="${cx - barW / 2}" y="${padT + chartH - barH}" width="${barW}" height="${barH}" fill="#e8f0fe" rx="2"/>`;
+      }).join('');
+      const avgPricePoints = data.map((d, i) => {
+        const x = padL + step * i + step / 2;
+        const y = padT + chartH - (d.avgPrice / maxPrice) * chartH;
+        return { x, y };
+      });
+      const ppmPoints = data.map((d, i) => {
+        const x = padL + step * i + step / 2;
+        const y = padT + chartH - (d.avgPricePerMeter / maxPrice) * chartH;
+        return { x, y };
+      });
+      const avgLine = avgPricePoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+      const ppmLine = ppmPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+      const avgDots = avgPricePoints.map(p => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#34a853" stroke="#fff" stroke-width="1.5"/>`).join('');
+      const ppmDots = ppmPoints.map(p => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#ea4335" stroke="#fff" stroke-width="1.5"/>`).join('');
+      const xLabels = data.map((d, i) => {
+        const x = padL + step * i + step / 2;
+        const label = d.name.length > 7 ? d.name.substring(0, 7) : d.name;
+        return `<text x="${x}" y="${h - 8}" text-anchor="middle" fill="#a1a1aa" font-size="10" font-family="Inter,sans-serif">${label}</text>`;
+      }).join('');
+      const legend = `<circle cx="${padL}" cy="${h - 2}" r="4" fill="#34a853"/><text x="${padL + 10}" y="${h - 2}" dominant-baseline="middle" fill="#71717a" font-size="10" font-family="Inter,sans-serif">Средняя цена</text>`
+        + `<circle cx="${padL + 120}" cy="${h - 2}" r="4" fill="#ea4335"/><text x="${padL + 130}" y="${h - 2}" dominant-baseline="middle" fill="#71717a" font-size="10" font-family="Inter,sans-serif">Цена за м2</text>`
+        + `<rect x="${padL + 220}" y="${h - 6}" width="10" height="10" fill="#e8f0fe" rx="1"/><text x="${padL + 236}" y="${h - 2}" dominant-baseline="middle" fill="#71717a" font-size="10" font-family="Inter,sans-serif">Кол-во сделок</text>`;
+      return `<svg viewBox="0 0 ${w} ${h + 16}" style="width:100%;height:auto">${gridLinesY}${yLeftLabels}${yRightLabels}${bars}<path d="${avgLine}" fill="none" stroke="#34a853" stroke-width="2"/>${avgDots}<path d="${ppmLine}" fill="none" stroke="#ea4335" stroke-width="2"/>${ppmDots}${xLabels}${legend}</svg>`;
+    };
+
+    const renderBarChart = (data: { name: string; value: number }[]): string => {
+      if (data.length === 0) return '<div style="text-align:center;color:#a1a1aa;padding:40px 0">Нет данных</div>';
+      const barH = 22, gap = 6, labelW = 80, padR = 20, padT = 10;
+      const h = padT + data.length * (barH + gap) + 10;
+      const maxVal = Math.max(...data.map(d => d.value), 1);
+      const bars = data.map((d, i) => {
+        const y = padT + i * (barH + gap);
+        const bw = Math.max(((d.value / maxVal) * (600 - labelW - padR)), 2);
+        const label = d.name.length > 10 ? d.name.substring(0, 10) + '...' : d.name;
+        return `<text x="${labelW - 8}" y="${y + barH / 2}" text-anchor="end" dominant-baseline="middle" fill="#52525b" font-size="11" font-family="Inter,sans-serif">${label}</text>`
+          + `<rect x="${labelW}" y="${y}" width="${bw}" height="${barH}" fill="${COLORS[i % COLORS.length]}" rx="3"/>`
+          + `<text x="${labelW + bw + 8}" y="${y + barH / 2}" dominant-baseline="middle" fill="#71717a" font-size="11" font-family="Inter,sans-serif">${formatNumber(d.value)}</text>`;
+      }).join('');
+      return `<svg viewBox="0 0 600 ${h}" style="width:100%;height:auto">${bars}</svg>`;
+    };
+
     const html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Отчёт по сделкам - ${new Date().toLocaleDateString('ru-RU')}</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; line-height: 1.5; }
-    .report-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-    .report-header { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .report-header h1 { font-size: 24px; margin-bottom: 10px; }
-    .report-date { color: #666; font-size: 14px; }
-    .filters-summary { background: #e8f0fe; border-radius: 8px; padding: 15px; margin-top: 15px; }
-    .filters-summary h3 { font-size: 14px; margin-bottom: 10px; color: #1a73e8; }
-    .filters-list { display: flex; flex-wrap: wrap; gap: 8px; }
-    .filter-tag { background: #fff; padding: 4px 10px; border-radius: 4px; font-size: 12px; border: 1px solid #d0d0d0; }
-    .metrics-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
-    .metric-card { background: #fff; border-radius: 8px; padding: 20px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .metric-value { font-size: 24px; font-weight: 600; color: #1a73e8; }
-    .metric-label { font-size: 13px; color: #666; margin-top: 5px; }
-    .table-container { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
-    .table-header { padding: 15px 20px; border-bottom: 1px solid #e0e0e0; }
-    .table-header h2 { font-size: 18px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #e0e0e0; }
-    th { background: #f8f9fa; font-weight: 600; font-size: 13px; color: #666; position: sticky; top: 0; cursor: pointer; user-select: none; }
-    th:hover { background: #e8e8e8; }
-    th.sortable::after { content: ' ⇅'; opacity: 0.5; }
-    th.sort-asc::after { content: ' ↑'; opacity: 1; color: #1a73e8; }
-    th.sort-desc::after { content: ' ↓'; opacity: 1; color: #1a73e8; }
-    tr:hover { background: #f8f9fa; }
-    .price { font-weight: 600; color: #34a853; }
-    .price-per-meter { font-size: 11px; color: #666; margin-top: 2px; }
-    .type-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-    .type-badge-002001001000 { background: #e8f5e9; color: #2e7d32; }
-    .type-badge-002001002000 { background: #e3f2fd; color: #1565c0; }
-    .type-badge-002001003000 { background: #fff3e0; color: #e65100; }
-    .type-badge-002001009000 { background: #fce4ec; color: #c2185b; }
-    .location { font-size: 13px; }
-    .location .city { font-weight: 500; }
-    .location .street { color: #666; display: block; }
-    .location .district { color: #999; font-size: 12px; display: block; }
-    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; margin-top: 20px; }
-    @media print { body { background: #fff; } .report-container { max-width: 100%; } }
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    :root{--blue-600:#2563eb;--blue-50:#eff6ff;--green-600:#16a34a;--green-400:#4ade80;--green-50:#f0fdf4;--red-500:#ef4444;--zinc-50:#fafafa;--zinc-100:#f4f4f5;--zinc-200:#e4e4e7;--zinc-300:#d4d4d8;--zinc-400:#a1a1aa;--zinc-500:#71717a;--zinc-600:#52525b;--zinc-700:#3f3f46;--zinc-800:#27272a;--zinc-900:#18181b;--zinc-950:#09090b}
+    body{font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--zinc-100);color:var(--zinc-900);line-height:1.5;-webkit-font-smoothing:antialiased}
+    .container{max-width:1400px;margin:0 auto;padding:24px}
+    @media(max-width:640px){.container{padding:12px}}
+    .card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08),0 1px 2px rgba(0,0,0,0.04);overflow:hidden}
+    .header-card{padding:24px;margin-bottom:16px}
+    @media(max-width:640px){.header-card{padding:16px}}
+    .header-card h1{font-size:22px;font-weight:600;color:var(--zinc-950);margin-bottom:4px}
+    .header-card .date{color:var(--zinc-500);font-size:13px}
+    .filters-box{background:var(--blue-50);border-radius:8px;padding:14px 16px;margin-top:16px}
+    .filters-box h3{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--blue-600);margin-bottom:8px}
+    .filters-tags{display:flex;flex-wrap:wrap;gap:6px}
+    .ftag{background:#fff;padding:4px 10px;border-radius:6px;font-size:12px;color:var(--zinc-700);border:1px solid var(--zinc-200)}
+    .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+    @media(max-width:640px){.metrics{grid-template-columns:repeat(2,1fr);gap:8px}}
+    .mc{padding:20px;text-align:center}
+    @media(max-width:640px){.mc{padding:14px 10px}}
+    .mc .val{font-size:22px;font-weight:600;color:var(--zinc-950)}
+    @media(max-width:640px){.mc .val{font-size:16px}}
+    .mc .lbl{font-size:12px;color:var(--zinc-500);margin-top:4px}
+    .map-section{margin-bottom:16px;padding:20px}
+    @media(max-width:640px){.map-section{padding:12px}}
+    .map-title{font-size:14px;font-weight:600;color:var(--zinc-900);margin-bottom:12px}
+    #reportMap{height:500px;border-radius:8px;z-index:1}
+    @media(max-width:640px){#reportMap{height:300px}}
+    .tbl-card{margin-bottom:16px}
+    .tbl-top{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--zinc-200);padding:12px 20px}
+    @media(max-width:640px){.tbl-top{padding:10px 12px}}
+    .tbl-top span{font-size:13px;color:var(--zinc-500)}
+    .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    table{width:100%;border-collapse:collapse;min-width:900px}
+    th{white-space:nowrap;background:var(--zinc-50);padding:10px 12px;text-align:left;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--zinc-500);border-bottom:1px solid var(--zinc-200);position:sticky;top:0;z-index:1}
+    th.sortable{cursor:pointer;user-select:none;transition:background .15s}
+    th.sortable:hover{background:var(--zinc-100)}
+    th .sort-icon{margin-left:4px;font-size:10px;opacity:.5}
+    th.active-sort .sort-icon{opacity:1}
+    td{padding:8px 12px;border-bottom:1px solid var(--zinc-100);vertical-align:top}
+    tr.row{cursor:pointer;transition:background .15s}
+    tr.row:hover{background:var(--zinc-50)}
+    .td-period{white-space:nowrap;font-size:13px;font-weight:500;color:var(--zinc-950)}
+    .badge{display:inline-flex;align-items:center;border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:500;border:1px solid var(--zinc-200);color:var(--zinc-600);background:var(--zinc-100)}
+    .badge-green{background:var(--green-50);color:var(--green-600);border-color:rgba(22,163,74,.2)}
+    .badge-red{background:#fef2f2;color:var(--red-500);border-color:rgba(239,68,68,.2)}
+    .loc{display:flex;flex-direction:column;gap:1px;max-width:250px}
+    .loc-city{font-size:13px;font-weight:500;color:var(--zinc-950);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .loc-street{font-size:12px;color:var(--zinc-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .loc-dist{font-size:11px;color:var(--zinc-400)}
+    .loc-cad{font-size:11px;color:var(--zinc-400);margin-top:2px}
+    .td-area{white-space:nowrap;font-size:12px;color:var(--zinc-500)}
+    .td-center{white-space:nowrap;text-align:center;font-size:12px;color:var(--zinc-500)}
+    .td-mat{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--zinc-500)}
+    .td-price{white-space:nowrap}
+    .price-val{font-size:13px;font-weight:600;color:var(--green-600)}
+    .price-psm{font-size:11px;color:var(--zinc-400);margin-top:1px}
+    .deal-map-overlay{position:fixed;inset:0;z-index:9999;display:none;background:rgba(0,0,0,0.3)}
+    .deal-map-overlay.active{display:block}
+    .deal-map-panel{position:fixed;right:0;top:0;height:100vh;width:50%;z-index:10000;display:none;flex-direction:column;border-left:1px solid var(--zinc-200);background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,0.12)}
+    .deal-map-panel.active{display:flex}
+    @media(max-width:1024px){.deal-map-panel{width:70%}}
+    @media(max-width:640px){.deal-map-panel{width:100%}}
+    .dm-header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--zinc-200);background:var(--zinc-50);padding:12px 16px;flex-shrink:0}
+    .dm-header-left{display:flex;align-items:center;gap:12px}
+    .dm-icon{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:var(--blue-600)}
+    .dm-icon svg{width:16px;height:16px;fill:#fff}
+    .dm-title{font-size:13px;font-weight:600;color:var(--zinc-950)}
+    .dm-subtitle{font-size:12px;color:var(--zinc-500)}
+    .dm-close{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;border:none;background:none;cursor:pointer;color:var(--zinc-500);transition:background .15s}
+    .dm-close:hover{background:var(--zinc-200);color:var(--zinc-700)}
+    .dm-close svg{width:20px;height:20px;fill:currentColor}
+    .dm-map{flex:1;min-height:400px}
+    .footer{text-align:center;padding:24px;color:var(--zinc-400);font-size:12px;margin-top:16px}
+    .analytics-card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08),0 1px 2px rgba(0,0,0,0.04);overflow:hidden;margin-bottom:16px}
+    .analytics-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;cursor:pointer;user-select:none;transition:background .15s}
+    .analytics-header:hover{background:var(--zinc-50)}
+    .analytics-header h2{font-size:16px;font-weight:600;color:var(--zinc-800);margin:0}
+    .analytics-toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--zinc-500)}
+    .analytics-toggle .arrow{font-size:12px;transition:transform .2s}
+    .analytics-toggle .arrow.open{transform:rotate(180deg)}
+    .analytics-metrics{display:flex;gap:12px;padding:0 20px 16px;overflow-x:auto}
+    .analytics-metric{flex:1;min-width:140px;background:linear-gradient(135deg,#f8fafc,#eff6ff);border-radius:10px;padding:14px 16px;text-align:center}
+    .analytics-metric .val{font-size:18px;font-weight:700;color:var(--blue-600);white-space:nowrap}
+    .analytics-metric .lbl{font-size:11px;color:var(--zinc-500);margin-top:4px;text-transform:uppercase;letter-spacing:.03em}
+    .analytics-body{padding:16px 20px 20px;border-top:1px solid var(--zinc-200);display:none}
+    .analytics-body.open{display:block}
+    .chart-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:16px}
+    @media(max-width:768px){.chart-grid{grid-template-columns:1fr}}
+    .chart-section{background:var(--zinc-50);border-radius:10px;padding:16px}
+    .chart-section.full-width{grid-column:1/-1}
+    .chart-section h3{font-size:13px;font-weight:500;color:var(--zinc-500);margin:0 0 12px;text-transform:uppercase;letter-spacing:.05em}
+    .chart-section svg text{font-family:Inter,-apple-system,sans-serif}
+    .range-info{display:flex;flex-wrap:wrap;gap:16px;padding:16px 0;border-top:1px solid var(--zinc-200)}
+    .range-info-item{flex:1;min-width:200px}
+    .range-info-item h4{font-size:12px;font-weight:500;color:var(--zinc-500);margin:0 0 8px;text-transform:uppercase;letter-spacing:.03em}
+    .range-values{display:flex;flex-wrap:wrap;gap:12px}
+    .range-val{display:flex;align-items:center;gap:6px}
+    .range-val .rl{font-size:12px;color:var(--zinc-400)}
+    .range-val .rv{font-size:13px;font-weight:600;color:var(--zinc-800)}
   </style>
 </head>
 <body>
-  <div class="report-container">
-    <div class="report-header">
-      <h1>📊 Отчёт по сделкам с недвижимостью</h1>
-      <div class="report-date">Дата формирования: ${new Date().toLocaleString('ru-RU')}</div>
+  <div class="container">
+    <div class="card header-card">
+      <h1>Отчёт по сделкам с недвижимостью</h1>
+      <div class="date">Дата формирования: ${new Date().toLocaleString('ru-RU')}</div>
       ${filterDescriptions.length > 0 ? `
-      <div class="filters-summary">
-        <h3>Применённые фильтры:</h3>
-        <div class="filters-list">
-          ${filterDescriptions.map(d => `<span class="filter-tag">${d}</span>`).join('\n          ')}
+      <div class="filters-box">
+        <h3>Применённые фильтры</h3>
+        <div class="filters-tags">
+          ${filterDescriptions.map(d => `<span class="ftag">${d}</span>`).join('\n          ')}
+        </div>
+      </div>` : ''}
+    </div>
+    <div class="metrics">
+      <div class="card mc"><div class="val">${formatNumber(deals.length)}</div><div class="lbl">Сделок</div></div>
+      <div class="card mc"><div class="val">${formatPrice(totalSum)} ₽</div><div class="lbl">Общая сумма</div></div>
+      <div class="card mc"><div class="val">${formatPrice(avgPrice)} ₽</div><div class="lbl">Средняя цена</div></div>
+      <div class="card mc"><div class="val">${formatPrice(medianPrice)} ₽</div><div class="lbl">Медианная цена</div></div>
+      <div class="card mc"><div class="val">${formatNumber(avgArea)} м²</div><div class="lbl">Средняя площадь</div></div>
+    </div>
+    <div class="analytics-card">
+      <div class="analytics-header" onclick="toggleAnalytics()">
+        <h2>Аналитика</h2>
+        <div class="analytics-toggle"><span id="analyticsToggleText">Развернуть</span><span class="arrow" id="analyticsArrow">&#9650;</span></div>
+      </div>
+      <div class="analytics-metrics">
+        <div class="analytics-metric"><div class="val">${formatNumber(deals.length)}</div><div class="lbl">Сделок</div></div>
+        <div class="analytics-metric"><div class="val">${formatPrice(totalSum)} ₽</div><div class="lbl">Общая сумма</div></div>
+        <div class="analytics-metric"><div class="val">${formatPrice(avgPrice)} ₽</div><div class="lbl">Средняя цена</div></div>
+        <div class="analytics-metric"><div class="val">${formatPrice(medianPrice)} ₽</div><div class="lbl">Медианная цена</div></div>
+      </div>
+      <div class="analytics-body" id="analyticsBody">
+        <div class="chart-grid">
+          <div class="chart-section full-width">
+            <h3>Динамика сделок по периодам</h3>
+            ${renderLineChart(byQuarter)}
+          </div>
+          <div class="chart-section full-width">
+            <h3>Динамика средней цены по периодам</h3>
+            ${renderComposedChart(byQuarter)}
+          </div>
+          <div class="chart-section">
+            <h3>По типу объекта</h3>
+            ${renderPieChart(byType)}
+          </div>
+          <div class="chart-section">
+            <h3>По типу договора</h3>
+            ${renderPieChart(byDocType)}
+          </div>
+          <div class="chart-section">
+            <h3>По материалу стен</h3>
+            ${renderPieChart(byWallMaterial, 8)}
+          </div>
+          <div class="chart-section">
+            <h3>Топ-10 регионов</h3>
+            ${renderBarChart(topRegions)}
+          </div>
+        </div>
+        <div class="range-info">
+          <div class="range-info-item">
+            <h4>Ценовой диапазон</h4>
+            <div class="range-values">
+              <div class="range-val"><span class="rl">Мин:</span><span class="rv">${formatPrice(priceMinVal)} ₽</span></div>
+              <div class="range-val"><span class="rl">Макс:</span><span class="rv">${formatPrice(priceMaxVal)} ₽</span></div>
+              <div class="range-val"><span class="rl">Средняя:</span><span class="rv">${formatPrice(avgPrice)} ₽</span></div>
+              <div class="range-val"><span class="rl">Медиана:</span><span class="rv">${formatPrice(medianPrice)} ₽</span></div>
+            </div>
+          </div>
+          <div class="range-info-item">
+            <h4>Площадь (м²)</h4>
+            <div class="range-values">
+              <div class="range-val"><span class="rl">Мин:</span><span class="rv">${formatNumber(areaMinVal)}</span></div>
+              <div class="range-val"><span class="rl">Макс:</span><span class="rv">${formatNumber(areaMaxVal)}</span></div>
+              <div class="range-val"><span class="rl">Средняя:</span><span class="rv">${formatNumber(avgArea)}</span></div>
+            </div>
+          </div>
         </div>
       </div>
-      ` : ''}
     </div>
-
-    <div class="metrics-row">
-      <div class="metric-card">
-        <div class="metric-value">${formatNumber(deals.length)}</div>
-        <div class="metric-label">Сделок</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-value">${formatPrice(totalSum)} ₽</div>
-        <div class="metric-label">Общая сумма</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-value">${formatPrice(avgPrice)} ₽</div>
-        <div class="metric-label">Средняя цена</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-value">${formatPrice(medianPrice)} ₽</div>
-        <div class="metric-label">Медианная цена</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-value">${formatNumber(avgArea)} м²</div>
-        <div class="metric-label">Средняя площадь</div>
+    ${hasMapData ? `
+    <div class="card map-section">
+      <div class="map-title">Карта${polygonCoords ? ' (область поиска)' : ''}</div>
+      <div id="reportMap"></div>
+    </div>` : ''}
+    <div class="card tbl-card">
+      <div class="tbl-top"><span>Найдено: ${formatNumber(deals.length)} сделок</span></div>
+      <div class="tbl-wrap">
+        <table id="dealsTable">
+          <thead><tr>
+            <th class="sortable" onclick="sortBy('year_quarter')">Период <span class="sort-icon" id="sort-year_quarter">⇅</span></th>
+            <th class="sortable" onclick="sortBy('type')">Тип <span class="sort-icon" id="sort-type">⇅</span></th><th>Локация</th>
+            <th class="sortable" onclick="sortBy('area')">Пл. <span class="sort-icon" id="sort-area">⇅</span></th>
+            <th class="sortable" onclick="sortBy('floor')">Этаж <span class="sort-icon" id="sort-floor">⇅</span></th>
+            <th class="sortable" onclick="sortBy('year_build')">Год <span class="sort-icon" id="sort-year_build">⇅</span></th>
+            <th class="sortable" onclick="sortBy('material')">Материал <span class="sort-icon" id="sort-material">⇅</span></th>
+            <th class="sortable" onclick="sortBy('price')">Цена <span class="sort-icon" id="sort-price">⇅</span></th>
+            <th class="sortable" onclick="sortBy('doc')">Док. <span class="sort-icon" id="sort-doc">⇅</span></th>
+          </tr></thead>
+          <tbody id="dealsBody"></tbody>
+        </table>
       </div>
     </div>
-
-    <div class="table-container">
-      <div class="table-header">
-        <h2>Сделки (${formatNumber(deals.length)} записей)</h2>
-      </div>
-      <table id="dealsTable">
-        <thead>
-          <tr>
-            <th class="sortable" data-sort="period">Период</th>
-            <th class="sortable" data-sort="type">Тип</th>
-            <th>Локация</th>
-            <th class="sortable" data-sort="area">Площадь</th>
-            <th class="sortable" data-sort="floor">Этаж</th>
-            <th class="sortable" data-sort="year">Год</th>
-            <th>Материал</th>
-            <th class="sortable" data-sort="price">Цена</th>
-            <th>Док.</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${deals.map(deal => `
-          <tr data-period="${deal.year_quarter}" data-type="${deal.realestate_type_code}" data-area="${deal.area}" data-floor="${deal.floor || 0}" data-year="${deal.year_build || 0}" data-price="${deal.deal_price}">
-            <td>${formatPeriod(deal.year_quarter)}</td>
-            <td><span class="type-badge type-badge-${deal.realestate_type_code}">${getRealEstateTypeName(deal.realestate_type_code).substring(0, 3)}</span></td>
-            <td>
-              <div class="location">
-                ${deal.city ? `<span class="city">${deal.city}</span>` : ''}
-                ${deal.street ? `<span class="street">${deal.street}</span>` : ''}
-                ${deal.district ? `<span class="district">${deal.district}</span>` : ''}
-                ${deal.quarter_cad_number ? `<a href="https://map.ru/pkk?query=${deal.quarter_cad_number}" target="_blank" rel="noopener noreferrer" class="cad-number" onclick="navigator.clipboard.writeText('${deal.quarter_cad_number}')">📍 ${deal.quarter_cad_number}</a>` : ''}
-              </div>
-            </td>
-            <td>${deal.area > 0 ? formatNumber(deal.area) : '—'}${deal.number > 1 ? ` ×${deal.number}` : ''}</td>
-            <td>${deal.floor || '—'}</td>
-            <td>${deal.year_build || '—'}</td>
-            <td>${getWallMaterialName(deal.wall_material_code)}</td>
-            <td class="price">
-              <div class="price-value">${formatPrice(deal.deal_price)} ₽</div>
-              ${deal.area > 0 ? `<div class="price-per-meter">${formatPricePerMeter(deal.deal_price, deal.area)}</div>` : ''}
-            </td>
-            <td>${deal.doc_type}</td>
-          </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="footer">
-      Сформировано автоматически • ${new Date().toLocaleString('ru-RU')}
-    </div>
+    <div class="footer">Сформировано автоматически • ${new Date().toLocaleString('ru-RU')}</div>
   </div>
+  <div class="deal-map-overlay" id="dmOverlay" onclick="closeDealMap()"></div>
+  <div class="deal-map-panel" id="dmPanel">
+    <div class="dm-header">
+      <div class="dm-header-left">
+        <div class="dm-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="m9.69 18.933.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 0 0 .281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 1 0 3 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 0 0 2.274 1.765 11.307 11.307 0 0 0 .757.433l.04.021.01.006.004.002ZM10 11.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z" clip-rule="evenodd"/></svg></div>
+        <div><div class="dm-title">Расположение на карте</div><div class="dm-subtitle" id="dmQuarter"></div></div>
+      </div>
+      <button class="dm-close" onclick="closeDealMap()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/></svg></button>
+    </div>
+    <div class="dm-map" id="dmMap"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
   <script>
-    let currentSort = { field: null, order: 'desc' };
+    const allDeals = ${JSON.stringify(dealsData)};
+    const allQuarters = ${JSON.stringify(quartersData)};
+    const filterPolygon = ${JSON.stringify(polygonCoords)};
+    const realEstateTypes = ${JSON.stringify(Object.fromEntries(Object.entries(REAL_ESTATE_TYPES)))};
+    const wallMaterials = ${JSON.stringify(Object.fromEntries(Object.entries(WALL_MATERIALS)))};
+    const fmt = (n) => new Intl.NumberFormat('ru-RU').format(n);
+    const fmtPrice = (p) => fmt(Math.round(p));
 
-    document.querySelectorAll('th.sortable').forEach(th => {
-      th.addEventListener('click', () => {
-        const field = th.dataset.sort;
-        const table = document.getElementById('dealsTable');
-        const tbody = table.querySelector('tbody');
-        const rows = Array.from(tbody.querySelectorAll('tr'));
+    function getWallName(code) {
+      if (!code) return '';
+      if (wallMaterials[code]) return wallMaterials[code];
+      if (code.startsWith('0') && wallMaterials[code.substring(1)]) return wallMaterials[code.substring(1)];
+      if (wallMaterials['0' + code]) return wallMaterials['0' + code];
+      return code;
+    }
 
-        // Определяем направление сортировки
-        if (currentSort.field === field) {
-          currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
-        } else {
-          currentSort.field = field;
-          currentSort.order = 'desc';
-        }
+    function getRealTypeName(code) {
+      return realEstateTypes[code] || code;
+    }
 
-        // Обновляем визуальные индикаторы
-        document.querySelectorAll('th.sortable').forEach(h => {
-          h.classList.remove('sort-asc', 'sort-desc');
-        });
-        th.classList.add(currentSort.order === 'asc' ? 'sort-asc' : 'sort-desc');
+    let tileLayerFactory = null;
 
-        // Сортируем строки
-        rows.sort((a, b) => {
-          let valA = a.dataset[field];
-          let valB = b.dataset[field];
+    async function initTileSystem() {
+      try {
+        const [
+          { leafletLayer, paintRules, labelRules },
+          { LIGHT }
+        ] = await Promise.all([
+          import('https://esm.sh/protomaps-leaflet@5.1.0'),
+          import('https://esm.sh/@protomaps/basemaps@5.7.2')
+        ]);
+        tileLayerFactory = (map) => {
+          return leafletLayer({
+            url: 'https://55ff837e6c44-neo-maps.s3.ru1.storage.beget.cloud/maps/russia_z14.pmtiles',
+            attribution: 'OpenStreetMap, Protomaps',
+            paintRules: paintRules(LIGHT),
+            labelRules: labelRules(LIGHT, 'ru'),
+            maxDataZoom: 14,
+          }).addTo(map);
+        };
+      } catch(e) {
+        console.warn('Protomaps failed, falling back to OSM:', e);
+        tileLayerFactory = (map) => {
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 19,
+          }).addTo(map);
+        };
+      }
+    }
 
-          // Числовая сортировка для числовых полей
-          if (['area', 'floor', 'year', 'price'].includes(field)) {
-            valA = parseFloat(valA) || 0;
-            valB = parseFloat(valB) || 0;
-          }
+    function createTileLayer(map) {
+      if (tileLayerFactory) tileLayerFactory(map);
+    }
 
-          if (valA < valB) return currentSort.order === 'asc' ? -1 : 1;
-          if (valA > valB) return currentSort.order === 'asc' ? 1 : -1;
-          return 0;
-        });
+    // Analytics toggle
+    window.toggleAnalytics = function() {
+      const body = document.getElementById('analyticsBody');
+      const arrow = document.getElementById('analyticsArrow');
+      const text = document.getElementById('analyticsToggleText');
+      if (body.classList.contains('open')) {
+        body.classList.remove('open');
+        arrow.classList.remove('open');
+        text.textContent = 'Развернуть';
+      } else {
+        body.classList.add('open');
+        arrow.classList.add('open');
+        text.textContent = 'Свернуть';
+      }
+    };
 
-        // Перемещаем отсортированные строки
-        rows.forEach(row => tbody.appendChild(row));
+    // Sorting
+    let sortField = 'year_quarter';
+    let sortOrder = 'desc';
+    let sortedIndices = allDeals.map((_, i) => i);
+
+    function doSort() {
+      sortedIndices.sort((a, b) => {
+        const da = allDeals[a], db = allDeals[b];
+        let cmp = 0;
+        if (sortField === 'year_quarter') cmp = da.year_quarter.localeCompare(db.year_quarter);
+        else if (sortField === 'price') cmp = da.deal_price - db.deal_price;
+        else if (sortField === 'area') cmp = da.area - db.area;
+        else if (sortField === 'floor') cmp = (da.floor||0) - (db.floor||0);
+        else if (sortField === 'year_build') cmp = (da.year_build||0) - (db.year_build||0);
+        else if (sortField === 'type') cmp = (getRealTypeName(da.realestate_type_code)||'').localeCompare(getRealTypeName(db.realestate_type_code)||'');
+        else if (sortField === 'material') cmp = (getWallName(da.wall_material_code)||'').localeCompare(getWallName(db.wall_material_code)||'');
+        else if (sortField === 'doc') cmp = (da.doc_type||'').localeCompare(db.doc_type||'');
+        return sortOrder === 'asc' ? cmp : -cmp;
       });
+    }
+
+    function renderTable() {
+      const body = document.getElementById('dealsBody');
+      body.innerHTML = sortedIndices.map(i => {
+        const d = allDeals[i];
+        const ppm = d.area > 0 ? fmtPrice(d.deal_price / d.area) + ' ₽/м²' : '';
+        return '<tr class="row" onclick="openDealMap(' + i + ')">'
+          + '<td class="td-period">' + d.year_quarter + '</td>'
+          + '<td><span class="badge">' + getRealTypeName(d.realestate_type_code).substring(0, 3) + '</span></td>'
+          + '<td><div class="loc">'
+          + (d.city ? '<span class="loc-city">' + d.city + '</span>' : '')
+          + (d.street ? '<span class="loc-street">' + d.street + '</span>' : '')
+          + (d.district ? '<span class="loc-dist">' + d.district + '</span>' : '')
+          + (d.quarter_cad_number ? '<span class="loc-cad">' + d.quarter_cad_number + '</span>' : '')
+          + '</div></td>'
+          + '<td class="td-area">' + (d.area > 0 ? fmt(d.area) : '—') + (d.number > 1 ? ' <span style="color:var(--zinc-400)">×' + d.number + '</span>' : '') + '</td>'
+          + '<td class="td-center">' + (d.floor || '—') + '</td>'
+          + '<td class="td-center">' + (d.year_build || '—') + '</td>'
+          + '<td class="td-mat">' + (getWallName(d.wall_material_code) || '—') + '</td>'
+          + '<td class="td-price"><div class="price-val">' + fmtPrice(d.deal_price) + ' ₽</div>' + (ppm ? '<div class="price-psm">' + ppm + '</div>' : '') + '</td>'
+          + '<td><span class="badge ' + (d.doc_type === 'ДКП' ? 'badge-green' : d.doc_type === 'ДДУ' ? 'badge-red' : '') + '">' + d.doc_type + '</span></td>'
+          + '</tr>';
+      }).join('');
+
+      ['year_quarter', 'type', 'area', 'floor', 'year_build', 'material', 'price', 'doc'].forEach(f => {
+        const el = document.getElementById('sort-' + f);
+        const th = el.parentElement;
+        if (f === sortField) {
+          el.textContent = sortOrder === 'asc' ? '↑' : '↓';
+          th.classList.add('active-sort');
+        } else {
+          el.textContent = '⇅';
+          th.classList.remove('active-sort');
+        }
+      });
+    }
+
+    window.sortBy = function(field) {
+      if (sortField === field) sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+      else { sortField = field; sortOrder = 'desc'; }
+      doSort();
+      renderTable();
+    };
+
+    // Map — report
+    let reportMap = null;
+    ${hasMapData ? `
+    function initReportMap() {
+      const el = document.getElementById('reportMap');
+      if (!el) return;
+      reportMap = L.map(el, { attributionControl: false }).setView([55.7558, 37.6173], 10);
+      L.control.attribution({ prefix: false }).addTo(reportMap);
+      createTileLayer(reportMap);
+      const allBounds = L.latLngBounds([]);
+      allQuarters.forEach(q => {
+        try {
+          const coords = q.geometry.coordinates[0].map(c => [c[1], c[0]]);
+          const polygon = L.polygon(coords, { color: '#3b82f6', weight: 1.5, fillColor: '#3b82f6', fillOpacity: 0.08 }).addTo(reportMap);
+          const qDeals = allDeals.filter(d => d.quarter_cad_number === q.cad_number);
+          const stats = qDeals.length > 0
+            ? 'Сделок: ' + qDeals.length + '<br>Ср. цена: ' + fmtPrice(qDeals.reduce((s,d)=>s+d.deal_price,0)/qDeals.length) + ' ₽'
+            : 'Нет сделок';
+          polygon.bindPopup('<div style="font-family:Inter,sans-serif;min-width:180px"><strong>' + q.cad_number + '</strong><br>' + stats + '</div>');
+          allBounds.extend(polygon.getBounds());
+        } catch(e) {}
+      });
+      if (filterPolygon && filterPolygon.length >= 3) {
+        const fPoly = L.polygon(filterPolygon.map(c => [c[0], c[1]]), { color: '#ef4444', weight: 2, dashArray: '8 4', fillColor: '#ef4444', fillOpacity: 0.06 }).addTo(reportMap);
+        allBounds.extend(fPoly.getBounds());
+      }
+      if (allBounds.isValid()) reportMap.fitBounds(allBounds, { padding: [30, 30] });
+    }` : ''}
+
+    // DealMap side panel
+    let dmMap = null;
+    window.openDealMap = function(idx) {
+      const deal = allDeals[idx];
+      if (!deal) return;
+      document.getElementById('dmQuarter').textContent = deal.quarter_cad_number || '';
+      document.getElementById('dmOverlay').classList.add('active');
+      document.getElementById('dmPanel').classList.add('active');
+      setTimeout(() => {
+        if (dmMap) { dmMap.remove(); dmMap = null; }
+        dmMap = L.map(document.getElementById('dmMap'), { attributionControl: false }).setView([55.7558, 37.6173], 10);
+        createTileLayer(dmMap);
+        if (deal.quarter_cad_number) {
+          const quarter = allQuarters.find(q => q.cad_number === deal.quarter_cad_number);
+          if (quarter) {
+            try {
+              const coords = quarter.geometry.coordinates[0].map(c => [c[1], c[0]]);
+              const polygon = L.polygon(coords, { color: '#3b82f6', weight: 3, fillColor: '#3b82f6', fillOpacity: 0.15 }).addTo(dmMap);
+              const ppm = deal.area > 0 ? fmtPrice(deal.deal_price / deal.area) + ' ₽/м²' : '';
+              polygon.bindPopup('<div style="font-family:Inter,-apple-system,sans-serif;min-width:220px;padding:4px">'
+                + '<div style="font-size:11px;font-weight:500;color:#71717a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Кадастровый квартал</div>'
+                + '<div style="font-size:14px;font-weight:600;color:#18181b;margin-bottom:8px">' + deal.quarter_cad_number + '</div>'
+                + '<div style="border-top:1px solid #e4e4e7;margin:8px 0"></div>'
+                + '<div style="font-size:13px;color:#3f3f46;line-height:1.6">'
+                + '<div><strong>Адрес:</strong> ' + [deal.city,deal.street].filter(Boolean).join(', ') + '</div>'
+                + '<div><strong>Площадь:</strong> ' + (deal.area > 0 ? fmt(deal.area) + ' м²' : '—') + '</div>'
+                + '<div><strong>Цена:</strong> ' + fmtPrice(deal.deal_price) + ' ₽</div>'
+                + (ppm ? '<div><strong>Цена/м²:</strong> ' + ppm + '</div>' : '')
+                + '<div><strong>Период:</strong> ' + deal.year_quarter + '</div>'
+                + '</div></div>');
+              if (filterPolygon && filterPolygon.length >= 3) {
+                const fPoly = L.polygon(filterPolygon.map(c => [c[0], c[1]]), { color: '#ef4444', weight: 2, dashArray: '8 4', fillColor: '#ef4444', fillOpacity: 0.06 }).addTo(dmMap);
+                const b = polygon.getBounds();
+                b.extend(fPoly.getBounds());
+                dmMap.fitBounds(b, { padding: [50, 50] });
+              } else {
+                dmMap.fitBounds(polygon.getBounds(), { padding: [50, 50] });
+              }
+            } catch(e) {}
+          }
+        }
+      }, 150);
+    };
+
+    window.closeDealMap = function() {
+      document.getElementById('dmOverlay').classList.remove('active');
+      document.getElementById('dmPanel').classList.remove('active');
+      if (dmMap) { dmMap.remove(); dmMap = null; }
+    };
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') window.closeDealMap(); });
+
+    // Init: render table immediately, load tiles async then init map
+    doSort();
+    renderTable();
+
+    initTileSystem().then(() => {
+      ${hasMapData ? `initReportMap();` : ''}
     });
-  </script>
+  <\/script>
 </body>
 </html>`;
 
-    // Создаём и скачиваем файл
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -516,287 +980,235 @@ export const SearchPage: React.FC = () => {
 
   if (stats && stats.totalDeals === 0) {
     return (
-      <div className="search-page">
-        <div className="no-data-message">
-          <h2>Нет данных для поиска</h2>
-          <p>Сначала импортируйте данные о сделках</p>
-          <a href="../import/import.html" className="btn btn-primary">
-            Перейти к импорту
-          </a>
+      <div className="mx-auto max-w-6xl p-6">
+        <div className="rounded-xl bg-white p-16 text-center shadow-sm dark:bg-zinc-900">
+          <Heading level={2}>Нет данных для поиска</Heading>
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Сначала импортируйте данные о сделках</p>
+          <button onClick={() => onNavigate?.('import')} className="mt-6 inline-block bg-transparent border-none p-0 cursor-pointer">
+            <Button color="blue">Перейти к импорту</Button>
+          </button>
         </div>
       </div>
     );
   }
 
-  const sortedDeals = result ? sortDeals(result.deals) : [];
+  // Сортировка всех отфильтрованных данных, затем пагинация
+  const sortedAllDeals = useMemo(() => {
+    if (allFilteredDeals.length === 0) return [];
+    return sortDeals(allFilteredDeals);
+  }, [allFilteredDeals, sortField, sortOrder]);
+
+  const totalFiltered = allFilteredDeals.length;
+  const totalPages = Math.ceil(totalFiltered / pageSize);
+  const currentPage = Math.min(page, totalPages || 1);
+  const pagedDeals = sortedAllDeals.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
-    <div className="search-page">
-      <header className="page-header">
-        <h1>🔍 Поиск сделок</h1>
-        <div className="header-stats">
+    <div className="mx-auto max-w-6xl p-6">
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <Heading level={1}>Поиск сделок</Heading>
+        <div className="flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
           <span>{stats ? formatNumber(stats.totalDeals) : 0} сделок в базе</span>
-          <a href="../import/import.html" className="nav-link">
-            📥 Импорт
-          </a>
+          <button
+            onClick={() => onNavigate?.('import')}
+            className="text-blue-600 hover:underline text-sm bg-transparent border-none cursor-pointer dark:text-blue-400"
+          >
+            Импорт
+          </button>
         </div>
-      </header>
-
-      {/* Табы навигации */}
-      <div className="view-tabs">
-        <button
-          className={`view-tab ${activeTab === 'table' ? 'active' : ''}`}
-          onClick={() => setActiveTab('table')}
-        >
-          Таблица
-        </button>
-        <button
-          className={`view-tab ${activeTab === 'heatmap' ? 'active' : ''}`}
-          onClick={() => setActiveTab('heatmap')}
-        >
-          Тепловая карта
-        </button>
-        {selectedCadNumbers.length > 0 && (
-          <span className="tab-filter-badge">
-            Фильтр: {selectedCadNumbers.length} кварталов
-          </span>
-        )}
       </div>
 
-      {/* Таб: Таблица (поиск + фильтры + результаты) */}
-      {activeTab === 'table' && (
-      <div className="search-container">
-        {/* Быстрый поиск */}
-        <div className="quick-search">
-          <input
-            type="text"
-            placeholder="Город (через запятую для нескольких)..."
-            value={searchCity}
-            onChange={(e) => setSearchCity(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          />
-          <input
-            type="text"
-            placeholder="Улица (через запятую для нескольких)..."
-            value={searchStreet}
-            onChange={(e) => setSearchStreet(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          />
-          <button className="btn btn-primary" onClick={handleSearch}>
+      {selectedCadNumbers.length > 0 && (
+        <Badge color="blue" className="mb-4">Фильтр: {selectedCadNumbers.length} кварталов</Badge>
+      )}
+
+      <div className="space-y-4">
+        {/* Quick Search */}
+        <div className="flex flex-wrap gap-3">
+          <div className="min-w-[180px] flex-1">
+            <Input
+              type="text"
+              placeholder="Город (через запятую для нескольких)..."
+              value={searchCity}
+              onChange={(e) => setSearchCity(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            />
+          </div>
+          <div className="min-w-[180px] flex-1">
+            <Input
+              type="text"
+              placeholder="Улица (через запятую для нескольких)..."
+              value={searchStreet}
+              onChange={(e) => setSearchStreet(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            />
+          </div>
+          <Button color="blue" onClick={handleSearch}>
+            <MagnifyingGlassIcon className="size-4" />
             Найти
-          </button>
-          <button className="btn btn-secondary" onClick={() => setShowFilters(!showFilters)}>
+          </Button>
+          <Button onClick={() => setShowFilters(!showFilters)}>
+            <FunnelIcon className="size-4" />
             {showFilters ? 'Скрыть фильтры' : 'Фильтры'}
-          </button>
+          </Button>
         </div>
 
-        {/* Расширенные фильтры */}
+        {/* Filters */}
         {showFilters && (
-          <div className="filters">
-            <div className="filter-row">
-              <div className="filter-group">
-                <h4>Тип объекта</h4>
-                <div className="filter-options">
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+            {/* Real Estate Type */}
+            <div className="mb-4 flex flex-wrap gap-5">
+              <div className="min-w-[200px] flex-1">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Тип объекта</h4>
+                <div className="flex flex-wrap gap-2">
                   {Object.entries(REAL_ESTATE_TYPES).map(([code, name]) => (
-                    <label key={code} className="filter-checkbox">
+                    <label key={code} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
                       <input
                         type="checkbox"
+                        className="size-3.5"
                         checked={selectedTypes.includes(code)}
                         onChange={() => toggleType(code)}
                       />
-                      <span>{name}</span>
+                      <span className="text-zinc-700 dark:text-zinc-300">{name}</span>
                     </label>
                   ))}
                 </div>
               </div>
 
-              <div className="filter-group">
-                <h4>Тип документа</h4>
-                <div className="filter-options">
+              <div className="min-w-[200px] flex-1">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Тип документа</h4>
+                <div className="flex flex-wrap gap-2">
                   {Object.entries(DOCUMENT_TYPES).map(([code, name]) => (
-                    <label key={code} className="filter-checkbox">
+                    <label key={code} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
                       <input
                         type="checkbox"
+                        className="size-3.5"
                         checked={selectedDocTypes.includes(code)}
                         onChange={() => toggleDocType(code)}
                       />
-                      <span>{name}</span>
+                      <span className="text-zinc-700 dark:text-zinc-300">{name}</span>
                     </label>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Фильтр по периодам - новый дизайн */}
-            <div className="filter-row">
-              <div className="filter-group filter-group-full">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <h4 style={{ margin: 0 }}>Период (год-квартал)</h4>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: '11px', padding: '4px 8px' }}
-                      onClick={selectAllPeriods}
-                    >
-                      Выбрать все
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: '11px', padding: '4px 8px' }}
-                      onClick={clearPeriods}
-                    >
-                      Очистить
-                    </button>
-                  </div>
+            {/* Periods */}
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between">
+                <h4 className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Период (год-квартал)</h4>
+                <div className="flex gap-2">
+                  <Button className="!py-1 !px-2 !text-[11px]" onClick={selectAllPeriods}>Выбрать все</Button>
+                  <Button className="!py-1 !px-2 !text-[11px]" onClick={clearPeriods}>Очистить</Button>
                 </div>
-                <div className="filter-options periods-grid">
-                  {availablePeriods.map((period) => (
-                    <label key={period} className="filter-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={selectedPeriods.includes(period)}
-                        onChange={() => togglePeriod(period)}
-                      />
-                      <span>{formatPeriod(period)}</span>
-                    </label>
-                  ))}
+              </div>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2">
+                {availablePeriods.map((period) => (
+                  <label key={period} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
+                    <input
+                      type="checkbox"
+                      className="size-3.5"
+                      checked={selectedPeriods.includes(period)}
+                      onChange={() => togglePeriod(period)}
+                    />
+                    <span className="text-zinc-700 dark:text-zinc-300">{formatPeriod(period)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Price & Area ranges */}
+            <div className="mb-4 flex flex-wrap gap-5">
+              <div className="min-w-[250px] flex-1">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Цена (руб)</h4>
+                <div className="flex items-center gap-2">
+                  <Input type="number" placeholder="От" value={priceMin} onChange={(e) => setPriceMin(e.target.value)} />
+                  <span className="text-zinc-400">—</span>
+                  <Input type="number" placeholder="До" value={priceMax} onChange={(e) => setPriceMax(e.target.value)} />
+                </div>
+              </div>
+              <div className="min-w-[250px] flex-1">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Площадь (м²)</h4>
+                <div className="flex items-center gap-2">
+                  <Input type="number" placeholder="От" value={areaMin} onChange={(e) => setAreaMin(e.target.value)} />
+                  <span className="text-zinc-400">—</span>
+                  <Input type="number" placeholder="До" value={areaMax} onChange={(e) => setAreaMax(e.target.value)} />
                 </div>
               </div>
             </div>
 
-            <div className="filter-row">
-              <div className="filter-group filter-group-wide">
-                <h4>Цена (руб)</h4>
-                <div className="range-inputs">
-                  <input
-                    type="number"
-                    placeholder="От"
-                    value={priceMin}
-                    onChange={(e) => setPriceMin(e.target.value)}
-                  />
-                  <span className="range-separator">—</span>
-                  <input
-                    type="number"
-                    placeholder="До"
-                    value={priceMax}
-                    onChange={(e) => setPriceMax(e.target.value)}
-                  />
+            {/* Floor & Year ranges */}
+            <div className="mb-4 flex flex-wrap gap-5">
+              <div className="min-w-[250px] flex-1">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Этаж</h4>
+                <div className="flex items-center gap-2">
+                  <Input type="number" placeholder="От" value={floorMin} onChange={(e) => setFloorMin(e.target.value)} />
+                  <span className="text-zinc-400">—</span>
+                  <Input type="number" placeholder="До" value={floorMax} onChange={(e) => setFloorMax(e.target.value)} />
                 </div>
               </div>
-
-              <div className="filter-group filter-group-wide">
-                <h4>Площадь (м²)</h4>
-                <div className="range-inputs">
-                  <input
-                    type="number"
-                    placeholder="От"
-                    value={areaMin}
-                    onChange={(e) => setAreaMin(e.target.value)}
-                  />
-                  <span className="range-separator">—</span>
-                  <input
-                    type="number"
-                    placeholder="До"
-                    value={areaMax}
-                    onChange={(e) => setAreaMax(e.target.value)}
-                  />
+              <div className="min-w-[250px] flex-1">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Год постройки</h4>
+                <div className="flex items-center gap-2">
+                  <Input type="number" placeholder="От" value={yearBuildMin} onChange={(e) => setYearBuildMin(e.target.value)} />
+                  <span className="text-zinc-400">—</span>
+                  <Input type="number" placeholder="До" value={yearBuildMax} onChange={(e) => setYearBuildMax(e.target.value)} />
                 </div>
               </div>
             </div>
 
-            <div className="filter-row">
-              <div className="filter-group filter-group-wide">
-                <h4>Этаж</h4>
-                <div className="range-inputs">
-                  <input
-                    type="number"
-                    placeholder="От"
-                    value={floorMin}
-                    onChange={(e) => setFloorMin(e.target.value)}
-                  />
-                  <span className="range-separator">—</span>
-                  <input
-                    type="number"
-                    placeholder="До"
-                    value={floorMax}
-                    onChange={(e) => setFloorMax(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="filter-group filter-group-wide">
-                <h4>Год постройки</h4>
-                <div className="range-inputs">
-                  <input
-                    type="number"
-                    placeholder="От"
-                    value={yearBuildMin}
-                    onChange={(e) => setYearBuildMin(e.target.value)}
-                  />
-                  <span className="range-separator">—</span>
-                  <input
-                    type="number"
-                    placeholder="До"
-                    value={yearBuildMax}
-                    onChange={(e) => setYearBuildMax(e.target.value)}
-                  />
-                </div>
+            {/* Wall Materials */}
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Материал стен</h4>
+              <div className="flex max-h-[200px] flex-wrap gap-2 overflow-y-auto">
+                {Object.entries(WALL_MATERIALS).map(([code, name]) => (
+                  <label key={code} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
+                    <input
+                      type="checkbox"
+                      className="size-3.5"
+                      checked={selectedWallMaterials.includes(code)}
+                      onChange={() => toggleWallMaterial(code)}
+                    />
+                    <span className="text-zinc-700 dark:text-zinc-300">{name}</span>
+                  </label>
+                ))}
               </div>
             </div>
 
-            <div className="filter-row">
-              <div className="filter-group filter-group-full">
-                <h4>Материал стен</h4>
-                <div className="filter-options wall-materials">
-                  {Object.entries(WALL_MATERIALS).map(([code, name]) => (
-                    <label key={code} className="filter-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={selectedWallMaterials.includes(code)}
-                        onChange={() => toggleWallMaterial(code)}
-                      />
-                      <span>{name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
+            {/* Regions */}
             {stats && stats.regions.length > 0 && stats.regions.length <= 20 && (
-              <div className="filter-row">
-                <div className="filter-group filter-group-full">
-                  <h4>Регион</h4>
-                  <div className="filter-options regions">
-                    {stats.regions.map((region) => (
-                      <label key={region} className="filter-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={selectedRegions.includes(region)}
-                          onChange={() => toggleRegion(region)}
-                        />
-                        <span>{region}</span>
-                      </label>
-                    ))}
-                  </div>
+              <div className="mb-4">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Регион</h4>
+                <div className="flex max-h-[150px] flex-wrap gap-2 overflow-y-auto">
+                  {stats.regions.map((region) => (
+                    <label key={region} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
+                      <input
+                        type="checkbox"
+                        className="size-3.5"
+                        checked={selectedRegions.includes(region)}
+                        onChange={() => toggleRegion(region)}
+                      />
+                      <span className="text-zinc-700 dark:text-zinc-300">{region}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* Секция поиска по карте */}
-            <div className="map-filter-section">
+            {/* Map filter */}
+            <div className="mb-4 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
               <button
-                className="map-filter-toggle"
+                className="flex w-full items-center gap-2 bg-zinc-50 px-3.5 py-2.5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-100 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
                 onClick={() => setShowMapFilter(!showMapFilter)}
               >
                 <span>Поиск по карте</span>
                 {selectedCadNumbers.length > 0 && (
-                  <span className="map-filter-badge">Активен: {selectedCadNumbers.length} кварталов</span>
+                  <Badge color="blue" className="ml-2">Активен: {selectedCadNumbers.length} кварталов</Badge>
                 )}
-                <span className={`map-filter-arrow ${showMapFilter ? 'open' : ''}`}>&#9660;</span>
+                <ChevronDownIcon className={`ml-auto size-4 transition-transform ${showMapFilter ? 'rotate-180' : ''}`} />
               </button>
-              <div className={`map-filter-content ${showMapFilter ? 'expanded' : ''}`}>
+              <div className={`transition-[max-height] duration-300 ease-in-out ${showMapFilter ? 'max-h-[1200px]' : 'max-h-0'} overflow-hidden`}>
                 <SearchByPolygon
                   quarters={cadastralQuarters}
                   deals={allFilteredDeals}
@@ -806,124 +1218,123 @@ export const SearchPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="filter-actions">
-              <button className="btn btn-primary" onClick={handleSearch}>
-                Применить фильтры
-              </button>
-              <button className="btn btn-secondary" onClick={exportToHtml}>
-                📤 Экспорт в HTML
-              </button>
+            {/* Actions */}
+            <div className="flex gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+              <Button color="blue" onClick={handleSearch}>Применить фильтры</Button>
+              <Button onClick={exportToHtml}>
+                <ArrowDownTrayIcon className="size-4" />
+                Экспорт в HTML
+              </Button>
             </div>
           </div>
         )}
 
-        {/* Дашборд аналитики */}
+        {/* Dashboard */}
         {allFilteredDeals.length > 0 && (
-          <Dashboard deals={allFilteredDeals} totalDeals={result?.total || allFilteredDeals.length} />
+          <Dashboard deals={allFilteredDeals} totalDeals={totalFiltered} />
         )}
 
-        {/* Результаты */}
-        <div className="results">
+        {/* Results */}
+        <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900">
           {loading ? (
-            <div className="loading">Поиск...</div>
-          ) : result ? (
+            <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">Поиск...</div>
+          ) : allFilteredDeals.length > 0 ? (
             <>
-              <div className="results-header">
-                <span>Найдено: {formatNumber(result.total)} сделок</span>
-                <button className="btn btn-secondary" onClick={exportToHtml}>
-                  📤 Экспорт в HTML
-                </button>
+              <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                <div className="flex items-center gap-3">
+                  <span>Найдено: {formatNumber(totalFiltered)} сделок</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                  >
+                    <option value={25}>25 на странице</option>
+                    <option value={50}>50 на странице</option>
+                    <option value={100}>100 на странице</option>
+                    <option value={200}>200 на странице</option>
+                  </select>
+                </div>
+                <Button onClick={exportToHtml}>
+                  <ArrowDownTrayIcon className="size-4" />
+                  Экспорт
+                </Button>
               </div>
 
-              {result.deals.length === 0 ? (
-                <div className="no-results">Ничего не найдено</div>
+              {pagedDeals.length === 0 ? (
+                <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">Ничего не найдено</div>
               ) : (
                 <>
-                  <div className="results-table-wrapper">
-                    <table className="results-table">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[900px] border-collapse">
                       <thead>
                         <tr>
-                          <th
-                            className="sortable"
-                            onClick={() => handleSort('year_quarter')}
-                          >
-                            Период <span className="sort-icon">{getSortIcon('year_quarter')}</span>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('year_quarter')}>
+                            Период <span className="ml-1 text-[10px]">{getSortIcon('year_quarter')}</span>
                           </th>
-                          <th>Тип</th>
-                          <th>Локация</th>
-                          <th
-                            className="sortable"
-                            onClick={() => handleSort('area')}
-                          >
-                            Пл. <span className="sort-icon">{getSortIcon('area')}</span>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('type')}>
+                            Тип <span className="ml-1 text-[10px]">{getSortIcon('type')}</span>
                           </th>
-                          <th>Этаж</th>
-                          <th>Год</th>
-                          <th>Материал</th>
-                          <th
-                            className="sortable"
-                            onClick={() => handleSort('price')}
-                          >
-                            Цена <span className="sort-icon">{getSortIcon('price')}</span>
+                          <th className="whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">Локация</th>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('area')}>
+                            Пл. <span className="ml-1 text-[10px]">{getSortIcon('area')}</span>
                           </th>
-                          <th>Док.</th>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('floor')}>
+                            Этаж <span className="ml-1 text-[10px]">{getSortIcon('floor')}</span>
+                          </th>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('year_build')}>
+                            Год <span className="ml-1 text-[10px]">{getSortIcon('year_build')}</span>
+                          </th>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('material')}>
+                            Материал <span className="ml-1 text-[10px]">{getSortIcon('material')}</span>
+                          </th>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('price')}>
+                            Цена <span className="ml-1 text-[10px]">{getSortIcon('price')}</span>
+                          </th>
+                          <th className="cursor-pointer whitespace-nowrap bg-zinc-50 px-3 py-2.5 text-left text-[11px] font-medium uppercase text-zinc-500 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700" onClick={() => handleSort('doc')}>
+                            Док. <span className="ml-1 text-[10px]">{getSortIcon('doc')}</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedDeals.map((deal) => (
+                        {pagedDeals.map((deal) => (
                           <tr
                             key={deal.id}
                             onClick={() => setSelectedDealForMap(deal)}
-                            style={{ cursor: 'pointer' }}
-                            className={selectedDealForMap?.id === deal.id ? 'selected-row' : ''}
+                            className={`cursor-pointer border-b border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${selectedDealForMap?.id === deal.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                           >
-                            <td className="period">{formatPeriod(deal.year_quarter)}</td>
-                            <td>
-                              <span className="type-badge type-badge-small">
-                                {getRealEstateTypeName(deal.realestate_type_code).substring(0, 3)}
-                              </span>
+                            <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-zinc-950 dark:text-white">{formatPeriod(deal.year_quarter)}</td>
+                            <td className="px-3 py-2">
+                              <Badge color="zinc">{getRealEstateTypeName(deal.realestate_type_code).substring(0, 3)}</Badge>
                             </td>
-                            <td>
-                              <div className="location">
-                                {deal.city && <span className="city">{deal.city}</span>}
-                                {deal.street && <span className="street">{deal.street}</span>}
-                                {deal.district && (
-                                  <span className="district">{deal.district}</span>
-                                )}
+                            <td className="max-w-[250px] px-3 py-2">
+                              <div className="flex flex-col gap-px">
+                                {deal.city && <span className="truncate text-sm font-medium text-zinc-950 dark:text-white">{deal.city}</span>}
+                                {deal.street && <span className="truncate text-xs text-zinc-500 dark:text-zinc-400">{deal.street}</span>}
+                                {deal.district && <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{deal.district}</span>}
                                 {deal.quarter_cad_number && (
-                                  <a
-                                    href={`https://map.ru/pkk?query=${deal.quarter_cad_number}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="cad-number"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      navigator.clipboard.writeText(deal.quarter_cad_number);
-                                    }}
-                                    title="Клик: открыть карту и скопировать номер"
-                                  >
-                                    📍 {deal.quarter_cad_number}
-                                  </a>
+                                  <span className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+                                    {deal.quarter_cad_number}
+                                  </span>
                                 )}
                               </div>
                             </td>
-                            <td className="area">
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
                               {deal.area > 0 ? `${formatNumber(deal.area)}` : '—'}
-                              {deal.number > 1 && <span className="count">×{deal.number}</span>}
+                              {deal.number > 1 && <span className="ml-0.5 text-zinc-400">×{deal.number}</span>}
                             </td>
-                            <td className="floor">{deal.floor || '—'}</td>
-                            <td className="year">{deal.year_build || '—'}</td>
-                            <td className="material">{getWallMaterialName(deal.wall_material_code)}</td>
-                            <td className="price">
-                              <div className="price-value">{formatPrice(deal.deal_price)} ₽</div>
+                            <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{deal.floor || '—'}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{deal.year_build || '—'}</td>
+                            <td className="max-w-[100px] truncate px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">{getWallMaterialName(deal.wall_material_code)}</td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              <div className="text-sm font-semibold text-green-600 dark:text-green-400">{formatPrice(deal.deal_price)} ₽</div>
                               {formatPricePerMeter(deal.deal_price, deal.area) && (
-                                <div className="price-per-meter">{formatPricePerMeter(deal.deal_price, deal.area)}</div>
+                                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{formatPricePerMeter(deal.deal_price, deal.area)}</div>
                               )}
                             </td>
-                            <td>
-                              <span className={`doc-type doc-type-small ${deal.doc_type}`}>
+                            <td className="px-3 py-2">
+                              <Badge color={deal.doc_type === 'ДКП' ? 'green' : deal.doc_type === 'ДДУ' ? 'red' : 'zinc'}>
                                 {deal.doc_type}
-                              </span>
+                              </Badge>
                             </td>
                           </tr>
                         ))}
@@ -931,51 +1342,36 @@ export const SearchPage: React.FC = () => {
                     </table>
                   </div>
 
-                  {/* Пагинация */}
-                  {result.totalPages > 1 && (
-                    <div className="pagination">
-                      <button
-                        className="btn btn-secondary"
-                        disabled={page === 1}
-                        onClick={() => setPage((p) => p - 1)}
-                      >
-                        ← Назад
-                      </button>
-                      <span className="page-info">
-                        Страница {page} из {result.totalPages}
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-4 border-t border-zinc-200 px-5 py-4 dark:border-zinc-700">
+                      <Button disabled={currentPage === 1} onClick={() => setPage((p) => p - 1)}>
+                        Назад
+                      </Button>
+                      <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                        Страница {currentPage} из {totalPages}
                       </span>
-                      <button
-                        className="btn btn-secondary"
-                        disabled={page === result.totalPages}
-                        onClick={() => setPage((p) => p + 1)}
-                      >
-                        Вперёд →
-                      </button>
+                      <Button disabled={currentPage === totalPages} onClick={() => setPage((p) => p + 1)}>
+                        Вперёд
+                      </Button>
                     </div>
                   )}
                 </>
               )}
             </>
           ) : (
-            <div className="no-results">Загрузка данных...</div>
+            <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">Загрузка данных...</div>
           )}
         </div>
       </div>
-      )}
 
-      {/* Таб: Тепловая карта */}
-      {activeTab === 'heatmap' && (
-        <HeatMap
-          quarters={cadastralQuarters}
-          deals={allFilteredDeals}
-        />
-      )}
-
-      {/* Карта сделки */}
+      {/* Deal Map */}
       {selectedDealForMap && (
         <DealMap
           deals={allFilteredDeals}
+          quarters={cadastralQuarters}
           selectedDeal={selectedDealForMap}
+          filterPolygon={polygonCoords}
           onClose={() => setSelectedDealForMap(null)}
         />
       )}

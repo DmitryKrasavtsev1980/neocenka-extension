@@ -6,6 +6,7 @@ import 'leaflet-draw/dist/leaflet.draw.css';
 import { booleanIntersects, polygon as turfPolygon } from '@turf/turf';
 import type { Feature, Polygon as TurfPolygon } from 'geojson';
 import { CadastralQuarter, Deal } from '../../types';
+import { getMapConfig, createTileLayer } from '../../services/map-config';
 import './SearchByPolygon.css';
 
 interface SearchByPolygonProps {
@@ -106,11 +107,11 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
-    const map = L.map(mapRef.current, { preferCanvas: true }).setView([55.7558, 37.6173], 10);
+    const map = L.map(mapRef.current, { attributionControl: false }).setView([55.7558, 37.6173], 10);
+    L.control.attribution({ prefix: false }).addTo(map);
 
-    const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-    }).addTo(map);
+    const mapConfig = getMapConfig();
+    createTileLayer(mapConfig).addTo(map);
 
     // Слой для рисования
     const drawnItems = new L.FeatureGroup();
@@ -122,7 +123,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     quarterLayerGroupRef.current = quarterLayerGroup;
 
     // Управление слоями
-    const baseLayers = { 'OpenStreetMap': tileLayer };
+    const baseLayers: Record<string, L.Layer> = {};
     const overlayLayers = { 'Кадастровые кварталы': quarterLayerGroup };
     L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);
 
@@ -181,27 +182,31 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   }, []);
 
   // Восстановление полигона из initialPolygon + пересчёт при загрузке кварталов
+  const polygonAppliedRef = useRef(false);
   useEffect(() => {
     const map = mapInstanceRef.current;
     const drawnItems = drawnItemsRef.current;
     if (!map || !drawnItems || !initialPolygon || initialPolygon.length < 3) return;
     if (!quartersLoaded) return;
 
-    const layers = drawnItems.getLayers();
-    let targetPolygon: L.Polygon;
-
-    if (layers.length > 0) {
-      targetPolygon = layers[0] as L.Polygon;
-    } else {
-      const latLngs = initialPolygon.map((c) => L.latLng(c[0], c[1]));
-      targetPolygon = L.polygon(latLngs, {
-        color: '#e74c3c',
-        weight: 3,
-      });
-      drawnItems.clearLayers();
-      drawnItems.addLayer(targetPolygon);
-      map.fitBounds(targetPolygon.getBounds(), { padding: [20, 20] });
+    if (polygonAppliedRef.current) {
+      // Полигон уже восстановлен — только пересчитываем кварталы
+      const layers = drawnItems.getLayers();
+      if (layers.length > 0) {
+        findIntersectingQuarters(layers[0] as L.Polygon);
+      }
+      return;
     }
+
+    const latLngs = initialPolygon.map((c) => L.latLng(c[0], c[1]));
+    const targetPolygon = L.polygon(latLngs, {
+      color: '#e74c3c',
+      weight: 3,
+    });
+    drawnItems.clearLayers();
+    drawnItems.addLayer(targetPolygon);
+    map.fitBounds(targetPolygon.getBounds(), { padding: [20, 20] });
+    polygonAppliedRef.current = true;
 
     findIntersectingQuarters(targetPolygon);
   }, [initialPolygon, findIntersectingQuarters, quartersLoaded]);
