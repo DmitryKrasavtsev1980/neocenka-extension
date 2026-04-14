@@ -9,11 +9,18 @@ import { CadastralQuarter, Deal } from '../../types';
 import { getMapConfig, createTileLayer } from '../../services/map-config';
 import './SearchByPolygon.css';
 
+interface FlyToTarget {
+  lat: number;
+  lon: number;
+  zoom: number;
+}
+
 interface SearchByPolygonProps {
   quarters: CadastralQuarter[];
   deals: Deal[];
   onQuartersSelected: (cadNumbers: string[], polygonCoords?: [number, number][]) => void;
   initialPolygon?: [number, number][] | null;
+  flyTo?: FlyToTarget | null;
 }
 
 const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
@@ -21,6 +28,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   deals,
   onQuartersSelected,
   initialPolygon,
+  flyTo,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -225,6 +233,12 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
 
     return () => observer.disconnect();
   }, []);
+
+  // Обработка flyTo — перелёт карты на указанные координаты
+  useEffect(() => {
+    if (!flyTo || !mapInstanceRef.current) return;
+    mapInstanceRef.current.flyTo([flyTo.lat, flyTo.lon], flyTo.zoom, { duration: 1.5 });
+  }, [flyTo]);
 
   // Отрисовка кварталов — только при изменении выбранных кварталов
   useEffect(() => {

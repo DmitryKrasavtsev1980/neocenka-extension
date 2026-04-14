@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   BarChart,
   Bar,
@@ -6,7 +6,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   PieChart,
   Pie,
   Cell,
@@ -31,13 +30,59 @@ interface DashboardProps {
 
 const COLORS = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#9c27b0', '#00bcd4', '#ff5722', '#795548'];
 
+/**
+ * Контейнер для recharts — измеряет ширину родителя и передаёт
+ * точные пиксельные размеры дочернему графику.
+ * Один и тот же div используется всегда — ref стабильный.
+ */
+const ChartBox: React.FC<{
+  height: number;
+  children: (size: { width: number; height: number }) => React.ReactNode;
+}> = ({ height, children }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ width: number; height: number }>({ width: 0, height });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const measure = () => {
+      const w = el.offsetWidth;
+      if (w > 0) {
+        setSize(prev => (prev.width === w && prev.height === height ? prev : { width: w, height }));
+      }
+    };
+
+    // Первичная попытка + отложенные повторы для надёжности
+    requestAnimationFrame(measure);
+    const t1 = setTimeout(measure, 50);
+    const t2 = setTimeout(measure, 200);
+    const t3 = setTimeout(measure, 500);
+
+    // Отслеживание изменений размера контейнера
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      ro.disconnect();
+    };
+  }, [height]);
+
+  return (
+    <div ref={ref} style={{ width: '100%', height }}>
+      {size.width > 0 ? children(size) : null}
+    </div>
+  );
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Аналитические данные
   const analytics = useMemo(() => {
-    console.log('[Dashboard] Computing analytics, deals:', deals.length, 'totalDeals:', totalDeals);
-
     if (deals.length === 0) {
       return {
         byType: [],
@@ -95,7 +140,6 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
       quarterGroups[deal.year_quarter].count += deal.number || 1;
       quarterGroups[deal.year_quarter].sum += deal.deal_price;
       quarterGroups[deal.year_quarter].prices.push(deal.deal_price);
-      // Цена за квадратный метр
       if (deal.area > 0) {
         quarterGroups[deal.year_quarter].pricePerMeters.push(deal.deal_price / deal.area);
       }
@@ -111,7 +155,7 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
           : 0;
         return {
           name: name.replace('-Q', ' Q'),
-          sortKey: name, // для сортировки
+          sortKey: name,
           count: data.count,
           sum: data.sum,
           avgPrice,
@@ -119,8 +163,6 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
         };
       })
       .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-
-    console.log('[Dashboard] byQuarter data:', byQuarter);
 
     // Ценовой диапазон
     const prices = deals.map((d) => d.deal_price).filter((p) => p > 0).sort((a, b) => a - b);
@@ -196,7 +238,7 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
   };
 
   return (
-    <div className="rounded-xl bg-white shadow-sm mb-4 overflow-hidden dark:bg-zinc-900 dark:shadow-zinc-950/50">
+    <div className="rounded-xl bg-white shadow-sm mb-4 dark:bg-zinc-900 dark:shadow-zinc-950/50">
       {/* Header */}
       <div
         className="flex justify-between items-center px-5 py-4 cursor-pointer select-none transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
@@ -260,29 +302,31 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
               <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
                 Динамика сделок по периодам
               </h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={analytics.byQuarter}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    itemStyle={{ color: '#333' }}
-                    labelStyle={{ color: '#333', fontWeight: 'bold' }}
-                    formatter={(value: number) => formatNumber(value)}
-                    labelFormatter={(label) => `Период: ${label}`}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="count"
-                    name="Кол-во сделок"
-                    stroke="#1a73e8"
-                    strokeWidth={2}
-                    dot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <ChartBox height={250}>
+                {({ width, height }) => (
+                  <LineChart width={width} height={height} data={analytics.byQuarter}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      itemStyle={{ color: '#333' }}
+                      labelStyle={{ color: '#333', fontWeight: 'bold' }}
+                      formatter={(value: number) => formatNumber(value)}
+                      labelFormatter={(label) => `Период: ${label}`}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      name="Кол-во сделок"
+                      stroke="#1a73e8"
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                    />
+                  </LineChart>
+                )}
+              </ChartBox>
             </div>
 
             {/* Динамика средней цены по периодам */}
@@ -290,129 +334,140 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
               <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
                 Динамика средней цены по периодам
               </h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <ComposedChart data={analytics.byQuarter}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    itemStyle={{ color: '#333' }}
-                    labelStyle={{ color: '#333', fontWeight: 'bold' }}
-                    formatter={(value: number, name: string) => {
-                      if (name === 'Средняя цена') return formatPrice(value);
-                      if (name === 'Цена за м²') return `${formatNumber(value)} ₽/м²`;
-                      return formatNumber(value);
-                    }}
-                    labelFormatter={(label) => `Период: ${label}`}
-                  />
-                  <Legend />
-                  <Bar
-                    yAxisId="right"
-                    dataKey="count"
-                    name="Кол-во сделок"
-                    fill="#e8f0fe"
-                    barSize={20}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="avgPrice"
-                    name="Средняя цена"
-                    stroke="#34a853"
-                    strokeWidth={2}
-                    dot={{ r: 4, fill: '#34a853' }}
-                  />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="avgPricePerMeter"
-                    name="Цена за м²"
-                    stroke="#ea4335"
-                    strokeWidth={2}
-                    dot={{ r: 4, fill: '#ea4335' }}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <ChartBox height={250}>
+                {({ width, height }) => (
+                  <ComposedChart width={width} height={height} data={analytics.byQuarter}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      itemStyle={{ color: '#333' }}
+                      labelStyle={{ color: '#333', fontWeight: 'bold' }}
+                      formatter={(value: number, name: string) => {
+                        if (name === 'Средняя цена') return formatPrice(value);
+                        if (name === 'Цена за м²') return `${formatNumber(value)} ₽/м²`;
+                        return formatNumber(value);
+                      }}
+                      labelFormatter={(label) => `Период: ${label}`}
+                    />
+                    <Legend />
+                    <Bar
+                      yAxisId="right"
+                      dataKey="count"
+                      name="Кол-во сделок"
+                      fill="#e8f0fe"
+                      barSize={20}
+                    />
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="avgPrice"
+                      name="Средняя цена"
+                      stroke="#34a853"
+                      strokeWidth={2}
+                      dot={{ r: 4, fill: '#34a853' }}
+                    />
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="avgPricePerMeter"
+                      name="Цена за м²"
+                      stroke="#ea4335"
+                      strokeWidth={2}
+                      dot={{ r: 4, fill: '#ea4335' }}
+                    />
+                  </ComposedChart>
+                )}
+              </ChartBox>
             </div>
 
-            {/* Распределение по типам объектов */}
-            <div className="bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
-              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
-                По типу объекта
-              </h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={analytics.byType}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name.substring(0, 10)}... (${(percent * 100).toFixed(0)}%)`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {analytics.byType.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            {/* Круговые диаграммы — flex-ряд вместо вложенного grid */}
+            <div className="col-span-full flex gap-4 max-md:flex-col">
+              {/* Распределение по типам объектов */}
+              <div className="flex-1 min-w-0 bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+                <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                  По типу объекта
+                </h3>
+                <ChartBox height={220}>
+                  {({ width, height }) => (
+                    <PieChart width={width} height={height}>
+                      <Pie
+                        data={analytics.byType}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name.substring(0, 10)}... (${(percent * 100).toFixed(0)}%)`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {analytics.byType.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  )}
+                </ChartBox>
+              </div>
 
-            {/* По типу документа */}
-            <div className="bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
-              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
-                По типу договора
-              </h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={analytics.byDocType}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {analytics.byDocType.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+              {/* По типу документа */}
+              <div className="flex-1 min-w-0 bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+                <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                  По типу договора
+                </h3>
+                <ChartBox height={220}>
+                  {({ width, height }) => (
+                    <PieChart width={width} height={height}>
+                      <Pie
+                        data={analytics.byDocType}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {analytics.byDocType.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  )}
+                </ChartBox>
+              </div>
 
-            {/* По материалу стен */}
-            <div className="bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
-              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
-                По материалу стен
-              </h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={analytics.byWallMaterial}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name.substring(0, 8)}... (${(percent * 100).toFixed(0)}%)`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {analytics.byWallMaterial.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              {/* По материалу стен */}
+              <div className="flex-1 min-w-0 bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
+                <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
+                  По материалу стен
+                </h3>
+                <ChartBox height={220}>
+                  {({ width, height }) => (
+                    <PieChart width={width} height={height}>
+                      <Pie
+                        data={analytics.byWallMaterial}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name.substring(0, 8)}... (${(percent * 100).toFixed(0)}%)`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {analytics.byWallMaterial.map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  )}
+                </ChartBox>
+              </div>
             </div>
 
             {/* Топ регионов */}
@@ -420,15 +475,17 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
               <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
                 Топ-10 регионов по количеству сделок
               </h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={analytics.topRegions} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" tick={{ fontSize: 12 }} />
-                  <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatNumber(value)} />
-                  <Bar dataKey="value" name="Сделок" fill="#1a73e8" />
-                </BarChart>
-              </ResponsiveContainer>
+              <ChartBox height={280}>
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={analytics.topRegions} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" tick={{ fontSize: 12 }} />
+                    <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(value: number) => formatNumber(value)} />
+                    <Bar dataKey="value" name="Сделок" fill="#1a73e8" />
+                  </BarChart>
+                )}
+              </ChartBox>
             </div>
           </div>
 

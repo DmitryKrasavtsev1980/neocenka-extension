@@ -48,7 +48,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onSwitch
           <div className="rounded-xl bg-white p-8 shadow-sm dark:bg-zinc-900">
             <div className="mb-8 text-center">
               <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
-                RD
+                Н
               </div>
               <Heading level={1} className="text-center">
                 Регистрация

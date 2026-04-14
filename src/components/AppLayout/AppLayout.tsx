@@ -1,19 +1,20 @@
-import React, { useState } from 'react';
-import { getCurrentUser, logout } from '@/services/api-service';
+import React, { useState, useEffect } from 'react';
+import { getCurrentUser, logout, getModules, getNewsUnreadCount, markNewsRead, type ModuleInfo } from '@/services/api-service';
 import { useTheme } from '@/components/ThemeProvider';
 import { SearchPage } from '@/pages/search/SearchPage';
 import ImportPage from '@/pages/import/ImportPage';
 import ModulesPage from '@/components/Modules/ModulesPage';
 import ProfilePage from '@/components/Profile/ProfilePage';
+import NewsPage from '@/pages/news/NewsPage';
 import {
   Sidebar,
   SidebarBody,
-  SidebarFooter,
   SidebarHeader,
   SidebarItem,
   SidebarLabel,
   SidebarSection,
   SidebarSpacer,
+  SidebarGroup,
 } from '@/components/catalyst/sidebar';
 import {
   CubeIcon,
@@ -23,15 +24,63 @@ import {
   ArrowLeftOnRectangleIcon,
   SunIcon,
   MoonIcon,
+  BuildingOffice2Icon,
+  NewspaperIcon,
 } from '@heroicons/react/20/solid';
 
-type ActivePage = 'modules' | 'search' | 'import' | 'profile';
+type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news';
+
+interface ModulePageConfig {
+  page: ActivePage;
+  label: string;
+  icon: React.ReactNode;
+}
+
+interface ModuleConfig {
+  label: string;
+  pages: ModulePageConfig[];
+}
+
+const heroIconMap: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
+  'building-office': BuildingOffice2Icon,
+};
+
+const modulesConfig: Record<string, ModuleConfig> = {
+  dealsrosreestr: {
+    label: 'Сделки Росреестра',
+    pages: [
+      {
+        page: 'search',
+        label: 'Поиск сделок',
+        icon: <MagnifyingGlassIcon data-slot="icon" />,
+      },
+      {
+        page: 'import',
+        label: 'Импорт',
+        icon: <ArrowDownTrayIcon data-slot="icon" />,
+      },
+    ],
+  },
+};
 
 const AppLayout: React.FC = () => {
   const [activePage, setActivePage] = useState<ActivePage>('modules');
   const [importModuleCode, setImportModuleCode] = useState<string | undefined>(undefined);
+  const [activeModules, setActiveModules] = useState<ModuleInfo[]>([]);
+  const [unreadNews, setUnreadNews] = useState(0);
   const user = getCurrentUser();
   const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    getModules()
+      .then((data) => {
+        setActiveModules(data.modules.filter((m) => m.access?.status === 'active'));
+      })
+      .catch(() => {});
+    getNewsUnreadCount()
+      .then((data) => setUnreadNews(data.unread_count))
+      .catch(() => {});
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -47,6 +96,10 @@ const AppLayout: React.FC = () => {
     if (page !== 'import') {
       setImportModuleCode(undefined);
     }
+    if (page === 'news') {
+      setUnreadNews(0);
+      markNewsRead().catch(() => {});
+    }
     setActivePage(page);
   };
 
@@ -60,6 +113,8 @@ const AppLayout: React.FC = () => {
         return <ImportPage initialModuleCode={importModuleCode} onNavigate={handleNavigate} />;
       case 'profile':
         return <ProfilePage />;
+      case 'news':
+        return <NewsPage />;
       default:
         return <ModulesPage onModuleOpen={handleModuleOpen} />;
     }
@@ -72,11 +127,11 @@ const AppLayout: React.FC = () => {
         <Sidebar>
           <SidebarHeader className="flex-row items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
-              RD
+              Н
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-semibold text-zinc-950 dark:text-white">
-                Rosreestr Deals
+                Неоценка
               </span>
               <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-[160px]">
                 {user?.name || 'Пользователь'}
@@ -90,14 +145,45 @@ const AppLayout: React.FC = () => {
                 <CubeIcon data-slot="icon" />
                 <SidebarLabel>Мои модули</SidebarLabel>
               </SidebarItem>
-              <SidebarItem current={activePage === 'search'} onClick={() => handleNavigate('search')}>
-                <MagnifyingGlassIcon data-slot="icon" />
-                <SidebarLabel>Поиск сделок</SidebarLabel>
+
+              <SidebarItem current={activePage === 'news'} onClick={() => handleNavigate('news')}>
+                <NewspaperIcon data-slot="icon" />
+                <SidebarLabel>Новости</SidebarLabel>
+                {unreadNews > 0 && (
+                  <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                    {unreadNews > 99 ? '99+' : unreadNews}
+                  </span>
+                )}
               </SidebarItem>
-              <SidebarItem current={activePage === 'import'} onClick={() => handleNavigate('import')}>
-                <ArrowDownTrayIcon data-slot="icon" />
-                <SidebarLabel>Импорт</SidebarLabel>
-              </SidebarItem>
+
+              {/* Module groups */}
+              {activeModules.map((mod) => {
+                const config = modulesConfig[mod.code];
+                if (!config) return null;
+
+                const IconComponent = mod.icon ? heroIconMap[mod.icon] : null;
+
+                return (
+                  <SidebarGroup
+                    key={mod.id}
+                    icon={IconComponent ? <IconComponent data-slot="icon" /> : <CubeIcon data-slot="icon" />}
+                    label={config.label}
+                    defaultOpen={config.pages.some((p) => p.page === activePage)}
+                  >
+                    {config.pages.map((p) => (
+                      <SidebarItem
+                        key={p.page}
+                        current={activePage === p.page}
+                        onClick={() => handleNavigate(p.page)}
+                      >
+                        {p.icon}
+                        <SidebarLabel>{p.label}</SidebarLabel>
+                      </SidebarItem>
+                    ))}
+                  </SidebarGroup>
+                );
+              })}
+
               <SidebarItem current={activePage === 'profile'} onClick={() => handleNavigate('profile')}>
                 <UserIcon data-slot="icon" />
                 <SidebarLabel>Профиль</SidebarLabel>

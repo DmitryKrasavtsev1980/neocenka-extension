@@ -1,11 +1,12 @@
 {
-  "name": "rosreestr-deals-extension",
+  "name": "neocenka",
   "version": "1.0.0",
-  "description": "Chrome Extension для поиска сделок с недвижимостью из данных Росреестра",
+  "description": "Анализ сделок с недвижимостью",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "vite build",
+    "build:test": "vite build --mode test",
     "preview": "vite preview",
     "type-check": "tsc --noEmit"
   },

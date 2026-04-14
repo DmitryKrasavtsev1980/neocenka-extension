@@ -32,9 +32,10 @@ export interface ModuleInfo {
   name: string;
   description: string | null;
   icon: string | null;
-  price_monthly: number | null;
-  price_yearly: number | null;
-  price_lifetime: number | null;
+  price_90d: number | null;
+  price_180d: number | null;
+  price_365d: number | null;
+  trial_available: boolean;
   access: {
     status: string;
     period: string;
@@ -353,7 +354,7 @@ export interface PaymentInfo {
   module_id: number;
   module_name: string;
   module_icon: string | null;
-  period: 'monthly' | 'yearly' | 'lifetime';
+  period: '90d' | '180d' | '365d' | 'trial';
   amount: number;
   currency: string;
   status: 'pending' | 'completed' | 'failed' | 'refunded';
@@ -361,7 +362,7 @@ export interface PaymentInfo {
   paid_at: string | null;
 }
 
-export async function createPayment(moduleId: number, period: 'monthly' | 'yearly' | 'lifetime', promoCode?: string): Promise<{ payment: PaymentInfo }> {
+export async function createPayment(moduleId: number, period: '90d' | '180d' | '365d', promoCode?: string): Promise<{ payment: PaymentInfo }> {
   const body: Record<string, unknown> = { module_id: moduleId, period };
   if (promoCode) body.promo_code = promoCode;
   return apiRequest<{ payment: PaymentInfo }>('POST', '/payments', body);
@@ -378,7 +379,7 @@ export interface PromoCheckResult {
   error?: string;
 }
 
-export async function checkPromo(code: string, moduleId: number, period: 'monthly' | 'yearly' | 'lifetime'): Promise<PromoCheckResult> {
+export async function checkPromo(code: string, moduleId: number, period: '90d' | '180d' | '365d'): Promise<PromoCheckResult> {
   return apiRequest<PromoCheckResult>('POST', '/payments/promo/check', { code, module_id: moduleId, period });
 }
 
@@ -388,4 +389,81 @@ export async function getPayments(): Promise<{ payments: PaymentInfo[] }> {
 
 export async function cancelPayment(paymentId: number): Promise<{ message: string }> {
   return apiRequest<{ message: string }>('POST', `/payments/${paymentId}/cancel`);
+}
+
+export async function activateTrial(moduleId: number): Promise<{ message: string; access: ModuleInfo['access']; trial_available: boolean }> {
+  return apiRequest<{ message: string; access: ModuleInfo['access']; trial_available: boolean }>('POST', `/modules/${moduleId}/trial`);
+}
+
+// === News ===
+
+export interface NewsItem {
+  id: number;
+  title: string;
+  content: string;
+  excerpt: string;
+  image_url: string | null;
+  module: { id: number; name: string; icon: string | null } | null;
+  is_published: boolean;
+  published_at: string | null;
+  likes_count: number;
+  dislikes_count: number;
+  comments_count: number;
+  my_reaction: 'like' | 'dislike' | null;
+}
+
+export interface NewsComment {
+  id: number;
+  content: string;
+  user_name: string;
+  created_at: string;
+  likes_count: number;
+  dislikes_count: number;
+  my_reaction: 'like' | 'dislike' | null;
+}
+
+export async function getNews(page = 1, perPage = 15): Promise<{
+  news: NewsItem[];
+  meta: { current_page: number; last_page: number; per_page: number; total: number };
+}> {
+  return apiRequest('GET', `/news?page=${page}&per_page=${perPage}`);
+}
+
+export async function getNewsDetail(id: number): Promise<{ news: NewsItem }> {
+  return apiRequest('GET', `/news/${id}`);
+}
+
+export async function reactToNews(newsId: number, reaction: 'like' | 'dislike'): Promise<{
+  likes_count: number;
+  dislikes_count: number;
+  my_reaction: 'like' | 'dislike' | null;
+}> {
+  return apiRequest('POST', `/news/${newsId}/react`, { reaction });
+}
+
+export async function getNewsComments(newsId: number, page = 1): Promise<{
+  comments: NewsComment[];
+  meta: { current_page: number; last_page: number; total: number };
+}> {
+  return apiRequest('GET', `/news/${newsId}/comments?page=${page}`);
+}
+
+export async function createNewsComment(newsId: number, content: string): Promise<{ comment: NewsComment }> {
+  return apiRequest('POST', `/news/${newsId}/comments`, { content });
+}
+
+export async function reactToComment(commentId: number, reaction: 'like' | 'dislike'): Promise<{
+  likes_count: number;
+  dislikes_count: number;
+  my_reaction: 'like' | 'dislike' | null;
+}> {
+  return apiRequest('POST', `/comments/${commentId}/react`, { reaction });
+}
+
+export async function getNewsUnreadCount(): Promise<{ unread_count: number }> {
+  return apiRequest('GET', '/news/unread-count');
+}
+
+export async function markNewsRead(): Promise<{ unread_count: number }> {
+  return apiRequest('POST', '/news/mark-read');
 }

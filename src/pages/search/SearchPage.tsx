@@ -8,6 +8,7 @@ import {
   getRealEstateTypeName,
   getWallMaterialName,
 } from '@/constants/catalogs';
+import { REGION_CENTERS } from '@/constants/regions';
 import { Dashboard } from '@/components/Dashboard';
 import DealMap from '@/components/DealMap';
 import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
@@ -69,6 +70,25 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
+  const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lon: number; zoom: number } | null>(null);
+
+  // Регионы с данными из справочника для навигации по карте
+  const loadedRegions = useMemo(() => {
+    if (!stats) return [];
+    return stats.regions
+      .map((code) => ({ code, ...REGION_CENTERS[code] }))
+      .filter((r) => r.name);
+  }, [stats]);
+
+  const handleFlyToRegion = (regionCode: string) => {
+    const info = REGION_CENTERS[regionCode];
+    if (!info) return;
+    // Сбрасываем в null чтобы повторный клик на тот же регион тоже работал
+    setFlyToTarget(null);
+    requestAnimationFrame(() => {
+      setFlyToTarget({ lat: info.lat, lon: info.lon, zoom: info.zoom });
+    });
+  };
 
   const availablePeriods = useMemo(() => {
     if (!stats) return [];
@@ -978,20 +998,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     URL.revokeObjectURL(url);
   };
 
-  if (stats && stats.totalDeals === 0) {
-    return (
-      <div className="mx-auto max-w-6xl p-6">
-        <div className="rounded-xl bg-white p-16 text-center shadow-sm dark:bg-zinc-900">
-          <Heading level={2}>Нет данных для поиска</Heading>
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Сначала импортируйте данные о сделках</p>
-          <button onClick={() => onNavigate?.('import')} className="mt-6 inline-block bg-transparent border-none p-0 cursor-pointer">
-            <Button color="blue">Перейти к импорту</Button>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // Сортировка всех отфильтрованных данных, затем пагинация
   const sortedAllDeals = useMemo(() => {
     if (allFilteredDeals.length === 0) return [];
@@ -1003,8 +1009,22 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const currentPage = Math.min(page, totalPages || 1);
   const pagedDeals = sortedAllDeals.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
+  if (stats && stats.totalDeals === 0) {
+    return (
+      <div className="mx-auto max-w-5xl p-6">
+        <div className="rounded-xl bg-white p-16 text-center shadow-sm dark:bg-zinc-900">
+          <Heading level={2}>Нет данных для поиска</Heading>
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Сначала импортируйте данные о сделках</p>
+          <button onClick={() => onNavigate?.('import')} className="mt-6 inline-block bg-transparent border-none p-0 cursor-pointer">
+            <Button color="blue">Перейти к импорту</Button>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-6xl p-6">
+    <div className="mx-auto max-w-5xl p-6">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <Heading level={1}>Поиск сделок</Heading>
@@ -1209,11 +1229,26 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                 <ChevronDownIcon className={`ml-auto size-4 transition-transform ${showMapFilter ? 'rotate-180' : ''}`} />
               </button>
               <div className={`transition-[max-height] duration-300 ease-in-out ${showMapFilter ? 'max-h-[1200px]' : 'max-h-0'} overflow-hidden`}>
+                {loadedRegions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 border-b border-zinc-200 px-3.5 py-2 dark:border-zinc-700">
+                    <span className="flex items-center text-xs text-zinc-400 dark:text-zinc-500">Перейти:</span>
+                    {loadedRegions.map((region) => (
+                      <button
+                        key={region.code}
+                        className="cursor-pointer rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-blue-100 hover:text-blue-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-400"
+                        onClick={() => handleFlyToRegion(region.code)}
+                      >
+                        {region.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <SearchByPolygon
                   quarters={cadastralQuarters}
                   deals={allFilteredDeals}
                   onQuartersSelected={handleQuartersSelected}
                   initialPolygon={polygonCoords}
+                  flyTo={flyToTarget}
                 />
               </div>
             </div>
@@ -1231,7 +1266,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
         {/* Dashboard */}
         {allFilteredDeals.length > 0 && (
-          <Dashboard deals={allFilteredDeals} totalDeals={totalFiltered} />
+          <Dashboard key="dashboard" deals={allFilteredDeals} totalDeals={totalFiltered} />
         )}
 
         {/* Results */}

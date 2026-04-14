@@ -350,14 +350,14 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto p-6">
+      <div className="max-w-5xl mx-auto p-6">
         <div className="text-center py-6 text-zinc-500 dark:text-zinc-400">Загрузка...</div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-5xl mx-auto p-6">
       {/* Заголовок */}
       <header className="flex justify-between items-center mb-6">
         <Heading level={1}>Импорт данных</Heading>

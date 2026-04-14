@@ -10,7 +10,7 @@ export class DealsDatabase extends Dexie {
   cadastral_quarters!: Table<CadastralQuarter, number>;
 
   constructor() {
-    super('RosreestrDealsDB');
+    super('NeocenkaDB');
 
     this.version(1).stores({
       // Таблица сделок с индексами для быстрого поиска

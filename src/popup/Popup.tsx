@@ -12,14 +12,14 @@ const Popup: React.FC = () => {
       {/* Logo */}
       <div className="flex items-center gap-3 mb-5 pb-4 border-b border-zinc-200 dark:border-zinc-700">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white">
-          RD
+          Н
         </div>
         <div>
           <div className="text-sm font-semibold text-zinc-950 dark:text-white">
-            Rosreestr Deals
+            Неоценка
           </div>
           <div className="text-[11px] text-zinc-400 dark:text-zinc-500">
-            Сделки Росреестр
+            Анализ сделок с недвижимостью
           </div>
         </div>
       </div>
@@ -36,7 +36,7 @@ const Popup: React.FC = () => {
       </button>
 
       <div className="mt-4 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
-        Поиск и аналитика сделок с недвижимостью
+        Анализ сделок с недвижимостью
       </div>
     </div>
   );
