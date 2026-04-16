@@ -419,3 +419,15 @@ export async function getNewsUnreadCount(): Promise<{ unread_count: number }> {
 export async function markNewsRead(): Promise<{ unread_count: number }> {
   return apiRequest('POST', '/news/mark-read');
 }
+
+// === Feedback Links ===
+
+export interface FeedbackLink {
+  id: number;
+  label: string;
+  url: string;
+}
+
+export async function getFeedbackLinks(): Promise<{ links: FeedbackLink[] }> {
+  return apiRequest('GET', '/feedback-links');
+}

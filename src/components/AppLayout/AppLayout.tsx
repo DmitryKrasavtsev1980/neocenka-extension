@@ -6,6 +6,7 @@ import ImportPage from '@/pages/import/ImportPage';
 import ModulesPage from '@/components/Modules/ModulesPage';
 import ProfilePage from '@/components/Profile/ProfilePage';
 import NewsPage from '@/pages/news/NewsPage';
+import FeedbackPage from '@/pages/feedback/FeedbackPage';
 import {
   Sidebar,
   SidebarBody,
@@ -26,9 +27,10 @@ import {
   MoonIcon,
   BuildingOffice2Icon,
   NewspaperIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/20/solid';
 
-type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news';
+type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback';
 
 interface ModulePageConfig {
   page: ActivePage;
@@ -115,6 +117,8 @@ const AppLayout: React.FC = () => {
         return <ProfilePage />;
       case 'news':
         return <NewsPage />;
+      case 'feedback':
+        return <FeedbackPage />;
       default:
         return <ModulesPage onModuleOpen={handleModuleOpen} />;
     }
@@ -187,6 +191,11 @@ const AppLayout: React.FC = () => {
               <SidebarItem current={activePage === 'profile'} onClick={() => handleNavigate('profile')}>
                 <UserIcon data-slot="icon" />
                 <SidebarLabel>Профиль</SidebarLabel>
+              </SidebarItem>
+
+              <SidebarItem current={activePage === 'feedback'} onClick={() => handleNavigate('feedback')}>
+                <ChatBubbleLeftRightIcon data-slot="icon" />
+                <SidebarLabel>Обратная связь</SidebarLabel>
               </SidebarItem>
             </SidebarSection>
 
