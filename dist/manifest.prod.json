@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Неоценка PROD",
+  "name": "Неоценка",
   "version": "1.0.0",
-  "description": "Анализ сделок с недвижимостью (Production)",
+  "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
     "unlimitedStorage"
@@ -20,7 +20,7 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "Неоценка PROD"
+    "default_title": "Неоценка"
   },
   "icons": {
     "16": "icons/icon16.png",
