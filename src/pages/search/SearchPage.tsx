@@ -152,7 +152,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
       const allDeals = await dealsRepository.searchAll(searchFilters);
       setAllFilteredDeals(allDeals);
-      setPage(1);
     } catch (error) {
       console.error('Ошибка поиска:', error);
     } finally {

@@ -71,9 +71,6 @@ export function parseFilename(filename: string): { year: number; quarter: number
  */
 export function previewRegions(file: File): Promise<string[]> {
   return new Promise((resolve, reject) => {
-    console.log('[CSV Parser] === Начало previewRegions ===');
-    console.log('[CSV Parser] Файл:', file.name, 'Размер:', file.size);
-
     const regions = new Set<string>();
     let rowsProcessed = 0;
     let isResolved = false;
@@ -88,7 +85,6 @@ export function previewRegions(file: File): Promise<string[]> {
       }
 
       const delimiter = detectDelimiter(firstLine);
-      console.log('[CSV Parser] Определён разделитель:', delimiter === '~' ? 'тильда (~)' : delimiter === ';' ? 'точка с запятой (;)' : delimiter);
 
       Papa.parse<RawCsvRow>(file, {
         delimiter,
@@ -96,12 +92,6 @@ export function previewRegions(file: File): Promise<string[]> {
         skipEmptyLines: true,
         chunkSize: 1024 * 1024, // 1MB chunks
         chunk: (results, parser) => {
-          console.log('[CSV Parser] Chunk получен, строк в чанке:', results.data.length);
-
-          if (results.data.length > 0 && rowsProcessed === 0) {
-            console.log('[CSV Parser] Поля из заголовка:', results.meta.fields);
-          }
-
           for (const row of results.data) {
             rowsProcessed++;
 
@@ -110,13 +100,9 @@ export function previewRegions(file: File): Promise<string[]> {
             }
           }
 
-          console.log('[CSV Parser] После чанка: строк=', rowsProcessed, 'регионов=', regions.size);
         },
         complete: () => {
           if (!isResolved) {
-            console.log('[CSV Parser] Парсинг завершён нормально');
-            console.log('[CSV Parser] Обработано строк:', rowsProcessed);
-            console.log('[CSV Parser] Найдено регионов:', regions.size);
             isResolved = true;
             resolve([...regions].sort());
           }
@@ -142,7 +128,6 @@ export function previewRegions(file: File): Promise<string[]> {
  */
 export function countRows(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
-    console.log('[CSV Parser] Подсчёт строк в файле...');
     let count = 0;
 
     // Определяем разделитель
@@ -161,7 +146,6 @@ export function countRows(file: File): Promise<number> {
         complete: () => {
           // Вычитаем 1 за заголовок
           const result = Math.max(0, count - 1);
-          console.log('[CSV Parser] Всего строк (без заголовка):', result);
           resolve(result);
         },
         error: (error) => {
@@ -192,11 +176,6 @@ export interface ImportParams {
 export async function importCsvFile(params: ImportParams): Promise<{ importId: number; recordsCount: number }> {
   const { file, year, quarter, regionCodes, onProgress } = params;
 
-  console.log('[CSV Parser] === Начало импорта ===');
-  console.log('[CSV Parser] Файл:', file.name);
-  console.log('[CSV Parser] Год:', year, 'Квартал:', quarter);
-  console.log('[CSV Parser] Фильтр регионов:', regionCodes?.length || 'все');
-
   // Вычисляем хеш файла
   onProgress?.({ isImporting: true, progress: 0, processed: 0, total: 0, stage: 'reading' });
   const fileHash = await calculateFileHash(file);
@@ -204,7 +183,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
   // Проверяем на дубли
   const existingImport = await importsRepository.findByHash(fileHash);
   if (existingImport) {
-    console.error('[CSV Parser] Файл уже импортирован:', existingImport.imported_at);
     throw new Error(`Файл уже был импортирован ${existingImport.imported_at.toLocaleString()}`);
   }
 
@@ -218,7 +196,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
     records_count: 0,
     imported_at: new Date(),
   });
-  console.log('[CSV Parser] Создана запись импорта ID:', importId);
 
   // Определяем разделитель
   const reader = new FileReader();
@@ -230,7 +207,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
     reader.onerror = () => reject(new Error('Ошибка чтения файла'));
     reader.readAsText(file.slice(0, 1000));
   });
-  console.log('[CSV Parser] Разделитель для импорта:', delimiter);
 
   // Парсим файл
   onProgress?.({ isImporting: true, progress: 5, processed: 0, total: 0, stage: 'parsing' });
@@ -240,7 +216,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
 
   // Сначала подсчитаем общее количество строк
   total = await countRows(file);
-  console.log('[CSV Parser] Всего строк для импорта:', total);
   onProgress?.({ isImporting: true, progress: 10, processed: 0, total, stage: 'parsing' });
 
   // Перечитываем файл для парсинга
@@ -256,8 +231,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
       chunk: async (results, parser) => {
         parser.pause();
 
-        console.log('[CSV Parser] Обработка чанка, строк:', results.data.length);
-
         for (const row of results.data) {
           processed++;
 
@@ -271,7 +244,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
 
           // Сохраняем батчами
           if (batch.length >= batchSize) {
-            console.log('[CSV Parser] Сохранение батча размером:', batch.length);
             await dealsRepository.bulkInsert(batch);
             batch = [];
           }
@@ -289,7 +261,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
         parser.resume();
       },
       complete: async () => {
-        console.log('[CSV Parser] Парсинг завершён, сохранение остатка...');
         // Сохраняем оставшиеся записи
         if (batch.length > 0) {
           await dealsRepository.bulkInsert(batch);
@@ -305,7 +276,6 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
 
   // Обновляем запись об импорте
   await db.imports.update(importId, { records_count: processed });
-  console.log('[CSV Parser] Импорт завершён, записей:', processed);
 
   onProgress?.({
     isImporting: false,
@@ -356,10 +326,6 @@ async function calculateTextHash(text: string): Promise<string> {
 export async function importFromUrl(params: S3ImportParams): Promise<{ importId: number; recordsCount: number }> {
   const { fileId, regionCode, regionName, year, quarter, expectedRecords, onProgress } = params;
 
-  console.log('[S3 Import] === Начало загрузки через прокси ===');
-  console.log('[S3 Import] Регион:', regionCode, regionName);
-  console.log('[S3 Import] Период:', year, 'Q' + quarter);
-
   onProgress?.({ isImporting: true, progress: 0, processed: 0, total: expectedRecords, stage: 'reading' });
 
   // Скачиваем CSV через прокси бэкенда (с JWT авторизацией)
@@ -377,7 +343,6 @@ export async function importFromUrl(params: S3ImportParams): Promise<{ importId:
   }
 
   const csvText = await response.text();
-  console.log('[S3 Import] Файл скачан, размер:', csvText.length, 'символов');
 
   // Вычисляем хеш для проверки дублей
   const fileHash = await calculateTextHash(csvText);
@@ -385,7 +350,6 @@ export async function importFromUrl(params: S3ImportParams): Promise<{ importId:
   // Проверяем на дубли
   const existingImport = await importsRepository.findByHash(fileHash);
   if (existingImport) {
-    console.log('[S3 Import] Файл уже импортирован, пропуск');
     throw new Error('already_imported');
   }
 
@@ -400,12 +364,10 @@ export async function importFromUrl(params: S3ImportParams): Promise<{ importId:
     records_count: 0,
     imported_at: new Date(),
   });
-  console.log('[S3 Import] Создана запись импорта ID:', importId);
 
   // Определяем разделитель по первой строке
   const firstLine = csvText.split('\n')[0] || '';
   const delimiter = detectDelimiter(firstLine);
-  console.log('[S3 Import] Разделитель:', delimiter);
 
   onProgress?.({ isImporting: true, progress: 5, processed: 0, total: expectedRecords, stage: 'parsing' });
 
@@ -460,7 +422,6 @@ export async function importFromUrl(params: S3ImportParams): Promise<{ importId:
 
   // Обновляем запись об импорте
   await db.imports.update(importId, { records_count: processed });
-  console.log('[S3 Import] Импорт завершён, записей:', processed);
 
   onProgress?.({
     isImporting: false,
