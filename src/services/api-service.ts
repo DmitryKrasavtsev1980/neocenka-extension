@@ -1,6 +1,6 @@
 import { getDeviceId } from './device-service';
 
-const API_BASE_URL = 'http://admin.test/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://admin.test/api';
 
 // === Interfaces ===
 
@@ -345,54 +345,6 @@ export async function getCadastralBatch(ids: number[], moduleCode: string): Prom
     '/data/cadastral/batch',
     { ids, module: moduleCode }
   );
-}
-
-// === Payments ===
-
-export interface PaymentInfo {
-  id: number;
-  module_id: number;
-  module_name: string;
-  module_icon: string | null;
-  period: '90d' | '180d' | '365d' | 'trial';
-  amount: number;
-  currency: string;
-  status: 'pending' | 'completed' | 'failed' | 'refunded';
-  created_at: string;
-  paid_at: string | null;
-}
-
-export async function createPayment(moduleId: number, period: '90d' | '180d' | '365d', promoCode?: string): Promise<{ payment: PaymentInfo }> {
-  const body: Record<string, unknown> = { module_id: moduleId, period };
-  if (promoCode) body.promo_code = promoCode;
-  return apiRequest<{ payment: PaymentInfo }>('POST', '/payments', body);
-}
-
-export interface PromoCheckResult {
-  valid: boolean;
-  discount_type?: 'percent' | 'fixed';
-  discount_value?: number;
-  original_amount?: number;
-  discount?: number;
-  final_amount?: number;
-  description?: string;
-  error?: string;
-}
-
-export async function checkPromo(code: string, moduleId: number, period: '90d' | '180d' | '365d'): Promise<PromoCheckResult> {
-  return apiRequest<PromoCheckResult>('POST', '/payments/promo/check', { code, module_id: moduleId, period });
-}
-
-export async function getPayments(): Promise<{ payments: PaymentInfo[] }> {
-  return apiRequest<{ payments: PaymentInfo[] }>('GET', '/payments');
-}
-
-export async function cancelPayment(paymentId: number): Promise<{ message: string }> {
-  return apiRequest<{ message: string }>('POST', `/payments/${paymentId}/cancel`);
-}
-
-export async function activateTrial(moduleId: number): Promise<{ message: string; access: ModuleInfo['access']; trial_available: boolean }> {
-  return apiRequest<{ message: string; access: ModuleInfo['access']; trial_available: boolean }>('POST', `/modules/${moduleId}/trial`);
 }
 
 // === News ===

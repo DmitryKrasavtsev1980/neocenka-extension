@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
-    "build": "vite build",
+    "build": "vite build --mode test",
     "build:test": "vite build --mode test",
+    "build:prod": "vite build --mode production",
     "preview": "vite preview",
     "type-check": "tsc --noEmit"
   },
