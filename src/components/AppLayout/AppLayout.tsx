@@ -150,16 +150,6 @@ const AppLayout: React.FC = () => {
                 <SidebarLabel>Мои модули</SidebarLabel>
               </SidebarItem>
 
-              <SidebarItem current={activePage === 'news'} onClick={() => handleNavigate('news')}>
-                <NewspaperIcon data-slot="icon" />
-                <SidebarLabel>Новости</SidebarLabel>
-                {unreadNews > 0 && (
-                  <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
-                    {unreadNews > 99 ? '99+' : unreadNews}
-                  </span>
-                )}
-              </SidebarItem>
-
               {/* Module groups */}
               {activeModules.map((mod) => {
                 const config = modulesConfig[mod.code];
@@ -188,14 +178,24 @@ const AppLayout: React.FC = () => {
                 );
               })}
 
-              <SidebarItem current={activePage === 'profile'} onClick={() => handleNavigate('profile')}>
-                <UserIcon data-slot="icon" />
-                <SidebarLabel>Профиль</SidebarLabel>
+              <SidebarItem current={activePage === 'news'} onClick={() => handleNavigate('news')}>
+                <NewspaperIcon data-slot="icon" />
+                <SidebarLabel>Новости</SidebarLabel>
+                {unreadNews > 0 && (
+                  <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                    {unreadNews > 99 ? '99+' : unreadNews}
+                  </span>
+                )}
               </SidebarItem>
 
               <SidebarItem current={activePage === 'feedback'} onClick={() => handleNavigate('feedback')}>
                 <ChatBubbleLeftRightIcon data-slot="icon" />
                 <SidebarLabel>Обратная связь</SidebarLabel>
+              </SidebarItem>
+
+              <SidebarItem current={activePage === 'profile'} onClick={() => handleNavigate('profile')}>
+                <UserIcon data-slot="icon" />
+                <SidebarLabel>Профиль</SidebarLabel>
               </SidebarItem>
             </SidebarSection>
 
