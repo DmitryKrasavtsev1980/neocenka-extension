@@ -389,7 +389,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
               <option value="">Выберите модуль</option>
               {activeModules.map((m) => (
                 <option key={m.id} value={m.code}>
-                  {m.icon} {m.name}
+                  {m.name}
                 </option>
               ))}
             </select>
