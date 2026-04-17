@@ -3,12 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { loadAuth, onUnauthorized } from '@/services/api-service';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import LoginPage from '@/components/Auth/LoginPage';
-import RegisterPage from '@/components/Auth/RegisterPage';
 import ForgotPasswordPage from '@/components/Auth/ForgotPasswordPage';
 import AppLayout from '@/components/AppLayout/AppLayout';
 import '@/styles/tailwind.css';
 
-type Page = 'login' | 'register' | 'forgot-password' | 'app';
+type Page = 'login' | 'forgot-password' | 'app';
 
 const App: React.FC = () => {
   const [page, setPage] = useState<Page>('login');
@@ -43,15 +42,13 @@ const App: React.FC = () => {
   const renderPage = () => {
     switch (page) {
       case 'login':
-        return <LoginPage onLoginSuccess={handleLoginSuccess} onSwitchToRegister={() => setPage('register')} onSwitchToForgot={() => setPage('forgot-password')} />;
-      case 'register':
-        return <RegisterPage onSwitchToLogin={() => setPage('login')} onRegisterSuccess={handleLoginSuccess} />;
+        return <LoginPage onLoginSuccess={handleLoginSuccess} onSwitchToForgot={() => setPage('forgot-password')} />;
       case 'forgot-password':
         return <ForgotPasswordPage onSwitchToLogin={() => setPage('login')} />;
       case 'app':
         return <AppLayout />;
       default:
-        return <LoginPage onLoginSuccess={handleLoginSuccess} onSwitchToRegister={() => setPage('register')} onSwitchToForgot={() => setPage('forgot-password')} />;
+        return <LoginPage onLoginSuccess={handleLoginSuccess} onSwitchToForgot={() => setPage('forgot-password')} />;
     }
   };
 

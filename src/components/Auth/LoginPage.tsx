@@ -10,11 +10,10 @@ import '@/styles/tailwind.css';
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
-  onSwitchToRegister: () => void;
   onSwitchToForgot: () => void;
 }
 
-const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToRegister, onSwitchToForgot }) => {
+const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToForgot }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -83,7 +82,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onSwitchToRegiste
 
             <div className="mt-6 flex flex-col items-center gap-2">
               <TextLink onClick={onSwitchToForgot}>Забыли пароль?</TextLink>
-              <TextLink onClick={onSwitchToRegister}>Регистрация</TextLink>
             </div>
           </div>
         </div>

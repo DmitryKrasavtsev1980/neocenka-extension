@@ -68,6 +68,10 @@ let refreshTokenValue: string | null = null;
 let currentUser: User | null = null;
 let onUnauthorizedCallback: (() => void) | null = null;
 
+// Сохранённые credentials для авто-логина
+let savedEmail: string | null = null;
+let savedPassword: string | null = null;
+
 export function onUnauthorized(callback: () => void): void {
   onUnauthorizedCallback = callback;
 }
@@ -75,6 +79,7 @@ export function onUnauthorized(callback: () => void): void {
 const TOKEN_KEY = 'ret_auth_token';
 const REFRESH_TOKEN_KEY = 'ret_refresh_token';
 const USER_KEY = 'ret_current_user';
+const CREDENTIALS_KEY = 'ret_saved_credentials';
 
 async function saveAuth(token: string, refresh: string, user: User): Promise<void> {
   authToken = token;
@@ -86,6 +91,40 @@ async function saveAuth(token: string, refresh: string, user: User): Promise<voi
       [REFRESH_TOKEN_KEY]: refresh,
       [USER_KEY]: JSON.stringify(user),
     }, () => resolve());
+  });
+}
+
+function saveCredentials(email: string, password: string): void {
+  savedEmail = email;
+  savedPassword = password;
+  chrome.storage.local.set({
+    [CREDENTIALS_KEY]: JSON.stringify({ email, password }),
+  });
+}
+
+function clearCredentials(): void {
+  savedEmail = null;
+  savedPassword = null;
+  chrome.storage.local.remove(CREDENTIALS_KEY);
+}
+
+async function loadCredentials(): Promise<{ email: string; password: string } | null> {
+  if (savedEmail && savedPassword) {
+    return { email: savedEmail, password: savedPassword };
+  }
+  return new Promise((resolve) => {
+    chrome.storage.local.get(CREDENTIALS_KEY, (result: any) => {
+      const raw = result?.[CREDENTIALS_KEY];
+      if (!raw) { resolve(null); return; }
+      try {
+        const creds = JSON.parse(raw);
+        savedEmail = creds.email;
+        savedPassword = creds.password;
+        resolve(creds);
+      } catch {
+        resolve(null);
+      }
+    });
   });
 }
 
@@ -157,7 +196,19 @@ async function apiRequest<T>(
         return apiRequest<T>(method, path, body, false);
       }
     }
-    // Refresh failed or no token — clear auth and redirect
+    // Refresh failed — try auto-login with saved credentials
+    if (retry) {
+      const creds = await loadCredentials();
+      if (creds) {
+        try {
+          await login(creds.email, creds.password);
+          return apiRequest<T>(method, path, body, false);
+        } catch {
+          // Auto-login failed
+        }
+      }
+    }
+    // All attempts failed — clear auth and redirect
     await clearAuth();
     onUnauthorizedCallback?.();
     throw { status: 401, message: 'Требуется авторизация', error: 'unauthorized' };
@@ -231,26 +282,7 @@ export async function login(email: string, password: string): Promise<{
   });
 
   await saveAuth(data.token, data.refresh_token, data.user);
-  return data;
-}
-
-export async function register(name: string, email: string, password: string, passwordConfirmation: string): Promise<{
-  user: User;
-  token: string;
-  refresh_token: string;
-}> {
-  const data = await apiRequest<{
-    user: User;
-    token: string;
-    refresh_token: string;
-  }>('POST', '/auth/register', {
-    name,
-    email,
-    password,
-    password_confirmation: passwordConfirmation,
-  });
-
-  await saveAuth(data.token, data.refresh_token, data.user);
+  saveCredentials(email, password);
   return data;
 }
 
@@ -276,6 +308,7 @@ export async function logout(): Promise<void> {
     await apiRequest<{ message: string }>('POST', '/auth/logout');
   } finally {
     await clearAuth();
+    clearCredentials();
   }
 }
 
