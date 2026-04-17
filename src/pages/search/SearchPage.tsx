@@ -20,10 +20,13 @@ import { Heading } from '@/components/catalyst/heading';
 import {
   ArrowDownTrayIcon,
   FunnelIcon,
-  MagnifyingGlassIcon,
   XMarkIcon,
   ChevronDownIcon,
+  BookmarkSquareIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/16/solid';
+import SavedFiltersPanel, { SavedFilterState } from './SavedFiltersPanel';
+import SegmentationPanel from './SegmentationPanel';
 
 type SortField = 'period' | 'price' | 'area' | 'year_quarter' | 'floor' | 'year_build' | 'type' | 'material' | 'doc';
 type SortOrder = 'asc' | 'desc';
@@ -64,13 +67,23 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [cadastralQuarters, setCadastralQuarters] = useState<CadastralQuarter[]>([]);
   const [selectedCadNumbers, setSelectedCadNumbers] = useState<string[]>([]);
   const [showMapFilter, setShowMapFilter] = useState(false);
-  const [polygonCoords, setPolygonCoords] = useState<[number, number][] | null>(() => {
+  const [availableWallMaterials, setAvailableWallMaterials] = useState<string[] | null>(null);
+  const [polygonsCoords, setPolygonsCoords] = useState<[number, number][][] | null>(() => {
     try {
       const saved = localStorage.getItem('ret_polygon_coords');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      // Совместимость: старый формат — один полигон [number, number][]
+      if (parsed && Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0]) && !Array.isArray(parsed[0][0])) {
+        return [parsed];
+      }
+      return parsed;
     } catch { return null; }
   });
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lon: number; zoom: number } | null>(null);
+  const [showSavedPanel, setShowSavedPanel] = useState(false);
+  const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
+  const [activeFilterName, setActiveFilterName] = useState<string | null>(null);
 
   // Регионы с данными из справочника для навигации по карте
   const loadedRegions = useMemo(() => {
@@ -111,17 +124,111 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setCadastralQuarters(quarters);
   };
 
+  // Dynamic wall materials: fetch available materials for selected quarters
   useEffect(() => {
-    if (stats && stats.totalDeals > 0 && !initialLoadDone) {
-      setInitialLoadDone(true);
-      doSearch();
+    if (selectedCadNumbers.length > 0) {
+      dealsRepository.getWallMaterialsByCadNumbers(selectedCadNumbers).then(setAvailableWallMaterials);
+    } else {
+      setAvailableWallMaterials(null); // null = show all
     }
-  }, [stats, initialLoadDone]);
+  }, [selectedCadNumbers]);
 
   const loadStats = async () => {
     const dbStats = await getDatabaseStats();
     setStats(dbStats);
   };
+
+  // === Filter persistence ===
+  const LAST_FILTER_KEY = 'ret_last_filter';
+
+  const getCurrentFilterState = useCallback((): SavedFilterState => ({
+    selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials,
+    priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax,
+    searchCity, searchStreet, selectedCadNumbers, polygonCoords: polygonsCoords,
+  }), [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials,
+    priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax,
+    searchCity, searchStreet, selectedCadNumbers, polygonsCoords]);
+
+  const saveCurrentFilter = useCallback(() => {
+    const state = getCurrentFilterState();
+    chrome.storage.local.set({ [LAST_FILTER_KEY]: JSON.stringify(state) });
+  }, [getCurrentFilterState]);
+
+  const restoreLastFilter = useCallback(async (): Promise<SavedFilterState | null> => {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(LAST_FILTER_KEY, (result: any) => {
+        const raw = result?.[LAST_FILTER_KEY];
+        if (!raw) { resolve(null); return; }
+        try { resolve(JSON.parse(raw)); }
+        catch { resolve(null); }
+      });
+    });
+  }, []);
+
+  const applyFilterState = useCallback((state: SavedFilterState) => {
+    setSelectedRegions(state.selectedRegions);
+    setSelectedTypes(state.selectedTypes);
+    setSelectedDocTypes(state.selectedDocTypes);
+    setSelectedPeriods(state.selectedPeriods);
+    setSelectedWallMaterials(state.selectedWallMaterials);
+    setPriceMin(state.priceMin);
+    setPriceMax(state.priceMax);
+    setAreaMin(state.areaMin);
+    setAreaMax(state.areaMax);
+    setFloorMin(state.floorMin);
+    setFloorMax(state.floorMax);
+    setYearBuildMin(state.yearBuildMin);
+    setYearBuildMax(state.yearBuildMax);
+    setSearchCity(state.searchCity);
+    setSearchStreet(state.searchStreet);
+    setSelectedCadNumbers(state.selectedCadNumbers);
+    if (state.polygonCoords) {
+      setPolygonsCoords(state.polygonCoords);
+      localStorage.setItem('ret_polygon_coords', JSON.stringify(state.polygonCoords));
+    }
+    setPage(1);
+  }, []);
+
+  // Filter summary text
+  const filterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (searchCity) parts.push(searchCity);
+    if (searchStreet) parts.push(searchStreet);
+    if (selectedCadNumbers.length > 0) parts.push(`${selectedCadNumbers.length} кв.`);
+    else if (polygonsCoords) parts.push(`${polygonsCoords.length} полигон(ов)`);
+    if (selectedPeriods.length > 0) {
+      const years = new Set(selectedPeriods.map(p => p.split('-')[0]));
+      if (selectedPeriods.length <= 3) {
+        parts.push(selectedPeriods.map(p => p.replace('Q', 'К')).join(', '));
+      } else if (years.size === 1) {
+        parts.push(`${years.values().next().value} (${selectedPeriods.length} кв.)`);
+      } else {
+        parts.push(`${selectedPeriods.length} периодов`);
+      }
+    }
+    if (selectedTypes.length > 0) {
+      const names = selectedTypes.map(t => getRealEstateTypeName(t).substring(0, 10));
+      parts.push(names.join(', '));
+    }
+    if (selectedDocTypes.length > 0) parts.push(`${selectedDocTypes.length} док.`);
+    if (selectedWallMaterials.length > 0) {
+      const names = selectedWallMaterials.map(m => getWallMaterialName(m).substring(0, 10));
+      parts.push(names.join(', '));
+    }
+    if (priceMin || priceMax) {
+      const min = priceMin ? `${(parseFloat(priceMin) / 1000).toFixed(0)}K` : '';
+      const max = priceMax ? `${(parseFloat(priceMax) / 1000).toFixed(0)}K` : '';
+      parts.push(`Цена ${min}-${max}`);
+    }
+    if (areaMin || areaMax) {
+      const min = areaMin || '';
+      const max = areaMax || '';
+      parts.push(`Площ. ${min}-${max}`);
+    }
+    if (floorMin || floorMax) parts.push(`Этаж ${floorMin || '?'}-${floorMax || '?'}`);
+    if (yearBuildMin || yearBuildMax) parts.push(`Год ${yearBuildMin || '?'}-${yearBuildMax || '?'}`);
+    return parts.length > 0 ? parts.join(' • ') : 'Все сделки';
+  }, [searchCity, searchStreet, selectedCadNumbers, polygonsCoords, selectedPeriods, selectedTypes, selectedDocTypes, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax]);
 
   const doSearch = useCallback(async () => {
     setLoading(true);
@@ -152,18 +259,37 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
       const allDeals = await dealsRepository.searchAll(searchFilters);
       setAllFilteredDeals(allDeals);
+      saveCurrentFilter();
     } catch (error) {
       console.error('Ошибка поиска:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers]);
+  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers, saveCurrentFilter]);
+
+  // Initial load: restore saved filter and search
+  useEffect(() => {
+    if (stats && stats.totalDeals > 0 && !initialLoadDone) {
+      setInitialLoadDone(true);
+      restoreLastFilter().then((saved) => {
+        if (saved) applyFilterState(saved);
+        setTimeout(() => doSearch(), 0);
+      });
+    }
+  }, [stats, initialLoadDone, doSearch, restoreLastFilter, applyFilterState]);
 
   // Пагинация полностью клиентская — useEffect не нужен
 
   const handleSearch = () => {
     setPage(1);
     doSearch();
+  };
+
+  const handleApplySavedFilter = (state: SavedFilterState, filterId?: string, filterName?: string) => {
+    applyFilterState(state);
+    setActiveFilterId(filterId ?? null);
+    setActiveFilterName(filterName ?? null);
+    setTimeout(() => doSearch(), 0);
   };
 
   const handleReset = () => {
@@ -183,20 +309,41 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setSearchCity('');
     setSearchStreet('');
     setSelectedCadNumbers([]);
-    setPolygonCoords(null);
+    setPolygonsCoords(null);
     localStorage.removeItem('ret_polygon_coords');
     setPage(1);
     setResult(null);
     setAllFilteredDeals([]);
   };
 
-  const handleQuartersSelected = (cadNumbers: string[], polyCoords?: [number, number][]) => {
+  const handleResetFilters = () => {
+    setSelectedRegions([]);
+    setSelectedTypes([]);
+    setSelectedDocTypes([]);
+    setSelectedPeriods([]);
+    setSelectedWallMaterials([]);
+    setPriceMin('');
+    setPriceMax('');
+    setAreaMin('');
+    setAreaMax('');
+    setFloorMin('');
+    setFloorMax('');
+    setYearBuildMin('');
+    setYearBuildMax('');
+    setSearchCity('');
+    setSearchStreet('');
+    setActiveFilterId(null);
+    setActiveFilterName(null);
+    setPage(1);
+  };
+
+  const handleQuartersSelected = (cadNumbers: string[], polysCoords?: [number, number][][]) => {
     setSelectedCadNumbers(cadNumbers);
-    if (polyCoords && polyCoords.length >= 3) {
-      setPolygonCoords(polyCoords);
-      localStorage.setItem('ret_polygon_coords', JSON.stringify(polyCoords));
+    if (polysCoords && polysCoords.length > 0) {
+      setPolygonsCoords(polysCoords);
+      localStorage.setItem('ret_polygon_coords', JSON.stringify(polysCoords));
     } else if (cadNumbers.length === 0) {
-      setPolygonCoords(null);
+      setPolygonsCoords(null);
       localStorage.removeItem('ret_polygon_coords');
     }
     setPage(1);
@@ -206,6 +353,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setSelectedRegions((prev) =>
       prev.includes(region) ? prev.filter((r) => r !== region) : [...prev, region]
     );
+  };
+
+  const handleSetAreaRange = (min: string, max: string) => {
+    setAreaMin(min);
+    setAreaMax(max);
+    setShowFilters(true);
+    setPage(1);
+    setTimeout(() => doSearch(), 0);
   };
 
   const toggleType = (type: string) => {
@@ -339,7 +494,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     if (searchStreet) filterDescriptions.push(`Улица: ${searchStreet}`);
 
     const dealCadNumbers = new Set(deals.map(d => d.quarter_cad_number).filter(Boolean));
-    const hasMapData = polygonCoords || dealCadNumbers.size > 0;
+    const hasMapData = polygonsCoords || dealCadNumbers.size > 0;
 
     const quartersData = cadastralQuarters
       .filter(q => q.geojson && q.center_lat && q.center_lon && dealCadNumbers.has(q.cad_number))
@@ -722,7 +877,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     </div>
     ${hasMapData ? `
     <div class="card map-section">
-      <div class="map-title">Карта${polygonCoords ? ' (область поиска)' : ''}</div>
+      <div class="map-title">Карта${polygonsCoords ? ' (область поиска)' : ''}</div>
       <div id="reportMap"></div>
     </div>` : ''}
     <div class="card tbl-card">
@@ -761,7 +916,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   <script>
     const allDeals = ${JSON.stringify(dealsData)};
     const allQuarters = ${JSON.stringify(quartersData)};
-    const filterPolygon = ${JSON.stringify(polygonCoords)};
+    const filterPolygon = ${JSON.stringify(polygonsCoords)};
     const realEstateTypes = ${JSON.stringify(Object.fromEntries(Object.entries(REAL_ESTATE_TYPES)))};
     const wallMaterials = ${JSON.stringify(Object.fromEntries(Object.entries(WALL_MATERIALS)))};
     const fmt = (n) => new Intl.NumberFormat('ru-RU').format(n);
@@ -916,9 +1071,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
           allBounds.extend(polygon.getBounds());
         } catch(e) {}
       });
-      if (filterPolygon && filterPolygon.length >= 3) {
-        const fPoly = L.polygon(filterPolygon.map(c => [c[0], c[1]]), { color: '#ef4444', weight: 2, dashArray: '8 4', fillColor: '#ef4444', fillOpacity: 0.06 }).addTo(reportMap);
-        allBounds.extend(fPoly.getBounds());
+      if (filterPolygon && Array.isArray(filterPolygon)) {
+        filterPolygon.forEach(poly => {
+          if (poly && poly.length >= 3) {
+            const fPoly = L.polygon(poly.map(c => [c[0], c[1]]), { color: '#ef4444', weight: 2, dashArray: '8 4', fillColor: '#ef4444', fillOpacity: 0.06 }).addTo(reportMap);
+            allBounds.extend(fPoly.getBounds());
+          }
+        });
       }
       if (allBounds.isValid()) reportMap.fitBounds(allBounds, { padding: [30, 30] });
     }` : ''}
@@ -953,10 +1112,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                 + (ppm ? '<div><strong>Цена/м²:</strong> ' + ppm + '</div>' : '')
                 + '<div><strong>Период:</strong> ' + deal.year_quarter + '</div>'
                 + '</div></div>');
-              if (filterPolygon && filterPolygon.length >= 3) {
-                const fPoly = L.polygon(filterPolygon.map(c => [c[0], c[1]]), { color: '#ef4444', weight: 2, dashArray: '8 4', fillColor: '#ef4444', fillOpacity: 0.06 }).addTo(dmMap);
+              if (filterPolygon && Array.isArray(filterPolygon) && filterPolygon.length > 0) {
                 const b = polygon.getBounds();
-                b.extend(fPoly.getBounds());
+                filterPolygon.forEach(poly => {
+                  if (poly && poly.length >= 3) {
+                    const fPoly = L.polygon(poly.map(c => [c[0], c[1]]), { color: '#ef4444', weight: 2, dashArray: '8 4', fillColor: '#ef4444', fillOpacity: 0.06 }).addTo(dmMap);
+                    b.extend(fPoly.getBounds());
+                  }
+                });
                 dmMap.fitBounds(b, { padding: [50, 50] });
               } else {
                 dmMap.fitBounds(polygon.getBounds(), { padding: [50, 50] });
@@ -1038,44 +1201,81 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {selectedCadNumbers.length > 0 && (
-        <Badge color="blue" className="mb-4">Фильтр: {selectedCadNumbers.length} кварталов</Badge>
-      )}
-
       <div className="space-y-4">
-        {/* Quick Search */}
-        <div className="flex flex-wrap gap-3">
-          <div className="min-w-[180px] flex-1">
-            <Input
-              type="text"
-              placeholder="Город (через запятую для нескольких)..."
-              value={searchCity}
-              onChange={(e) => setSearchCity(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            />
+        {/* Filter bar */}
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 truncate">
+            {filterSummary}
           </div>
-          <div className="min-w-[180px] flex-1">
-            <Input
-              type="text"
-              placeholder="Улица (через запятую для нескольких)..."
-              value={searchStreet}
-              onChange={(e) => setSearchStreet(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            />
-          </div>
-          <Button color="blue" onClick={handleSearch}>
-            <MagnifyingGlassIcon className="size-4" />
-            Найти
+          {activeFilterId && (
+            <Button
+              color="blue"
+              title={`Обновить «${activeFilterName}»`}
+              onClick={() => {
+                // Обновляем активный фильтр в chrome.storage
+                const STORAGE_KEY = 'ret_saved_filters_v2';
+                chrome.storage.local.get(STORAGE_KEY, (result: any) => {
+                  const raw = result?.[STORAGE_KEY];
+                  if (!raw) return;
+                  try {
+                    const filters = JSON.parse(raw);
+                    const updated = filters.map((f: any) =>
+                      f.id === activeFilterId ? { ...f, state: getCurrentFilterState() } : f
+                    );
+                    chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(updated) });
+
+                    // Sync with server if filter has serverId
+                    const target = updated.find((f: any) => f.id === activeFilterId);
+                    if (target?.serverId) {
+                      import('@/services/api-service').then(api => {
+                        api.updateSavedFilter(target.serverId, {
+                          filter_data: getCurrentFilterState() as unknown as Record<string, unknown>,
+                        }).catch(() => {});
+                      });
+                    }
+                  } catch {}
+                });
+              }}
+            >
+              <ArrowPathIcon className="size-4" />
+              Обновить
+            </Button>
+          )}
+          <Button onClick={() => setShowSavedPanel(true)}>
+            <BookmarkSquareIcon className="size-4" />
+            Сохранённые
           </Button>
           <Button onClick={() => setShowFilters(!showFilters)}>
             <FunnelIcon className="size-4" />
-            {showFilters ? 'Скрыть фильтры' : 'Фильтры'}
+            {showFilters ? 'Скрыть' : 'Фильтры'}
           </Button>
         </div>
 
         {/* Filters */}
         {showFilters && (
           <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
+            {/* City / Street */}
+            <div className="mb-4 flex flex-wrap gap-3">
+              <div className="min-w-[180px] flex-1">
+                <Input
+                  type="text"
+                  placeholder="Город (через запятую для нескольких)..."
+                  value={searchCity}
+                  onChange={(e) => setSearchCity(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+              </div>
+              <div className="min-w-[180px] flex-1">
+                <Input
+                  type="text"
+                  placeholder="Улица (через запятую для нескольких)..."
+                  value={searchStreet}
+                  onChange={(e) => setSearchStreet(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                />
+              </div>
+            </div>
+
             {/* Real Estate Type */}
             <div className="mb-4 flex flex-wrap gap-5">
               <div className="min-w-[200px] flex-1">
@@ -1179,9 +1379,16 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
             {/* Wall Materials */}
             <div className="mb-4">
-              <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Материал стен</h4>
+              <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Материал стен
+                {availableWallMaterials && (
+                  <span className="ml-1 text-[10px] font-normal text-zinc-400">(доступно: {availableWallMaterials.length})</span>
+                )}
+              </h4>
               <div className="flex max-h-[200px] flex-wrap gap-2 overflow-y-auto">
-                {Object.entries(WALL_MATERIALS).map(([code, name]) => (
+                {Object.entries(WALL_MATERIALS)
+                  .filter(([code]) => !availableWallMaterials || availableWallMaterials.includes(code))
+                  .map(([code, name]) => (
                   <label key={code} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
                     <input
                       type="checkbox"
@@ -1246,15 +1453,21 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                   quarters={cadastralQuarters}
                   deals={allFilteredDeals}
                   onQuartersSelected={handleQuartersSelected}
-                  initialPolygon={polygonCoords}
+                  initialPolygons={polygonsCoords}
                   flyTo={flyToTarget}
                 />
               </div>
             </div>
 
+            {/* Segmentation */}
+            <div className="mb-4">
+              <SegmentationPanel deals={allFilteredDeals} onSetAreaRange={handleSetAreaRange} />
+            </div>
+
             {/* Actions */}
             <div className="flex gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
               <Button color="blue" onClick={handleSearch}>Применить фильтры</Button>
+              <Button onClick={handleResetFilters}>Сбросить</Button>
               <Button onClick={exportToHtml}>
                 <ArrowDownTrayIcon className="size-4" />
                 Экспорт в HTML
@@ -1399,13 +1612,22 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* Saved Filters Panel */}
+      <SavedFiltersPanel
+        open={showSavedPanel}
+        onClose={() => setShowSavedPanel(false)}
+        currentState={getCurrentFilterState()}
+        onApply={handleApplySavedFilter}
+        activeFilterId={activeFilterId}
+      />
+
       {/* Deal Map */}
       {selectedDealForMap && (
         <DealMap
           deals={allFilteredDeals}
           quarters={cadastralQuarters}
           selectedDeal={selectedDealForMap}
-          filterPolygon={polygonCoords}
+          filterPolygons={polygonsCoords}
           onClose={() => setSelectedDealForMap(null)}
         />
       )}

@@ -90,7 +90,7 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
         byWallMaterial: [],
         byQuarter: [],
         priceRange: { min: 0, max: 0, avg: 0, median: 0 },
-        areaRange: { min: 0, max: 0, avg: 0 },
+        areaRange: { min: 0, max: 0, avg: 0, median: 0, values: [] },
         topRegions: [],
         totalSum: 0,
         count: 0,
@@ -175,10 +175,13 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
 
     // Площадь
     const areas = deals.map((d) => d.area).filter((a) => a > 0);
+    const sortedAreas = [...areas].sort((a, b) => a - b);
     const areaRange = {
-      min: areas.length > 0 ? Math.min(...areas) : 0,
-      max: areas.length > 0 ? Math.max(...areas) : 0,
-      avg: areas.length > 0 ? Math.round(areas.reduce((a, b) => a + b, 0) / areas.length) : 0,
+      min: sortedAreas.length > 0 ? sortedAreas[0] : 0,
+      max: sortedAreas.length > 0 ? sortedAreas[sortedAreas.length - 1] : 0,
+      avg: sortedAreas.length > 0 ? Math.round(sortedAreas.reduce((a, b) => a + b, 0) / sortedAreas.length) : 0,
+      median: sortedAreas.length > 0 ? sortedAreas[Math.floor(sortedAreas.length / 2)] : 0,
+      values: sortedAreas,
     };
 
     // Топ регионов
@@ -295,6 +298,76 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
 
       {isExpanded && (
         <div className="px-5 pb-5 border-t border-gray-200 pt-4 dark:border-zinc-700">
+          {/* Range bars */}
+          <div className="grid grid-cols-2 gap-6 mb-4 max-md:grid-cols-1">
+            {/* Price range */}
+            <div>
+              <h4 className="text-xs font-medium text-zinc-500 m-0 mb-2 uppercase dark:text-zinc-400">
+                Ценовой диапазон
+              </h4>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0">{formatPrice(analytics.priceRange.min)}</span>
+                <svg className="flex-1 h-5" preserveAspectRatio="none">
+                  <rect x="0" y="8" width="100%" height="4" rx="2" fill="var(--tw-colors-zinc-200, #e4e4e7)" />
+                  <rect x="0" y="8" width="100%" height="4" rx="2" fill="#3b82f6" opacity="0.2" />
+                  {(() => {
+                    const range = analytics.priceRange.max - analytics.priceRange.min || 1;
+                    const avgX = ((analytics.priceRange.avg - analytics.priceRange.min) / range) * 100;
+                    const medX = ((analytics.priceRange.median - analytics.priceRange.min) / range) * 100;
+                    return (
+                      <>
+                        <line x1={`${avgX}%`} y1="2" x2={`${avgX}%`} y2="18" stroke="#3b82f6" strokeWidth="2" />
+                        <circle cx={`${medX}%`} cy="10" r="4" fill="#8b5cf6" />
+                      </>
+                    );
+                  })()}
+                </svg>
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0">{formatPrice(analytics.priceRange.max)}</span>
+              </div>
+              <div className="flex gap-4 mt-1 ml-[calc(theme(spacing.10))]">
+                <span className="flex items-center gap-1 text-[9px] text-zinc-400">
+                  <span className="inline-block w-2 h-0.5 bg-blue-500" /> Ср: {formatPrice(analytics.priceRange.avg)}
+                </span>
+                <span className="flex items-center gap-1 text-[9px] text-zinc-400">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500" /> Мед: {formatPrice(analytics.priceRange.median)}
+                </span>
+              </div>
+            </div>
+            {/* Area range */}
+            <div>
+              <h4 className="text-xs font-medium text-zinc-500 m-0 mb-2 uppercase dark:text-zinc-400">
+                Площадь (м²)
+              </h4>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0">{analytics.areaRange.min.toLocaleString('ru-RU')}</span>
+                <svg className="flex-1 h-5" preserveAspectRatio="none">
+                  <rect x="0" y="8" width="100%" height="4" rx="2" fill="var(--tw-colors-zinc-200, #e4e4e7)" />
+                  <rect x="0" y="8" width="100%" height="4" rx="2" fill="#22c55e" opacity="0.2" />
+                  {(() => {
+                    const range = analytics.areaRange.max - analytics.areaRange.min || 1;
+                    const avgX = ((analytics.areaRange.avg - analytics.areaRange.min) / range) * 100;
+                    const medX = ((analytics.areaRange.median - analytics.areaRange.min) / range) * 100;
+                    return (
+                      <>
+                        <line x1={`${avgX}%`} y1="2" x2={`${avgX}%`} y2="18" stroke="#22c55e" strokeWidth="2" />
+                        <circle cx={`${medX}%`} cy="10" r="4" fill="#8b5cf6" />
+                      </>
+                    );
+                  })()}
+                </svg>
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 shrink-0">{analytics.areaRange.max.toLocaleString('ru-RU')}</span>
+              </div>
+              <div className="flex gap-4 mt-1">
+                <span className="flex items-center gap-1 text-[9px] text-zinc-400">
+                  <span className="inline-block w-2 h-0.5 bg-green-500" /> Ср: {analytics.areaRange.avg.toLocaleString('ru-RU')}
+                </span>
+                <span className="flex items-center gap-1 text-[9px] text-zinc-400">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500" /> Мед: {analytics.areaRange.median.toLocaleString('ru-RU')}
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Графики */}
           <div className="grid grid-cols-2 gap-4 mb-4 max-md:grid-cols-1">
             {/* Динамика по кварталам - количество сделок */}
@@ -489,53 +562,6 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
             </div>
           </div>
 
-          {/* Дополнительные метрики */}
-          <div className="flex gap-6 pt-4 border-t border-gray-200 max-md:flex-col max-md:gap-4 dark:border-zinc-700">
-            <div className="flex-1">
-              <h4 className="text-xs font-medium text-zinc-500 m-0 mb-2 uppercase dark:text-zinc-400">
-                Ценовой диапазон
-              </h4>
-              <div className="flex flex-wrap gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Мин:</span>
-                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
-                    {formatPrice(analytics.priceRange.min)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Макс:</span>
-                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
-                    {formatPrice(analytics.priceRange.max)}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex-1">
-              <h4 className="text-xs font-medium text-zinc-500 m-0 mb-2 uppercase dark:text-zinc-400">
-                Площадь (м²)
-              </h4>
-              <div className="flex flex-wrap gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Мин:</span>
-                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
-                    {analytics.areaRange.min.toLocaleString('ru-RU')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Макс:</span>
-                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
-                    {analytics.areaRange.max.toLocaleString('ru-RU')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">Средняя:</span>
-                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
-                    {analytics.areaRange.avg.toLocaleString('ru-RU')}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

@@ -464,3 +464,87 @@ export interface FeedbackLink {
 export async function getFeedbackLinks(): Promise<{ links: FeedbackLink[] }> {
   return apiRequest('GET', '/feedback-links');
 }
+
+// === Saved Filters (server sync) ===
+
+export interface SavedFilterGroupServer {
+  id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+  is_collapsed: boolean;
+  filters_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedFilterServer {
+  id: number;
+  saved_filter_group_id: number | null;
+  name: string;
+  filter_data: Record<string, unknown>;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Filter Groups
+export async function getFilterGroups(): Promise<SavedFilterGroupServer[]> {
+  return apiRequest<SavedFilterGroupServer[]>('GET', '/user/filter-groups');
+}
+
+export async function createFilterGroup(data: {
+  name: string;
+  color?: string;
+  sort_order?: number;
+}): Promise<SavedFilterGroupServer> {
+  return apiRequest<SavedFilterGroupServer>('POST', '/user/filter-groups', data as Record<string, unknown>);
+}
+
+export async function updateFilterGroup(id: number, data: {
+  name?: string;
+  color?: string;
+  sort_order?: number;
+  is_collapsed?: boolean;
+}): Promise<SavedFilterGroupServer> {
+  return apiRequest<SavedFilterGroupServer>('PUT', `/user/filter-groups/${id}`, data as Record<string, unknown>);
+}
+
+export async function deleteFilterGroup(id: number): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>('DELETE', `/user/filter-groups/${id}`);
+}
+
+// Saved Filters
+export async function getSavedFilters(): Promise<SavedFilterServer[]> {
+  return apiRequest<SavedFilterServer[]>('GET', '/user/saved-filters');
+}
+
+export async function createSavedFilter(data: {
+  name: string;
+  saved_filter_group_id?: number | null;
+  filter_data: Record<string, unknown>;
+  sort_order?: number;
+}): Promise<SavedFilterServer> {
+  return apiRequest<SavedFilterServer>('POST', '/user/saved-filters', data as Record<string, unknown>);
+}
+
+export async function updateSavedFilter(id: number, data: {
+  name?: string;
+  saved_filter_group_id?: number | null;
+  filter_data?: Record<string, unknown>;
+  sort_order?: number;
+}): Promise<SavedFilterServer> {
+  return apiRequest<SavedFilterServer>('PUT', `/user/saved-filters/${id}`, data as Record<string, unknown>);
+}
+
+export async function deleteSavedFilter(id: number): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>('DELETE', `/user/saved-filters/${id}`);
+}
+
+export async function reorderSavedFilters(items: Array<{
+  id: number;
+  group_id?: number | null;
+  sort_order: number;
+}>): Promise<{ updated: boolean }> {
+  return apiRequest<{ updated: boolean }>('PUT', '/user/saved-filters/reorder', { items });
+}

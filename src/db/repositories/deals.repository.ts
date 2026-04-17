@@ -229,6 +229,21 @@ export const dealsRepository = {
   },
 
   /**
+   * Получить уникальные wall_material_code для сделок в указанных кад. кварталах
+   */
+  async getWallMaterialsByCadNumbers(cadNumbers: string[]): Promise<string[]> {
+    if (cadNumbers.length === 0) return [];
+    const cadSet = new Set(cadNumbers);
+    const materials = new Set<string>();
+    await db.deals.each(d => {
+      if (cadSet.has(d.quarter_cad_number) && d.wall_material_code) {
+        materials.add(d.wall_material_code);
+      }
+    });
+    return [...materials].sort();
+  },
+
+  /**
    * Подсчёт общего количества сделок
    */
   async count(): Promise<number> {

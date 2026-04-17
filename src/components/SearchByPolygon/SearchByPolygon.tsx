@@ -18,8 +18,8 @@ interface FlyToTarget {
 interface SearchByPolygonProps {
   quarters: CadastralQuarter[];
   deals: Deal[];
-  onQuartersSelected: (cadNumbers: string[], polygonCoords?: [number, number][]) => void;
-  initialPolygon?: [number, number][] | null;
+  onQuartersSelected: (cadNumbers: string[], polygonsCoords?: [number, number][][]) => void;
+  initialPolygons?: [number, number][][] | null;
   flyTo?: FlyToTarget | null;
 }
 
@@ -27,7 +27,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   quarters,
   deals,
   onQuartersSelected,
-  initialPolygon,
+  initialPolygons,
   flyTo,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -50,16 +50,15 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     }
   }, [quarters, deals]);
 
-  // Поиск пересекающихся кварталов с bounding box предфильтрацией
-  const findIntersectingQuarters = useCallback(
-    (drawnLayer: L.Layer) => {
+  // Поиск пересекающихся кварталов для одного полигона
+  const findIntersectingForLayer = useCallback(
+    (drawnLayer: L.Layer): { cadNumbers: string[]; polyCoords: [number, number][] } => {
       const drawnPolygon = drawnLayer as L.Polygon;
       const latLngs = drawnPolygon.getLatLngs()[0] as L.LatLng[];
 
       const drawnCoords = latLngs.map((ll) => [ll.lng, ll.lat]);
       drawnCoords.push(drawnCoords[0]);
 
-      // Вычисляем bounding box нарисованного полигона
       let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
       for (const ll of latLngs) {
         if (ll.lat < minLat) minLat = ll.lat;
@@ -67,12 +66,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         if (ll.lng < minLng) minLng = ll.lng;
         if (ll.lng > maxLng) maxLng = ll.lng;
       }
-      // Расширяем bbox на небольшую дельту для захвата граничных кварталов
       const bboxPadding = 0.001;
-
       const polyCoords: [number, number][] = latLngs.map((ll) => [ll.lat, ll.lng]);
-
-      // Создаём Turf-полигон один раз, вне цикла
       const drawnTurf = turfPolygon([drawnCoords]);
 
       const intersecting: string[] = [];
@@ -82,34 +77,55 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       for (let i = 0; i < len; i++) {
         const q = quarters[i];
         if (!q.geojson || !q.center_lat || !q.center_lon) continue;
-
-        // Шаг 1: Быстрая проверка по центру квартала (center_lat/center_lon)
         if (
           q.center_lat < minLat - bboxPadding ||
           q.center_lat > maxLat + bboxPadding ||
           q.center_lon < minLng - bboxPadding ||
           q.center_lon > maxLng + bboxPadding
-        ) {
-          continue;
-        }
-
-        // Шаг 2: Точная проверка через Turf.js (только для прошедших bbox)
+        ) continue;
         try {
           const quarterTurf = q.geojson as Feature<TurfPolygon>;
           if (booleanIntersects(drawnTurf, quarterTurf)) {
             intersecting.push(q.cad_number);
           }
-        } catch {
-          // Пропускаем невалидную геометрию
-        }
+        } catch { /* skip invalid geometry */ }
       }
 
-      setSelectedCount(intersecting.length);
-      setIntersectingCadNumbers(new Set(intersecting));
-      onQuartersSelected(intersecting, polyCoords);
+      return { cadNumbers: intersecting, polyCoords };
     },
-    [onQuartersSelected]
+    []
   );
+
+  // Пересчёт всех нарисованных полигонов и отправка результата наверх
+  const recalcAllPolygons = useCallback(() => {
+    const drawnItems = drawnItemsRef.current;
+    if (!drawnItems) return;
+
+    const layers = drawnItems.getLayers();
+    if (layers.length === 0) {
+      setSelectedCount(0);
+      setIntersectingCadNumbers(new Set());
+      onQuartersSelected([], undefined);
+      return;
+    }
+
+    const allCadNumbers = new Set<string>();
+    const allPolyCoords: [number, number][][] = [];
+
+    for (const layer of layers) {
+      const result = findIntersectingForLayer(layer);
+      result.cadNumbers.forEach((cn) => allCadNumbers.add(cn));
+      allPolyCoords.push(result.polyCoords);
+    }
+
+    setSelectedCount(allCadNumbers.size);
+    setIntersectingCadNumbers(allCadNumbers);
+    onQuartersSelected(Array.from(allCadNumbers), allPolyCoords);
+  }, [findIntersectingForLayer, onQuartersSelected]);
+
+  // Ref для доступа к recalcAllPolygons из замыканий инициализации карты
+  const recalcAllPolygonsRef = useRef(recalcAllPolygons);
+  recalcAllPolygonsRef.current = recalcAllPolygons;
 
   // Инициализация карты
   useEffect(() => {
@@ -126,9 +142,10 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     map.addLayer(drawnItems);
     drawnItemsRef.current = drawnItems;
 
-    // Слой для кадастровых кварталов (по умолчанию выключен)
+    // Слой для кадастровых кварталов (по умолчанию включен)
     const quarterLayerGroup = L.layerGroup();
     quarterLayerGroupRef.current = quarterLayerGroup;
+    map.addLayer(quarterLayerGroup);
 
     // Управление слоями
     const baseLayers: Record<string, L.Layer> = {};
@@ -158,25 +175,20 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     });
     map.addControl(drawControl);
 
-    // Обработка нарисованного полигона
+    // Обработка нарисованного полигона (добавляем к существующим)
     map.on((L as any).Draw.Event.CREATED, (e: any) => {
-      drawnItems.clearLayers();
       drawnItems.addLayer(e.layer);
-      findIntersectingQuarters(e.layer);
+      recalcAllPolygonsRef.current();
     });
 
     // Обработка редактирования полигона
-    map.on((L as any).Draw.Event.EDITED, (e: any) => {
-      e.layers.eachLayer((layer: any) => {
-        findIntersectingQuarters(layer);
-      });
+    map.on((L as any).Draw.Event.EDITED, () => {
+      recalcAllPolygonsRef.current();
     });
 
     // Обработка удаления полигона
     map.on((L as any).Draw.Event.DELETED, () => {
-      setSelectedCount(0);
-      setIntersectingCadNumbers(new Set());
-      onQuartersSelected([], undefined);
+      recalcAllPolygonsRef.current();
     });
 
     mapInstanceRef.current = map;
@@ -189,35 +201,46 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     };
   }, []);
 
-  // Восстановление полигона из initialPolygon + пересчёт при загрузке кварталов
+  // Восстановление полигонов из initialPolygons + пересчёт при загрузке кварталов
   const polygonAppliedRef = useRef(false);
   useEffect(() => {
     const map = mapInstanceRef.current;
     const drawnItems = drawnItemsRef.current;
-    if (!map || !drawnItems || !initialPolygon || initialPolygon.length < 3) return;
-    if (!quartersLoaded) return;
+    if (!map || !drawnItems || !quartersLoaded) return;
 
     if (polygonAppliedRef.current) {
-      // Полигон уже восстановлен — только пересчитываем кварталы
-      const layers = drawnItems.getLayers();
-      if (layers.length > 0) {
-        findIntersectingQuarters(layers[0] as L.Polygon);
-      }
+      // Полигоны уже восстановлены — только пересчитываем кварталы
+      recalcAllPolygons();
       return;
     }
 
-    const latLngs = initialPolygon.map((c) => L.latLng(c[0], c[1]));
-    const targetPolygon = L.polygon(latLngs, {
-      color: '#e74c3c',
-      weight: 3,
-    });
+    if (!initialPolygons || initialPolygons.length === 0) return;
+
     drawnItems.clearLayers();
-    drawnItems.addLayer(targetPolygon);
-    map.fitBounds(targetPolygon.getBounds(), { padding: [20, 20] });
+    let allBounds: L.LatLngBounds | null = null;
+
+    for (const polyCoords of initialPolygons) {
+      if (polyCoords.length < 3) continue;
+      const latLngs = polyCoords.map((c) => L.latLng(c[0], c[1]));
+      const polygon = L.polygon(latLngs, {
+        color: '#e74c3c',
+        weight: 3,
+      });
+      drawnItems.addLayer(polygon);
+      if (!allBounds) {
+        allBounds = polygon.getBounds();
+      } else {
+        allBounds.extend(polygon.getBounds());
+      }
+    }
+
+    if (allBounds) {
+      map.fitBounds(allBounds, { padding: [20, 20] });
+    }
     polygonAppliedRef.current = true;
 
-    findIntersectingQuarters(targetPolygon);
-  }, [initialPolygon, findIntersectingQuarters, quartersLoaded]);
+    recalcAllPolygons();
+  }, [initialPolygons, recalcAllPolygons, quartersLoaded]);
 
   // ResizeObserver для invalidateSize
   useEffect(() => {
@@ -312,7 +335,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     <div className="search-by-polygon" ref={containerRef}>
       <div className="polygon-toolbar">
         <span className="polygon-hint">
-          Нарисуйте полигон на карте для поиска пересекающихся кварталов
+          Нарисуйте полигон(ы) на карте для поиска пересекающихся кварталов
         </span>
         {selectedCount > 0 && (
           <span className="polygon-selected">

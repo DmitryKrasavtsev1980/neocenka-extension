@@ -15,7 +15,7 @@ interface DealMapProps {
   deals: Deal[];
   quarters?: CadastralQuarter[];
   selectedDeal?: Deal | null;
-  filterPolygon?: [number, number][] | null;
+  filterPolygons?: [number, number][][] | null;
   onClose?: () => void;
 }
 
@@ -60,11 +60,11 @@ interface MapRuResponse {
   features: MapRuFeature[];
 }
 
-const DealMap: React.FC<DealMapProps> = ({ deals, quarters, selectedDeal, filterPolygon, onClose }) => {
+const DealMap: React.FC<DealMapProps> = ({ deals, quarters, selectedDeal, filterPolygons, onClose }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const polygonsRef = useRef<L.Polygon[]>([]);
-  const filterPolygonRef = useRef<L.Polygon | null>(null);
+  const filterPolygonsRef = useRef<L.Polygon[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentQuarter, setCurrentQuarter] = useState<string | null>(null);
@@ -186,23 +186,26 @@ const DealMap: React.FC<DealMapProps> = ({ deals, quarters, selectedDeal, filter
         polygon.bindPopup(popupContent);
         polygonsRef.current.push(polygon);
 
-        if (filterPolygonRef.current) {
-          filterPolygonRef.current.remove();
-          filterPolygonRef.current = null;
+        if (filterPolygonsRef.current.length > 0) {
+          filterPolygonsRef.current.forEach(p => p.remove());
+          filterPolygonsRef.current = [];
         }
-        if (filterPolygon && filterPolygon.length >= 3) {
-          const filterLatLngs = filterPolygon.map((c) => L.latLng(c[0], c[1]));
-          const filterLayer = L.polygon(filterLatLngs, {
-            color: '#ef4444',
-            weight: 2,
-            dashArray: '8 4',
-            fillColor: '#ef4444',
-            fillOpacity: 0.06,
-          }).addTo(map);
-          filterPolygonRef.current = filterLayer;
-
+        if (filterPolygons && filterPolygons.length > 0) {
           const allBounds = polygon.getBounds();
-          allBounds.extend(filterLayer.getBounds());
+          filterPolygons.forEach(poly => {
+            if (poly && poly.length >= 3) {
+              const filterLatLngs = poly.map((c) => L.latLng(c[0], c[1]));
+              const filterLayer = L.polygon(filterLatLngs, {
+                color: '#ef4444',
+                weight: 2,
+                dashArray: '8 4',
+                fillColor: '#ef4444',
+                fillOpacity: 0.06,
+              }).addTo(map);
+              filterPolygonsRef.current.push(filterLayer);
+              allBounds.extend(filterLayer.getBounds());
+            }
+          });
           map.fitBounds(allBounds, { padding: [50, 50] });
         } else {
           map.fitBounds(polygon.getBounds(), { padding: [50, 50] });
