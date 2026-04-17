@@ -45,7 +45,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
   const [sortField, setSortField] = useState<SortField>('period');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [pageSize, setPageSize] = useState<number>(50);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
@@ -1598,13 +1598,17 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                   {/* Pagination */}
                   {totalPages > 1 && (
                     <div className="flex items-center justify-center gap-4 border-t border-zinc-200 px-5 py-4 dark:border-zinc-700">
-                      <Button disabled={currentPage === 1} onClick={() => setPage((p) => p - 1)}>
+                      <Button disabled={currentPage === 1} onClick={() => {
+                        setPage((p) => p - 1);
+                      }}>
                         Назад
                       </Button>
                       <span className="text-sm text-zinc-500 dark:text-zinc-400">
                         Страница {currentPage} из {totalPages}
                       </span>
-                      <Button disabled={currentPage === totalPages} onClick={() => setPage((p) => p + 1)}>
+                      <Button disabled={currentPage === totalPages} onClick={() => {
+                        setPage((p) => p + 1);
+                      }}>
                         Вперёд
                       </Button>
                     </div>

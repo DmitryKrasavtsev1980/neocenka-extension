@@ -74,6 +74,9 @@ const GROUPS_STORAGE_KEY = 'ret_filter_groups';
 const GROUP_COLORS = [
   '#3b82f6', '#ef4444', '#22c55e', '#f59e0b',
   '#8b5cf6', '#ec4899', '#06b6d4', '#f97316',
+  '#14b8a6', '#6366f1', '#a855f7', '#84cc16',
+  '#0ea5e9', '#d946ef', '#78716c', '#e11d48',
+  '#059669', '#7c3aed', '#ea580c', '#0891b2',
 ];
 
 // === Storage helpers ===
@@ -189,6 +192,9 @@ interface FilterGroupSectionProps {
   activeFilterId: string | null;
   editingId: string | null;
   editingName: string;
+  isEditingGroup: boolean;
+  editingGroupName: string;
+  showColorPicker: boolean;
   onApply: (filter: SavedFilter) => void;
   onDelete: (id: string) => void;
   onStartEdit: (id: string, name: string) => void;
@@ -196,45 +202,95 @@ interface FilterGroupSectionProps {
   onCancelEdit: () => void;
   onEditingNameChange: (name: string) => void;
   onToggleCollapse: () => void;
-  onRenameGroup: () => void;
+  onStartEditGroup: () => void;
+  onFinishEditGroup: () => void;
+  onCancelEditGroup: () => void;
+  onEditingGroupNameChange: (name: string) => void;
   onDeleteGroup: () => void;
-  onChangeGroupColor: () => void;
+  onToggleColorPicker: () => void;
+  onSelectColor: (color: string) => void;
 }
 
 const FilterGroupSection: React.FC<FilterGroupSectionProps> = ({
   group, filters, activeFilterId, editingId, editingName,
+  isEditingGroup, editingGroupName, showColorPicker,
   onApply, onDelete, onStartEdit, onFinishEdit, onCancelEdit, onEditingNameChange,
-  onToggleCollapse, onRenameGroup, onDeleteGroup, onChangeGroupColor,
+  onToggleCollapse, onStartEditGroup, onFinishEditGroup, onCancelEditGroup,
+  onEditingGroupNameChange, onDeleteGroup, onToggleColorPicker, onSelectColor,
 }) => {
   return (
     <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-800 group/header">
         <div
-          className="size-3 rounded-full shrink-0 cursor-pointer hover:ring-2 hover:ring-offset-1"
+          className="size-3 rounded-full shrink-0 cursor-pointer hover:ring-2 hover:ring-offset-1 relative"
           style={{ backgroundColor: group.color }}
-          onClick={onChangeGroupColor}
+          onClick={onToggleColorPicker}
           title="Изменить цвет"
         />
-        <button
-          className="flex items-center gap-1 flex-1 bg-transparent border-none cursor-pointer text-left p-0"
-          onClick={onToggleCollapse}
-        >
-          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
-            {group.name}
-          </span>
-          <span className="text-[10px] text-zinc-400">({filters.length})</span>
-          <ChevronDownIcon className={`size-3 text-zinc-400 transition-transform ml-auto ${group.isCollapsed ? '' : 'rotate-180'}`} />
-        </button>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover/header:opacity-100 transition-opacity">
-          <button onClick={onRenameGroup} className="rounded p-0.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 bg-transparent border-none cursor-pointer" title="Переименовать">
-            <PencilSquareIcon className="size-3" />
+        {isEditingGroup ? (
+          <div className="flex items-center gap-1 flex-1">
+            <input
+              value={editingGroupName}
+              onChange={(e) => onEditingGroupNameChange(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && onFinishEditGroup()}
+              className="py-0.5 px-1.5 text-xs flex-1 rounded border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-700 dark:text-white dark:focus:border-blue-500"
+              autoFocus
+            />
+            <button onClick={onFinishEditGroup} className="rounded p-0.5 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
+              <CheckIcon className="size-3" />
+            </button>
+            <button onClick={onCancelEditGroup} className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 bg-transparent border-none cursor-pointer">
+              <XMarkIcon className="size-3" />
+            </button>
+          </div>
+        ) : (
+          <button
+            className="flex items-center gap-1 flex-1 bg-transparent border-none cursor-pointer text-left p-0"
+            onClick={onToggleCollapse}
+          >
+            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
+              {group.name}
+            </span>
+            <span className="text-[10px] text-zinc-400">({filters.length})</span>
+            <ChevronDownIcon className={`size-3 text-zinc-400 transition-transform ml-auto ${group.isCollapsed ? '' : 'rotate-180'}`} />
           </button>
-          <button onClick={onDeleteGroup} className="rounded p-0.5 text-zinc-400 hover:text-red-500 bg-transparent border-none cursor-pointer" title="Удалить группу">
-            <TrashIcon className="size-3" />
-          </button>
-        </div>
+        )}
+        {!isEditingGroup && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover/header:opacity-100 transition-opacity">
+            <button onClick={onStartEditGroup} className="rounded p-0.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 bg-transparent border-none cursor-pointer" title="Переименовать">
+              <PencilSquareIcon className="size-3" />
+            </button>
+            <button onClick={onDeleteGroup} className="rounded p-0.5 text-zinc-400 hover:text-red-500 bg-transparent border-none cursor-pointer" title="Удалить группу">
+              <TrashIcon className="size-3" />
+            </button>
+          </div>
+        )}
       </div>
-      {!group.isCollapsed && (
+      {/* Color picker */}
+      {showColorPicker && (
+        <div className="px-3 py-2 border-t border-zinc-100 dark:border-zinc-700 bg-white dark:bg-zinc-850">
+          <div className="flex flex-wrap gap-1.5">
+            {GROUP_COLORS.map(c => (
+              <button
+                key={c}
+                onClick={() => onSelectColor(c)}
+                className={`size-5 rounded-full border-2 transition-transform hover:scale-110 ${group.color === c ? 'border-zinc-800 dark:border-white scale-110' : 'border-transparent'}`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+            <label className="size-5 rounded-full border-2 border-dashed border-zinc-300 dark:border-zinc-600 cursor-pointer overflow-hidden relative flex items-center justify-center" title="Свой цвет">
+              <span className="text-[10px] text-zinc-400">+</span>
+              <input
+                type="color"
+                value={group.color}
+                onChange={(e) => onSelectColor(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+      {!group.isCollapsed && !showColorPicker && (
         <SortableContext items={filters.map(f => f.id)} strategy={verticalListSortingStrategy}>
           <div className="p-2 space-y-1.5">
             {filters.map(filter => (
@@ -282,6 +338,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
   const [editingName, setEditingName] = useState('');
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupName, setEditingGroupName] = useState('');
+  const [colorPickerGroupId, setColorPickerGroupId] = useState<string | null>(null);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState(GROUP_COLORS[0]);
@@ -388,6 +445,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
 
   const handleDeleteFilter = async (id: string) => {
     const filter = filters.find(f => f.id === id);
+    if (!confirm(`Удалить фильтр «${filter?.name || ''}»?`)) return;
     const updated = filters.filter(f => f.id !== id);
     setFilters(updated);
 
@@ -491,27 +549,25 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
   };
 
   const handleDeleteGroup = async (groupId: string) => {
+    const group = groups.find(g => g.id === groupId);
+    const filterCount = filters.filter(f => f.groupId === groupId).length;
+    if (!confirm(`Удалить группу «${group?.name || ''}»?${filterCount > 0 ? ` ${filterCount} фильтров будут перемещены в «Без группы».` : ''}`)) return;
     // Move filters to "no group"
     setFilters(prev => prev.map(f => f.groupId === groupId ? { ...f, groupId: null } : f));
     setGroups(prev => prev.filter(g => g.id !== groupId));
 
-    if (isOnline) {
-      const group = groups.find(g => g.id === groupId);
-      if (group?.serverId) {
-        try { await api.deleteFilterGroup(group.serverId); } catch {}
-      }
+    if (isOnline && group?.serverId) {
+      try { await api.deleteFilterGroup(group.serverId); } catch {}
     }
   };
 
-  const handleChangeGroupColor = (groupId: string) => {
-    const group = groups.find(g => g.id === groupId);
-    if (!group) return;
-    const currentIdx = GROUP_COLORS.indexOf(group.color);
-    const nextColor = GROUP_COLORS[(currentIdx + 1) % GROUP_COLORS.length];
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, color: nextColor } : g));
+  const handleSelectColor = (groupId: string, color: string) => {
+    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, color } : g));
+    setColorPickerGroupId(null);
 
-    if (isOnline && group.serverId) {
-      api.updateFilterGroup(group.serverId, { color: nextColor }).catch(() => {});
+    const group = groups.find(g => g.id === groupId);
+    if (isOnline && group?.serverId) {
+      api.updateFilterGroup(group.serverId, { color }).catch(() => {});
     }
   };
 
@@ -620,17 +676,24 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {creatingGroup && (
               <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="flex gap-1">
-                    {GROUP_COLORS.slice(0, 6).map(c => (
-                      <button
-                        key={c}
-                        onClick={() => setNewGroupColor(c)}
-                        className={`size-4 rounded-full border-2 ${newGroupColor === c ? 'border-zinc-800 dark:border-white' : 'border-transparent'}`}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
-                  </div>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {GROUP_COLORS.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setNewGroupColor(c)}
+                      className={`size-4 rounded-full border-2 ${newGroupColor === c ? 'border-zinc-800 dark:border-white' : 'border-transparent'}`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                  <label className="size-4 rounded-full border-2 border-dashed border-zinc-300 dark:border-zinc-600 cursor-pointer overflow-hidden relative flex items-center justify-center" title="Свой цвет">
+                    <span className="text-[8px] text-zinc-400">+</span>
+                    <input
+                      type="color"
+                      value={newGroupColor}
+                      onChange={(e) => setNewGroupColor(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                  </label>
                 </div>
                 <div className="flex items-center gap-1">
                   <input
@@ -655,7 +718,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
             {groupedFilters.map(({ group, filters: groupFilters }) => (
               <FilterGroupSection
                 key={group.id}
-                group={editingGroupId === group.id ? { ...group, name: editingGroupName } : group}
+                group={group}
                 filters={groupFilters}
                 activeFilterId={activeFilterId}
                 editingId={editingId}
@@ -667,9 +730,16 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
                 onCancelEdit={() => setEditingId(null)}
                 onEditingNameChange={setEditingName}
                 onToggleCollapse={() => handleToggleGroup(group.id)}
-                onRenameGroup={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}
+                isEditingGroup={editingGroupId === group.id}
+                editingGroupName={editingGroupName}
+                onStartEditGroup={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}
+                onFinishEditGroup={() => handleRenameGroup(group.id)}
+                onCancelEditGroup={() => setEditingGroupId(null)}
+                onEditingGroupNameChange={setEditingGroupName}
                 onDeleteGroup={() => handleDeleteGroup(group.id)}
-                onChangeGroupColor={() => handleChangeGroupColor(group.id)}
+                showColorPicker={colorPickerGroupId === group.id}
+                onToggleColorPicker={() => setColorPickerGroupId(prev => prev === group.id ? null : group.id)}
+                onSelectColor={(color) => handleSelectColor(group.id, color)}
               />
             ))}
 

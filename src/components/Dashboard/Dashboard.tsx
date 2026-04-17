@@ -33,7 +33,8 @@ const COLORS = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#9c27b0', '#00bcd4'
 /**
  * Контейнер для recharts — измеряет ширину родителя и передаёт
  * точные пиксельные размеры дочернему графику.
- * Один и тот же div используется всегда — ref стабильный.
+ * Использует ResizeObserver + IntersectionObserver для надёжного
+ * рендеринга даже когда график вне viewport при первом монтировании.
  */
 const ChartBox: React.FC<{
   height: number;
@@ -41,6 +42,7 @@ const ChartBox: React.FC<{
 }> = ({ height, children }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 0, height });
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -53,27 +55,39 @@ const ChartBox: React.FC<{
       }
     };
 
-    // Первичная попытка + отложенные повторы для надёжности
-    requestAnimationFrame(measure);
-    const t1 = setTimeout(measure, 50);
-    const t2 = setTimeout(measure, 200);
-    const t3 = setTimeout(measure, 500);
-
-    // Отслеживание изменений размера контейнера
+    // Отслеживание изменений размера
     const ro = new ResizeObserver(measure);
     ro.observe(el);
 
+    // Отслеживание видимости — пересчитать при появлении в viewport
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisible(true);
+          measure();
+          // Дополнительные измерения с задержкой
+          requestAnimationFrame(measure);
+          setTimeout(measure, 100);
+          setTimeout(measure, 300);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    io.observe(el);
+
+    // Первичная попытка
+    measure();
+    requestAnimationFrame(measure);
+
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
       ro.disconnect();
+      io.disconnect();
     };
   }, [height]);
 
   return (
     <div ref={ref} style={{ width: '100%', height }}>
-      {size.width > 0 ? children(size) : null}
+      {size.width > 0 && visible ? children(size) : null}
     </div>
   );
 };
