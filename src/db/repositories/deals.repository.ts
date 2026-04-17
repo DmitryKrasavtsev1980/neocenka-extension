@@ -79,6 +79,7 @@ function applyFilters(filters: SearchFilters): Promise<Deal[]> {
       if (wallCodesSet) {
         // Нормализация: код в БД может быть с ведущим нулём (061...) или без (61...)
         const wm = d.wall_material_code;
+        if (!wm) return false;
         if (!wallCodesSet.has(wm) && !wallCodesSet.has(wm.startsWith('0') ? wm.substring(1) : '0' + wm)) return false;
       }
 

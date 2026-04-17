@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Button } from '@/components/catalyst/button';
 import {
   XMarkIcon,
   CheckIcon,
@@ -218,9 +217,22 @@ const FilterGroupSection: React.FC<FilterGroupSectionProps> = ({
   onToggleCollapse, onStartEditGroup, onFinishEditGroup, onCancelEditGroup,
   onEditingGroupNameChange, onDeleteGroup, onToggleColorPicker, onSelectColor,
 }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: group.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
   return (
-    <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+    <div ref={setNodeRef} style={style} className="rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-800 group/header">
+        <span {...attributes} {...listeners} className="cursor-grab text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400 shrink-0">
+          <Bars2Icon className="size-3" />
+        </span>
         <div
           className="size-3 rounded-full shrink-0 cursor-pointer hover:ring-2 hover:ring-offset-1 relative"
           style={{ backgroundColor: group.color }}
@@ -324,7 +336,7 @@ interface SavedFiltersPanelProps {
   open: boolean;
   onClose: () => void;
   currentState: SavedFilterState;
-  onApply: (state: SavedFilterState, filterId?: string, filterName?: string) => void;
+  onApply: (state: SavedFilterState, filterId?: string, filterName?: string, groupName?: string) => void;
   activeFilterId: string | null;
 }
 
@@ -354,7 +366,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
     // Try server first if authenticated
     try {
       const auth = await api.loadAuth();
-      if (auth.token) {
+      if (auth?.token) {
         setIsOnline(true);
         const [serverGroups, serverFilters] = await Promise.all([
           api.getFilterGroups(),
@@ -439,7 +451,8 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
   // === Handlers ===
 
   const handleApplyFilter = (filter: SavedFilter) => {
-    onApply(filter.state, filter.id, filter.name);
+    const group = filter.groupId ? groups.find(g => g.id === filter.groupId) : null;
+    onApply(filter.state, filter.id, filter.name, group?.name);
     onClose();
   };
 
@@ -578,9 +591,39 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
 
     const activeId = String(active.id);
 
+    // Check if dragging a group
+    const isGroupDrag = groups.some(g => g.id === activeId);
+    if (isGroupDrag) {
+      const overId = String(over.id);
+      setGroups(prev => {
+        const sorted = [...prev].sort((a, b) => a.sortOrder - b.sortOrder);
+        const activeIdx = sorted.findIndex(g => g.id === activeId);
+        const overIdx = sorted.findIndex(g => g.id === overId);
+        if (activeIdx < 0 || overIdx < 0) return prev;
+        const [moved] = sorted.splice(activeIdx, 1);
+        sorted.splice(overIdx, 0, moved);
+        sorted.forEach((g, i) => { g.sortOrder = i; });
+        const updated = sorted as FilterGroup[];
+        // Persist
+        saveToStorage(GROUPS_STORAGE_KEY, updated);
+        // Sync with server
+        if (isOnline) {
+          updated.forEach(g => {
+            if (g.serverId) {
+              api.updateFilterGroup(g.serverId, { sort_order: g.sortOrder }).catch(() => {});
+            }
+          });
+        }
+        return updated;
+      });
+      return;
+    }
+
+    // Filter drag
     // Determine target group from over item
     const overFilter = filters.find(f => f.id === String(over.id));
-    const targetGroupId = overFilter?.groupId ?? null;
+    const overGroup = groups.find(g => g.id === String(over.id));
+    const targetGroupId = overFilter?.groupId ?? overGroup?.id ?? null;
 
     let newFilters: SavedFilter[] = [];
     setFilters(prev => {
@@ -607,15 +650,17 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
     // Immediately persist to local storage
     saveToStorage(FILTERS_STORAGE_KEY, newFilters);
 
-    // Sync with server
+    // Sync with server: update sort_order and group for all affected filters
     if (isOnline) {
-      const activeFilter = filters.find(f => f.id === activeId);
-      if (activeFilter?.serverId) {
-        const targetGroup = targetGroupId ? groups.find(g => g.id === targetGroupId) : null;
-        api.updateSavedFilter(activeFilter.serverId, {
-          saved_filter_group_id: targetGroup?.serverId ?? null,
-        }).catch(() => {});
-      }
+      const targetGroup = targetGroupId ? groups.find(g => g.id === targetGroupId) : null;
+      newFilters.filter(f => f.groupId === targetGroupId).forEach(f => {
+        if (f.serverId) {
+          api.updateSavedFilter(f.serverId, {
+            sort_order: f.sortOrder,
+            saved_filter_group_id: targetGroup?.serverId ?? null,
+          }).catch(() => {});
+        }
+      });
     }
   };
 
@@ -715,33 +760,35 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
             )}
 
             {/* Grouped filters */}
-            {groupedFilters.map(({ group, filters: groupFilters }) => (
-              <FilterGroupSection
-                key={group.id}
-                group={group}
-                filters={groupFilters}
-                activeFilterId={activeFilterId}
-                editingId={editingId}
-                editingName={editingName}
-                onApply={handleApplyFilter}
-                onDelete={handleDeleteFilter}
-                onStartEdit={(id, name) => { setEditingId(id); setEditingName(name); }}
-                onFinishEdit={handleRenameFilter}
-                onCancelEdit={() => setEditingId(null)}
-                onEditingNameChange={setEditingName}
-                onToggleCollapse={() => handleToggleGroup(group.id)}
-                isEditingGroup={editingGroupId === group.id}
-                editingGroupName={editingGroupName}
-                onStartEditGroup={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}
-                onFinishEditGroup={() => handleRenameGroup(group.id)}
-                onCancelEditGroup={() => setEditingGroupId(null)}
-                onEditingGroupNameChange={setEditingGroupName}
-                onDeleteGroup={() => handleDeleteGroup(group.id)}
-                showColorPicker={colorPickerGroupId === group.id}
-                onToggleColorPicker={() => setColorPickerGroupId(prev => prev === group.id ? null : group.id)}
-                onSelectColor={(color) => handleSelectColor(group.id, color)}
-              />
-            ))}
+            <SortableContext items={groupedFilters.map(({ group }) => group.id)} strategy={verticalListSortingStrategy}>
+              {groupedFilters.map(({ group, filters: groupFilters }) => (
+                <FilterGroupSection
+                  key={group.id}
+                  group={group}
+                  filters={groupFilters}
+                  activeFilterId={activeFilterId}
+                  editingId={editingId}
+                  editingName={editingName}
+                  onApply={handleApplyFilter}
+                  onDelete={handleDeleteFilter}
+                  onStartEdit={(id, name) => { setEditingId(id); setEditingName(name); }}
+                  onFinishEdit={handleRenameFilter}
+                  onCancelEdit={() => setEditingId(null)}
+                  onEditingNameChange={setEditingName}
+                  onToggleCollapse={() => handleToggleGroup(group.id)}
+                  isEditingGroup={editingGroupId === group.id}
+                  editingGroupName={editingGroupName}
+                  onStartEditGroup={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}
+                  onFinishEditGroup={() => handleRenameGroup(group.id)}
+                  onCancelEditGroup={() => setEditingGroupId(null)}
+                  onEditingGroupNameChange={setEditingGroupName}
+                  onDeleteGroup={() => handleDeleteGroup(group.id)}
+                  showColorPicker={colorPickerGroupId === group.id}
+                  onToggleColorPicker={() => setColorPickerGroupId(prev => prev === group.id ? null : group.id)}
+                  onSelectColor={(color) => handleSelectColor(group.id, color)}
+                />
+              ))}
+            </SortableContext>
 
             {/* Ungrouped filters */}
             {ungroupedFilters.length > 0 && (
@@ -788,15 +835,15 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSaveFilter()}
                 placeholder="Название фильтра..."
-                className="py-1.5 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
+                className="h-7 py-0 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
                 autoFocus
               />
-              <Button color="blue" className="!py-1.5 !px-2" onClick={handleSaveFilter}>
+              <button onClick={handleSaveFilter} className="flex items-center justify-center h-7 w-7 rounded-md bg-blue-600 text-white border-none cursor-pointer hover:bg-blue-700 shrink-0">
                 <CheckIcon className="size-3.5" />
-              </Button>
-              <Button className="!py-1.5 !px-2" onClick={() => { setSaving(false); setNewFilterGroupId(null); }}>
+              </button>
+              <button onClick={() => { setSaving(false); setNewFilterGroupId(null); }} className="flex items-center justify-center h-7 w-7 rounded-md bg-zinc-100 text-zinc-600 border-none cursor-pointer hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600 shrink-0">
                 <XMarkIcon className="size-3.5" />
-              </Button>
+              </button>
             </div>
             {groups.length > 0 && (
               <div className="flex flex-wrap gap-1">

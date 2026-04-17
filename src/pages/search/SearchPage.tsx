@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { dealsRepository, getDatabaseStats, cadastralRepository } from '@/db';
 import { Deal, SearchFilters, SearchResult, DealsStats, CadastralQuarter } from '@/types';
 import {
@@ -42,6 +42,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [allFilteredDeals, setAllFilteredDeals] = useState<Deal[]>([]);
   const [page, setPage] = useState(1);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [searchTrigger, setSearchTrigger] = useState(0);
 
   const [sortField, setSortField] = useState<SortField>('period');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -84,6 +85,10 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [showSavedPanel, setShowSavedPanel] = useState(false);
   const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [activeFilterName, setActiveFilterName] = useState<string | null>(null);
+  const [activeFilterGroupName, setActiveFilterGroupName] = useState<string | null>(null);
+  const [activeFilterStateJson, setActiveFilterStateJson] = useState<string | null>(null);
+  const pendingFilterSyncRef = useRef(false);
+  const getCurrentFilterStateRef = useRef<(() => SavedFilterState) | null>(null);
 
   // Регионы с данными из справочника для навигации по карте
   const loadedRegions = useMemo(() => {
@@ -124,15 +129,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setCadastralQuarters(quarters);
   };
 
-  // Dynamic wall materials: fetch available materials for selected quarters
-  useEffect(() => {
-    if (selectedCadNumbers.length > 0) {
-      dealsRepository.getWallMaterialsByCadNumbers(selectedCadNumbers).then(setAvailableWallMaterials);
-    } else {
-      setAvailableWallMaterials(null); // null = show all
-    }
-  }, [selectedCadNumbers]);
-
   const loadStats = async () => {
     const dbStats = await getDatabaseStats();
     setStats(dbStats);
@@ -148,6 +144,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   }), [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials,
     priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax,
     searchCity, searchStreet, selectedCadNumbers, polygonsCoords]);
+  getCurrentFilterStateRef.current = getCurrentFilterState;
 
   const saveCurrentFilter = useCallback(() => {
     const state = getCurrentFilterState();
@@ -185,6 +182,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     if (state.polygonCoords) {
       setPolygonsCoords(state.polygonCoords);
       localStorage.setItem('ret_polygon_coords', JSON.stringify(state.polygonCoords));
+    } else {
+      setPolygonsCoords(null);
+      localStorage.removeItem('ret_polygon_coords');
     }
     setPage(1);
   }, []);
@@ -267,16 +267,21 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     }
   }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers, saveCurrentFilter]);
 
+  // Trigger doSearch after state has been committed (avoids stale closure)
+  useEffect(() => {
+    if (searchTrigger > 0) doSearch();
+  }, [searchTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Initial load: restore saved filter and search
   useEffect(() => {
     if (stats && stats.totalDeals > 0 && !initialLoadDone) {
       setInitialLoadDone(true);
       restoreLastFilter().then((saved) => {
         if (saved) applyFilterState(saved);
-        setTimeout(() => doSearch(), 0);
+        setSearchTrigger(n => n + 1);
       });
     }
-  }, [stats, initialLoadDone, doSearch, restoreLastFilter, applyFilterState]);
+  }, [stats, initialLoadDone, restoreLastFilter, applyFilterState]);
 
   // Пагинация полностью клиентская — useEffect не нужен
 
@@ -285,11 +290,40 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     doSearch();
   };
 
-  const handleApplySavedFilter = (state: SavedFilterState, filterId?: string, filterName?: string) => {
+  const handleApplySavedFilter = (state: SavedFilterState, filterId?: string, filterName?: string, groupName?: string) => {
     applyFilterState(state);
     setActiveFilterId(filterId ?? null);
     setActiveFilterName(filterName ?? null);
-    setTimeout(() => doSearch(), 0);
+    setActiveFilterGroupName(groupName ?? null);
+    setActiveFilterStateJson(filterId ? JSON.stringify(state) : null);
+    pendingFilterSyncRef.current = !!filterId;
+    setSearchTrigger(n => n + 1);
+  };
+
+  // Проверяем, изменился ли активный фильтр
+  const filterChanged = useMemo(() => {
+    if (!activeFilterId || !activeFilterStateJson) return false;
+    const current = getCurrentFilterState();
+    return JSON.stringify(current) !== activeFilterStateJson;
+  }, [activeFilterId, activeFilterStateJson, getCurrentFilterState]);
+
+  // After applying a saved filter, re-sync activeFilterStateJson once state settles
+  // (coordinates may drift slightly through Leaflet round-trip)
+  useEffect(() => {
+    if (!pendingFilterSyncRef.current || !activeFilterId) return;
+    const timer = setTimeout(() => {
+      pendingFilterSyncRef.current = false;
+      setActiveFilterStateJson(JSON.stringify(getCurrentFilterStateRef.current()));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [getCurrentFilterState, activeFilterId]);
+
+  const handleCancelFilterChanges = () => {
+    if (!activeFilterStateJson) return;
+    const savedState = JSON.parse(activeFilterStateJson) as SavedFilterState;
+    applyFilterState(savedState);
+    pendingFilterSyncRef.current = true;
+    setSearchTrigger(n => n + 1);
   };
 
   const handleReset = () => {
@@ -311,34 +345,37 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setSelectedCadNumbers([]);
     setPolygonsCoords(null);
     localStorage.removeItem('ret_polygon_coords');
+    setActiveFilterId(null);
+    setActiveFilterName(null);
+    setActiveFilterGroupName(null);
+    setActiveFilterStateJson(null);
     setPage(1);
     setResult(null);
     setAllFilteredDeals([]);
   };
 
-  const handleResetFilters = () => {
-    setSelectedRegions([]);
-    setSelectedTypes([]);
-    setSelectedDocTypes([]);
-    setSelectedPeriods([]);
-    setSelectedWallMaterials([]);
-    setPriceMin('');
-    setPriceMax('');
-    setAreaMin('');
-    setAreaMax('');
-    setFloorMin('');
-    setFloorMax('');
-    setYearBuildMin('');
-    setYearBuildMax('');
-    setSearchCity('');
-    setSearchStreet('');
-    setActiveFilterId(null);
-    setActiveFilterName(null);
-    setPage(1);
-  };
-
+  const prevCadNumbersRef = useRef<string[]>([]);
   const handleQuartersSelected = (cadNumbers: string[], polysCoords?: [number, number][][]) => {
+    const changed = cadNumbers.length !== prevCadNumbersRef.current.length
+      || cadNumbers.some((cn, i) => cn !== prevCadNumbersRef.current[i]);
+    prevCadNumbersRef.current = cadNumbers;
     setSelectedCadNumbers(cadNumbers);
+
+    // Update wall materials directly for reliability
+    if (cadNumbers.length > 0) {
+      dealsRepository.getWallMaterialsByCadNumbers(cadNumbers).then(codes => {
+        const normalized = codes.map(code => {
+          if (WALL_MATERIALS[code]) return code;
+          if (code.startsWith('0') && WALL_MATERIALS[code.substring(1)]) return code.substring(1);
+          if (WALL_MATERIALS['0' + code]) return '0' + code;
+          return code;
+        });
+        setAvailableWallMaterials(normalized);
+      });
+    } else {
+      setAvailableWallMaterials(null);
+    }
+
     if (polysCoords && polysCoords.length > 0) {
       setPolygonsCoords(polysCoords);
       localStorage.setItem('ret_polygon_coords', JSON.stringify(polysCoords));
@@ -346,7 +383,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       setPolygonsCoords(null);
       localStorage.removeItem('ret_polygon_coords');
     }
-    setPage(1);
+    if (changed) setPage(1);
   };
 
   const toggleRegion = (region: string) => {
@@ -1207,39 +1244,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
           <div className="min-w-0 flex-1 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 truncate">
             {filterSummary}
           </div>
-          {activeFilterId && (
-            <Button
-              color="blue"
-              title={`Обновить «${activeFilterName}»`}
-              onClick={() => {
-                // Обновляем активный фильтр в chrome.storage
-                const STORAGE_KEY = 'ret_saved_filters_v2';
-                chrome.storage.local.get(STORAGE_KEY, (result: any) => {
-                  const raw = result?.[STORAGE_KEY];
-                  if (!raw) return;
-                  try {
-                    const filters = JSON.parse(raw);
-                    const updated = filters.map((f: any) =>
-                      f.id === activeFilterId ? { ...f, state: getCurrentFilterState() } : f
-                    );
-                    chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(updated) });
-
-                    // Sync with server if filter has serverId
-                    const target = updated.find((f: any) => f.id === activeFilterId);
-                    if (target?.serverId) {
-                      import('@/services/api-service').then(api => {
-                        api.updateSavedFilter(target.serverId, {
-                          filter_data: getCurrentFilterState() as unknown as Record<string, unknown>,
-                        }).catch(() => {});
-                      });
-                    }
-                  } catch {}
-                });
-              }}
-            >
-              <ArrowPathIcon className="size-4" />
-              Обновить
-            </Button>
+          {activeFilterName && (
+            <span className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-400">
+              <BookmarkSquareIcon className="size-3" />
+              {activeFilterGroupName && <span className="opacity-70">{activeFilterGroupName} • </span>}
+              {activeFilterName}
+            </span>
           )}
           <Button onClick={() => setShowSavedPanel(true)}>
             <BookmarkSquareIcon className="size-4" />
@@ -1250,6 +1260,60 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
             {showFilters ? 'Скрыть' : 'Фильтры'}
           </Button>
         </div>
+
+        {/* Active filter actions (save/cancel) + reset — above filter panel */}
+        {showFilters && (
+          <div className="flex items-center gap-2">
+            {activeFilterName && filterChanged && (
+              <>
+                <button
+                  onClick={() => {
+                    if (!activeFilterId) return;
+                    const currentState = getCurrentFilterState();
+                    const STORAGE_KEY = 'ret_saved_filters_v2';
+                    chrome.storage.local.get(STORAGE_KEY, (result: any) => {
+                      const raw = result?.[STORAGE_KEY];
+                      if (!raw) return;
+                      try {
+                        const filters = JSON.parse(raw);
+                        const updated = filters.map((f: any) =>
+                          f.id === activeFilterId ? { ...f, state: currentState } : f
+                        );
+                        chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(updated) });
+                        const target = updated.find((f: any) => f.id === activeFilterId);
+                        if (target?.serverId) {
+                          import('@/services/api-service').then(api => {
+                            api.updateSavedFilter(target.serverId, {
+                              filter_data: currentState as unknown as Record<string, unknown>,
+                            }).catch(() => {});
+                          });
+                        }
+                      } catch {}
+                    });
+                    setActiveFilterStateJson(JSON.stringify(currentState));
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700 border-none cursor-pointer transition-colors"
+                >
+                  <ArrowPathIcon className="size-3" />
+                  Сохранить в «{activeFilterName}»
+                </button>
+                <button
+                  onClick={handleCancelFilterChanges}
+                  className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-200 border-none cursor-pointer transition-colors dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
+                  <XMarkIcon className="size-3" />
+                  Отменить
+                </button>
+              </>
+            )}
+            <button
+              onClick={handleReset}
+              className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-200 border-none cursor-pointer transition-colors dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            >
+              Сбросить фильтры
+            </button>
+          </div>
+        )}
 
         {/* Filters */}
         {showFilters && (
@@ -1389,10 +1453,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                 {Object.entries(WALL_MATERIALS)
                   .filter(([code]) => {
                     if (!availableWallMaterials) return true;
-                    // Нормализация: код может быть с ведущим нулём или без
-                    return availableWallMaterials.includes(code)
-                      || availableWallMaterials.includes('0' + code)
-                      || availableWallMaterials.includes(code.startsWith('0') ? code.substring(1) : code);
+                    return availableWallMaterials.includes(code);
                   })
                   .map(([code, name]) => (
                   <label key={code} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
@@ -1473,7 +1534,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
             {/* Actions */}
             <div className="flex gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
               <Button color="blue" onClick={handleSearch}>Применить фильтры</Button>
-              <Button onClick={handleResetFilters}>Сбросить</Button>
+              <div className="flex-1" />
               <Button onClick={exportToHtml}>
                 <ArrowDownTrayIcon className="size-4" />
                 Экспорт в HTML
@@ -1617,7 +1678,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
               )}
             </>
           ) : (
-            <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">Загрузка данных...</div>
+            <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">Сделки не найдены. Измените параметры фильтра.</div>
           )}
         </div>
       </div>

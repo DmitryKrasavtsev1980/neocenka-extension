@@ -87,7 +87,7 @@ const StripChart: React.FC<StripChartProps> = ({ areas, color, minArea, maxArea 
   );
 };
 
-const SegmentationPanel: React.FC<SegmentationPanelProps> = ({ deals, onSetAreaRange }) => {
+const SegmentationPanel = React.memo(({ deals, onSetAreaRange }: SegmentationPanelProps) => {
   const [open, setOpen] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
 
@@ -219,6 +219,6 @@ const SegmentationPanel: React.FC<SegmentationPanelProps> = ({ deals, onSetAreaR
       </div>
     </div>
   );
-};
+});
 
 export default SegmentationPanel;

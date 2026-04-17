@@ -6,9 +6,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  PieChart,
-  Pie,
-  Cell,
   LineChart,
   Line,
   Legend,
@@ -31,10 +28,88 @@ interface DashboardProps {
 const COLORS = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#9c27b0', '#00bcd4', '#ff5722', '#795548'];
 
 /**
+ * Простой SVG Pie Chart — не зависит от recharts, рендерится при любой ширине.
+ */
+const SimplePieChart: React.FC<{
+  data: { name: string; value: number }[];
+  width: number;
+  height: number;
+  maxLabelLen?: number;
+}> = ({ data, width, height, maxLabelLen = 10 }) => {
+  if (data.length === 0 || width === 0) return null;
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return null;
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = Math.max(10, Math.min(width, height) / 2 - 30);
+
+  let cumAngle = -90;
+  const slices: React.ReactNode[] = [];
+
+  data.forEach((d, i) => {
+    const pct = d.value / total;
+    if (pct <= 0) return;
+
+    const startAngle = cumAngle;
+    const endAngle = cumAngle + pct * 360;
+    cumAngle = endAngle;
+
+    const startRad = (startAngle * Math.PI) / 180;
+    const endRad = (endAngle * Math.PI) / 180;
+
+    const x1 = cx + r * Math.cos(startRad);
+    const y1 = cy + r * Math.sin(startRad);
+    const x2 = cx + r * Math.cos(endRad);
+    const y2 = cy + r * Math.sin(endRad);
+
+    const largeArc = pct > 0.5 ? 1 : 0;
+    const color = COLORS[i % COLORS.length];
+
+    const midRad = ((startAngle + (endAngle - startAngle) / 2) * Math.PI) / 180;
+    const labelR = r + 18;
+    const lx = cx + labelR * Math.cos(midRad);
+    const ly = cy + labelR * Math.sin(midRad);
+
+    const labelName = d.name.length > maxLabelLen
+      ? d.name.substring(0, maxLabelLen) + '...'
+      : d.name;
+
+    slices.push(
+      <g key={i}>
+        <path
+          d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc},1 ${x2},${y2} Z`}
+          fill={color}
+          stroke="#fff"
+          strokeWidth={1.5}
+        />
+        {pct >= 0.04 && (
+          <text
+            x={lx}
+            y={ly}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="var(--tw-text-opacity, #52525b)"
+            fontSize={9}
+            fontFamily="Inter,system-ui,sans-serif"
+          >
+            {labelName} ({Math.round(pct * 100)}%)
+          </text>
+        )}
+      </g>
+    );
+  });
+
+  return (
+    <svg width={width} height={height} style={{ display: 'block' }}>
+      {slices}
+    </svg>
+  );
+};
+
+/**
  * Контейнер для recharts — измеряет ширину родителя и передаёт
  * точные пиксельные размеры дочернему графику.
- * Использует ResizeObserver + IntersectionObserver для надёжного
- * рендеринга даже когда график вне viewport при первом монтировании.
  */
 const ChartBox: React.FC<{
   height: number;
@@ -42,7 +117,6 @@ const ChartBox: React.FC<{
 }> = ({ height, children }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 0, height });
-  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -55,44 +129,28 @@ const ChartBox: React.FC<{
       }
     };
 
-    // Отслеживание изменений размера
     const ro = new ResizeObserver(measure);
     ro.observe(el);
 
-    // Отслеживание видимости — пересчитать при появлении в viewport
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisible(true);
-          measure();
-          // Дополнительные измерения с задержкой
-          requestAnimationFrame(measure);
-          setTimeout(measure, 100);
-          setTimeout(measure, 300);
-        }
-      },
-      { threshold: 0.1 }
-    );
-    io.observe(el);
-
-    // Первичная попытка
+    // Первичные попытки измерения с задержками
     measure();
     requestAnimationFrame(measure);
+    setTimeout(measure, 50);
+    setTimeout(measure, 200);
 
     return () => {
       ro.disconnect();
-      io.disconnect();
     };
   }, [height]);
 
   return (
     <div ref={ref} style={{ width: '100%', height }}>
-      {size.width > 0 && visible ? children(size) : null}
+      {size.width > 0 ? children(size) : null}
     </div>
   );
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
+const Dashboard = React.memo(({ deals, totalDeals }: DashboardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Аналитические данные
@@ -195,7 +253,6 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
       max: sortedAreas.length > 0 ? sortedAreas[sortedAreas.length - 1] : 0,
       avg: sortedAreas.length > 0 ? Math.round(sortedAreas.reduce((a, b) => a + b, 0) / sortedAreas.length) : 0,
       median: sortedAreas.length > 0 ? sortedAreas[Math.floor(sortedAreas.length / 2)] : 0,
-      values: sortedAreas,
     };
 
     // Топ регионов
@@ -479,23 +536,7 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
                 </h3>
                 <ChartBox height={220}>
                   {({ width, height }) => (
-                    <PieChart width={width} height={height}>
-                      <Pie
-                        data={analytics.byType}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name.substring(0, 10)}... (${(percent * 100).toFixed(0)}%)`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {analytics.byType.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
+                    <SimplePieChart data={analytics.byType} width={width} height={height} maxLabelLen={10} />
                   )}
                 </ChartBox>
               </div>
@@ -507,23 +548,7 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
                 </h3>
                 <ChartBox height={220}>
                   {({ width, height }) => (
-                    <PieChart width={width} height={height}>
-                      <Pie
-                        data={analytics.byDocType}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {analytics.byDocType.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
+                    <SimplePieChart data={analytics.byDocType} width={width} height={height} />
                   )}
                 </ChartBox>
               </div>
@@ -535,23 +560,7 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
                 </h3>
                 <ChartBox height={220}>
                   {({ width, height }) => (
-                    <PieChart width={width} height={height}>
-                      <Pie
-                        data={analytics.byWallMaterial}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name.substring(0, 8)}... (${(percent * 100).toFixed(0)}%)`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {analytics.byWallMaterial.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
+                    <SimplePieChart data={analytics.byWallMaterial} width={width} height={height} maxLabelLen={8} />
                   )}
                 </ChartBox>
               </div>
@@ -580,6 +589,6 @@ const Dashboard: React.FC<DashboardProps> = ({ deals, totalDeals }) => {
       )}
     </div>
   );
-};
+});
 
 export default Dashboard;

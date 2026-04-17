@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+
+// Полифилл для leaflet-draw: библиотека использует устаревший L.Polyline._flat
+if (!(L.Polyline as any)._flat) {
+  (L.Polyline as any)._flat = function (latlngs: any): boolean {
+    return !Array.isArray(latlngs[0]) || (typeof latlngs[0][0] !== 'object' && typeof latlngs[0][0] !== 'undefined');
+  };
+}
+
 import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import { booleanIntersects, polygon as turfPolygon } from '@turf/turf';
@@ -37,9 +45,12 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const quarterLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const quartersRef = useRef(quarters);
   const dealsRef = useRef(deals);
+  const onQuartersSelectedRef = useRef(onQuartersSelected);
+  onQuartersSelectedRef.current = onQuartersSelected;
   const [selectedCount, setSelectedCount] = useState(0);
   const [intersectingCadNumbers, setIntersectingCadNumbers] = useState<Set<string>>(new Set());
   const [quartersLoaded, setQuartersLoaded] = useState(false);
+  const isInternalEditRef = useRef(false);
 
   // Держим quarters/deals в актуальных ref + отслеживаем загрузку
   useEffect(() => {
@@ -105,7 +116,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     if (layers.length === 0) {
       setSelectedCount(0);
       setIntersectingCadNumbers(new Set());
-      onQuartersSelected([], undefined);
+      onQuartersSelectedRef.current([], undefined);
       return;
     }
 
@@ -120,8 +131,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
 
     setSelectedCount(allCadNumbers.size);
     setIntersectingCadNumbers(allCadNumbers);
-    onQuartersSelected(Array.from(allCadNumbers), allPolyCoords);
-  }, [findIntersectingForLayer, onQuartersSelected]);
+    onQuartersSelectedRef.current(Array.from(allCadNumbers), allPolyCoords);
+  }, [findIntersectingForLayer]);
 
   // Ref для доступа к recalcAllPolygons из замыканий инициализации карты
   const recalcAllPolygonsRef = useRef(recalcAllPolygons);
@@ -178,16 +189,19 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     // Обработка нарисованного полигона (добавляем к существующим)
     map.on((L as any).Draw.Event.CREATED, (e: any) => {
       drawnItems.addLayer(e.layer);
+      isInternalEditRef.current = true;
       recalcAllPolygonsRef.current();
     });
 
     // Обработка редактирования полигона
     map.on((L as any).Draw.Event.EDITED, () => {
+      isInternalEditRef.current = true;
       recalcAllPolygonsRef.current();
     });
 
     // Обработка удаления полигона
     map.on((L as any).Draw.Event.DELETED, () => {
+      isInternalEditRef.current = true;
       recalcAllPolygonsRef.current();
     });
 
@@ -202,21 +216,36 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   }, []);
 
   // Восстановление полигонов из initialPolygons + пересчёт при загрузке кварталов
-  const polygonAppliedRef = useRef(false);
+  const prevPolygonsJsonRef = useRef('');
   useEffect(() => {
     const map = mapInstanceRef.current;
     const drawnItems = drawnItemsRef.current;
     if (!map || !drawnItems || !quartersLoaded) return;
 
-    if (polygonAppliedRef.current) {
-      // Полигоны уже восстановлены — только пересчитываем кварталы
+    const currentJson = JSON.stringify(initialPolygons);
+    const polygonsChanged = prevPolygonsJsonRef.current !== currentJson;
+    prevPolygonsJsonRef.current = currentJson;
+
+    if (!polygonsChanged) {
       recalcAllPolygons();
       return;
     }
 
-    if (!initialPolygons || initialPolygons.length === 0) return;
+    // Skip recreation if change came from internal edit/create/delete
+    if (isInternalEditRef.current) {
+      isInternalEditRef.current = false;
+      return;
+    }
 
     drawnItems.clearLayers();
+
+    if (!initialPolygons || initialPolygons.length === 0) {
+      setSelectedCount(0);
+      setIntersectingCadNumbers(new Set());
+      onQuartersSelectedRef.current([], undefined);
+      return;
+    }
+
     let allBounds: L.LatLngBounds | null = null;
 
     for (const polyCoords of initialPolygons) {
@@ -237,7 +266,6 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     if (allBounds) {
       map.fitBounds(allBounds, { padding: [20, 20] });
     }
-    polygonAppliedRef.current = true;
 
     recalcAllPolygons();
   }, [initialPolygons, recalcAllPolygons, quartersLoaded]);
