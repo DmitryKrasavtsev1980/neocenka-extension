@@ -69,6 +69,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [selectedCadNumbers, setSelectedCadNumbers] = useState<string[]>([]);
   const [showMapFilter, setShowMapFilter] = useState(false);
   const [availableWallMaterials, setAvailableWallMaterials] = useState<string[] | null>(null);
+  const [wallMaterialsLoading, setWallMaterialsLoading] = useState(false);
   const [polygonsCoords, setPolygonsCoords] = useState<[number, number][][] | null>(() => {
     try {
       const saved = localStorage.getItem('ret_polygon_coords');
@@ -274,12 +275,15 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
   // Initial load: restore saved filter and search
   useEffect(() => {
-    if (stats && stats.totalDeals > 0 && !initialLoadDone) {
-      setInitialLoadDone(true);
+    if (!stats || initialLoadDone) return;
+    if (stats.totalDeals > 0) {
       restoreLastFilter().then((saved) => {
         if (saved) applyFilterState(saved);
         setSearchTrigger(n => n + 1);
+        setInitialLoadDone(true);
       });
+    } else {
+      setInitialLoadDone(true);
     }
   }, [stats, initialLoadDone, restoreLastFilter, applyFilterState]);
 
@@ -363,6 +367,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
     // Update wall materials directly for reliability
     if (cadNumbers.length > 0) {
+      setWallMaterialsLoading(true);
       dealsRepository.getWallMaterialsByCadNumbers(cadNumbers).then(codes => {
         const normalized = codes.map(code => {
           if (WALL_MATERIALS[code]) return code;
@@ -371,9 +376,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
           return code;
         });
         setAvailableWallMaterials(normalized);
+        setWallMaterialsLoading(false);
       });
     } else {
       setAvailableWallMaterials(null);
+      setWallMaterialsLoading(false);
     }
 
     if (polysCoords && polysCoords.length > 0) {
@@ -1445,7 +1452,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
             <div className="mb-4">
               <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Материал стен
-                {availableWallMaterials && (
+                {wallMaterialsLoading ? (
+                  <svg className="ml-1 inline size-3 animate-spin text-zinc-400" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                ) : availableWallMaterials && (
                   <span className="ml-1 text-[10px] font-normal text-zinc-400">(доступно: {availableWallMaterials.length})</span>
                 )}
               </h4>
@@ -1550,8 +1562,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
         {/* Results */}
         <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900">
-          {loading ? (
-            <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">Поиск...</div>
+          {!initialLoadDone || loading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-zinc-500 dark:text-zinc-400">
+              <svg className="h-4 w-4 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span>Загрузка данных...</span>
+            </div>
           ) : allFilteredDeals.length > 0 ? (
             <>
               <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">

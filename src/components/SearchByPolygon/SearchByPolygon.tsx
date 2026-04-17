@@ -2,12 +2,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Полифилл для leaflet-draw: библиотека использует устаревший L.Polyline._flat
-if (!(L.Polyline as any)._flat) {
-  (L.Polyline as any)._flat = function (latlngs: any): boolean {
-    return !Array.isArray(latlngs[0]) || (typeof latlngs[0][0] !== 'object' && typeof latlngs[0][0] !== 'undefined');
-  };
-}
+// Полифилл для leaflet-draw: библиотека использует устаревший L.Polyline._flat,
+// который в Leaflet 1.9 пишет console.warn. Перезаписываем на тихую версию.
+(L.Polyline as any)._flat = function (latlngs: any): boolean {
+  return !Array.isArray(latlngs[0]) || (typeof latlngs[0][0] !== 'object' && typeof latlngs[0][0] !== 'undefined');
+};
 
 import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
@@ -48,9 +47,10 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const onQuartersSelectedRef = useRef(onQuartersSelected);
   onQuartersSelectedRef.current = onQuartersSelected;
   const [selectedCount, setSelectedCount] = useState(0);
-  const [intersectingCadNumbers, setIntersectingCadNumbers] = useState<Set<string>>(new Set());
   const [quartersLoaded, setQuartersLoaded] = useState(false);
-  const isInternalEditRef = useRef(false);
+
+  // Флаг: предотвращает циклическое пересоздание полигонов
+  const isInternalUpdateRef = useRef(false);
 
   // Держим quarters/deals в актуальных ref + отслеживаем загрузку
   useEffect(() => {
@@ -78,15 +78,18 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         if (ll.lng > maxLng) maxLng = ll.lng;
       }
       const bboxPadding = 0.001;
-      const polyCoords: [number, number][] = latLngs.map((ll) => [ll.lat, ll.lng]);
+      const polyCoords: [number, number][] = latLngs.map((ll) => [
+        Math.round(ll.lat * 1e6) / 1e6,
+        Math.round(ll.lng * 1e6) / 1e6,
+      ]);
       const drawnTurf = turfPolygon([drawnCoords]);
 
       const intersecting: string[] = [];
-      const quarters = quartersRef.current;
-      const len = quarters.length;
+      const currentQuarters = quartersRef.current;
+      const len = currentQuarters.length;
 
       for (let i = 0; i < len; i++) {
-        const q = quarters[i];
+        const q = currentQuarters[i];
         if (!q.geojson || !q.center_lat || !q.center_lon) continue;
         if (
           q.center_lat < minLat - bboxPadding ||
@@ -107,15 +110,68 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     []
   );
 
-  // Пересчёт всех нарисованных полигонов и отправка результата наверх
-  const recalcAllPolygons = useCallback(() => {
+  // Рендер кварталов на карту
+  const renderQuartersOnMap = useCallback((cadNumbers: Set<string>) => {
+    const layerGroup = quarterLayerGroupRef.current;
+    if (!layerGroup) return;
+    layerGroup.clearLayers();
+    if (cadNumbers.size === 0) return;
+
+    const currentQuarters = quartersRef.current;
+    const currentDeals = dealsRef.current;
+
+    const quarterStats: Record<string, { count: number; totalPrice: number; totalArea: number }> = {};
+    for (let i = 0; i < currentDeals.length; i++) {
+      const d = currentDeals[i];
+      const key = d.quarter_cad_number;
+      if (!quarterStats[key]) {
+        quarterStats[key] = { count: 0, totalPrice: 0, totalArea: 0 };
+      }
+      quarterStats[key].count++;
+      quarterStats[key].totalPrice += d.deal_price;
+      quarterStats[key].totalArea += d.area;
+    }
+
+    currentQuarters
+      .filter((q) => cadNumbers.has(q.cad_number))
+      .forEach((q) => {
+        if (!q.geojson || !q.center_lat || !q.center_lon) return;
+        try {
+          const coords = q.geojson.geometry.coordinates[0].map(
+            (c: number[]) => [c[1], c[0]] as [number, number]
+          );
+          const stats = quarterStats[q.cad_number];
+          const dealCount = stats?.count || 0;
+          const pricePerSqm = stats && stats.totalArea > 0 ? stats.totalPrice / stats.totalArea : null;
+
+          const polygon = L.polygon(coords, {
+            color: '#4285f4',
+            weight: 1.5,
+            fill: false,
+          });
+          const popupContent = `
+            <div class="quarter-popup">
+              <strong>${q.cad_number}</strong><br/>
+              Сделок: ${dealCount}<br/>
+              ${pricePerSqm ? `Ср. цена/м²: ${Math.round(pricePerSqm).toLocaleString('ru-RU')} ₽` : 'Нет данных по цене'}
+            </div>
+          `;
+          polygon.bindPopup(popupContent);
+          polygon.addTo(layerGroup);
+        } catch { /* skip */ }
+      });
+  }, []);
+
+  // Полный пересчёт + уведомление родителя
+  const recalcAndNotify = useCallback(() => {
     const drawnItems = drawnItemsRef.current;
     if (!drawnItems) return;
 
     const layers = drawnItems.getLayers();
     if (layers.length === 0) {
       setSelectedCount(0);
-      setIntersectingCadNumbers(new Set());
+      renderQuartersOnMap(new Set());
+      isInternalUpdateRef.current = true;
       onQuartersSelectedRef.current([], undefined);
       return;
     }
@@ -130,13 +186,14 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     }
 
     setSelectedCount(allCadNumbers.size);
-    setIntersectingCadNumbers(allCadNumbers);
+    renderQuartersOnMap(allCadNumbers);
+    isInternalUpdateRef.current = true;
     onQuartersSelectedRef.current(Array.from(allCadNumbers), allPolyCoords);
-  }, [findIntersectingForLayer]);
+  }, [findIntersectingForLayer, renderQuartersOnMap]);
 
-  // Ref для доступа к recalcAllPolygons из замыканий инициализации карты
-  const recalcAllPolygonsRef = useRef(recalcAllPolygons);
-  recalcAllPolygonsRef.current = recalcAllPolygons;
+  // Ref для доступа из замыканий инициализации карты
+  const recalcAndNotifyRef = useRef(recalcAndNotify);
+  recalcAndNotifyRef.current = recalcAndNotify;
 
   // Инициализация карты
   useEffect(() => {
@@ -153,7 +210,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     map.addLayer(drawnItems);
     drawnItemsRef.current = drawnItems;
 
-    // Слой для кадастровых кварталов (по умолчанию включен)
+    // Слой для кадастровых кварталов
     const quarterLayerGroup = L.layerGroup();
     quarterLayerGroupRef.current = quarterLayerGroup;
     map.addLayer(quarterLayerGroup);
@@ -186,24 +243,45 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     });
     map.addControl(drawControl);
 
-    // Обработка нарисованного полигона (добавляем к существующим)
+    // Обработка нарисованного полигона
     map.on((L as any).Draw.Event.CREATED, (e: any) => {
       drawnItems.addLayer(e.layer);
-      isInternalEditRef.current = true;
-      recalcAllPolygonsRef.current();
+      recalcAndNotifyRef.current();
     });
 
-    // Обработка редактирования полигона
+    // Обработка сохранения редактирования
     map.on((L as any).Draw.Event.EDITED, () => {
-      isInternalEditRef.current = true;
-      recalcAllPolygonsRef.current();
+      recalcAndNotifyRef.current();
     });
 
     // Обработка удаления полигона
     map.on((L as any).Draw.Event.DELETED, () => {
-      isInternalEditRef.current = true;
-      recalcAllPolygonsRef.current();
+      recalcAndNotifyRef.current();
     });
+
+    // Перетаскивание вершин — обновляем кварталы при отпускании вершины
+    // (не уведомляем родителя, чтобы не пересоздавать полигоны)
+    const recalcForVertexRef = { current: () => {} };
+    map.on((L as any).Draw.Event.EDITVERTEX, () => {
+      recalcForVertexRef.current();
+    });
+    recalcForVertexRef.current = () => {
+      const items = drawnItemsRef.current;
+      if (!items) return;
+      const layers = items.getLayers();
+      if (layers.length === 0) {
+        setSelectedCount(0);
+        renderQuartersOnMap(new Set());
+        return;
+      }
+      const allCadNumbers = new Set<string>();
+      for (const layer of layers) {
+        const result = findIntersectingForLayer(layer);
+        result.cadNumbers.forEach((cn) => allCadNumbers.add(cn));
+      }
+      setSelectedCount(allCadNumbers.size);
+      renderQuartersOnMap(allCadNumbers);
+    };
 
     mapInstanceRef.current = map;
 
@@ -215,7 +293,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     };
   }, []);
 
-  // Восстановление полигонов из initialPolygons + пересчёт при загрузке кварталов
+  // Восстановление полигонов из initialPolygons (только для внешних изменений)
   const prevPolygonsJsonRef = useRef('');
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -226,22 +304,18 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     const polygonsChanged = prevPolygonsJsonRef.current !== currentJson;
     prevPolygonsJsonRef.current = currentJson;
 
-    if (!polygonsChanged) {
-      recalcAllPolygons();
+    // Если изменение пришло от нашего recalcAndNotify — пропускаем
+    if (!polygonsChanged || isInternalUpdateRef.current) {
+      isInternalUpdateRef.current = false;
       return;
     }
 
-    // Skip recreation if change came from internal edit/create/delete
-    if (isInternalEditRef.current) {
-      isInternalEditRef.current = false;
-      return;
-    }
-
+    // Внешнее изменение initialPolygons — пересоздаём полигоны
     drawnItems.clearLayers();
 
     if (!initialPolygons || initialPolygons.length === 0) {
       setSelectedCount(0);
-      setIntersectingCadNumbers(new Set());
+      renderQuartersOnMap(new Set());
       onQuartersSelectedRef.current([], undefined);
       return;
     }
@@ -267,8 +341,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       map.fitBounds(allBounds, { padding: [20, 20] });
     }
 
-    recalcAllPolygons();
-  }, [initialPolygons, recalcAllPolygons, quartersLoaded]);
+    recalcAndNotify();
+  }, [initialPolygons, recalcAndNotify, quartersLoaded, renderQuartersOnMap]);
 
   // ResizeObserver для invalidateSize
   useEffect(() => {
@@ -285,77 +359,18 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Обработка flyTo — перелёт карты на указанные координаты
+  // Обработка flyTo
   useEffect(() => {
     if (!flyTo || !mapInstanceRef.current) return;
     mapInstanceRef.current.flyTo([flyTo.lat, flyTo.lon], flyTo.zoom, { duration: 1.5 });
   }, [flyTo]);
-
-  // Отрисовка кварталов — только при изменении выбранных кварталов
-  useEffect(() => {
-    const layerGroup = quarterLayerGroupRef.current;
-    if (!layerGroup || quarters.length === 0) return;
-
-    // Очищаем слой кварталов
-    layerGroup.clearLayers();
-
-    if (intersectingCadNumbers.size === 0) return;
-
-    // Предвычисляем статистику по кварталам за один проход O(deals)
-    const currentDeals = dealsRef.current;
-    const quarterStats: Record<string, { count: number; totalPrice: number; totalArea: number }> = {};
-    for (let i = 0; i < currentDeals.length; i++) {
-      const d = currentDeals[i];
-      const key = d.quarter_cad_number;
-      if (!quarterStats[key]) {
-        quarterStats[key] = { count: 0, totalPrice: 0, totalArea: 0 };
-      }
-      quarterStats[key].count++;
-      quarterStats[key].totalPrice += d.deal_price;
-      quarterStats[key].totalArea += d.area;
-    }
-
-    quarters
-      .filter((q) => intersectingCadNumbers.has(q.cad_number))
-      .forEach((q) => {
-        if (!q.geojson || !q.center_lat || !q.center_lon) return;
-
-        try {
-          const coords = q.geojson.geometry.coordinates[0].map(
-            (c: number[]) => [c[1], c[0]] as [number, number]
-          );
-
-          const stats = quarterStats[q.cad_number];
-          const dealCount = stats?.count || 0;
-          const pricePerSqm = stats && stats.totalArea > 0 ? stats.totalPrice / stats.totalArea : null;
-
-          const polygon = L.polygon(coords, {
-            color: '#4285f4',
-            weight: 1.5,
-            fill: false,
-          });
-          const popupContent = `
-            <div class="quarter-popup">
-              <strong>${q.cad_number}</strong><br/>
-              Сделок: ${dealCount}<br/>
-              ${pricePerSqm ? `Ср. цена/м²: ${Math.round(pricePerSqm).toLocaleString('ru-RU')} ₽` : 'Нет данных по цене'}
-            </div>
-          `;
-          polygon.bindPopup(popupContent);
-
-          polygon.addTo(layerGroup);
-        } catch (_err) {
-          // Skip failed quarter render
-        }
-      });
-  }, [quarters, intersectingCadNumbers]);
 
   const clearDrawing = () => {
     if (drawnItemsRef.current) {
       drawnItemsRef.current.clearLayers();
     }
     setSelectedCount(0);
-    setIntersectingCadNumbers(new Set());
+    renderQuartersOnMap(new Set());
     onQuartersSelected([], undefined);
   };
 
