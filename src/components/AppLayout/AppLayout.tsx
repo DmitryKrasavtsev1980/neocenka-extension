@@ -91,7 +91,7 @@ const AppLayout: React.FC = () => {
 
   const handleModuleOpen = (code: string) => {
     setImportModuleCode(code);
-    setActivePage('import');
+    setActivePage('search');
   };
 
   const handleNavigate = (page: ActivePage) => {
