@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/catalyst/button';
-import { Input } from '@/components/catalyst/input';
 import {
   XMarkIcon,
   CheckIcon,
@@ -135,11 +134,11 @@ const SortableFilterCard: React.FC<SortableFilterCardProps> = ({
     >
       {isEditing ? (
         <div className="flex items-center gap-1">
-          <Input
+          <input
             value={editingName}
             onChange={(e) => onEditingNameChange(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && onFinishEdit()}
-            className="!py-1 !text-xs flex-1"
+            className="py-1 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
             autoFocus
           />
           <button onClick={onFinishEdit} className="rounded p-1 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
@@ -527,6 +526,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
     const overFilter = filters.find(f => f.id === String(over.id));
     const targetGroupId = overFilter?.groupId ?? null;
 
+    let newFilters: SavedFilter[] = [];
     setFilters(prev => {
       const updated = prev.map(f =>
         f.id === activeId ? { ...f, groupId: targetGroupId } : f
@@ -544,8 +544,12 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
       // Re-assign sort orders
       groupFilters.forEach((f, i) => { f.sortOrder = i; });
 
-      return [...otherFilters, ...groupFilters];
+      newFilters = [...otherFilters, ...groupFilters];
+      return newFilters;
     });
+
+    // Immediately persist to local storage
+    saveToStorage(FILTERS_STORAGE_KEY, newFilters);
 
     // Sync with server
     if (isOnline) {
@@ -629,12 +633,12 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Input
+                  <input
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
                     placeholder="Название группы..."
-                    className="!py-1 !text-xs flex-1"
+                    className="py-1 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
                     autoFocus
                   />
                   <button onClick={handleCreateGroup} className="rounded p-1 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
@@ -709,12 +713,12 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
         {saving && (
           <div className="border-t border-zinc-200 p-3 dark:border-zinc-700">
             <div className="flex items-center gap-1 mb-2">
-              <Input
+              <input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSaveFilter()}
                 placeholder="Название фильтра..."
-                className="!py-1.5 !text-xs flex-1"
+                className="py-1.5 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
                 autoFocus
               />
               <Button color="blue" className="!py-1.5 !px-2" onClick={handleSaveFilter}>

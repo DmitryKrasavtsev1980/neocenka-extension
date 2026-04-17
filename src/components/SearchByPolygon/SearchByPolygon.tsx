@@ -316,8 +316,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
           polygon.bindPopup(popupContent);
 
           polygon.addTo(layerGroup);
-        } catch (err) {
-          console.warn('Error rendering quarter:', q.cad_number, err);
+        } catch (_err) {
+          // Skip failed quarter render
         }
       });
   }, [quarters, intersectingCadNumbers]);

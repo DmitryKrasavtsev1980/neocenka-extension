@@ -40,7 +40,7 @@ export const importsRepository = {
     if (dealsCount === 0) {
       // Сделок нет - удаляем "пустую" запись об импорте
       await db.imports.delete(importRecord.id);
-      console.log('[Imports] Удалена пустая запись импорта:', importRecord.id);
+      // Пустая запись импорта удалена
       return undefined;
     }
     return importRecord;

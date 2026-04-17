@@ -954,8 +954,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
             maxDataZoom: 14,
           }).addTo(map);
         };
-      } catch(e) {
-        console.warn('Protomaps failed, falling back to OSM:', e);
+      } catch(_e) {
+        // Protomaps failed, falling back to OSM
         tileLayerFactory = (map) => {
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap contributors',
@@ -1387,7 +1387,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
               </h4>
               <div className="flex max-h-[200px] flex-wrap gap-2 overflow-y-auto">
                 {Object.entries(WALL_MATERIALS)
-                  .filter(([code]) => !availableWallMaterials || availableWallMaterials.includes(code))
+                  .filter(([code]) => {
+                    if (!availableWallMaterials) return true;
+                    // Нормализация: код может быть с ведущим нулём или без
+                    return availableWallMaterials.includes(code)
+                      || availableWallMaterials.includes('0' + code)
+                      || availableWallMaterials.includes(code.startsWith('0') ? code.substring(1) : code);
+                  })
                   .map(([code, name]) => (
                   <label key={code} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
                     <input

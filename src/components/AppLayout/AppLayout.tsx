@@ -74,6 +74,8 @@ const AppLayout: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
+    // Only fetch if user is authenticated
+    if (!user) return;
     getModules()
       .then((data) => {
         setActiveModules(data.modules.filter((m) => m.access?.status === 'active'));
@@ -82,7 +84,7 @@ const AppLayout: React.FC = () => {
     getNewsUnreadCount()
       .then((data) => setUnreadNews(data.unread_count))
       .catch(() => {});
-  }, []);
+  }, [user]);
 
   const handleLogout = async () => {
     await logout();
