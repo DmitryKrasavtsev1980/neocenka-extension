@@ -355,6 +355,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState(GROUP_COLORS[0]);
   const [isOnline, setIsOnline] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -363,7 +364,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
 
   // Load data
   const loadData = useCallback(async () => {
-    // Try server first if authenticated
+    setLoading(true);
     try {
       const auth = await api.loadAuth();
       if (auth?.token) {
@@ -396,6 +397,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
           saveToStorage(GROUPS_STORAGE_KEY, mappedGroups),
           saveToStorage(FILTERS_STORAGE_KEY, mappedFilters),
         ]);
+        setLoading(false);
         return;
       }
     } catch {
@@ -428,6 +430,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
 
     setGroups(localGroups || []);
     setFilters(localFilters || []);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -719,6 +722,15 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
         {/* Content */}
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {loading && (
+              <div className="flex items-center justify-center gap-2 py-8 text-zinc-500 dark:text-zinc-400">
+                <svg className="h-4 w-4 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span className="text-sm">Загрузка...</span>
+              </div>
+            )}
             {creatingGroup && (
               <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 p-3">
                 <div className="flex flex-wrap gap-1.5 mb-2">

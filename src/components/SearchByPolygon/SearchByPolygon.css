@@ -14,6 +14,129 @@
   flex-wrap: wrap;
 }
 
+.address-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.address-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.address-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #1a73e8;
+}
+
+.address-toggle-label {
+  font-size: 13px;
+  color: #444;
+  white-space: nowrap;
+}
+
+.address-search {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  width: 100%;
+}
+
+.address-input {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #d0d0d0;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  font-size: 13px;
+  font-family: Inter, system-ui, sans-serif;
+  outline: none;
+  background: #fff;
+  color: #333;
+  transition: border-color 0.15s;
+}
+
+.address-input:focus {
+  border-color: #1a73e8;
+}
+
+.address-input:disabled {
+  background: #f0f0f0;
+  cursor: not-allowed;
+}
+
+.address-input::placeholder {
+  color: #999;
+}
+
+.address-search-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  border: 1px solid #d0d0d0;
+  border-left: none;
+  border-radius: 0;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+  padding: 0;
+}
+
+.address-search-btn.rounded-right {
+  border-radius: 0 6px 6px 0;
+}
+
+.address-search-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+
+.address-search-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.address-clear-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d0d0d0;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.address-clear-btn:hover {
+  background: #fee2e2;
+}
+
+.address-clear-btn svg {
+  stroke: #999;
+}
+
+.address-clear-btn:hover svg {
+  stroke: #dc2626;
+}
+
 .polygon-hint {
   font-size: 13px;
   color: #666;

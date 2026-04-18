@@ -12,7 +12,6 @@ interface QuarterGeometryResult {
 }
 
 interface DealMapProps {
-  deals: Deal[];
   quarters?: CadastralQuarter[];
   selectedDeal?: Deal | null;
   filterPolygons?: [number, number][][] | null;
@@ -60,7 +59,7 @@ interface MapRuResponse {
   features: MapRuFeature[];
 }
 
-const DealMap: React.FC<DealMapProps> = ({ deals, quarters, selectedDeal, filterPolygons, onClose }) => {
+const DealMap: React.FC<DealMapProps> = ({ quarters, selectedDeal, filterPolygons, onClose }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const polygonsRef = useRef<L.Polygon[]>([]);

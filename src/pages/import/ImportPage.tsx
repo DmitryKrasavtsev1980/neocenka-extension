@@ -4,6 +4,7 @@ import { getModules, getManifest, logImport, type ModuleInfo, type ManifestFile 
 import { importsRepository, clearDatabase, cadastralRepository } from '@/db';
 import { ImportRecord } from '@/types';
 import { downloadCadastralData, CadastralDownloadProgress } from '@/services/cadastral.service';
+import { REGION_CENTERS } from '@/constants/regions';
 import '@/styles/tailwind.css';
 
 import { Button } from '@/components/catalyst/button';
@@ -34,16 +35,20 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
   const [manifestLoading, setManifestLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [fileProgress, setFileProgress] = useState<FileProgress[]>([]);
   const [totalProgress, setTotalProgress] = useState(0);
   const [importHistory, setImportHistory] = useState<ImportRecord[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [regionSearch, setRegionSearch] = useState('');
+  const [cadastralSearch, setCadastralSearch] = useState('');
 
   // Кадастровые кварталы
   const [selectedCadastralRegions, setSelectedCadastralRegions] = useState<Set<string>>(new Set());
   const [cadastralDownloading, setCadastralDownloading] = useState(false);
   const [cadastralProgress, setCadastralProgress] = useState<CadastralDownloadProgress | null>(null);
   const [cadastralRegionStats, setCadastralRegionStats] = useState<Record<string, number>>({});
+  const [cadastralStatsLoaded, setCadastralStatsLoaded] = useState(false);
 
   useEffect(() => {
     loadModules();
@@ -93,6 +98,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
   const loadHistory = async () => {
     const history = await importsRepository.getAll();
     setImportHistory(history);
+    setHistoryLoaded(true);
   };
 
   const loadCadastralStats = async () => {
@@ -101,6 +107,8 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
       setCadastralRegionStats(stats);
     } catch {
       // Не критично
+    } finally {
+      setCadastralStatsLoaded(true);
     }
   };
 
@@ -170,10 +178,6 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
     });
   };
 
-  const selectAll = () => {
-    setSelectedFileIds(new Set(manifestFiles.map((f) => f.id)));
-  };
-
   const selectNone = () => {
     setSelectedFileIds(new Set());
   };
@@ -188,10 +192,6 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
       }
       return next;
     });
-  };
-
-  const selectAllCadastralRegions = () => {
-    setSelectedCadastralRegions(new Set(availableRegions.map((r) => r.code)));
   };
 
   const selectNoneCadastralRegions = () => {
@@ -332,17 +332,52 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
 
   const handleDeleteImport = async (importId: number) => {
     if (confirm('Удалить этот импорт и все связанные данные?')) {
-      await importsRepository.delete(importId);
-      await loadHistory();
+      setDeleting(true);
+      try {
+        await importsRepository.delete(importId);
+        await loadHistory();
+      } finally {
+        setDeleting(false);
+      }
     }
   };
 
   const handleClearAll = async () => {
     if (confirm('Удалить ВСЕ данные из базы? Это действие нельзя отменить.')) {
-      await clearDatabase();
-      await loadHistory();
-      await loadCadastralStats();
-      setSelectedCadastralRegions(new Set());
+      setDeleting(true);
+      try {
+        await clearDatabase();
+        await loadHistory();
+        await loadCadastralStats();
+        setSelectedCadastralRegions(new Set());
+      } finally {
+        setDeleting(false);
+      }
+    }
+  };
+
+  const handleDeleteCadastralRegion = async (regionCode: string) => {
+    const regionName = REGION_CENTERS[regionCode]?.name || regionCode;
+    if (confirm(`Удалить все кадастровые кварталы региона ${regionName}?`)) {
+      setDeleting(true);
+      try {
+        await cadastralRepository.deleteByRegion(regionCode);
+        await loadCadastralStats();
+      } finally {
+        setDeleting(false);
+      }
+    }
+  };
+
+  const handleClearCadastral = async () => {
+    if (confirm('Удалить ВСЕ кадастровые кварталы? Это действие нельзя отменить.')) {
+      setDeleting(true);
+      try {
+        await cadastralRepository.clear();
+        await loadCadastralStats();
+      } finally {
+        setDeleting(false);
+      }
     }
   };
 
@@ -410,13 +445,6 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 Доступные файлы
               </Heading>
               <div className="flex gap-2">
-                <button
-                  className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
-                  onClick={selectAll}
-                  disabled={importing}
-                >
-                  Выбрать все
-                </button>
                 <button
                   className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
                   onClick={selectNone}
@@ -522,13 +550,6 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
               <div className="flex gap-2">
                 <button
                   className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
-                  onClick={selectAllCadastralRegions}
-                  disabled={cadastralDownloading}
-                >
-                  Выбрать все
-                </button>
-                <button
-                  className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
                   onClick={selectNoneCadastralRegions}
                   disabled={cadastralDownloading}
                 >
@@ -540,8 +561,24 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
               Выберите регионы для загрузки границ кадастровых кварталов. Позволит отображать кварталы на карте.
               Повторная загрузка региона пропустит уже загруженные кварталы.
             </p>
+            <Field>
+              <Input
+                type="text"
+                placeholder="Поиск региона..."
+                value={cadastralSearch}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCadastralSearch(e.target.value)}
+                disabled={cadastralDownloading}
+                className="mb-4"
+              />
+            </Field>
             <div className="flex flex-col gap-1.5 mb-3 max-h-[300px] overflow-y-auto border border-zinc-200 rounded-lg p-2 dark:border-zinc-700">
-              {availableRegions.map((region) => {
+              {availableRegions
+                .filter((region) => {
+                  if (!cadastralSearch.trim()) return true;
+                  const s = cadastralSearch.toLowerCase();
+                  return region.code.includes(s) || region.name.toLowerCase().includes(s);
+                })
+                .map((region) => {
                 const loaded = cadastralRegionStats[region.code] || 0;
                 return (
                   <label
@@ -669,18 +706,27 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 color="red"
                 className="text-xs px-3 py-1"
                 onClick={handleClearAll}
-                disabled={importing}
+                disabled={importing || deleting}
               >
                 Очистить всё
               </Button>
             )}
           </div>
 
-          {importHistory.length === 0 ? (
+          {!historyLoaded ? (
+            <div className="flex items-center justify-center py-8">
+              <svg className="h-5 w-5 animate-spin text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="ml-2 text-sm text-zinc-500 dark:text-zinc-400">Загрузка...</span>
+            </div>
+          ) : importHistory.length === 0 ? (
             <p className="text-center text-zinc-500 py-6 dark:text-zinc-400">
               Нет импортированных данных
             </p>
           ) : (
+            <div className="relative">
             <table className="w-full border-collapse">
               <thead>
                 <tr>
@@ -722,7 +768,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                         className="bg-transparent border-none cursor-pointer p-1 text-base hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
                         onClick={() => handleDeleteImport(imp.id!)}
                         title="Удалить"
-                        disabled={importing}
+                        disabled={importing || deleting}
                       >
                         🗑️
                       </button>
@@ -731,6 +777,105 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 ))}
               </tbody>
             </table>
+            {deleting && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-zinc-900/70">
+                <div className="flex items-center gap-2 rounded-lg bg-white px-5 py-3 shadow-md dark:bg-zinc-800">
+                  <svg className="h-4 w-4 animate-spin text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Удаление...</span>
+                </div>
+              </div>
+            )}
+            </div>
+          )}
+        </div>
+
+        {/* Кадастровые кварталы */}
+        <div className="bg-white rounded-xl p-6 shadow-sm dark:bg-zinc-900">
+          <div className="flex justify-between items-center mb-4">
+            <Heading level={3} className="m-0 text-zinc-900 dark:text-white">
+              Кадастровые кварталы
+            </Heading>
+            {Object.keys(cadastralRegionStats).length > 0 && (
+              <Button
+                color="red"
+                className="text-xs px-3 py-1"
+                onClick={handleClearCadastral}
+                disabled={deleting}
+              >
+                Удалить все
+              </Button>
+            )}
+          </div>
+
+          {!cadastralStatsLoaded ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-zinc-500 dark:text-zinc-400">
+              <svg className="h-4 w-4 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="text-sm">Загрузка...</span>
+            </div>
+          ) : Object.keys(cadastralRegionStats).length === 0 ? (
+            <p className="text-center text-zinc-500 py-6 dark:text-zinc-400">
+              Кадастровые кварталы не загружены
+            </p>
+          ) : (
+            <div className="relative">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <th className="py-3 px-3 text-left border-b border-zinc-200 text-[11px] font-medium text-zinc-500 uppercase dark:border-zinc-700 dark:text-zinc-400">
+                    Регион
+                  </th>
+                  <th className="py-3 px-3 text-left border-b border-zinc-200 text-[11px] font-medium text-zinc-500 uppercase dark:border-zinc-700 dark:text-zinc-400">
+                    Кварталов
+                  </th>
+                  <th className="py-3 px-3 border-b border-zinc-200 dark:border-zinc-700"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(cadastralRegionStats)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([regionCode, count]) => {
+                    const regionName = REGION_CENTERS[regionCode]?.name;
+                    return (
+                      <tr key={regionCode} className="hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                        <td className="py-3 px-3 text-sm text-zinc-900 border-b border-zinc-100 dark:text-zinc-100 dark:border-zinc-800">
+                          {regionCode} — {regionName || 'Неизвестный регион'}
+                        </td>
+                        <td className="py-3 px-3 text-sm text-zinc-900 border-b border-zinc-100 dark:text-zinc-100 dark:border-zinc-800">
+                          {formatNumber(count)}
+                        </td>
+                        <td className="py-3 px-3 border-b border-zinc-100 dark:border-zinc-800">
+                          <button
+                            className="bg-transparent border-none cursor-pointer p-1 text-base hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
+                            onClick={() => handleDeleteCadastralRegion(regionCode)}
+                            title="Удалить"
+                            disabled={deleting}
+                          >
+                            🗑️
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+            {deleting && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-zinc-900/70">
+                <div className="flex items-center gap-2 rounded-lg bg-white px-5 py-3 shadow-md dark:bg-zinc-800">
+                  <svg className="h-4 w-4 animate-spin text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Удаление...</span>
+                </div>
+              </div>
+            )}
+            </div>
           )}
         </div>
       </div>

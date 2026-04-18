@@ -149,6 +149,35 @@ export interface SearchResult {
 }
 
 /**
+ * Предвычисленные агрегаты для Dashboard (без загрузки всех сделок в память)
+ */
+export interface SearchAggregates {
+  byType: Record<string, number>;
+  byDocType: Record<string, number>;
+  byWallMaterial: Record<string, number>;
+  byQuarter: Record<string, { count: number; totalPrice: number; totalArea: number }>;
+  /** Статистика по кад. кварталам — для SearchByPolygon popup */
+  byCadNumber: Record<string, { count: number; totalPrice: number; totalArea: number }>;
+  /** Площади по материалу стен — для SegmentationPanel */
+  areasByWallMaterial: Record<string, number[]>;
+  priceRange: { min: number; max: number; sum: number; avg: number; median: number };
+  areaRange: { min: number; max: number; sum: number; avg: number; median: number };
+  topRegions: { name: string; value: number }[];
+  totalSum: number;
+  count: number;
+}
+
+/**
+ * Лёгкий результат поиска: страница + агрегаты (без массива всех сделок)
+ */
+export interface SearchLightResult {
+  pageDeals: Deal[];
+  totalCount: number;
+  totalPages: number;
+  aggregates: SearchAggregates;
+}
+
+/**
  * Опции импорта
  */
 export interface ImportOptions {

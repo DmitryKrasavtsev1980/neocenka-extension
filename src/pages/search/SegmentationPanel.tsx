@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Deal } from '@/types';
 import { WALL_MATERIALS, getWallMaterialName } from '@/constants/catalogs';
 import { Button } from '@/components/catalyst/button';
 import { ChevronDownIcon } from '@heroicons/react/16/solid';
 
 interface SegmentationPanelProps {
-  deals: Deal[];
+  dealsCount: number;
+  areasByWallMaterial: Record<string, number[]>;
   onSetAreaRange?: (min: string, max: string) => void;
 }
 
@@ -87,23 +87,16 @@ const StripChart: React.FC<StripChartProps> = ({ areas, color, minArea, maxArea 
   );
 };
 
-const SegmentationPanel = React.memo(({ deals, onSetAreaRange }: SegmentationPanelProps) => {
+const SegmentationPanel = React.memo(({ dealsCount, areasByWallMaterial, onSetAreaRange }: SegmentationPanelProps) => {
   const [open, setOpen] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
 
-  // Группировка сделок по материалу стен
+  // Группировка площадей по материалу стен (предвычисленные данные)
   const segments = useMemo(() => {
-    if (!analyzed || deals.length === 0) return [];
-
-    const groups: Record<string, number[]> = {};
-    for (const deal of deals) {
-      const code = deal.wall_material_code || 'unknown';
-      if (!groups[code]) groups[code] = [];
-      if (deal.area > 0) groups[code].push(deal.area);
-    }
+    if (!analyzed || dealsCount === 0) return [];
 
     // Сортировка по количеству сделок (убывание)
-    const entries = Object.entries(groups)
+    const entries = Object.entries(areasByWallMaterial)
       .filter(([, areas]) => areas.length > 0)
       .sort((a, b) => b[1].length - a[1].length);
 
@@ -117,19 +110,22 @@ const SegmentationPanel = React.memo(({ deals, onSetAreaRange }: SegmentationPan
       }
     }
 
-    return entries.map(([code, areas], idx) => ({
-      code,
-      name: code === 'unknown' ? 'Не указан' : getWallMaterialName(code),
-      count: areas.length,
-      areas,
-      min: Math.min(...areas),
-      max: Math.max(...areas),
-      median: areas.sort((a, b) => a - b)[Math.floor(areas.length / 2)],
-      color: SEGMENT_COLORS[idx % SEGMENT_COLORS.length],
-      globalMin,
-      globalMax,
-    }));
-  }, [deals, analyzed]);
+    return entries.map(([code, areas], idx) => {
+      const sorted = [...areas].sort((a, b) => a - b);
+      return {
+        code,
+        name: getWallMaterialName(code),
+        count: areas.length,
+        areas,
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+        median: sorted[Math.floor(sorted.length / 2)],
+        color: SEGMENT_COLORS[idx % SEGMENT_COLORS.length],
+        globalMin,
+        globalMax,
+      };
+    });
+  }, [dealsCount, areasByWallMaterial, analyzed]);
 
   const globalMin = segments.length > 0 ? segments[0].globalMin : 0;
   const globalMax = segments.length > 0 ? segments[0].globalMax : 100;
@@ -166,9 +162,9 @@ const SegmentationPanel = React.memo(({ deals, onSetAreaRange }: SegmentationPan
         {!analyzed ? (
           <div className="py-6 text-center">
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
-              Анализ распределения площадей по материалам стен в отфильтрованных сделках ({deals.length} сделок)
+              Анализ распределения площадей по материалам стен в отфильтрованных сделках ({dealsCount} сделок)
             </p>
-            <Button color="blue" onClick={handleStartAnalysis} disabled={deals.length === 0}>
+            <Button color="blue" onClick={handleStartAnalysis} disabled={dealsCount === 0}>
               Начать анализ
             </Button>
           </div>

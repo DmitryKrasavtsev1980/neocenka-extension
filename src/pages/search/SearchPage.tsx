@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { dealsRepository, getDatabaseStats, cadastralRepository } from '@/db';
-import { Deal, SearchFilters, SearchResult, DealsStats, CadastralQuarter } from '@/types';
+import { Deal, SearchFilters, SearchResult, DealsStats, CadastralQuarter, SearchAggregates } from '@/types';
 import {
   REAL_ESTATE_TYPES,
   DOCUMENT_TYPES,
@@ -39,7 +39,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [stats, setStats] = useState<DealsStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SearchResult | null>(null);
-  const [allFilteredDeals, setAllFilteredDeals] = useState<Deal[]>([]);
+  const [aggregates, setAggregates] = useState<SearchAggregates | null>(null);
   const [page, setPage] = useState(1);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [searchTrigger, setSearchTrigger] = useState(0);
@@ -258,15 +258,22 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
       };
 
-      const allDeals = await dealsRepository.searchAll(searchFilters);
-      setAllFilteredDeals(allDeals);
+      const lightResult = await dealsRepository.searchLight(searchFilters, page, pageSize, sortField, sortOrder);
+      setResult({
+        deals: lightResult.pageDeals,
+        total: lightResult.totalCount,
+        page,
+        pageSize,
+        totalPages: lightResult.totalPages,
+      });
+      setAggregates(lightResult.aggregates);
       saveCurrentFilter();
     } catch (error) {
       console.error('Ошибка поиска:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers, saveCurrentFilter]);
+  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers, page, pageSize, sortField, sortOrder, saveCurrentFilter]);
 
   // Trigger doSearch after state has been committed (avoids stale closure)
   useEffect(() => {
@@ -355,7 +362,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setActiveFilterStateJson(null);
     setPage(1);
     setResult(null);
-    setAllFilteredDeals([]);
+    setAggregates(null);
   };
 
   const prevCadNumbersRef = useRef<string[]>([]);
@@ -446,45 +453,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       setSortField(field);
       setSortOrder('desc');
     }
+    setSearchTrigger((n) => n + 1);
   };
 
-  const sortDeals = (deals: Deal[]): Deal[] => {
-    const sorted = [...deals];
-    sorted.sort((a, b) => {
-      let comparison = 0;
-      switch (sortField) {
-        case 'period':
-          comparison = a.period_start_date.localeCompare(b.period_start_date);
-          break;
-        case 'price':
-          comparison = a.deal_price - b.deal_price;
-          break;
-        case 'area':
-          comparison = a.area - b.area;
-          break;
-        case 'year_quarter':
-          comparison = a.year_quarter.localeCompare(b.year_quarter);
-          break;
-        case 'floor':
-          comparison = (a.floor || 0) - (b.floor || 0);
-          break;
-        case 'year_build':
-          comparison = (a.year_build || 0) - (b.year_build || 0);
-          break;
-        case 'type':
-          comparison = getRealEstateTypeName(a.realestate_type_code).localeCompare(getRealEstateTypeName(b.realestate_type_code));
-          break;
-        case 'material':
-          comparison = getWallMaterialName(a.wall_material_code).localeCompare(getWallMaterialName(b.wall_material_code));
-          break;
-        case 'doc':
-          comparison = (a.doc_type || '').localeCompare(b.doc_type || '');
-          break;
-      }
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
-    return sorted;
-  };
 
   const formatNumber = (num: number): string => {
     return new Intl.NumberFormat('ru-RU').format(num);
@@ -510,8 +481,27 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     return sortOrder === 'asc' ? '↑' : '↓';
   };
 
-  const exportToHtml = () => {
-    const deals = allFilteredDeals;
+  const exportToHtml = async () => {
+    // Загружаем все сделки по текущему фильтру по требованию (ленивая загрузка)
+    const searchFilters: SearchFilters = {
+      region_codes: selectedRegions.length > 0 ? selectedRegions : undefined,
+      realestate_type_codes: selectedTypes.length > 0 ? selectedTypes : undefined,
+      doc_types: selectedDocTypes.length > 0 ? selectedDocTypes : undefined,
+      year_quarters: selectedPeriods.length > 0 ? selectedPeriods : undefined,
+      price_min: priceMin ? parseFloat(priceMin) : undefined,
+      price_max: priceMax ? parseFloat(priceMax) : undefined,
+      area_min: areaMin ? parseFloat(areaMin) : undefined,
+      area_max: areaMax ? parseFloat(areaMax) : undefined,
+      floor_min: floorMin ? parseInt(floorMin) : undefined,
+      floor_max: floorMax ? parseInt(floorMax) : undefined,
+      year_build_min: yearBuildMin ? parseInt(yearBuildMin) : undefined,
+      year_build_max: yearBuildMax ? parseInt(yearBuildMax) : undefined,
+      wall_material_codes: selectedWallMaterials.length > 0 ? selectedWallMaterials : undefined,
+      search_city: searchCity || undefined,
+      search_street: searchStreet || undefined,
+      quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
+    };
+    const deals = await dealsRepository.searchAll(searchFilters);
     if (deals.length === 0) {
       alert('Нет данных для экспорта');
       return;
@@ -1204,16 +1194,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     URL.revokeObjectURL(url);
   };
 
-  // Сортировка всех отфильтрованных данных, затем пагинация
-  const sortedAllDeals = useMemo(() => {
-    if (allFilteredDeals.length === 0) return [];
-    return sortDeals(allFilteredDeals);
-  }, [allFilteredDeals, sortField, sortOrder]);
-
-  const totalFiltered = allFilteredDeals.length;
-  const totalPages = Math.ceil(totalFiltered / pageSize);
+  // Данные для таблицы — приходят из searchLight (уже отсортированные по дате)
+  const pagedDeals = result?.deals || [];
+  const totalFiltered = result?.total || 0;
+  const totalPages = result?.totalPages || 0;
   const currentPage = Math.min(page, totalPages || 1);
-  const pagedDeals = sortedAllDeals.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   if (stats && stats.totalDeals === 0) {
     return (
@@ -1530,7 +1515,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                 )}
                 <SearchByPolygon
                   quarters={cadastralQuarters}
-                  deals={allFilteredDeals}
+                  quarterStats={aggregates?.byCadNumber || {}}
                   onQuartersSelected={handleQuartersSelected}
                   initialPolygons={polygonsCoords}
                   flyTo={flyToTarget}
@@ -1540,7 +1525,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
             {/* Segmentation */}
             <div className="mb-4">
-              <SegmentationPanel deals={allFilteredDeals} onSetAreaRange={handleSetAreaRange} />
+              <SegmentationPanel
+                dealsCount={totalFiltered}
+                areasByWallMaterial={aggregates?.areasByWallMaterial || {}}
+                onSetAreaRange={handleSetAreaRange}
+              />
             </div>
 
             {/* Actions */}
@@ -1556,13 +1545,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         )}
 
         {/* Dashboard */}
-        {allFilteredDeals.length > 0 && (
-          <Dashboard key="dashboard" deals={allFilteredDeals} totalDeals={totalFiltered} />
+        {aggregates && aggregates.count > 0 && (
+          <Dashboard key="dashboard" aggregates={aggregates} totalDeals={totalFiltered} />
         )}
 
         {/* Results */}
         <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900">
-          {!initialLoadDone || loading ? (
+          {!initialLoadDone || (loading && !result) ? (
             <div className="flex items-center justify-center gap-2 py-12 text-zinc-500 dark:text-zinc-400">
               <svg className="h-4 w-4 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -1570,15 +1559,16 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
               </svg>
               <span>Загрузка данных...</span>
             </div>
-          ) : allFilteredDeals.length > 0 ? (
+          ) : totalFiltered > 0 ? (
             <>
               <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
                 <div className="flex items-center gap-3">
                   <span>Найдено: {formatNumber(totalFiltered)} сделок</span>
                   <select
                     value={pageSize}
-                    onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                    disabled={loading}
+                    onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); setSearchTrigger((n) => n + 1); }}
+                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
                   >
                     <option value={25}>25 на странице</option>
                     <option value={50}>50 на странице</option>
@@ -1586,7 +1576,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                     <option value={200}>200 на странице</option>
                   </select>
                 </div>
-                <Button onClick={exportToHtml}>
+                <Button onClick={exportToHtml} disabled={loading}>
                   <ArrowDownTrayIcon className="size-4" />
                   Экспорт
                 </Button>
@@ -1596,7 +1586,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                 <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">Ничего не найдено</div>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
+                  <div className="relative overflow-x-auto">
                     <table className="w-full min-w-[900px] border-collapse">
                       <thead>
                         <tr>
@@ -1672,21 +1662,34 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                         ))}
                       </tbody>
                     </table>
+                    {loading && (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-zinc-900/70" style={{ pointerEvents: 'auto' }}>
+                        <div className="flex items-center gap-2 rounded-lg bg-white px-5 py-3 shadow-md dark:bg-zinc-800">
+                          <svg className="h-4 w-4 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Загрузка...</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Pagination */}
                   {totalPages > 1 && (
                     <div className="flex items-center justify-center gap-4 border-t border-zinc-200 px-5 py-4 dark:border-zinc-700">
-                      <Button disabled={currentPage === 1} onClick={() => {
+                      <Button disabled={loading || currentPage === 1} onClick={() => {
                         setPage((p) => p - 1);
+                        setSearchTrigger((n) => n + 1);
                       }}>
                         Назад
                       </Button>
                       <span className="text-sm text-zinc-500 dark:text-zinc-400">
                         Страница {currentPage} из {totalPages}
                       </span>
-                      <Button disabled={currentPage === totalPages} onClick={() => {
+                      <Button disabled={loading || currentPage === totalPages} onClick={() => {
                         setPage((p) => p + 1);
+                        setSearchTrigger((n) => n + 1);
                       }}>
                         Вперёд
                       </Button>
@@ -1713,7 +1716,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       {/* Deal Map */}
       {selectedDealForMap && (
         <DealMap
-          deals={allFilteredDeals}
           quarters={cadastralQuarters}
           selectedDeal={selectedDealForMap}
           filterPolygons={polygonsCoords}

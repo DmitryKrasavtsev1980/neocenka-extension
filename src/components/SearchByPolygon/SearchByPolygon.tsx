@@ -12,7 +12,7 @@ import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import { booleanIntersects, polygon as turfPolygon } from '@turf/turf';
 import type { Feature, Polygon as TurfPolygon } from 'geojson';
-import { CadastralQuarter, Deal } from '../../types';
+import { CadastralQuarter } from '../../types';
 import { getMapConfig, createTileLayer } from '../../services/map-config';
 import './SearchByPolygon.css';
 
@@ -22,9 +22,15 @@ interface FlyToTarget {
   zoom: number;
 }
 
+interface QuarterStats {
+  count: number;
+  totalPrice: number;
+  totalArea: number;
+}
+
 interface SearchByPolygonProps {
   quarters: CadastralQuarter[];
-  deals: Deal[];
+  quarterStats: Record<string, QuarterStats>;
   onQuartersSelected: (cadNumbers: string[], polygonsCoords?: [number, number][][]) => void;
   initialPolygons?: [number, number][][] | null;
   flyTo?: FlyToTarget | null;
@@ -32,7 +38,7 @@ interface SearchByPolygonProps {
 
 const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   quarters,
-  deals,
+  quarterStats,
   onQuartersSelected,
   initialPolygons,
   flyTo,
@@ -43,23 +49,33 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const drawnItemsRef = useRef<L.FeatureGroup | null>(null);
   const quarterLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const quartersRef = useRef(quarters);
-  const dealsRef = useRef(deals);
+  const quarterStatsRef = useRef(quarterStats);
   const onQuartersSelectedRef = useRef(onQuartersSelected);
   onQuartersSelectedRef.current = onQuartersSelected;
   const [selectedCount, setSelectedCount] = useState(0);
   const [quartersLoaded, setQuartersLoaded] = useState(false);
+  const [addressEnabled, setAddressEnabled] = useState(false);
+  const [addressQuery, setAddressQuery] = useState('');
+  const [geocoding, setGeocoding] = useState(false);
+  const addressMarkerRef = useRef<L.Marker | null>(null);
 
   // Флаг: предотвращает циклическое пересоздание полигонов
   const isInternalUpdateRef = useRef(false);
 
-  // Держим quarters/deals в актуальных ref + отслеживаем загрузку
+  // Рефы для доступа к функциям из замыканий карты
+  const setAddressMarkerRef = useRef<(lat: number, lng: number) => void>(() => {});
+  const reverseGeocodeRef = useRef<(lat: number, lng: number) => void>(() => {});
+  const addressEnabledRef = useRef(addressEnabled);
+  addressEnabledRef.current = addressEnabled;
+
+  // Держим quarters/quarterStats в актуальных ref + отслеживаем загрузку
   useEffect(() => {
     quartersRef.current = quarters;
-    dealsRef.current = deals;
+    quarterStatsRef.current = quarterStats;
     if (quarters.length > 0 && !quartersLoaded) {
       setQuartersLoaded(true);
     }
-  }, [quarters, deals]);
+  }, [quarters, quarterStats]);
 
   // Поиск пересекающихся кварталов для одного полигона
   const findIntersectingForLayer = useCallback(
@@ -118,19 +134,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     if (cadNumbers.size === 0) return;
 
     const currentQuarters = quartersRef.current;
-    const currentDeals = dealsRef.current;
-
-    const quarterStats: Record<string, { count: number; totalPrice: number; totalArea: number }> = {};
-    for (let i = 0; i < currentDeals.length; i++) {
-      const d = currentDeals[i];
-      const key = d.quarter_cad_number;
-      if (!quarterStats[key]) {
-        quarterStats[key] = { count: 0, totalPrice: 0, totalArea: 0 };
-      }
-      quarterStats[key].count++;
-      quarterStats[key].totalPrice += d.deal_price;
-      quarterStats[key].totalArea += d.area;
-    }
+    const stats = quarterStatsRef.current;
 
     currentQuarters
       .filter((q) => cadNumbers.has(q.cad_number))
@@ -140,9 +144,9 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
           const coords = q.geojson.geometry.coordinates[0].map(
             (c: number[]) => [c[1], c[0]] as [number, number]
           );
-          const stats = quarterStats[q.cad_number];
-          const dealCount = stats?.count || 0;
-          const pricePerSqm = stats && stats.totalArea > 0 ? stats.totalPrice / stats.totalArea : null;
+          const qStats = stats[q.cad_number];
+          const dealCount = qStats?.count || 0;
+          const pricePerSqm = qStats && qStats.totalArea > 0 ? qStats.totalPrice / qStats.totalArea : null;
 
           const polygon = L.polygon(coords, {
             color: '#4285f4',
@@ -161,6 +165,91 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         } catch { /* skip */ }
       });
   }, []);
+
+  // Кастомная иконка маркера (SVG) — не зависит от загрузки изображений
+  const createMarkerIcon = useCallback(() => {
+    return L.divIcon({
+      html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="40" viewBox="0 0 28 40">
+        <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.27 21.73 0 14 0z" fill="#ea4335"/>
+        <circle cx="14" cy="14" r="6" fill="#fff"/>
+      </svg>`,
+      iconSize: [28, 40],
+      iconAnchor: [14, 40],
+      className: '',
+    });
+  }, []);
+
+  // Установить или переместить маркер адреса
+  const setAddressMarker = useCallback((lat: number, lng: number) => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (addressMarkerRef.current) {
+      addressMarkerRef.current.setLatLng([lat, lng]);
+    } else {
+      const marker = L.marker([lat, lng], {
+        icon: createMarkerIcon(),
+        draggable: true,
+      }).addTo(map);
+
+      // При перетаскивании маркера — обратное геокодирование
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        reverseGeocode(pos.lat, pos.lng);
+      });
+
+      addressMarkerRef.current = marker;
+    }
+  }, [createMarkerIcon]);
+
+  // Nominatim обратное геокодирование (координаты → адрес)
+  const reverseGeocode = useCallback(async (lat: number, lng: number) => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ru`,
+        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
+      );
+      const data = await res.json();
+      if (data.display_name) {
+        setAddressQuery(data.display_name);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Nominatim прямое геокодирование (адрес → координаты)
+  const geocodeAddress = useCallback(async () => {
+    const query = addressQuery.trim();
+    if (!query) return;
+
+    setGeocoding(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&accept-language=ru`,
+        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
+      );
+      const data = await res.json();
+
+      if (data && data.length > 0) {
+        const { lat, lon, display_name } = data[0];
+        const latNum = parseFloat(lat);
+        const lonNum = parseFloat(lon);
+
+        const map = mapInstanceRef.current;
+        if (map) {
+          map.flyTo([latNum, lonNum], 16, { duration: 1.5 });
+        }
+        setAddressMarker(latNum, lonNum);
+        if (display_name) {
+          setAddressQuery(display_name);
+        }
+      }
+    } catch { /* ignore */ }
+    setGeocoding(false);
+  }, [addressQuery, setAddressMarker]);
+
+  // Обновляем рефы для доступа из замыканий карты
+  setAddressMarkerRef.current = setAddressMarker;
+  reverseGeocodeRef.current = reverseGeocode;
 
   // Полный пересчёт + уведомление родителя
   const recalcAndNotify = useCallback(() => {
@@ -283,6 +372,14 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       renderQuartersOnMap(allCadNumbers);
     };
 
+    // Клик по карте — установка маркера адреса + обратное геокодирование
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      if (!addressEnabledRef.current) return;
+      const { lat, lng } = e.latlng;
+      setAddressMarkerRef.current(lat, lng);
+      reverseGeocodeRef.current(lat, lng);
+    });
+
     mapInstanceRef.current = map;
 
     return () => {
@@ -290,6 +387,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
+      addressMarkerRef.current = null;
     };
   }, []);
 
@@ -374,6 +472,14 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     onQuartersSelected([], undefined);
   };
 
+  const clearAddress = () => {
+    setAddressQuery('');
+    if (addressMarkerRef.current && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(addressMarkerRef.current);
+      addressMarkerRef.current = null;
+    }
+  };
+
   return (
     <div className="search-by-polygon" ref={containerRef}>
       <div className="polygon-toolbar">
@@ -388,6 +494,52 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         <button className="btn btn-secondary btn-small" onClick={clearDrawing}>
           Сбросить
         </button>
+      </div>
+      <div className="address-toolbar">
+        <label className="address-toggle" title="Включить поиск по адресу">
+          <input
+            type="checkbox"
+            checked={addressEnabled}
+            onChange={(e) => setAddressEnabled(e.target.checked)}
+          />
+          <span className="address-toggle-label">Адрес</span>
+        </label>
+        <div className="address-search">
+          <input
+            type="text"
+            className="address-input"
+            placeholder={addressEnabled ? 'Введите адрес или кликните на карту...' : ''}
+            value={addressQuery}
+            onChange={(e) => setAddressQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && addressEnabled) geocodeAddress(); }}
+            disabled={!addressEnabled || geocoding}
+          />
+          <button
+            className={`address-search-btn${!(addressQuery && addressEnabled) ? ' rounded-right' : ''}`}
+            onClick={geocodeAddress}
+            disabled={!addressEnabled || geocoding || !addressQuery.trim()}
+            title="Найти адрес"
+          >
+            {geocoding ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
+                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.7s" repeatCount="indefinite"/>
+                </path>
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            )}
+          </button>
+          {addressQuery && addressEnabled && (
+            <button className="address-clear-btn" onClick={clearAddress} title="Очистить">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       <div ref={mapRef} className="polygon-map"></div>
     </div>

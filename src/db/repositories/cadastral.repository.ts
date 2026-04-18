@@ -65,6 +65,18 @@ export const cadastralRepository = {
     return stats;
   },
 
+  async deleteByRegion(regionCode: string): Promise<number> {
+    const prefix = regionCode + ':';
+    const keysToDelete: number[] = [];
+    await db.cadastral_quarters.each((q) => {
+      if (q.cad_number.startsWith(prefix)) {
+        keysToDelete.push(q.id!);
+      }
+    });
+    await db.cadastral_quarters.bulkDelete(keysToDelete);
+    return keysToDelete.length;
+  },
+
   async clear(): Promise<void> {
     return db.cadastral_quarters.clear();
   },

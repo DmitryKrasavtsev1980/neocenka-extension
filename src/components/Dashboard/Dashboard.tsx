@@ -11,7 +11,7 @@ import {
   Legend,
   ComposedChart,
 } from 'recharts';
-import { Deal } from '@/types';
+import { SearchAggregates } from '@/types';
 import {
   REAL_ESTATE_TYPES,
   DOCUMENT_TYPES,
@@ -21,89 +21,124 @@ import {
 import { Heading } from '@/components/catalyst/heading';
 
 interface DashboardProps {
-  deals: Deal[];
+  aggregates: SearchAggregates | null;
   totalDeals: number;
 }
 
 const COLORS = ['#1a73e8', '#34a853', '#ea4335', '#fbbc04', '#9c27b0', '#00bcd4', '#ff5722', '#795548'];
 
 /**
- * Простой SVG Pie Chart — не зависит от recharts, рендерится при любой ширине.
+ * Интерактивный SVG Pie Chart с viewBox (не зависит от измерения ширины).
+ * Hover-эффект: сектор выдвигается, остальные затемняются, в центре — процент.
+ * Под графиком — легенда с названиями.
  */
-const SimplePieChart: React.FC<{
+const InteractivePieChart: React.FC<{
   data: { name: string; value: number }[];
-  width: number;
-  height: number;
-  maxLabelLen?: number;
-}> = ({ data, width, height, maxLabelLen = 10 }) => {
-  if (data.length === 0 || width === 0) return null;
+}> = ({ data }) => {
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  if (data.length === 0) {
+    return <div style={{ textAlign: 'center', color: '#a1a1aa', padding: '30px 0', fontSize: 13 }}>Нет данных</div>;
+  }
+
   const total = data.reduce((s, d) => s + d.value, 0);
   if (total === 0) return null;
 
-  const cx = width / 2;
-  const cy = height / 2;
-  const r = Math.max(10, Math.min(width, height) / 2 - 30);
+  const vbW = 220, vbH = 170;
+  const cx = vbW / 2, cy = vbH / 2;
+  const r = 65;
 
   let cumAngle = -90;
-  const slices: React.ReactNode[] = [];
-
-  data.forEach((d, i) => {
+  const sliceData = data.map((d, i) => {
     const pct = d.value / total;
-    if (pct <= 0) return;
-
     const startAngle = cumAngle;
     const endAngle = cumAngle + pct * 360;
     cumAngle = endAngle;
 
     const startRad = (startAngle * Math.PI) / 180;
     const endRad = (endAngle * Math.PI) / 180;
+    const midRad = ((startAngle + endAngle) / 2) * Math.PI / 180;
 
     const x1 = cx + r * Math.cos(startRad);
     const y1 = cy + r * Math.sin(startRad);
     const x2 = cx + r * Math.cos(endRad);
     const y2 = cy + r * Math.sin(endRad);
-
     const largeArc = pct > 0.5 ? 1 : 0;
-    const color = COLORS[i % COLORS.length];
 
-    const midRad = ((startAngle + (endAngle - startAngle) / 2) * Math.PI) / 180;
-    const labelR = r + 18;
-    const lx = cx + labelR * Math.cos(midRad);
-    const ly = cy + labelR * Math.sin(midRad);
-
-    const labelName = d.name.length > maxLabelLen
-      ? d.name.substring(0, maxLabelLen) + '...'
-      : d.name;
-
-    slices.push(
-      <g key={i}>
-        <path
-          d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc},1 ${x2},${y2} Z`}
-          fill={color}
-          stroke="#fff"
-          strokeWidth={1.5}
-        />
-        {pct >= 0.04 && (
-          <text
-            x={lx}
-            y={ly}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="var(--tw-text-opacity, #52525b)"
-            fontSize={9}
-            fontFamily="Inter,system-ui,sans-serif"
-          >
-            {labelName} ({Math.round(pct * 100)}%)
-          </text>
-        )}
-      </g>
-    );
+    return { pct, midRad, x1, y1, x2, y2, largeArc };
   });
 
   return (
-    <svg width={width} height={height} style={{ display: 'block' }}>
-      {slices}
-    </svg>
+    <div>
+      <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+        {sliceData.map((s, i) => {
+          const isActive = hovered === i;
+          const offset = isActive ? 7 : 0;
+          const dx = offset * Math.cos(s.midRad);
+          const dy = offset * Math.sin(s.midRad);
+
+          return (
+            <path
+              key={i}
+              d={`M${cx + dx},${cy + dy} L${s.x1 + dx},${s.y1 + dy} A${r},${r} 0 ${s.largeArc},1 ${s.x2 + dx},${s.y2 + dy} Z`}
+              fill={COLORS[i % COLORS.length]}
+              stroke="#fff"
+              strokeWidth={1.5}
+              style={{
+                transition: 'opacity 0.15s',
+                cursor: 'pointer',
+                opacity: hovered !== null && !isActive ? 0.45 : 1,
+              }}
+              onMouseEnter={() => setHovered(i)}
+              onMouseLeave={() => setHovered(null)}
+            />
+          );
+        })}
+        {hovered !== null && (
+          <>
+            <text x={cx} y={cy - 4} textAnchor="middle" dominantBaseline="middle"
+              fill="#18181b" fontSize="16" fontWeight="700" fontFamily="Inter,sans-serif">
+              {Math.round(sliceData[hovered].pct * 100)}%
+            </text>
+            <text x={cx} y={cy + 12} textAnchor="middle" dominantBaseline="middle"
+              fill="#71717a" fontSize="9" fontFamily="Inter,sans-serif">
+              {data[hovered].value.toLocaleString('ru-RU')}
+            </text>
+          </>
+        )}
+      </svg>
+      {/* Legend */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 4, justifyContent: 'center' }}>
+        {data.map((d, i) => (
+          <div
+            key={i}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              fontSize: 11, cursor: 'pointer',
+              opacity: hovered !== null && hovered !== i ? 0.45 : 1,
+              transition: 'opacity 0.15s',
+            }}
+            onMouseEnter={() => setHovered(i)}
+            onMouseLeave={() => setHovered(null)}
+          >
+            <span style={{
+              width: 8, height: 8, borderRadius: 2, flexShrink: 0,
+              backgroundColor: COLORS[i % COLORS.length],
+            }} />
+            <span style={{
+              color: hovered === i ? '#18181b' : '#52525b',
+              fontWeight: hovered === i ? 600 : 400,
+              fontFamily: 'Inter,sans-serif',
+            }}>
+              {d.name}
+            </span>
+            <span style={{ color: '#a1a1aa' }}>
+              {Math.round(d.value / total * 100)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 };
 
@@ -150,19 +185,19 @@ const ChartBox: React.FC<{
   );
 };
 
-const Dashboard = React.memo(({ deals, totalDeals }: DashboardProps) => {
+const Dashboard = React.memo(({ aggregates, totalDeals }: DashboardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Аналитические данные
+  // Аналитические данные из предвычисленных агрегатов
   const analytics = useMemo(() => {
-    if (deals.length === 0) {
+    if (!aggregates || aggregates.count === 0) {
       return {
         byType: [],
         byDocType: [],
         byWallMaterial: [],
         byQuarter: [],
         priceRange: { min: 0, max: 0, avg: 0, median: 0 },
-        areaRange: { min: 0, max: 0, avg: 0, median: 0, values: [] },
+        areaRange: { min: 0, max: 0, avg: 0, median: 0 },
         topRegions: [],
         totalSum: 0,
         count: 0,
@@ -170,118 +205,47 @@ const Dashboard = React.memo(({ deals, totalDeals }: DashboardProps) => {
       };
     }
 
-    // Группировка по типу объекта
-    const typeGroups: Record<string, number> = {};
-    deals.forEach((deal) => {
-      const name = getRealEstateTypeName(deal.realestate_type_code);
-      typeGroups[name] = (typeGroups[name] || 0) + 1;
-    });
-    const byType = Object.entries(typeGroups)
-      .map(([name, value]) => ({ name, value }))
+    // Группировка по типу объекта — резолвим имена из кодов
+    const byType = Object.entries(aggregates.byType)
+      .map(([code, value]) => ({ name: getRealEstateTypeName(code), value }))
       .sort((a, b) => b.value - a.value);
 
     // Группировка по типу документа
-    const docTypeGroups: Record<string, number> = {};
-    deals.forEach((deal) => {
-      const name = DOCUMENT_TYPES[deal.doc_type] || deal.doc_type;
-      docTypeGroups[name] = (docTypeGroups[name] || 0) + 1;
-    });
-    const byDocType = Object.entries(docTypeGroups)
-      .map(([name, value]) => ({ name, value }))
+    const byDocType = Object.entries(aggregates.byDocType)
+      .map(([code, value]) => ({ name: DOCUMENT_TYPES[code] || code, value }))
       .sort((a, b) => b.value - a.value);
 
     // Группировка по материалу стен
-    const wallMaterialGroups: Record<string, number> = {};
-    deals.forEach((deal) => {
-      if (deal.wall_material_code) {
-        const name = getWallMaterialName(deal.wall_material_code);
-        wallMaterialGroups[name] = (wallMaterialGroups[name] || 0) + 1;
-      }
-    });
-    const byWallMaterial = Object.entries(wallMaterialGroups)
-      .map(([name, value]) => ({ name, value }))
+    const byWallMaterial = Object.entries(aggregates.byWallMaterial)
+      .map(([code, value]) => ({ name: getWallMaterialName(code), value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
 
-    // Группировка по кварталам с ценой
-    const quarterGroups: Record<string, { count: number; sum: number; prices: number[]; pricePerMeters: number[] }> = {};
-    deals.forEach((deal) => {
-      if (!quarterGroups[deal.year_quarter]) {
-        quarterGroups[deal.year_quarter] = { count: 0, sum: 0, prices: [], pricePerMeters: [] };
-      }
-      quarterGroups[deal.year_quarter].count += deal.number || 1;
-      quarterGroups[deal.year_quarter].sum += deal.deal_price;
-      quarterGroups[deal.year_quarter].prices.push(deal.deal_price);
-      if (deal.area > 0) {
-        quarterGroups[deal.year_quarter].pricePerMeters.push(deal.deal_price / deal.area);
-      }
-    });
-
-    const byQuarter = Object.entries(quarterGroups)
-      .map(([name, data]) => {
-        const avgPrice = data.prices.length > 0
-          ? Math.round(data.prices.reduce((a, b) => a + b, 0) / data.prices.length)
-          : 0;
-        const avgPricePerMeter = data.pricePerMeters.length > 0
-          ? Math.round(data.pricePerMeters.reduce((a, b) => a + b, 0) / data.pricePerMeters.length)
-          : 0;
-        return {
-          name: name.replace('-Q', ' Q'),
-          sortKey: name,
-          count: data.count,
-          sum: data.sum,
-          avgPrice,
-          avgPricePerMeter,
-        };
-      })
+    // Группировка по кварталам
+    const byQuarter = Object.entries(aggregates.byQuarter)
+      .map(([name, data]) => ({
+        name: name.replace('-Q', ' Q'),
+        sortKey: name,
+        count: data.count,
+        sum: data.totalPrice,
+        avgPrice: data.count > 0 ? Math.round(data.totalPrice / data.count) : 0,
+        avgPricePerMeter: data.totalArea > 0 ? Math.round(data.totalPrice / data.totalArea) : 0,
+      }))
       .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-
-    // Ценовой диапазон
-    const prices = deals.map((d) => d.deal_price).filter((p) => p > 0).sort((a, b) => a - b);
-    const priceRange = {
-      min: prices[0] || 0,
-      max: prices[prices.length - 1] || 0,
-      avg: prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0,
-      median: prices.length > 0 ? prices[Math.floor(prices.length / 2)] : 0,
-    };
-
-    // Площадь
-    const areas = deals.map((d) => d.area).filter((a) => a > 0);
-    const sortedAreas = [...areas].sort((a, b) => a - b);
-    const areaRange = {
-      min: sortedAreas.length > 0 ? sortedAreas[0] : 0,
-      max: sortedAreas.length > 0 ? sortedAreas[sortedAreas.length - 1] : 0,
-      avg: sortedAreas.length > 0 ? Math.round(sortedAreas.reduce((a, b) => a + b, 0) / sortedAreas.length) : 0,
-      median: sortedAreas.length > 0 ? sortedAreas[Math.floor(sortedAreas.length / 2)] : 0,
-    };
-
-    // Топ регионов
-    const regionGroups: Record<string, number> = {};
-    deals.forEach((deal) => {
-      if (deal.region_code) {
-        regionGroups[deal.region_code] = (regionGroups[deal.region_code] || 0) + 1;
-      }
-    });
-    const topRegions = Object.entries(regionGroups)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 10);
-
-    const totalSum = deals.reduce((acc, d) => acc + d.deal_price, 0);
 
     return {
       byType,
       byDocType,
       byWallMaterial,
       byQuarter,
-      priceRange,
-      areaRange,
-      topRegions,
-      totalSum,
-      count: deals.length,
+      priceRange: aggregates.priceRange,
+      areaRange: aggregates.areaRange,
+      topRegions: aggregates.topRegions,
+      totalSum: aggregates.totalSum,
+      count: aggregates.count,
       totalCount: totalDeals,
     };
-  }, [deals, totalDeals]);
+  }, [aggregates, totalDeals]);
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000000) {
@@ -300,7 +264,7 @@ const Dashboard = React.memo(({ deals, totalDeals }: DashboardProps) => {
     return `${formatNumber(price)} ₽`;
   };
 
-  if (deals.length === 0) {
+  if (!aggregates || aggregates.count === 0) {
     return null;
   }
 
@@ -527,18 +491,14 @@ const Dashboard = React.memo(({ deals, totalDeals }: DashboardProps) => {
               </ChartBox>
             </div>
 
-            {/* Круговые диаграммы — flex-ряд вместо вложенного grid */}
+            {/* Круговые диаграммы */}
             <div className="col-span-full flex gap-4 max-md:flex-col">
               {/* Распределение по типам объектов */}
               <div className="flex-1 min-w-0 bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
                 <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
                   По типу объекта
                 </h3>
-                <ChartBox height={220}>
-                  {({ width, height }) => (
-                    <SimplePieChart data={analytics.byType} width={width} height={height} maxLabelLen={10} />
-                  )}
-                </ChartBox>
+                <InteractivePieChart data={analytics.byType} />
               </div>
 
               {/* По типу документа */}
@@ -546,11 +506,7 @@ const Dashboard = React.memo(({ deals, totalDeals }: DashboardProps) => {
                 <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
                   По типу договора
                 </h3>
-                <ChartBox height={220}>
-                  {({ width, height }) => (
-                    <SimplePieChart data={analytics.byDocType} width={width} height={height} />
-                  )}
-                </ChartBox>
+                <InteractivePieChart data={analytics.byDocType} />
               </div>
 
               {/* По материалу стен */}
@@ -558,31 +514,10 @@ const Dashboard = React.memo(({ deals, totalDeals }: DashboardProps) => {
                 <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
                   По материалу стен
                 </h3>
-                <ChartBox height={220}>
-                  {({ width, height }) => (
-                    <SimplePieChart data={analytics.byWallMaterial} width={width} height={height} maxLabelLen={8} />
-                  )}
-                </ChartBox>
+                <InteractivePieChart data={analytics.byWallMaterial} />
               </div>
             </div>
 
-            {/* Топ регионов */}
-            <div className="col-span-full bg-gray-50 rounded-lg p-4 dark:bg-zinc-800">
-              <h3 className="text-[13px] font-medium text-zinc-500 m-0 mb-3 uppercase tracking-wide dark:text-zinc-400">
-                Топ-10 регионов по количеству сделок
-              </h3>
-              <ChartBox height={280}>
-                {({ width, height }) => (
-                  <BarChart width={width} height={height} data={analytics.topRegions} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" tick={{ fontSize: 12 }} />
-                    <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(value: number) => formatNumber(value)} />
-                    <Bar dataKey="value" name="Сделок" fill="#1a73e8" />
-                  </BarChart>
-                )}
-              </ChartBox>
-            </div>
           </div>
 
         </div>
