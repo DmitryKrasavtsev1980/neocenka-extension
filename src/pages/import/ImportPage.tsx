@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { importFromUrl, type S3ImportParams } from '@/services/csv-parser';
-import { getModules, getManifest, logImport, type ModuleInfo, type ManifestFile } from '@/services/api-service';
+import React, { useState, useEffect, useMemo } from 'react';
+import { getModules, getManifest, type ModuleInfo, type ManifestFile } from '@/services/api-service';
 import { importsRepository, clearDatabase, cadastralRepository } from '@/db';
 import { ImportRecord } from '@/types';
-import { downloadCadastralData, CadastralDownloadProgress } from '@/services/cadastral.service';
+import { useImportTasks } from '@/contexts/ImportTaskContext';
 import { REGION_CENTERS } from '@/constants/regions';
 import '@/styles/tailwind.css';
 
@@ -18,15 +17,8 @@ interface ImportPageProps {
   onNavigate?: (page: 'modules' | 'search' | 'import' | 'profile') => void;
 }
 
-interface FileProgress {
-  fileId: number;
-  regionName: string;
-  status: 'pending' | 'downloading' | 'done' | 'error' | 'skipped';
-  recordsCount: number;
-  error?: string;
-}
-
 const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }) => {
+  const { tasks, startDealsImport, startCadastralImport } = useImportTasks();
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [selectedModuleCode, setSelectedModuleCode] = useState<string>(initialModuleCode || '');
   const [manifestFiles, setManifestFiles] = useState<ManifestFile[]>([]);
@@ -34,10 +26,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
   const [loading, setLoading] = useState(false);
   const [manifestLoading, setManifestLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [fileProgress, setFileProgress] = useState<FileProgress[]>([]);
-  const [totalProgress, setTotalProgress] = useState(0);
   const [importHistory, setImportHistory] = useState<ImportRecord[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [regionSearch, setRegionSearch] = useState('');
@@ -45,16 +34,29 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
 
   // Кадастровые кварталы
   const [selectedCadastralRegions, setSelectedCadastralRegions] = useState<Set<string>>(new Set());
-  const [cadastralDownloading, setCadastralDownloading] = useState(false);
-  const [cadastralProgress, setCadastralProgress] = useState<CadastralDownloadProgress | null>(null);
   const [cadastralRegionStats, setCadastralRegionStats] = useState<Record<string, number>>({});
   const [cadastralStatsLoaded, setCadastralStatsLoaded] = useState(false);
+
+  // Есть ли запущенные задачи импорта
+  const hasRunningImport = tasks.some((t) => t.status === 'running');
 
   useEffect(() => {
     loadModules();
     loadHistory();
     loadCadastralStats();
   }, []);
+
+  // Обновляем данные при завершении задач импорта
+  useEffect(() => {
+    const doneTasks = tasks.filter((t) => t.status === 'done');
+    if (doneTasks.length > 0) {
+      // Перезагружаем историю и кадастровые статы
+      const hasDeals = doneTasks.some((t) => t.type === 'deals');
+      const hasCadastral = doneTasks.some((t) => t.type === 'cadastral');
+      if (hasDeals) loadHistory();
+      if (hasCadastral) loadCadastralStats();
+    }
+  }, [tasks]);
 
   useEffect(() => {
     if (selectedModuleCode) {
@@ -233,101 +235,19 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
     }).format(new Date(date));
   };
 
-  const handleImport = async () => {
-    if (selectedFiles.length === 0) return;
-
-    setImporting(true);
+  const handleImport = () => {
+    if (selectedFiles.length === 0 || !selectedModuleCode) return;
     setError(null);
-
-    const progress: FileProgress[] = selectedFiles.map((f) => ({
-      fileId: f.id,
-      regionName: `${f.region_name} (${f.region_code})`,
-      status: 'pending',
-      recordsCount: 0,
-    }));
-    setFileProgress(progress);
-    setTotalProgress(0);
-
-    let completed = 0;
-
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-
-      // Обновляем статус текущего файла
-      setFileProgress((prev) =>
-        prev.map((p) => (p.fileId === file.id ? { ...p, status: 'downloading' } : p))
-      );
-
-      try {
-        const result = await importFromUrl({
-          fileId: file.id,
-          regionCode: file.region_code,
-          regionName: file.region_name,
-          year: file.year,
-          quarter: file.quarter,
-          expectedRecords: file.records,
-        });
-
-        completed++;
-
-        setFileProgress((prev) =>
-          prev.map((p) =>
-            p.fileId === file.id
-              ? { ...p, status: 'done', recordsCount: result.recordsCount }
-              : p
-          )
-        );
-
-        // Логируем скачивание на бэкенде
-        try {
-          await logImport(file.id);
-        } catch {
-          // Не критично если лог не записался
-        }
-      } catch (err: any) {
-        completed++;
-
-        if (err.message === 'already_imported') {
-          setFileProgress((prev) =>
-            prev.map((p) =>
-              p.fileId === file.id ? { ...p, status: 'skipped' } : p
-            )
-          );
-        } else {
-          setFileProgress((prev) =>
-            prev.map((p) =>
-              p.fileId === file.id
-                ? { ...p, status: 'error', error: err.message || 'Ошибка' }
-                : p
-            )
-          );
-        }
-      }
-
-      setTotalProgress(Math.round((completed / selectedFiles.length) * 100));
-    }
-
-    setImporting(false);
-    await loadHistory();
+    startDealsImport(selectedFiles, selectedModuleCode);
+    setSelectedFileIds(new Set());
   };
 
-  const handleDownloadCadastral = async () => {
+  const handleDownloadCadastral = () => {
     if (selectedCadastralRegions.size === 0 || !selectedModuleCode) return;
-    setCadastralDownloading(true);
-    setCadastralProgress(null);
-    try {
-      await downloadCadastralData(
-        selectedModuleCode,
-        setCadastralProgress,
-        Array.from(selectedCadastralRegions)
-      );
-      await loadCadastralStats();
-    } catch (err: any) {
-      console.error('Ошибка загрузки кадастровых данных:', err);
-      setError(err?.message || 'Ошибка загрузки кадастровых данных');
-    }
-    setCadastralProgress(null);
-    setCadastralDownloading(false);
+    const regionCodes = Array.from(selectedCadastralRegions);
+    const regionNames = regionCodes.map((code) => REGION_CENTERS[code]?.name || code);
+    startCadastralImport(selectedModuleCode, regionCodes, regionNames);
+    setSelectedCadastralRegions(new Set());
   };
 
   const handleDeleteImport = async (importId: number) => {
@@ -419,7 +339,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
               value={selectedModuleCode}
               onChange={(e) => setSelectedModuleCode(e.target.value)}
               className="w-full px-3.5 py-3 border border-zinc-200 rounded-lg text-sm text-zinc-900 bg-white cursor-pointer focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
-              disabled={importing}
+              disabled={hasRunningImport}
             >
               <option value="">Выберите модуль</option>
               {activeModules.map((m) => (
@@ -448,7 +368,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 <button
                   className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
                   onClick={selectNone}
-                  disabled={importing}
+                  disabled={hasRunningImport}
                 >
                   Убрать все
                 </button>
@@ -461,7 +381,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 placeholder="Поиск региона..."
                 value={regionSearch}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRegionSearch(e.target.value)}
-                disabled={importing}
+                disabled={hasRunningImport}
                 className="mb-4"
               />
             </Field>
@@ -490,7 +410,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                                 type="checkbox"
                                 checked={selectedFileIds.has(file.id)}
                                 onChange={() => toggleFile(file.id)}
-                                disabled={importing}
+                                disabled={hasRunningImport}
                                 className="w-4 h-4 shrink-0 cursor-pointer"
                               />
                               <span className="flex-1 text-xs text-zinc-900 dark:text-zinc-100">
@@ -527,9 +447,9 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
               color="blue"
               className="w-full py-3.5 text-base"
               onClick={handleImport}
-              disabled={importing || selectedFileIds.size === 0}
+              disabled={hasRunningImport || selectedFileIds.size === 0}
             >
-              {importing ? 'Загрузка...' : `Скачать выбранное (${selectedFileIds.size})`}
+              {hasRunningImport ? 'Импорт запущен...' : `Скачать выбранное (${selectedFileIds.size})`}
             </Button>
           </div>
         )}
@@ -551,7 +471,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 <button
                   className="bg-transparent border-none text-blue-600 cursor-pointer text-xs px-2 py-1 hover:underline disabled:text-zinc-300 disabled:cursor-not-allowed disabled:no-underline dark:text-blue-400 dark:disabled:text-zinc-600"
                   onClick={selectNoneCadastralRegions}
-                  disabled={cadastralDownloading}
+                  disabled={hasRunningImport}
                 >
                   Убрать все
                 </button>
@@ -567,7 +487,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 placeholder="Поиск региона..."
                 value={cadastralSearch}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCadastralSearch(e.target.value)}
-                disabled={cadastralDownloading}
+                disabled={hasRunningImport}
                 className="mb-4"
               />
             </Field>
@@ -589,7 +509,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                       type="checkbox"
                       checked={selectedCadastralRegions.has(region.code)}
                       onChange={() => toggleCadastralRegion(region.code)}
-                      disabled={cadastralDownloading}
+                      disabled={hasRunningImport}
                       className="w-4 h-4 cursor-pointer"
                     />
                     <span className="flex-1 whitespace-nowrap text-zinc-900 dark:text-zinc-100">
@@ -615,83 +535,16 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
               </div>
             )}
 
-            {cadastralProgress && (
-              <div className="bg-white rounded-xl p-6 shadow-sm mb-4 dark:bg-zinc-900">
-                <div className="h-2 bg-zinc-200 rounded-full overflow-hidden mb-2 dark:bg-zinc-700">
-                  <div
-                    className="h-full bg-blue-600 transition-[width] duration-300 ease-in-out dark:bg-blue-500"
-                    style={{ width: `${cadastralProgress.percent}%` }}
-                  />
-                </div>
-                <div className="text-sm font-medium text-zinc-900 mb-4 dark:text-zinc-100">
-                  {cadastralProgress.stage === 'manifest' && 'Загрузка манифеста...'}
-                  {cadastralProgress.stage === 'downloading' &&
-                    `Скачивание: ${cadastralProgress.downloaded} / ${cadastralProgress.total}`}
-                  {cadastralProgress.stage === 'done' && 'Готово'}
-                  {cadastralProgress.stage === 'error' && 'Ошибка'}
-                </div>
-              </div>
-            )}
-
             <Button
               color="blue"
               className="w-full py-3.5 text-base"
               onClick={handleDownloadCadastral}
-              disabled={cadastralDownloading || selectedCadastralRegions.size === 0}
+              disabled={hasRunningImport || selectedCadastralRegions.size === 0}
             >
-              {cadastralDownloading
-                ? 'Загрузка...'
+              {hasRunningImport
+                ? 'Импорт запущен...'
                 : `Скачать кадастровые кварталы (${selectedCadastralRegions.size} регион.)`}
             </Button>
-          </div>
-        )}
-
-        {/* Прогресс */}
-        {fileProgress.length > 0 && (
-          <div className="bg-white rounded-xl p-6 shadow-sm dark:bg-zinc-900">
-            <div className="h-2 bg-zinc-200 rounded-full overflow-hidden mb-2 dark:bg-zinc-700">
-              <div
-                className="h-full bg-blue-600 transition-[width] duration-300 ease-in-out dark:bg-blue-500"
-                style={{ width: `${totalProgress}%` }}
-              />
-            </div>
-            <div className="text-sm font-medium text-zinc-900 mb-4 dark:text-zinc-100">
-              {totalProgress}% ({fileProgress.filter((p) => p.status === 'done' || p.status === 'skipped').length} / {fileProgress.length} файлов)
-            </div>
-
-            <div className="max-h-[200px] overflow-y-auto">
-              {fileProgress.map((fp) => (
-                <div
-                  key={fp.fileId}
-                  className={`flex items-center gap-2 py-1.5 px-2 text-xs rounded ${
-                    fp.status === 'done'
-                      ? 'text-green-600 dark:text-green-400'
-                      : fp.status === 'error'
-                      ? 'text-red-600 dark:text-red-400'
-                      : fp.status === 'skipped'
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : fp.status === 'downloading'
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : 'text-zinc-400 dark:text-zinc-500'
-                  }`}
-                >
-                  <span className="w-5 text-center">
-                    {fp.status === 'pending' && '...'}
-                    {fp.status === 'downloading' && '\u23F3'}
-                    {fp.status === 'done' && '\u2713'}
-                    {fp.status === 'skipped' && '\u2298'}
-                    {fp.status === 'error' && '\u2715'}
-                  </span>
-                  <span className="flex-1">{fp.regionName}</span>
-                  <span className="text-zinc-400 text-[11px] dark:text-zinc-500">
-                    {fp.status === 'done' && `${formatNumber(fp.recordsCount)} зап.`}
-                    {fp.status === 'skipped' && 'Уже загружен'}
-                    {fp.status === 'error' && fp.error}
-                    {fp.status === 'downloading' && 'Скачивание...'}
-                  </span>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
@@ -706,16 +559,16 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                 color="red"
                 className="text-xs px-3 py-1"
                 onClick={handleClearAll}
-                disabled={importing || deleting}
+                disabled={hasRunningImport || deleting}
               >
-                Очистить всё
+                Удалить все
               </Button>
             )}
           </div>
 
           {!historyLoaded ? (
             <div className="flex items-center justify-center py-8">
-              <svg className="h-5 w-5 animate-spin text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <svg className="h-4 w-4 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
@@ -768,7 +621,7 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
                         className="bg-transparent border-none cursor-pointer p-1 text-base hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
                         onClick={() => handleDeleteImport(imp.id!)}
                         title="Удалить"
-                        disabled={importing || deleting}
+                        disabled={hasRunningImport || deleting}
                       >
                         🗑️
                       </button>

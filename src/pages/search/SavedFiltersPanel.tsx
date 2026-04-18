@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   XMarkIcon,
   CheckIcon,
@@ -17,6 +17,7 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -257,14 +258,14 @@ const FilterGroupSection: React.FC<FilterGroupSectionProps> = ({
           </div>
         ) : (
           <button
-            className="flex items-center gap-1 flex-1 bg-transparent border-none cursor-pointer text-left p-0"
+            className="flex items-center gap-1 flex-1 min-w-0 bg-transparent border-none cursor-pointer text-left p-0"
             onClick={onToggleCollapse}
           >
             <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
               {group.name}
             </span>
-            <span className="text-[10px] text-zinc-400">({filters.length})</span>
-            <ChevronDownIcon className={`size-3 text-zinc-400 transition-transform ml-auto ${group.isCollapsed ? '' : 'rotate-180'}`} />
+            <span className="text-[10px] text-zinc-400 shrink-0">({filters.length})</span>
+            <ChevronDownIcon className={`size-3 text-zinc-400 transition-transform ml-auto shrink-0 ${group.isCollapsed ? '' : 'rotate-180'}`} />
           </button>
         )}
         {!isEditingGroup && (
@@ -326,6 +327,85 @@ const FilterGroupSection: React.FC<FilterGroupSectionProps> = ({
           </div>
         </SortableContext>
       )}
+    </div>
+  );
+};
+
+// === Droppable zone for ungrouped filters ===
+
+const UNGROUPED_DROPPABLE_ID = 'ungrouped-zone';
+
+const UngroupedDroppableZone: React.FC<{
+  visible: boolean;
+  hasFilters: boolean;
+  children: React.ReactNode;
+}> = ({ visible, hasFilters, children }) => {
+  const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED_DROPPABLE_ID });
+
+  if (!visible && !hasFilters) return <>{children}</>;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-lg transition-colors duration-150 ${
+        isOver ? 'bg-blue-50 ring-2 ring-blue-300 ring-dashed dark:bg-blue-950/30 dark:ring-blue-700' : ''
+      } ${visible && !hasFilters ? 'border border-dashed border-zinc-200 p-2 dark:border-zinc-700' : ''}`}
+    >
+      {children}
+    </div>
+  );
+};
+
+// === Resizable Panel ===
+
+const ResizablePanel: React.FC<{
+  defaultWidth: number;
+  minWidth: number;
+  maxWidth: number;
+  children: React.ReactNode;
+}> = ({ defaultWidth, minWidth, maxWidth, children }) => {
+  const [width, setWidth] = useState(defaultWidth);
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    startX.current = e.clientX;
+    startWidth.current = width;
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = startX.current - ev.clientX;
+      const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth.current + delta));
+      setWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [width, minWidth, maxWidth]);
+
+  return (
+    <div className="fixed right-0 top-0 z-[10001] h-full bg-white shadow-xl dark:bg-zinc-900 flex flex-col"
+      style={{ width: `${width}px` }}
+    >
+      {/* Resize handle */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-blue-400/30 active:bg-blue-400/50 transition-colors"
+        onMouseDown={handleMouseDown}
+      />
+      {children}
     </div>
   );
 };
@@ -623,10 +703,13 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
     }
 
     // Filter drag
+    // Check if dropped on ungrouped zone
+    const isUngroupedDrop = String(over.id) === UNGROUPED_DROPPABLE_ID;
+
     // Determine target group from over item
     const overFilter = filters.find(f => f.id === String(over.id));
     const overGroup = groups.find(g => g.id === String(over.id));
-    const targetGroupId = overFilter?.groupId ?? overGroup?.id ?? null;
+    const targetGroupId = isUngroupedDrop ? null : (overFilter?.groupId ?? overGroup?.id ?? null);
 
     let newFilters: SavedFilter[] = [];
     setFilters(prev => {
@@ -680,12 +763,18 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
     .filter(f => !f.groupId || !groups.find(g => g.id === f.groupId))
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
+  // Все ID фильтров для единого SortableContext
+  const allFilterIds = [
+    ...groupedFilters.flatMap(({ filters: gf }) => gf.map(f => f.id)),
+    ...ungroupedFilters.map(f => f.id),
+  ];
+
   return (
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 z-[10000] bg-black/30" onClick={onClose} />
       {/* Panel */}
-      <div className="fixed right-0 top-0 z-[10001] h-full w-80 bg-white shadow-xl dark:bg-zinc-900 flex flex-col">
+      <ResizablePanel defaultWidth={320} minWidth={280} maxWidth={560}>
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
           <div className="flex items-center gap-2">
@@ -771,8 +860,9 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
               </div>
             )}
 
-            {/* Grouped filters */}
-            <SortableContext items={groupedFilters.map(({ group }) => group.id)} strategy={verticalListSortingStrategy}>
+            {/* All sortable items: groups + all filters + ungrouped zone */}
+            <SortableContext items={[...groupedFilters.map(({ group }) => group.id), ...allFilterIds, UNGROUPED_DROPPABLE_ID]} strategy={verticalListSortingStrategy}>
+              {/* Grouped filters */}
               {groupedFilters.map(({ group, filters: groupFilters }) => (
                 <FilterGroupSection
                   key={group.id}
@@ -800,35 +890,37 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
                   onSelectColor={(color) => handleSelectColor(group.id, color)}
                 />
               ))}
-            </SortableContext>
 
-            {/* Ungrouped filters */}
-            {ungroupedFilters.length > 0 && (
-              <div>
-                {groupedFilters.length > 0 && (
+              {/* Ungrouped droppable zone */}
+              <UngroupedDroppableZone
+                visible={groupedFilters.length > 0}
+                hasFilters={ungroupedFilters.length > 0}
+              >
+                {ungroupedFilters.length > 0 && groupedFilters.length > 0 && (
                   <p className="text-[10px] text-zinc-400 uppercase tracking-wide mb-2 px-1">Без группы</p>
                 )}
-                <SortableContext items={ungroupedFilters.map(f => f.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-1.5">
-                    {ungroupedFilters.map(filter => (
-                      <SortableFilterCard
-                        key={filter.id}
-                        filter={filter}
-                        isActive={activeFilterId === filter.id}
-                        isEditing={editingId === filter.id}
-                        editingName={editingName}
-                        onApply={() => handleApplyFilter(filter)}
-                        onDelete={() => handleDeleteFilter(filter.id)}
-                        onStartEdit={() => { setEditingId(filter.id); setEditingName(filter.name); }}
-                        onFinishEdit={() => handleRenameFilter(filter.id)}
-                        onCancelEdit={() => setEditingId(null)}
-                        onEditingNameChange={setEditingName}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </div>
-            )}
+                <div className="space-y-1.5">
+                  {ungroupedFilters.map(filter => (
+                    <SortableFilterCard
+                      key={filter.id}
+                      filter={filter}
+                      isActive={activeFilterId === filter.id}
+                      isEditing={editingId === filter.id}
+                      editingName={editingName}
+                      onApply={() => handleApplyFilter(filter)}
+                      onDelete={() => handleDeleteFilter(filter.id)}
+                      onStartEdit={() => { setEditingId(filter.id); setEditingName(filter.name); }}
+                      onFinishEdit={() => handleRenameFilter(filter.id)}
+                      onCancelEdit={() => setEditingId(null)}
+                      onEditingNameChange={setEditingName}
+                    />
+                  ))}
+                </div>
+                {ungroupedFilters.length === 0 && groupedFilters.length > 0 && (
+                  <p className="py-2 text-center text-[10px] text-zinc-400">Перетащите фильтр сюда</p>
+                )}
+              </UngroupedDroppableZone>
+            </SortableContext>
 
             {filters.length === 0 && !creatingGroup && (
               <p className="py-8 text-center text-xs text-zinc-400">
@@ -879,7 +971,7 @@ const SavedFiltersPanel: React.FC<SavedFiltersPanelProps> = ({ open, onClose, cu
             )}
           </div>
         )}
-      </div>
+      </ResizablePanel>
     </>
   );
 };

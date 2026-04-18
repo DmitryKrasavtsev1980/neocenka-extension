@@ -1233,21 +1233,23 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       <div className="space-y-4">
         {/* Filter bar */}
         <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 truncate">
-            {filterSummary}
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 truncate leading-5">
+              {filterSummary}
+            </div>
+            {activeFilterName && (
+              <span className="flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-400 truncate leading-5">
+                <BookmarkSquareIcon className="size-3 shrink-0" />
+                {activeFilterGroupName && <span className="opacity-70 shrink-0">{activeFilterGroupName} •</span>}
+                <span className="truncate">{activeFilterName}</span>
+              </span>
+            )}
           </div>
-          {activeFilterName && (
-            <span className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-600 dark:bg-blue-950 dark:text-blue-400">
-              <BookmarkSquareIcon className="size-3" />
-              {activeFilterGroupName && <span className="opacity-70">{activeFilterGroupName} • </span>}
-              {activeFilterName}
-            </span>
-          )}
-          <Button onClick={() => setShowSavedPanel(true)}>
+          <Button onClick={() => setShowSavedPanel(true)} className="shrink-0">
             <BookmarkSquareIcon className="size-4" />
             Сохранённые
           </Button>
-          <Button onClick={() => setShowFilters(!showFilters)}>
+          <Button onClick={() => setShowFilters(!showFilters)} className="shrink-0">
             <FunnelIcon className="size-4" />
             {showFilters ? 'Скрыть' : 'Фильтры'}
           </Button>

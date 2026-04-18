@@ -29,6 +29,8 @@ import {
   NewspaperIcon,
   ChatBubbleLeftRightIcon,
 } from '@heroicons/react/20/solid';
+import { ImportTaskProvider } from '@/contexts/ImportTaskContext';
+import { ImportProgressPanel } from '@/components/ImportProgressPanel';
 
 type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback';
 
@@ -127,6 +129,7 @@ const AppLayout: React.FC = () => {
   };
 
   return (
+    <ImportTaskProvider>
     <div className="flex h-screen bg-zinc-100 dark:bg-zinc-950">
       {/* Sidebar */}
       <div className="hidden lg:flex w-64 flex-col border-r border-zinc-950/10 bg-white dark:border-white/10 dark:bg-zinc-900">
@@ -203,6 +206,8 @@ const AppLayout: React.FC = () => {
 
             <SidebarSpacer />
 
+            <ImportProgressPanel />
+
             <SidebarSection>
               <SidebarItem onClick={toggleTheme}>
                 {theme === 'light' ? (
@@ -226,6 +231,7 @@ const AppLayout: React.FC = () => {
         {renderContent()}
       </main>
     </div>
+    </ImportTaskProvider>
   );
 };
 
