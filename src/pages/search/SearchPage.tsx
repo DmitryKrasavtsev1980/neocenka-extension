@@ -8,6 +8,7 @@ import {
   getRealEstateTypeName,
   getWallMaterialName,
 } from '@/constants/catalogs';
+import ExcelJS from 'exceljs';
 import { REGION_CENTERS } from '@/constants/regions';
 import { Dashboard } from '@/components/Dashboard';
 import DealMap from '@/components/DealMap';
@@ -38,6 +39,7 @@ interface SearchPageProps {
 export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [stats, setStats] = useState<DealsStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [aggregates, setAggregates] = useState<SearchAggregates | null>(null);
   const [page, setPage] = useState(1);
@@ -1194,6 +1196,114 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     URL.revokeObjectURL(url);
   };
 
+  const exportToExcel = async () => {
+    setExportingExcel(true);
+    try {
+    const searchFilters: SearchFilters = {
+      region_codes: selectedRegions.length > 0 ? selectedRegions : undefined,
+      realestate_type_codes: selectedTypes.length > 0 ? selectedTypes : undefined,
+      doc_types: selectedDocTypes.length > 0 ? selectedDocTypes : undefined,
+      year_quarters: selectedPeriods.length > 0 ? selectedPeriods : undefined,
+      price_min: priceMin ? parseFloat(priceMin) : undefined,
+      price_max: priceMax ? parseFloat(priceMax) : undefined,
+      area_min: areaMin ? parseFloat(areaMin) : undefined,
+      area_max: areaMax ? parseFloat(areaMax) : undefined,
+      floor_min: floorMin ? parseInt(floorMin) : undefined,
+      floor_max: floorMax ? parseInt(floorMax) : undefined,
+      year_build_min: yearBuildMin ? parseInt(yearBuildMin) : undefined,
+      year_build_max: yearBuildMax ? parseInt(yearBuildMax) : undefined,
+      wall_material_codes: selectedWallMaterials.length > 0 ? selectedWallMaterials : undefined,
+      search_city: searchCity || undefined,
+      search_street: searchStreet || undefined,
+      quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
+    };
+    const deals = await dealsRepository.searchAll(searchFilters);
+    if (deals.length === 0) {
+      alert('Нет данных для экспорта');
+      return;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Неоценка';
+    workbook.created = new Date();
+    const ws = workbook.addWorksheet('Сделки');
+
+    // Заголовки
+    const columns = [
+      { header: 'Период', key: 'period', width: 12 },
+      { header: 'Тип объекта', key: 'type', width: 22 },
+      { header: 'Регион', key: 'region', width: 8 },
+      { header: 'Район', key: 'district', width: 25 },
+      { header: 'Город', key: 'city', width: 20 },
+      { header: 'Улица', key: 'street', width: 25 },
+      { header: 'Кад. квартал', key: 'cad_number', width: 20 },
+      { header: 'Площадь', key: 'area', width: 12 },
+      { header: 'Этаж', key: 'floor', width: 8 },
+      { header: 'Год постройки', key: 'year_build', width: 14 },
+      { header: 'Материал стен', key: 'wall_material', width: 22 },
+      { header: 'Кол-во сделок', key: 'count', width: 14 },
+      { header: 'Цена', key: 'price', width: 18 },
+      { header: 'Цена за м²', key: 'price_per_m2', width: 16 },
+      { header: 'Тип договора', key: 'doc_type', width: 14 },
+    ];
+    ws.columns = columns;
+
+    // Стиль заголовков
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, size: 11 };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    headerRow.height = 24;
+    ws.autoFilter = { from: 'A1', to: `O1` };
+
+    // Данные
+    deals.forEach((d) => {
+      const pricePerM2 = d.area > 0 ? Math.round(d.deal_price / d.area) : null;
+      ws.addRow({
+        period: formatPeriod(d.year_quarter),
+        type: getRealEstateTypeName(d.realestate_type_code),
+        region: d.region_code,
+        district: d.district,
+        city: d.city,
+        street: d.street,
+        cad_number: d.quarter_cad_number,
+        area: d.area,
+        floor: d.floor,
+        year_build: d.year_build,
+        wall_material: getWallMaterialName(d.wall_material_code),
+        count: d.number,
+        price: d.deal_price,
+        price_per_m2: pricePerM2,
+        doc_type: DOCUMENT_TYPES[d.doc_type] || d.doc_type,
+      });
+    });
+
+    // Формат числовых колонок
+    const rowCount = deals.length;
+    for (let i = 2; i <= rowCount + 1; i++) {
+      const row = ws.getRow(i);
+      row.getCell('area').numFmt = '#,##0.0';
+      row.getCell('price').numFmt = '#,##0';
+      row.getCell('price_per_m2').numFmt = '#,##0';
+      row.getCell('count').numFmt = '#,##0';
+    }
+
+    // Скачать
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `deals-${new Date().toISOString().split('T')[0]}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   // Данные для таблицы — приходят из searchLight (уже отсортированные по дате)
   const pagedDeals = result?.deals || [];
   const totalFiltered = result?.total || 0;
@@ -1538,9 +1648,16 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
             <div className="flex gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
               <Button color="blue" onClick={handleSearch}>Применить фильтры</Button>
               <div className="flex-1" />
+              <Button onClick={exportToExcel} disabled={exportingExcel}>
+                {exportingExcel
+                  ? <svg className="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+                  : <ArrowDownTrayIcon className="size-4" />
+                }
+                Excel
+              </Button>
               <Button onClick={exportToHtml}>
                 <ArrowDownTrayIcon className="size-4" />
-                Экспорт в HTML
+                HTML
               </Button>
             </div>
           </div>
@@ -1578,10 +1695,19 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                     <option value={200}>200 на странице</option>
                   </select>
                 </div>
-                <Button onClick={exportToHtml} disabled={loading}>
-                  <ArrowDownTrayIcon className="size-4" />
-                  Экспорт
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={exportToExcel} disabled={loading || exportingExcel}>
+                    {exportingExcel
+                      ? <svg className="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+                      : <ArrowDownTrayIcon className="size-4" />
+                    }
+                    Excel
+                  </Button>
+                  <Button onClick={exportToHtml} disabled={loading}>
+                    <ArrowDownTrayIcon className="size-4" />
+                    HTML
+                  </Button>
+                </div>
               </div>
 
               {pagedDeals.length === 0 ? (
