@@ -225,7 +225,9 @@ const DealMap: React.FC<DealMapProps> = ({ quarters, selectedDeal, filterPolygon
   }
 
   return (
-    <div className="fixed right-0 top-0 z-50 flex h-screen w-1/2 flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 max-lg:w-full lg:w-1/2">
+    <>
+      <div className="fixed inset-0 z-[9000] bg-black/30" onClick={onClose} />
+      <div className="fixed right-0 top-0 z-[9001] flex h-screen w-1/2 flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900 max-lg:w-full lg:w-1/2">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
         <div className="flex items-center gap-3">
@@ -272,6 +274,7 @@ const DealMap: React.FC<DealMapProps> = ({ quarters, selectedDeal, filterPolygon
       {/* Map */}
       <div ref={mapRef} className="flex-1" style={{ minHeight: '400px' }} />
     </div>
+    </>
   );
 };
 

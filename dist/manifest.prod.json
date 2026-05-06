@@ -1,17 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Неоценка",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
     "unlimitedStorage"
   ],
-  "host_permissions": [
-    "https://55ff837e6c44-neo-maps.s3.ru1.storage.beget.cloud/*",
-    "https://map.ru/*",
-    "https://neocenka.ru/*"
-  ],
+  "host_permissions": [],
   "action": {
     "default_popup": "src/popup/popup.html",
     "default_icon": {

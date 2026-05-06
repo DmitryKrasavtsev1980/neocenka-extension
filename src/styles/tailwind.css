@@ -1,7 +1,71 @@
 @import 'tailwindcss';
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Fix: news content in dark mode — override inline styles from rich text editor */
+.dark .prose {
+  --tw-prose-body: theme(--color-zinc-300);
+  --tw-prose-headings: theme(--color-white);
+  --tw-prose-links: theme(--color-blue-400);
+  --tw-prose-bold: theme(--color-white);
+  --tw-prose-quotes: theme(--color-zinc-300);
+  --tw-prose-quote-borders: theme(--color-zinc-600);
+  --tw-prose-code: theme(--color-zinc-300);
+  --tw-prose-pre-code: theme(--color-zinc-300);
+  --tw-prose-pre-bg: theme(--color-zinc-800);
+  --tw-prose-th-borders: theme(--color-zinc-600);
+  --tw-prose-td-borders: theme(--color-zinc-700);
+}
+
+.dark .prose p,
+.dark .prose span,
+.dark .prose li,
+.dark .prose td,
+.dark .prose th,
+.dark .prose strong,
+.dark .prose em,
+.dark .prose b,
+.dark .prose i,
+.dark .prose a,
+.dark .prose h1,
+.dark .prose h2,
+.dark .prose h3,
+.dark .prose h4,
+.dark .prose h5,
+.dark .prose h6,
+.dark .prose blockquote,
+.dark .prose figcaption {
+  color: var(--tw-prose-body) !important;
+}
+
+.dark .prose h1,
+.dark .prose h2,
+.dark .prose h3,
+.dark .prose h4,
+.dark .prose h5,
+.dark .prose h6 {
+  color: var(--tw-prose-headings) !important;
+}
+
+.dark .prose a {
+  color: var(--tw-prose-links) !important;
+}
+
+.dark .prose strong,
+.dark .prose b {
+  color: var(--tw-prose-bold) !important;
+}
+
+.dark .prose blockquote {
+  color: var(--tw-prose-quotes) !important;
+  border-left-color: var(--tw-prose-quote-borders) !important;
+}
+
+.dark .prose img {
+  border-radius: 0.75rem;
 }

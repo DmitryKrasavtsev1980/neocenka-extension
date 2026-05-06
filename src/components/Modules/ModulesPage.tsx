@@ -3,10 +3,11 @@ import { getModules, type ModuleInfo } from '@/services/api-service';
 import { Button } from '@/components/catalyst/button';
 import { Badge } from '@/components/catalyst/badge';
 import { Heading } from '@/components/catalyst/heading';
-import { BuildingOffice2Icon } from '@heroicons/react/20/solid';
+import { BuildingOffice2Icon, MegaphoneIcon } from '@heroicons/react/20/solid';
 
 const heroIconMap: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
   'building-office': BuildingOffice2Icon,
+  'megaphone': MegaphoneIcon,
 };
 
 const getModuleIcon = (mod: ModuleInfo) => {

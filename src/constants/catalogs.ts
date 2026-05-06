@@ -273,6 +273,11 @@ export function getRealEstateTypeName(code: string): string {
  * Получить название материала стен по коду
  */
 export function getWallMaterialName(code: string): string {
+  // Составной код: несколько материалов через ;
+  if (code.includes(';')) {
+    return code.split(';').map(c => getWallMaterialName(c.trim())).join(', ');
+  }
+
   // Пытаемся найти точное совпадение
   if (WALL_MATERIALS[code]) {
     return WALL_MATERIALS[code];

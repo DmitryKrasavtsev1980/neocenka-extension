@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Deal, ImportRecord, CadastralQuarter } from '@/types';
+import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport } from '@/types';
 
 /**
  * Класс базы данных для хранения сделок с недвижимостью
@@ -8,6 +8,17 @@ export class DealsDatabase extends Dexie {
   deals!: Table<Deal, number>;
   imports!: Table<ImportRecord, number>;
   cadastral_quarters!: Table<CadastralQuarter, number>;
+
+  // Модуль объявлений
+  ads!: Table<Ad, number>;
+  ad_objects!: Table<AdObject, number>;
+  ad_addresses!: Table<AdAddress, number>;
+  inpars_categories!: Table<InparsCategory, number>;
+  ad_wall_materials!: Table<ReferenceItem, number>;
+  ad_house_classes!: Table<ReferenceItem, number>;
+  ad_house_series!: Table<ReferenceItem, number>;
+  ad_ceiling_materials!: Table<ReferenceItem, number>;
+  ad_imports!: Table<AdImport, number>;
 
   constructor() {
     super('NeocenkaDB');
@@ -47,6 +58,80 @@ export class DealsDatabase extends Dexie {
       cadastral_quarters: `
         ++id,
         cad_number
+      `,
+    });
+
+    // Version 3: модуль «Рекламные объявления»
+    this.version(3).stores({
+      ads: `
+        ++id,
+        external_id,
+        source,
+        status,
+        region_id,
+        city_id,
+        category_id,
+        section_id,
+        property_type,
+        price,
+        price_per_meter,
+        floor,
+        area_total,
+        seller_type,
+        operation_type,
+        object_id,
+        address_id,
+        created,
+        updated,
+        [source+external_id],
+        [object_id],
+        [status],
+        [address_id]
+      `,
+      ad_objects: `
+        ++id,
+        address_id,
+        property_type,
+        status,
+        current_price
+      `,
+      ad_addresses: `
+        ++id,
+        address,
+        type,
+        house_series_id,
+        house_class_id,
+        wall_material_id,
+        ceiling_material_id
+      `,
+      inpars_categories: `
+        ++id,
+        inpars_id,
+        name,
+        parent_id,
+        section_id,
+        is_active
+      `,
+      ad_wall_materials: `
+        ++id,
+        name
+      `,
+      ad_house_classes: `
+        ++id,
+        name
+      `,
+      ad_house_series: `
+        ++id,
+        name
+      `,
+      ad_ceiling_materials: `
+        ++id,
+        name
+      `,
+      ad_imports: `
+        ++id,
+        source,
+        created_at
       `,
     });
   }

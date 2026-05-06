@@ -1258,34 +1258,38 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
     // Данные
     deals.forEach((d) => {
-      const pricePerM2 = d.area > 0 ? Math.round(d.deal_price / d.area) : null;
+      const pricePerM2 = d.area > 0 ? Math.round(d.deal_price / d.area) : '';
       ws.addRow({
         period: formatPeriod(d.year_quarter),
-        type: getRealEstateTypeName(d.realestate_type_code),
-        region: d.region_code,
-        district: d.district,
-        city: d.city,
-        street: d.street,
-        cad_number: d.quarter_cad_number,
-        area: d.area,
-        floor: d.floor,
-        year_build: d.year_build,
-        wall_material: getWallMaterialName(d.wall_material_code),
-        count: d.number,
-        price: d.deal_price,
+        type: getRealEstateTypeName(d.realestate_type_code) || '',
+        region: d.region_code || '',
+        district: d.district || '',
+        city: d.city || '',
+        street: d.street || '',
+        cad_number: d.quarter_cad_number || '',
+        area: d.area && !isNaN(d.area) ? d.area : 0,
+        floor: d.floor != null && !isNaN(d.floor) ? d.floor : '',
+        year_build: d.year_build != null && !isNaN(d.year_build) ? d.year_build : '',
+        wall_material: d.wall_material_code ? getWallMaterialName(d.wall_material_code) : '',
+        count: d.number && !isNaN(d.number) ? d.number : 1,
+        price: d.deal_price && !isNaN(d.deal_price) ? d.deal_price : 0,
         price_per_m2: pricePerM2,
-        doc_type: DOCUMENT_TYPES[d.doc_type] || d.doc_type,
+        doc_type: DOCUMENT_TYPES[d.doc_type] || d.doc_type || '',
       });
     });
 
-    // Формат числовых колонок
+    // Формат числовых колонок — только для ячеек с числами
     const rowCount = deals.length;
     for (let i = 2; i <= rowCount + 1; i++) {
       const row = ws.getRow(i);
-      row.getCell('area').numFmt = '#,##0.0';
-      row.getCell('price').numFmt = '#,##0';
-      row.getCell('price_per_m2').numFmt = '#,##0';
-      row.getCell('count').numFmt = '#,##0';
+      const areaCell = row.getCell('area');
+      if (typeof areaCell.value === 'number') areaCell.numFmt = '#,##0.0';
+      const priceCell = row.getCell('price');
+      if (typeof priceCell.value === 'number') priceCell.numFmt = '#,##0';
+      const ppmCell = row.getCell('price_per_m2');
+      if (typeof ppmCell.value === 'number') ppmCell.numFmt = '#,##0';
+      const countCell = row.getCell('count');
+      if (typeof countCell.value === 'number') countCell.numFmt = '#,##0';
     }
 
     // Скачать
@@ -1772,11 +1776,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                               {deal.area > 0 ? `${formatNumber(deal.area)}` : '—'}
                               {deal.number > 1 && <span className="ml-0.5 text-zinc-400">×{deal.number}</span>}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{deal.floor || '—'}</td>
-                            <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{deal.year_build || '—'}</td>
-                            <td className="max-w-[100px] truncate px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">{getWallMaterialName(deal.wall_material_code)}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{(deal.floor != null && !isNaN(deal.floor)) ? deal.floor : '—'}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{(deal.year_build != null && !isNaN(deal.year_build)) ? deal.year_build : '—'}</td>
+                            <td className="max-w-[140px] px-3 py-2 text-xs leading-tight text-zinc-500 dark:text-zinc-400">{getWallMaterialName(deal.wall_material_code)}</td>
                             <td className="whitespace-nowrap px-3 py-2">
-                              <div className="text-sm font-semibold text-green-600 dark:text-green-400">{formatPrice(deal.deal_price)} ₽</div>
+                              <div className="text-sm font-semibold text-green-600 dark:text-green-400">
+                                {formatPrice(deal.deal_price)} ₽
+                              </div>
                               {formatPricePerMeter(deal.deal_price, deal.area) && (
                                 <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{formatPricePerMeter(deal.deal_price, deal.area)}</div>
                               )}

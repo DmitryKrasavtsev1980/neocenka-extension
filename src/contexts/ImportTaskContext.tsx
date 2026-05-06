@@ -2,20 +2,31 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { importFromUrl } from '@/services/csv-parser';
 import { logImport, type ManifestFile } from '@/services/api-service';
 import { downloadCadastralData, type CadastralDownloadProgress } from '@/services/cadastral.service';
+import { getListingsByPolygon, transformInparsListing, getInparsToken } from '@/services/inpars-service';
+import { adsRepository } from '@/db/repositories/ads.repository';
 
 export interface ImportTask {
   id: string;
-  type: 'deals' | 'cadastral';
+  type: 'deals' | 'cadastral' | 'ads-import';
   label: string;
   status: 'running' | 'done' | 'error';
   progress: number;
   detail?: string;
 }
 
+export interface AdsImportOptions {
+  polygons: [number, number][][];
+  sourceIds?: number[];
+  categoryIds?: number[];
+  dateFrom?: string;
+  dateTo?: string;
+}
+
 interface ImportTaskContextValue {
   tasks: ImportTask[];
   startDealsImport: (files: ManifestFile[], moduleCode: string) => void;
   startCadastralImport: (moduleCode: string, regionCodes: string[], regionNames: string[]) => void;
+  startAdsImport: (options: AdsImportOptions) => void;
   removeTask: (taskId: string) => void;
 }
 
@@ -139,8 +150,82 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
     [updateTask, removeTask]
   );
 
+  const startAdsImport = useCallback(
+    (options: AdsImportOptions) => {
+      const taskId = crypto.randomUUID();
+      const { polygons, sourceIds, categoryIds, dateFrom, dateTo } = options;
+
+      setTasks((prev) => [
+        ...prev,
+        {
+          id: taskId,
+          type: 'ads-import',
+          label: `Объявления: ${polygons.length} полигон(ов)`,
+          status: 'running',
+          progress: 0,
+          detail: 'Запуск загрузки...',
+        },
+      ]);
+
+      (async () => {
+        try {
+          if (!getInparsToken()) {
+            updateTask(taskId, { status: 'error', detail: 'API ключ не задан' });
+            setTimeout(() => removeTask(taskId), 8000);
+            return;
+          }
+
+          const apiOptions: Record<string, unknown> = {};
+          if (categoryIds?.length === 1) apiOptions.categoryId = categoryIds[0];
+          if (sourceIds?.length === 1) apiOptions.sourceId = sourceIds[0];
+          else if (sourceIds && sourceIds.length > 1) apiOptions.sourceId = sourceIds.join(',');
+          if (dateFrom) apiOptions.timeStart = Math.floor(new Date(dateFrom).getTime() / 1000);
+          if (dateTo) apiOptions.timeEnd = Math.floor(new Date(dateTo).getTime() / 1000);
+
+          const allListings: ReturnType<typeof transformInparsListing>[] = [];
+
+          for (let i = 0; i < polygons.length; i++) {
+            updateTask(taskId, {
+              progress: Math.round((i / polygons.length) * 90),
+              detail: `Полигон ${i + 1}/${polygons.length}...`,
+            });
+            const result = await getListingsByPolygon(polygons[i], apiOptions);
+            allListings.push(...result.listings);
+          }
+
+          updateTask(taskId, { progress: 92, detail: `Получено ${allListings.length}. Сохранение...` });
+
+          const adsData = allListings.map(transformInparsListing);
+          const importResult = await adsRepository.bulkInsert(adsData);
+
+          await adsRepository.recordImport({
+            source: sourceIds?.length ? sourceIds.join(',') : 'all',
+            params: JSON.stringify({ polygonCount: polygons.length, ...apiOptions }),
+            count: importResult.inserted,
+            created_at: new Date().toISOString(),
+          });
+
+          updateTask(taskId, {
+            status: 'done',
+            progress: 100,
+            detail: `Загружено: ${importResult.inserted} новых, ${importResult.updated} обновлено`,
+          });
+          setTimeout(() => removeTask(taskId), 8000);
+        } catch (e) {
+          updateTask(taskId, {
+            status: 'error',
+            progress: 0,
+            detail: `Ошибка: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          setTimeout(() => removeTask(taskId), 12000);
+        }
+      })();
+    },
+    [updateTask, removeTask],
+  );
+
   return (
-    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, removeTask }}>
+    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, startAdsImport, removeTask }}>
       {children}
     </ImportTaskContext.Provider>
   );

@@ -28,11 +28,15 @@ import {
   BuildingOffice2Icon,
   NewspaperIcon,
   ChatBubbleLeftRightIcon,
+  MegaphoneIcon,
+  CogIcon,
 } from '@heroicons/react/20/solid';
 import { ImportTaskProvider } from '@/contexts/ImportTaskContext';
 import { ImportProgressPanel } from '@/components/ImportProgressPanel';
+import AdsPage from '@/pages/ads/AdsPage';
+import AdsSettingsPage from '@/pages/ads/AdsSettingsPage';
 
-type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback';
+type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback' | 'ads' | 'ads-settings';
 
 interface ModulePageConfig {
   page: ActivePage;
@@ -47,6 +51,7 @@ interface ModuleConfig {
 
 const heroIconMap: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
   'building-office': BuildingOffice2Icon,
+  'megaphone': MegaphoneIcon,
 };
 
 const modulesConfig: Record<string, ModuleConfig> = {
@@ -62,6 +67,21 @@ const modulesConfig: Record<string, ModuleConfig> = {
         page: 'import',
         label: 'Импорт',
         icon: <ArrowDownTrayIcon data-slot="icon" />,
+      },
+    ],
+  },
+  ads: {
+    label: 'Рекламные объявления',
+    pages: [
+      {
+        page: 'ads',
+        label: 'Поиск объявлений',
+        icon: <MagnifyingGlassIcon data-slot="icon" />,
+      },
+      {
+        page: 'ads-settings',
+        label: 'Настройки',
+        icon: <CogIcon data-slot="icon" />,
       },
     ],
   },
@@ -94,8 +114,12 @@ const AppLayout: React.FC = () => {
   };
 
   const handleModuleOpen = (code: string) => {
-    setImportModuleCode(code);
-    setActivePage('search');
+    if (code === 'ads') {
+      setActivePage('ads');
+    } else {
+      setImportModuleCode(code);
+      setActivePage('search');
+    }
   };
 
   const handleNavigate = (page: ActivePage) => {
@@ -123,6 +147,10 @@ const AppLayout: React.FC = () => {
         return <NewsPage />;
       case 'feedback':
         return <FeedbackPage />;
+      case 'ads':
+        return <AdsPage onNavigate={handleNavigate} />;
+      case 'ads-settings':
+        return <AdsSettingsPage />;
       default:
         return <ModulesPage onModuleOpen={handleModuleOpen} />;
     }
