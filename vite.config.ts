@@ -63,11 +63,16 @@ export default defineConfig(({ mode }) => {
           popup: resolve(__dirname, 'src/popup/popup.html'),
           search: resolve(__dirname, 'src/pages/search/search.html'),
           background: resolve(__dirname, 'src/background/service-worker.ts'),
+          'cian-parser': resolve(__dirname, 'src/content/cian-parser.ts'),
+          'avito-parser': resolve(__dirname, 'src/content/avito-parser.ts'),
         },
         output: {
           entryFileNames: (chunkInfo) => {
             if (chunkInfo.name === 'background') {
               return 'background/service-worker.js';
+            }
+            if (chunkInfo.name === 'cian-parser' || chunkInfo.name === 'avito-parser') {
+              return 'content/[name].js';
             }
             return 'assets/[name]-[hash].js';
           },

@@ -5,9 +5,14 @@
   "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "tabs"
   ],
-  "host_permissions": [],
+  "host_permissions": [
+    "https://www.cian.ru/*",
+    "https://cian.ru/*",
+    "https://www.avito.ru/*"
+  ],
   "action": {
     "default_popup": "src/popup/popup.html",
     "default_icon": {
@@ -32,6 +37,18 @@
     {
       "resources": ["src/pages/*", "assets/*"],
       "matches": ["<all_urls>"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.cian.ru/*", "https://cian.ru/*"],
+      "js": ["content/cian-parser.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.avito.ru/*"],
+      "js": ["content/avito-parser.js"],
+      "run_at": "document_idle"
     }
   ]
 }

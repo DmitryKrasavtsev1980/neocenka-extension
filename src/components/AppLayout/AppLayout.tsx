@@ -30,13 +30,18 @@ import {
   ChatBubbleLeftRightIcon,
   MegaphoneIcon,
   CogIcon,
+  ClipboardDocumentListIcon,
+  ViewColumnsIcon,
 } from '@heroicons/react/20/solid';
 import { ImportTaskProvider } from '@/contexts/ImportTaskContext';
 import { ImportProgressPanel } from '@/components/ImportProgressPanel';
 import AdsPage from '@/pages/ads/AdsPage';
 import AdsSettingsPage from '@/pages/ads/AdsSettingsPage';
+import CrmPage from '@/pages/crm/CrmPage';
+import CrmKanbanPage from '@/pages/crm/CrmKanbanPage';
+import CrmSettingsPage from '@/pages/crm/CrmSettingsPage';
 
-type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback' | 'ads' | 'ads-settings';
+type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback' | 'ads' | 'ads-settings' | 'crm' | 'crm-kanban' | 'crm-settings';
 
 interface ModulePageConfig {
   page: ActivePage;
@@ -52,6 +57,7 @@ interface ModuleConfig {
 const heroIconMap: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
   'building-office': BuildingOffice2Icon,
   'megaphone': MegaphoneIcon,
+  'clipboard-document-list': ClipboardDocumentListIcon,
 };
 
 const modulesConfig: Record<string, ModuleConfig> = {
@@ -80,6 +86,26 @@ const modulesConfig: Record<string, ModuleConfig> = {
       },
       {
         page: 'ads-settings',
+        label: 'Настройки',
+        icon: <CogIcon data-slot="icon" />,
+      },
+    ],
+  },
+  crm: {
+    label: 'CRM',
+    pages: [
+      {
+        page: 'crm',
+        label: 'Клиенты',
+        icon: <ClipboardDocumentListIcon data-slot="icon" />,
+      },
+      {
+        page: 'crm-kanban',
+        label: 'Канбан',
+        icon: <ViewColumnsIcon data-slot="icon" />,
+      },
+      {
+        page: 'crm-settings',
         label: 'Настройки',
         icon: <CogIcon data-slot="icon" />,
       },
@@ -116,6 +142,8 @@ const AppLayout: React.FC = () => {
   const handleModuleOpen = (code: string) => {
     if (code === 'ads') {
       setActivePage('ads');
+    } else if (code === 'crm') {
+      setActivePage('crm');
     } else {
       setImportModuleCode(code);
       setActivePage('search');
@@ -151,6 +179,12 @@ const AppLayout: React.FC = () => {
         return <AdsPage onNavigate={handleNavigate} />;
       case 'ads-settings':
         return <AdsSettingsPage />;
+      case 'crm':
+        return <CrmPage onNavigate={handleNavigate} />;
+      case 'crm-kanban':
+        return <CrmKanbanPage />;
+      case 'crm-settings':
+        return <CrmSettingsPage />;
       default:
         return <ModulesPage onModuleOpen={handleModuleOpen} />;
     }

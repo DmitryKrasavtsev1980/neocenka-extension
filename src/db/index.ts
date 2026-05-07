@@ -3,3 +3,4 @@ export { dealsRepository } from './repositories/deals.repository';
 export { importsRepository } from './repositories/imports.repository';
 export { cadastralRepository } from './repositories/cadastral.repository';
 export { adsRepository } from './repositories/ads.repository';
+export { crmRepository } from './repositories/crm.repository';

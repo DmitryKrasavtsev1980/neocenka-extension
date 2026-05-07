@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport } from '@/types';
+import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmMessage, CrmParsingSource, CrmBotSettings } from '@/types';
 
 /**
  * Класс базы данных для хранения сделок с недвижимостью
@@ -19,6 +19,14 @@ export class DealsDatabase extends Dexie {
   ad_house_series!: Table<ReferenceItem, number>;
   ad_ceiling_materials!: Table<ReferenceItem, number>;
   ad_imports!: Table<AdImport, number>;
+
+  // Модуль CRM
+  crm_pipelines!: Table<CrmPipeline, number>;
+  crm_stages!: Table<CrmStage, number>;
+  crm_clients!: Table<CrmClient, number>;
+  crm_messages!: Table<CrmMessage, number>;
+  crm_parsing_sources!: Table<CrmParsingSource, number>;
+  crm_bot_settings!: Table<CrmBotSettings, number>;
 
   constructor() {
     super('NeocenkaDB');
@@ -132,6 +140,46 @@ export class DealsDatabase extends Dexie {
         ++id,
         source,
         created_at
+      `,
+    });
+
+    // Version 4: модуль «CRM»
+    this.version(4).stores({
+      crm_pipelines: `
+        ++id,
+        name,
+        is_default
+      `,
+      crm_stages: `
+        ++id,
+        pipeline_id,
+        name,
+        order
+      `,
+      crm_clients: `
+        ++id,
+        full_name,
+        phone,
+        source,
+        pipeline_id,
+        stage_id,
+        status,
+        created_at
+      `,
+      crm_messages: `
+        ++id,
+        client_id,
+        direction,
+        created_at
+      `,
+      crm_parsing_sources: `
+        ++id,
+        url,
+        source_type,
+        pipeline_id
+      `,
+      crm_bot_settings: `
+        ++id
       `,
     });
   }
