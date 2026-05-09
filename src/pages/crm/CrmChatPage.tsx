@@ -10,6 +10,7 @@ import { crmRepository } from '@/db/repositories/crm.repository';
 import { generateBotMessage } from '@/services/crm-bot-service';
 import { Button } from '@/components/catalyst/button';
 import type { CrmClient, CrmDeal, CrmMessage } from '@/types';
+import { getPrimaryPhone, formatPhone } from '@/types';
 import {
   ArrowLeftIcon,
   SparklesIcon,
@@ -127,7 +128,7 @@ const CrmChatPage: React.FC<CrmChatPageProps> = ({ client, deal, onBack }) => {
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-zinc-900 dark:text-white truncate">{client.full_name}</div>
-          <div className="text-[10px] text-zinc-500">{client.phone}{deal?.title ? ` · ${deal.title}` : ''}</div>
+          <div className="text-[10px] text-zinc-500">{formatPhone(getPrimaryPhone(client.phones || []))}{deal?.title ? ` · ${deal.title}` : ''}</div>
         </div>
         <Button
           onClick={handleAiSuggest}

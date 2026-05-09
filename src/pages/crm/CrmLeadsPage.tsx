@@ -4,7 +4,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
-import type { CrmLead, CrmSource, CrmPipeline, CrmStage, CrmLeadFilters } from '@/types';
+import type { CrmLead, CrmSource, CrmPipeline, CrmStage, CrmLeadFilters, CrmPhone } from '@/types';
+import { formatPhone } from '@/types';
 import { Button } from '@/components/catalyst/button';
 import {
   PlusIcon,
@@ -26,6 +27,14 @@ const LEAD_STATUS: Record<string, { label: string; color: string }> = {
   rejected: { label: 'Отклонён', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
 };
 
+const PHONE_LABELS = [
+  { value: '', label: 'Без метки' },
+  { value: 'мобильный', label: 'Мобильный' },
+  { value: 'WhatsApp', label: 'WhatsApp' },
+  { value: 'рабочий', label: 'Рабочий' },
+  { value: 'другой', label: 'Другой' },
+];
+
 const PAGE_SIZE = 30;
 
 const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
@@ -46,7 +55,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const [showModal, setShowModal] = useState(false);
   const [editingLead, setEditingLead] = useState<CrmLead | null>(null);
   const [formName, setFormName] = useState('');
-  const [formPhone, setFormPhone] = useState('+7');
+  const [formPhones, setFormPhones] = useState<CrmPhone[]>([{ number: '+7' }]);
   const [formEmail, setFormEmail] = useState('');
   const [formSource, setFormSource] = useState('manual');
   const [formSourceUrl, setFormSourceUrl] = useState('');
@@ -106,10 +115,37 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     return pipelines.find(p => p.id === pipelineId)?.name || '—';
   };
 
+  // Телефоны — управление массивом
+  const handlePhoneInput = (value: string): string => {
+    const digits = value.replace(/\D/g, '');
+    const d = digits.startsWith('8') ? digits.slice(1) : digits.startsWith('7') ? digits.slice(1) : digits;
+    let formatted = '+7';
+    if (d.length > 0) formatted += ' (' + d.slice(0, 3);
+    if (d.length >= 3) formatted += ') ' + d.slice(3, 6);
+    if (d.length > 6) formatted += '-' + d.slice(6, 8);
+    if (d.length > 8) formatted += '-' + d.slice(8, 10);
+    return formatted;
+  };
+
+  const addPhone = () => {
+    setFormPhones([...formPhones, { number: '+7' }]);
+  };
+
+  const removePhone = (index: number) => {
+    if (formPhones.length <= 1) return;
+    setFormPhones(formPhones.filter((_, i) => i !== index));
+  };
+
+  const updatePhone = (index: number, field: 'number' | 'label', value: string) => {
+    const updated = [...formPhones];
+    updated[index] = { ...updated[index], [field]: field === 'number' ? handlePhoneInput(value) : value };
+    setFormPhones(updated);
+  };
+
   const openCreate = () => {
     setEditingLead(null);
     setFormName('');
-    setFormPhone('+7');
+    setFormPhones([{ number: '+7' }]);
     setFormEmail('');
     setFormSource('manual');
     setFormSourceUrl('');
@@ -123,7 +159,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const openEdit = (lead: CrmLead) => {
     setEditingLead(lead);
     setFormName(lead.contact_name);
-    setFormPhone(lead.contact_phone);
+    setFormPhones(lead.phones?.length ? lead.phones : [{ number: '+7' }]);
     setFormEmail(lead.contact_email || '');
     setFormSource(lead.source);
     setFormSourceUrl(lead.source_url || '');
@@ -134,11 +170,15 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   };
 
   const handleSave = async () => {
+    const phones = formPhones
+      .map(p => ({ ...p, number: p.number.replace(/[^\d+]/g, '') }))
+      .filter(p => p.number.replace(/\D/g, '').length >= 10);
+
     const now = new Date().toISOString();
     if (editingLead?.id) {
       await crmRepository.updateLead(editingLead.id, {
         contact_name: formName.trim(),
-        contact_phone: formPhone.trim(),
+        phones,
         contact_email: formEmail.trim() || undefined,
         source: formSource,
         source_url: formSourceUrl.trim() || undefined,
@@ -149,7 +189,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     } else {
       await crmRepository.addLead({
         contact_name: formName.trim(),
-        contact_phone: formPhone.trim(),
+        phones,
         contact_email: formEmail.trim() || undefined,
         source: formSource,
         source_url: formSourceUrl.trim() || undefined,
@@ -187,13 +227,29 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     setFormStageId(stages[0]?.id || 0);
   };
 
-  const isValid = formName.trim() && formPhone.trim() && formPipelineId && formStageId;
+  const hasValidPhone = formPhones.some(p => p.number.replace(/\D/g, '').length >= 10);
+  const isValid = formName.trim() && hasValidPhone && formPipelineId && formStageId;
 
   // Статистика
   const stats = leads.reduce((acc, l) => {
     acc[l.status] = (acc[l.status] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+
+  // Отображение телефонов в таблице
+  const renderPhones = (phones: CrmPhone[]) => {
+    if (!phones || phones.length === 0) return '—';
+    const primary = formatPhone(phones[0].number);
+    if (phones.length === 1) return primary;
+    return (
+      <span className="inline-flex items-center gap-1">
+        {primary}
+        <span className="inline-flex items-center justify-center size-4 rounded-full bg-blue-100 dark:bg-blue-900/30 text-[8px] font-bold text-blue-600 dark:text-blue-400">
+          +{phones.length - 1}
+        </span>
+      </span>
+    );
+  };
 
   return (
     <div className="h-full overflow-y-auto">
@@ -294,7 +350,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                         <div className="text-[11px] font-medium text-zinc-900 dark:text-white whitespace-nowrap max-w-[180px] truncate">{lead.contact_name}</div>
                         {lead.ad_data?.address && <div className="text-[10px] text-zinc-400 truncate max-w-[180px]">{lead.ad_data.address}</div>}
                       </td>
-                      <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{lead.contact_phone}</td>
+                      <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{renderPhones(lead.phones || [])}</td>
                       <td className="px-3 py-2 text-[11px]">
                         {sourcesMap[lead.source] ? (
                           <span
@@ -365,15 +421,43 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                 <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Имя контакта <span className="text-red-500">*</span></label>
                 <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="ФИО контакта" className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Телефон <span className="text-red-500">*</span></label>
-                  <input type="tel" value={formPhone} onChange={e => setFormPhone(e.target.value)} placeholder="+7 (999) 123-45-67" className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
+
+              {/* Телефоны */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-medium text-zinc-600 dark:text-zinc-400">Телефоны <span className="text-red-500">*</span></label>
+                  <button onClick={addPhone} className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline">+ Добавить номер</button>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Email</label>
-                  <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} placeholder="email@example.com" className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <div className="space-y-2">
+                  {formPhones.map((phone, index) => (
+                    <div key={index} className="flex items-center gap-1.5">
+                      <input
+                        type="tel"
+                        value={phone.number}
+                        onChange={e => updatePhone(index, 'number', e.target.value)}
+                        placeholder="+7 (999) 123-45-67"
+                        className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <select
+                        value={phone.label || ''}
+                        onChange={e => updatePhone(index, 'label', e.target.value)}
+                        className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-1 py-1.5 text-[10px] text-zinc-700 dark:text-zinc-300"
+                      >
+                        {PHONE_LABELS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                      </select>
+                      {formPhones.length > 1 && (
+                        <button onClick={() => removePhone(index)} className="p-1 text-zinc-400 hover:text-red-500" title="Удалить номер">
+                          <TrashIcon className="size-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Email</label>
+                <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} placeholder="email@example.com" className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

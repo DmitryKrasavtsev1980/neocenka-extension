@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmDeal, CrmDealDocument, CrmMessage, CrmParsingSource, CrmBotSettings, CrmSource, CrmLead, CrmTask, CrmStageAction } from '@/types';
+import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmDeal, CrmDealDocument, CrmMessage, CrmParsingSource, CrmBotSettings, CrmSource, CrmLead, CrmTask, CrmStageAction, normalizePhone } from '@/types';
 
 /**
  * Класс базы данных для хранения сделок с недвижимостью
@@ -318,6 +318,54 @@ export class DealsDatabase extends Dexie {
         status,
         created_at
       `,
+    });
+
+    // Version 11: phones[] вместо phone/contact_phone — убрать строковые индексы
+    this.version(11).stores({
+      crm_clients: `
+        ++id,
+        full_name,
+        source,
+        status,
+        created_at
+      `,
+      crm_leads: `
+        ++id,
+        source,
+        contact_name,
+        source_url,
+        pipeline_id,
+        stage_id,
+        status,
+        created_at
+      `,
+    }).upgrade(tx => {
+      // Миграция: phone → phones[], contact_phone → phones[]
+      const clients = tx.table('crm_clients');
+      const leads = tx.table('crm_leads');
+
+      return clients.toCollection().modify(client => {
+        if ('phone' in client && !('phones' in client)) {
+          const raw = (client as Record<string, unknown>).phone as string || '';
+          // Разбиваем по запятой (от старого парсинга) и нормализуем
+          const parts = raw.split(/[,;]/).map((p: string) => p.trim()).filter(Boolean);
+          (client as Record<string, unknown>).phones = parts.map((n: string) => ({
+            number: normalizePhone(n),
+          }));
+          delete (client as Record<string, unknown>).phone;
+        }
+      }).then(() => {
+        return leads.toCollection().modify(lead => {
+          if ('contact_phone' in lead && !('phones' in lead)) {
+            const raw = (lead as Record<string, unknown>).contact_phone as string || '';
+            const parts = raw.split(/[,;]/).map((p: string) => p.trim()).filter(Boolean);
+            (lead as Record<string, unknown>).phones = parts.map((n: string) => ({
+              number: normalizePhone(n),
+            }));
+            delete (lead as Record<string, unknown>).contact_phone;
+          }
+        });
+      });
     });
   }
 }

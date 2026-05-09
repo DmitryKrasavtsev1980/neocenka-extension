@@ -4,16 +4,15 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
-import type { CrmClient, CrmDeal, CrmSource, CrmPipeline, CrmStage } from '@/types';
+import type { CrmClient, CrmDeal, CrmSource, CrmPipeline, CrmStage, CrmPhone } from '@/types';
+import { getPrimaryPhone, formatPhone } from '@/types';
 import { Button } from '@/components/catalyst/button';
 import CrmChatPage from './CrmChatPage';
 import {
   PlusIcon,
-  XMarkIcon,
   PencilSquareIcon,
   TrashIcon,
   ChatBubbleLeftRightIcon,
-  MagnifyingGlassIcon,
 } from '@heroicons/react/16/solid';
 
 interface CrmClientsPageProps {
@@ -26,10 +25,18 @@ const CLIENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   closed: { label: 'Закрыт', color: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400' },
 };
 
+const PHONE_LABELS = [
+  { value: '', label: 'Без метки' },
+  { value: 'мобильный', label: 'Мобильный' },
+  { value: 'WhatsApp', label: 'WhatsApp' },
+  { value: 'рабочий', label: 'Рабочий' },
+  { value: 'другой', label: 'Другой' },
+];
+
 const PAGE_SIZE = 30;
 
 // Phone mask
-const handlePhoneChange = (value: string): string => {
+const handlePhoneInput = (value: string): string => {
   const digits = value.replace(/\D/g, '');
   const d = digits.startsWith('8') ? digits.slice(1) : digits.startsWith('7') ? digits.slice(1) : digits;
   let formatted = '+7';
@@ -56,7 +63,7 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
 
   // Форма
   const [formName, setFormName] = useState('');
-  const [formPhone, setFormPhone] = useState('+7');
+  const [formPhones, setFormPhones] = useState<CrmPhone[]>([{ number: '+7' }]);
   const [formEmail, setFormEmail] = useState('');
   const [formSource, setFormSource] = useState('manual');
   const [formNotes, setFormNotes] = useState('');
@@ -114,14 +121,31 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
 
   const totalPages = Math.ceil(totalClients / PAGE_SIZE);
 
+  // Телефоны — управление массивом
+  const addPhone = () => {
+    setFormPhones([...formPhones, { number: '+7' }]);
+  };
+
+  const removePhone = (index: number) => {
+    if (formPhones.length <= 1) return;
+    setFormPhones(formPhones.filter((_, i) => i !== index));
+  };
+
+  const updatePhone = (index: number, field: 'number' | 'label', value: string) => {
+    const updated = [...formPhones];
+    updated[index] = { ...updated[index], [field]: field === 'number' ? handlePhoneInput(value) : value };
+    setFormPhones(updated);
+  };
+
   const handleSave = async () => {
     setDuplicateWarning('');
     const excludeId = editingClient?.id;
 
     // Проверка дублей по телефону
-    const phoneDups = await crmRepository.findClientByPhone(formPhone.trim(), excludeId);
+    const primaryPhone = formPhones[0]?.number || '';
+    const phoneDups = await crmRepository.findClientByPhone(primaryPhone, excludeId);
     if (phoneDups.length > 0) {
-      const names = phoneDups.map(c => `${c.full_name} (${c.phone})`).join(', ');
+      const names = phoneDups.map(c => `${c.full_name} (${formatPhone(getPrimaryPhone(c.phones || []))})`).join(', ');
       setDuplicateWarning(`Клиент с таким телефоном уже существует: ${names}. Всё равно сохранить?`);
       return;
     }
@@ -140,11 +164,16 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
   };
 
   const doSave = async () => {
+    // Нормализуем телефоны перед сохранением
+    const phones = formPhones
+      .map(p => ({ ...p, number: p.number.replace(/[^\d+]/g, '') }))
+      .filter(p => p.number.replace(/\D/g, '').length >= 10);
+
     const now = new Date().toISOString();
     if (editingClient?.id) {
       await crmRepository.updateClient(editingClient.id, {
         full_name: formName.trim(),
-        phone: formPhone.trim(),
+        phones,
         email: formEmail.trim() || undefined,
         source: formSource,
         notes: formNotes.trim() || undefined,
@@ -153,7 +182,7 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
     } else {
       await crmRepository.addClient({
         full_name: formName.trim(),
-        phone: formPhone.trim(),
+        phones,
         email: formEmail.trim() || undefined,
         source: formSource,
         notes: formNotes.trim() || undefined,
@@ -181,7 +210,7 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
   const openEdit = (client: CrmClient) => {
     setEditingClient(client);
     setFormName(client.full_name);
-    setFormPhone(client.phone);
+    setFormPhones(client.phones?.length ? client.phones : [{ number: '+7' }]);
     setFormEmail(client.email || '');
     setFormSource(client.source);
     setFormNotes(client.notes || '');
@@ -192,7 +221,7 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
   const openCreate = () => {
     setEditingClient(null);
     setFormName('');
-    setFormPhone('+7');
+    setFormPhones([{ number: '+7' }]);
     setFormEmail('');
     setFormSource('manual');
     setFormNotes('');
@@ -226,6 +255,21 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
     return pipelines.find(p => p.id === pipelineId)?.name || '—';
   };
 
+  // Отображение телефонов в таблице
+  const renderPhones = (phones: CrmPhone[]) => {
+    if (!phones || phones.length === 0) return '—';
+    const primary = formatPhone(phones[0].number);
+    if (phones.length === 1) return primary;
+    return (
+      <span className="inline-flex items-center gap-1">
+        {primary}
+        <span className="inline-flex items-center justify-center size-4 rounded-full bg-blue-100 dark:bg-blue-900/30 text-[8px] font-bold text-blue-600 dark:text-blue-400">
+          +{phones.length - 1}
+        </span>
+      </span>
+    );
+  };
+
   // Чат
   if (chatClient) {
     return (
@@ -236,6 +280,8 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
       </div>
     );
   }
+
+  const hasValidPhone = formPhones.some(p => p.number.replace(/\D/g, '').length >= 10);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -320,7 +366,7 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
                         onClick={() => openEdit(client)}
                       >
                         <td className="px-3 py-2 text-[11px] font-medium text-zinc-900 dark:text-white whitespace-nowrap max-w-[200px] truncate">{client.full_name}</td>
-                        <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{client.phone}</td>
+                        <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{renderPhones(client.phones || [])}</td>
                         <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap max-w-[150px] truncate">{client.email || '—'}</td>
                         <td className="px-3 py-2 text-[11px]">
                           {client.source && sourcesMap[client.source] ? (
@@ -404,8 +450,8 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
       {/* Client Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => { setShowModal(false); setEditingClient(null); }}>
-          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-700 sticky top-0 bg-white dark:bg-zinc-900 z-10">
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">{editingClient ? 'Редактировать клиента' : 'Новый клиент'}</h3>
               <button onClick={() => { setShowModal(false); setEditingClient(null); }} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none">&times;</button>
             </div>
@@ -415,10 +461,40 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
                 <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">ФИО <span className="text-red-500">*</span></label>
                 <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="ФИО клиента" className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
               </div>
+
+              {/* Телефоны */}
               <div>
-                <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Телефон <span className="text-red-500">*</span></label>
-                <input type="tel" value={formPhone} onChange={e => setFormPhone(handlePhoneChange(e.target.value))} placeholder="+7 (999) 123-45-67" className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-medium text-zinc-600 dark:text-zinc-400">Телефоны <span className="text-red-500">*</span></label>
+                  <button onClick={addPhone} className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline">+ Добавить номер</button>
+                </div>
+                <div className="space-y-2">
+                  {formPhones.map((phone, index) => (
+                    <div key={index} className="flex items-center gap-1.5">
+                      <input
+                        type="tel"
+                        value={phone.number}
+                        onChange={e => updatePhone(index, 'number', e.target.value)}
+                        placeholder="+7 (999) 123-45-67"
+                        className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <select
+                        value={phone.label || ''}
+                        onChange={e => updatePhone(index, 'label', e.target.value)}
+                        className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-1 py-1.5 text-[10px] text-zinc-700 dark:text-zinc-300"
+                      >
+                        {PHONE_LABELS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                      </select>
+                      {formPhones.length > 1 && (
+                        <button onClick={() => removePhone(index)} className="p-1 text-zinc-400 hover:text-red-500" title="Удалить номер">
+                          <TrashIcon className="size-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Email</label>
@@ -443,7 +519,7 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-200 dark:border-zinc-700">
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-200 dark:border-zinc-700 sticky bottom-0 bg-white dark:bg-zinc-900">
               {duplicateWarning && (
                 <div className="flex-1 mr-2">
                   <div className="text-[10px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1 mb-1">{duplicateWarning}</div>
@@ -451,7 +527,7 @@ const CrmClientsPage: React.FC<CrmClientsPageProps> = () => {
                 </div>
               )}
               <button onClick={() => { setShowModal(false); setEditingClient(null); }} className="rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-1 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">Отмена</button>
-              <button onClick={handleSave} disabled={!formName.trim() || !formPhone.trim()} className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-30">{editingClient ? 'Сохранить' : 'Создать'}</button>
+              <button onClick={handleSave} disabled={!formName.trim() || !hasValidPhone} className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-30">{editingClient ? 'Сохранить' : 'Создать'}</button>
             </div>
           </div>
         </div>

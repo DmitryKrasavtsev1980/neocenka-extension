@@ -24,7 +24,9 @@ import type {
   CrmDealSearchResult,
   CrmLeadSearchResult,
   CrmTaskSearchResult,
+  CrmDashboardStats,
 } from '@/types';
+import { normalizePhone, getPrimaryPhone } from '@/types';
 
 export const crmRepository = {
   // ─── Pipelines ───────────────────────────────────
@@ -151,11 +153,11 @@ export const crmRepository = {
   },
 
   async findClientByPhone(phone: string, excludeId?: number): Promise<CrmClient[]> {
-    const normalized = phone.replace(/\D/g, '');
+    const normalized = normalizePhone(phone).replace(/\D/g, '');
     const all = await db.crm_clients.toArray();
     return all.filter(c => {
       if (excludeId && c.id === excludeId) return false;
-      return c.phone.replace(/\D/g, '') === normalized;
+      return (c.phones || []).some(p => normalizePhone(p.number).replace(/\D/g, '') === normalized);
     });
   },
 
@@ -197,7 +199,7 @@ export const crmRepository = {
     if (filters.search) {
       const q = filters.search.toLowerCase();
       filtered = filtered.filter(
-        c => c.full_name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q),
+        c => c.full_name.toLowerCase().includes(q) || (c.phones || []).some(p => p.number.includes(q) || p.number.replace(/\D/g, '').includes(q.replace(/\D/g, ''))),
       );
     }
     if (filters.source) {
@@ -289,7 +291,7 @@ export const crmRepository = {
       filtered = filtered.filter(d => {
         if (d.title.toLowerCase().includes(q)) return true;
         const client = clientMap.get(d.client_id);
-        if (client && (client.full_name.toLowerCase().includes(q) || client.phone.toLowerCase().includes(q))) return true;
+        if (client && (client.full_name.toLowerCase().includes(q) || (client.phones || []).some(p => p.number.includes(q) || p.number.replace(/\D/g, '').includes(q.replace(/\D/g, ''))))) return true;
         return false;
       });
     }
@@ -348,7 +350,7 @@ export const crmRepository = {
   // ─── Parsing Sources ─────────────────────────────
 
   async getParsingSources(): Promise<CrmParsingSource[]> {
-    return db.crm_parsing_sources.orderBy('created_at').reverse().toArray();
+    return db.crm_parsing_sources.toArray();
   },
 
   async getParsingSource(id: number): Promise<CrmParsingSource | undefined> {
@@ -439,7 +441,7 @@ export const crmRepository = {
       const q = filters.search.toLowerCase();
       filtered = filtered.filter(l =>
         l.contact_name.toLowerCase().includes(q) ||
-        l.contact_phone.toLowerCase().includes(q) ||
+        (l.phones || []).some(p => p.number.includes(q) || p.number.replace(/\D/g, '').includes(q.replace(/\D/g, ''))) ||
         (l.contact_email?.toLowerCase().includes(q) ?? false)
       );
     }
@@ -483,13 +485,16 @@ export const crmRepository = {
 
     // Проверяем, есть ли клиент с таким телефоном
     const existing = await db.crm_clients.toArray();
-    const normalizedPhone = lead.contact_phone.replace(/\D/g, '');
-    let clientId = existing.find(c => c.phone.replace(/\D/g, '') === normalizedPhone)?.id;
+    const leadPrimaryPhone = getPrimaryPhone(lead.phones || []);
+    const normalizedPhone = normalizePhone(leadPrimaryPhone).replace(/\D/g, '');
+    let clientId = existing.find(c =>
+      (c.phones || []).some(p => normalizePhone(p.number).replace(/\D/g, '') === normalizedPhone)
+    )?.id;
 
     if (!clientId) {
       clientId = await db.crm_clients.add({
         full_name: lead.contact_name,
-        phone: lead.contact_phone,
+        phones: lead.phones || [],
         email: lead.contact_email,
         source: lead.source,
         source_url: lead.source_url,
@@ -706,6 +711,106 @@ export const crmRepository = {
         console.error(`Stage action "${action.name}" failed:`, e);
       }
     }
+  },
+
+  // ─── Dashboard ────────────────────────────────────
+
+  async getDashboardStats(): Promise<CrmDashboardStats> {
+    const [
+      allDeals, allLeads, allTasks, allClients, allSources,
+      pipelines, stagesMap,
+    ] = await Promise.all([
+      db.crm_deals.toArray(),
+      db.crm_leads.toArray(),
+      db.crm_tasks.toArray(),
+      db.crm_clients.toArray(),
+      db.crm_sources.toArray(),
+      db.crm_pipelines.toArray(),
+      (async () => {
+        const pips = await db.crm_pipelines.toArray();
+        const map: Record<number, CrmStage[]> = {};
+        for (const p of pips) {
+          if (p.id) map[p.id] = await db.crm_stages.where('pipeline_id').equals(p.id).sortBy('order');
+        }
+        return map;
+      })(),
+    ]);
+
+    // KPI: сделки
+    const dealsActive = allDeals.filter(d => d.status === 'active');
+    const dealsWon = allDeals.filter(d => d.status === 'won');
+    const dealsActiveSum = dealsActive.reduce((s, d) => s + (d.amount || 0), 0);
+    const dealsWonSum = dealsWon.reduce((s, d) => s + (d.amount || 0), 0);
+
+    // KPI: лиды
+    const leadsNew = allLeads.filter(l => l.status === 'new').length;
+
+    // KPI: задачи
+    const today = new Date().toISOString().slice(0, 10);
+    const tasksToday = allTasks.filter(t =>
+      (t.status === 'pending' || t.status === 'in_progress') && t.due_date?.slice(0, 10) === today
+    ).length;
+    const tasksOverdue = allTasks.filter(t =>
+      (t.status === 'pending' || t.status === 'in_progress') && t.due_date < today
+    ).length;
+
+    // Воронка: default pipeline
+    const defaultPipeline = pipelines.find(p => p.is_default) || pipelines[0];
+    const stages = defaultPipeline ? (stagesMap[defaultPipeline.id!] || []) : [];
+    const pipelineDeals = defaultPipeline ? allDeals.filter(d => d.pipeline_id === defaultPipeline.id && d.status === 'active') : [];
+    const funnel = stages.map(stage => ({
+      stageId: stage.id!,
+      stageName: stage.name,
+      color: stage.color,
+      count: pipelineDeals.filter(d => d.stage_id === stage.id).length,
+      sum: pipelineDeals.filter(d => d.stage_id === stage.id).reduce((s, d) => s + (d.amount || 0), 0),
+    }));
+
+    // Задачи ближайшие
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const upcomingTasks = allTasks
+      .filter(t => (t.status === 'pending' || t.status === 'in_progress') && t.due_date <= nextWeek.toISOString())
+      .sort((a, b) => a.due_date.localeCompare(b.due_date))
+      .slice(0, 10);
+
+    // Лиды по источникам
+    const sourcesMap = Object.fromEntries(allSources.map(s => [s.code, s]));
+    const sourceCodes = [...new Set(allLeads.map(l => l.source))];
+    const leadsBySource = sourceCodes.map(code => {
+      const src = allLeads.filter(l => l.source === code);
+      return {
+        source: code,
+        sourceName: sourcesMap[code]?.name || code,
+        color: sourcesMap[code]?.color || '#6b7280',
+        total: src.length,
+        converted: src.filter(l => l.status === 'converted').length,
+      };
+    }).sort((a, b) => b.total - a.total);
+
+    // Последние сделки
+    const clientMap = new Map(allClients.map(c => [c.id, c]));
+    const recentDeals = allDeals
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 5)
+      .map(d => ({
+        ...d,
+        clientName: clientMap.get(d.client_id)?.full_name,
+      }));
+
+    return {
+      dealsActive: dealsActive.length,
+      dealsActiveSum,
+      dealsWon: dealsWon.length,
+      dealsWonSum,
+      leadsNew,
+      tasksToday,
+      tasksOverdue,
+      funnel,
+      upcomingTasks,
+      leadsBySource,
+      recentDeals,
+    };
   },
 
   // ─── Defaults ────────────────────────────────────

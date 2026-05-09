@@ -1,7 +1,8 @@
 /**
  * Сервис парсинга объявлений CIAN/Авито для CRM
- * Открывает URL в скрытой вкладке, отправляет сообщение content script,
- * получает данные и создаёт лиды в IndexedDB
+ * Открывает URL в скрытой вкладке, делегирует парсинг в background service worker
+ * (chrome.scripting доступен только в service worker)
+ * Получает данные и создаёт лиды в IndexedDB
  */
 
 import { crmRepository } from '@/db/repositories/crm.repository';
@@ -9,7 +10,7 @@ import type { CrmParsingSource } from '@/types';
 
 export interface ParsedListing {
   name: string;
-  phone: string;
+  phones: string[];       // массив нормализованных номеров
   address: string;
   price: number | null;
   url: string;
@@ -36,8 +37,81 @@ export function detectSourceType(url: string): 'cian' | 'avito' {
 }
 
 /**
+ * Кликает кнопки телефонов на CIAN для раскрытия номеров
+ */
+async function clickPhoneButtons(tabId: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: 'CLICK_PHONE_BUTTONS', tabId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.success) {
+          reject(new Error(response?.error || 'Ошибка клика'));
+          return;
+        }
+        resolve();
+      },
+    );
+  });
+}
+
+/**
+ * Делегирует парсинг в background service worker через sendMessage
+ * chrome.scripting.executeScript доступен только в service worker
+ */
+async function injectParser(tabId: number, sourceType: 'cian' | 'avito'): Promise<ParsedListing[]> {
+  // Для CIAN — сначала кликаем телефоны, ждём раскрытия, потом парсим
+  if (sourceType === 'cian') {
+    await clickPhoneButtons(tabId);
+    await sleep(1500);
+  }
+
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: 'EXECUTE_PARSER', tabId, sourceType },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.success) {
+          reject(new Error(response?.error || 'Ошибка парсинга'));
+          return;
+        }
+        resolve(response.listings || []);
+      },
+    );
+  });
+}
+
+/**
+ * Получает URL следующей страницы через background service worker
+ */
+async function getNextPageUrl(tabId: number): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: 'GET_NEXT_PAGE_URL', tabId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.success) {
+          reject(new Error(response?.error || 'Ошибка получения URL'));
+          return;
+        }
+        resolve(response.url || null);
+      },
+    );
+  });
+}
+
+/**
  * Парсинг одного источника — создаёт ЛИДЫ из новых объявлений
- * Сравнивает с уже известными лидами по URL объявления
+ * Поддерживает пагинацию: проходит все страницы с результатами
  */
 export async function parseSourceForLeads(
   source: CrmParsingSource,
@@ -45,80 +119,96 @@ export async function parseSourceForLeads(
 ): Promise<{ newLeads: number; skipped: number; found: number }> {
   onProgress?.({ stage: 'opening', detail: `Открытие ${source.source_type.toUpperCase()}...`, found: 0, created: 0, duplicates: 0 });
 
-  const tab = await chrome.tabs.create({ url: source.url, active: false });
+  // Добавляем сортировку по дате (сначала новые) для оптимизации повторного парсинга
+  let startUrl = source.url;
+  if (source.source_type === 'cian' && !startUrl.includes('sort=')) {
+    const sep = startUrl.includes('?') ? '&' : '?';
+    startUrl += sep + 'sort=creation_date_desc';
+  }
+
+  // Получаем все известные URL лидов — для быстрой проверки дубликатов
+  const knownUrls = await crmRepository.getKnownLeadUrls();
+  const now = new Date().toISOString();
+  let totalNew = 0;
+  let totalSkipped = 0;
+  let totalFound = 0;
+  let pageNum = 0;
+
+  let currentUrl: string | null = startUrl;
+  const tab = await chrome.tabs.create({ url: currentUrl, active: false });
 
   try {
-    await waitForTabLoad(tab.id!);
-    await sleep(3000); // больше времени на динамический контент
-
-    onProgress?.({ stage: 'parsing', detail: `Парсинг объявлений...`, found: 0, created: 0, duplicates: 0 });
-
-    const response = await chrome.tabs.sendMessage(tab.id!, { action: 'parseListings' });
-
-    if (!response?.success) {
-      throw new Error(response?.error || 'Content script не ответил');
-    }
-
-    const listings: ParsedListing[] = response.listings || [];
-    const found = listings.length;
-
-    onProgress?.({ stage: 'saving', detail: `Найдено ${found}. Проверка дубликатов...`, found, created: 0, duplicates: 0 });
-
-    // Получаем все известные URL лидов — для быстрой проверки
-    const knownUrls = await crmRepository.getKnownLeadUrls();
-
-    const now = new Date().toISOString();
-    let newLeads = 0;
-    let skipped = 0;
-
-    for (const l of listings) {
-      // Пропускаем без имени и телефона
-      if (!l.name && !l.phone) {
-        skipped++;
-        continue;
+    while (currentUrl) {
+      pageNum++;
+      if (pageNum > 1) {
+        onProgress?.({ stage: 'opening', detail: `Страница ${pageNum}...`, found: totalFound, created: totalNew, duplicates: totalSkipped });
+        await chrome.tabs.update(tab.id!, { url: currentUrl });
+        await waitForTabLoad(tab.id!);
+        await sleep(3000);
+      } else {
+        await waitForTabLoad(tab.id!);
+        await sleep(3000);
       }
 
-      // Проверяем, было ли уже такое объявление
-      if (l.url && knownUrls.has(l.url)) {
-        skipped++;
-        continue;
+      onProgress?.({ stage: 'parsing', detail: `Парсинг страницы ${pageNum}...`, found: totalFound, created: totalNew, duplicates: totalSkipped });
+
+      const listings = await injectParser(tab.id!, source.source_type);
+      totalFound += listings.length;
+
+      onProgress?.({ stage: 'saving', detail: `Стр. ${pageNum}: найдено ${listings.length}. Всего ${totalFound}. Проверка...`, found: totalFound, created: totalNew, duplicates: totalSkipped });
+
+      for (const l of listings) {
+        if (!l.name && (!l.phones || l.phones.length === 0)) {
+          totalSkipped++;
+          continue;
+        }
+        if (l.url && knownUrls.has(l.url)) {
+          totalSkipped++;
+          continue;
+        }
+
+        await crmRepository.addLead({
+          source: source.source_type,
+          source_url: l.url || undefined,
+          contact_name: l.name || 'Без имени',
+          phones: (l.phones || []).map(n => ({ number: n })),
+          contact_email: undefined,
+          ad_data: {
+            address: l.address || undefined,
+            price: l.price ?? undefined,
+            property_type: l.rooms || undefined,
+            area_total: l.area ?? undefined,
+            floor: l.floor ? parseInt(l.floor.split('/')[0]) : undefined,
+            floors_total: l.floor ? parseInt(l.floor.split('/')[1]) : undefined,
+            url: l.url || undefined,
+            description: l.seller_type ? `Продавец: ${l.seller_type}` : undefined,
+          },
+          pipeline_id: source.pipeline_id,
+          stage_id: source.stage_id,
+          status: 'new',
+          notes: undefined,
+          created_at: now,
+          updated_at: now,
+        });
+
+        if (l.url) knownUrls.add(l.url);
+        totalNew++;
       }
 
-      // Создаём лид
-      await crmRepository.addLead({
-        source: source.source_type,
-        source_url: l.url || undefined,
-        contact_name: l.name || 'Без имени',
-        contact_phone: l.phone || '',
-        contact_email: undefined,
-        ad_data: {
-          address: l.address || undefined,
-          price: l.price ?? undefined,
-          property_type: l.rooms || undefined,
-          area_total: l.area ?? undefined,
-          floor: l.floor ? parseInt(l.floor.split('/')[0]) : undefined,
-          floors_total: l.floor ? parseInt(l.floor.split('/')[1]) : undefined,
-          url: l.url || undefined,
-          description: l.seller_type ? `Продавец: ${l.seller_type}` : undefined,
-        },
-        pipeline_id: source.pipeline_id,
-        stage_id: source.stage_id,
-        status: 'new',
-        notes: undefined,
-        created_at: now,
-        updated_at: now,
-      });
-
-      // Добавляем в knownUrls чтобы не создать дубликат из этого же пакета
-      if (l.url) knownUrls.add(l.url);
-      newLeads++;
+      // Оптимизация: если на этой странице все дубли — нет смысла идти дальше (отсортировано по дате)
+      const allDuplicates = listings.length > 0 && listings.every(l => (!l.name && (!l.phones || l.phones.length === 0)) || (l.url && knownUrls.has(l.url)));
+      if (allDuplicates && pageNum > 1) {
+        currentUrl = null; // все дубли — останавливаемся
+      } else {
+        currentUrl = await getNextPageUrl(tab.id!);
+      }
     }
 
     // Обновляем источник парсинга
     if (source.id) {
       await crmRepository.updateParsingSource(source.id, {
         last_parsed_at: now,
-        listings_count: (source.listings_count || 0) + newLeads,
+        listings_count: (source.listings_count || 0) + totalNew,
       });
     } else {
       await crmRepository.addParsingSource({
@@ -127,20 +217,23 @@ export async function parseSourceForLeads(
         pipeline_id: source.pipeline_id,
         stage_id: source.stage_id,
         last_parsed_at: now,
-        listings_count: newLeads,
+        listings_count: totalNew,
         created_at: now,
       });
     }
 
     onProgress?.({
       stage: 'done',
-      detail: `Готово: ${newLeads} новых лидов, ${skipped} пропущено`,
-      found,
-      created: newLeads,
-      duplicates: skipped,
+      detail: `Готово: ${totalNew} новых лидов, ${totalSkipped} пропущено из ${totalFound} на ${pageNum} стр.`,
+      found: totalFound,
+      created: totalNew,
+      duplicates: totalSkipped,
     });
 
-    return { newLeads, skipped, found };
+    // Уведомляем об изменении CRM данных (для обновления счётчиков в меню)
+    window.dispatchEvent(new CustomEvent('crm-data-changed'));
+
+    return { newLeads: totalNew, skipped: totalSkipped, found: totalFound };
   } catch (e) {
     onProgress?.({
       stage: 'error',
@@ -219,7 +312,7 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * @deprecated Используйте parseSourceForLeads
- * Старый API — для обратной совместимости с CrmDealsPage
+ * Старый API — для обратной совместимости
  */
 export async function parseUrl(
   url: string,

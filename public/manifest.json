@@ -6,12 +6,12 @@
   "permissions": [
     "storage",
     "unlimitedStorage",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
-    "https://www.cian.ru/*",
-    "https://cian.ru/*",
-    "https://www.avito.ru/*"
+    "https://*.cian.ru/*",
+    "https://*.avito.ru/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html",
@@ -41,12 +41,12 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.cian.ru/*", "https://cian.ru/*"],
+      "matches": ["https://*.cian.ru/*"],
       "js": ["content/cian-parser.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.avito.ru/*"],
+      "matches": ["https://*.avito.ru/*"],
       "js": ["content/avito-parser.js"],
       "run_at": "document_idle"
     }

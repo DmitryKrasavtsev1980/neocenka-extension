@@ -2,11 +2,39 @@
  * Типы модуля CRM
  */
 
+/** Телефонный номер */
+export interface CrmPhone {
+  number: string;    // '+79836299488' — только цифры с +
+  label?: string;    // 'мобильный', 'WhatsApp', 'рабочий' — опционально
+}
+
+/** Получить основной номер (первый) */
+export function getPrimaryPhone(phones: CrmPhone[]): string {
+  return phones[0]?.number || '';
+}
+
+/** Нормализовать номер — только цифры и + */
+export function normalizePhone(raw: string): string {
+  return raw.replace(/[^\d+]/g, '');
+}
+
+/** Красивый вывод номера: +7 (983) 629-94-88 */
+export function formatPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  const d = digits.startsWith('8') ? digits.slice(1) : digits.startsWith('7') ? digits.slice(1) : digits;
+  let formatted = '+7';
+  if (d.length > 0) formatted += ' (' + d.slice(0, 3);
+  if (d.length >= 3) formatted += ') ' + d.slice(3, 6);
+  if (d.length > 6) formatted += '-' + d.slice(6, 8);
+  if (d.length > 8) formatted += '-' + d.slice(8, 10);
+  return formatted;
+}
+
 /** Клиент CRM — контактная информация, без привязки к воронке */
 export interface CrmClient {
   id?: number;
   full_name: string;
-  phone: string;
+  phones: CrmPhone[];
   email?: string;
   source: string;
   source_url?: string;
@@ -157,7 +185,7 @@ export interface CrmLead {
   source: string;              // код из справочника источников
   source_url?: string;
   contact_name: string;
-  contact_phone: string;
+  phones: CrmPhone[];
   contact_email?: string;
   ad_data?: CrmClientAdData;
   pipeline_id: number;
@@ -268,4 +296,40 @@ export interface CrmStageActionConfig {
   webhook_url?: string;
   webhook_method?: 'GET' | 'POST';
   webhook_body?: string;
+}
+
+/** Данные для CRM Dashboard */
+export interface CrmDashboardStats {
+  // KPI
+  dealsActive: number;
+  dealsActiveSum: number;
+  dealsWon: number;
+  dealsWonSum: number;
+  leadsNew: number;
+  tasksToday: number;
+  tasksOverdue: number;
+
+  // Воронка по этапам
+  funnel: {
+    stageId: number;
+    stageName: string;
+    color: string;
+    count: number;
+    sum: number;
+  }[];
+
+  // Задачи ближайшие (10 штук)
+  upcomingTasks: CrmTask[];
+
+  // Лиды по источникам
+  leadsBySource: {
+    source: string;
+    sourceName: string;
+    color: string;
+    total: number;
+    converted: number;
+  }[];
+
+  // Последние сделки (5 штук)
+  recentDeals: (CrmDeal & { clientName?: string })[];
 }

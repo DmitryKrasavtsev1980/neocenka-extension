@@ -6,7 +6,7 @@
 
 interface ParsedListing {
   name: string;
-  phone: string;
+  phones: string[];
   address: string;
   price: number | null;
   url: string;
@@ -65,11 +65,12 @@ function parseAvitoListings(): ParsedListing[] {
 
       // Телефон — на Авито нужно раскрыть, берём если есть
       const phoneEl = card.querySelector('[data-marker="phone-button"], [class*="phone"]');
-      const phone = phoneEl?.textContent?.trim().replace(/[^\d+]/g, '') || '';
+      const phoneRaw = phoneEl?.textContent?.trim().replace(/[^\d+]/g, '') || '';
+      const phones = phoneRaw ? [phoneRaw] : [];
 
       results.push({
         name,
-        phone,
+        phones,
         address,
         price,
         url,
