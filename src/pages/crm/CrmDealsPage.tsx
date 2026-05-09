@@ -1,10 +1,9 @@
 /**
- * Страница CRM — список сделок + управление
+ * Страница Сделок CRM — список сделок + управление
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
-import { parseUrl, type ParsingProgress } from '@/services/crm-parsing-service';
 import type {
   CrmClient,
   CrmDeal,
@@ -20,7 +19,6 @@ import {
   FunnelIcon,
   PlusIcon,
   ChatBubbleLeftRightIcon,
-  ArrowDownTrayIcon,
   XMarkIcon,
   PencilSquareIcon,
   TrashIcon,
@@ -45,7 +43,7 @@ const DEAL_STATUS_LABELS: Record<string, { label: string; color: string }> = {
 
 const PAGE_SIZE = 30;
 
-const CrmPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
+const CrmDealsPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
   const [deals, setDeals] = useState<CrmDeal[]>([]);
   const [clientsMap, setClientsMap] = useState<Record<number, CrmClient>>({});
   const [totalDeals, setTotalDeals] = useState(0);
@@ -63,14 +61,6 @@ const CrmPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
   // Модалка сделки
   const [showDealModal, setShowDealModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState<CrmDeal | null>(null);
-
-  // Модалка парсинга
-  const [showParsingModal, setShowParsingModal] = useState(false);
-  const [parsingUrl, setParsingUrl] = useState('');
-  const [parsingPipelineId, setParsingPipelineId] = useState<number>(0);
-  const [parsingStageId, setParsingStageId] = useState<number>(0);
-  const [parsingProgress, setParsingProgress] = useState<ParsingProgress | null>(null);
-  const [isParsing, setIsParsing] = useState(false);
 
   // Чат с клиентом
   const [chatClient, setChatClient] = useState<CrmClient | null>(null);
@@ -201,25 +191,6 @@ const CrmPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
   const defaultStages = defaultPipeline ? (stagesMap[defaultPipeline.id!] || []) : [];
   const firstStage = defaultStages[0];
 
-  const handleStartParsing = async () => {
-    if (!parsingUrl.trim()) return;
-    const pipId = parsingPipelineId || defaultPipeline?.id || 0;
-    const stgId = parsingStageId || firstStage?.id || 0;
-    if (!pipId || !stgId) return;
-
-    setIsParsing(true);
-    setParsingProgress(null);
-    try {
-      await parseUrl(parsingUrl.trim(), pipId, stgId, setParsingProgress);
-      loadDeals();
-      loadClientsMap();
-    } catch {
-      // Ошибка уже в parsingProgress
-    } finally {
-      setIsParsing(false);
-    }
-  };
-
   // Чат — отдельный fullscreen режим
   if (chatClient) {
     return (
@@ -256,10 +227,6 @@ const CrmPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
               placeholder="Поиск по сделке/клиенту..."
               className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-900 dark:text-white w-48 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <Button color="white" onClick={() => setShowParsingModal(true)}>
-              <ArrowDownTrayIcon className="size-4" />
-              Парсинг
-            </Button>
             <Button onClick={() => setShowFilters(!showFilters)}>
               <FunnelIcon className="size-4" />
               {showFilters ? 'Скрыть' : 'Фильтры'}
@@ -431,25 +398,6 @@ const CrmPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
         />
       )}
 
-      {/* Parsing Modal */}
-      {showParsingModal && (
-        <CrmParsingModal
-          pipelines={pipelines}
-          stagesMap={stagesMap}
-          defaultPipeline={defaultPipeline}
-          defaultStage={firstStage}
-          parsingUrl={parsingUrl}
-          setParsingUrl={setParsingUrl}
-          parsingPipelineId={parsingPipelineId}
-          setParsingPipelineId={setParsingPipelineId}
-          parsingStageId={parsingStageId}
-          setParsingStageId={setParsingStageId}
-          parsingProgress={parsingProgress}
-          isParsing={isParsing}
-          onStart={handleStartParsing}
-          onClose={() => { setShowParsingModal(false); setParsingProgress(null); }}
-        />
-      )}
     </div>
   );
 };
@@ -500,6 +448,7 @@ const CrmDealModal: React.FC<{
   const [newPhone, setNewPhone] = useState('+7');
   const [newEmail, setNewEmail] = useState('');
   const [newSource, setNewSource] = useState<string>('manual');
+  const [duplicateWarning, setDuplicateWarning] = useState<string>('');
 
   // Поля сделки
   const [title, setTitle] = useState(deal?.title || '');
@@ -548,11 +497,30 @@ const CrmDealModal: React.FC<{
     setNewPhone(handlePhoneChange(value));
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (force = false) => {
     const now = new Date().toISOString();
 
     // Определяем client_id
     let clientId = selectedClientId;
+
+    if (!isEdit && clientMode === 'new' && !force) {
+      // Проверка дублей
+      setDuplicateWarning('');
+      const phoneDups = await crmRepository.findClientByPhone(newPhone.trim());
+      if (phoneDups.length > 0) {
+        const names = phoneDups.map(c => `${c.full_name} (${c.phone})`).join(', ');
+        setDuplicateWarning(`Клиент с таким телефоном уже существует: ${names}`);
+        return;
+      }
+      if (newEmail.trim()) {
+        const emailDups = await crmRepository.findClientByEmail(newEmail.trim());
+        if (emailDups.length > 0) {
+          const names = emailDups.map(c => `${c.full_name} (${c.email})`).join(', ');
+          setDuplicateWarning(`Клиент с таким email уже существует: ${names}`);
+          return;
+        }
+      }
+    }
 
     if (!isEdit && clientMode === 'new') {
       // Создаём нового клиента
@@ -743,123 +711,18 @@ const CrmDealModal: React.FC<{
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-200 dark:border-zinc-700 sticky bottom-0 bg-white dark:bg-zinc-900">
-          <button onClick={onClose} className="rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-1 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">Отмена</button>
-          <button onClick={handleSubmit} disabled={!isValid} className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-30">{isEdit ? 'Сохранить' : 'Создать'}</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Parsing Modal Component ─────────────────────────────────────
-const CrmParsingModal: React.FC<{
-  pipelines: CrmPipeline[];
-  stagesMap: Record<number, CrmStage[]>;
-  defaultPipeline?: CrmPipeline;
-  defaultStage?: CrmStage;
-  parsingUrl: string;
-  setParsingUrl: (v: string) => void;
-  parsingPipelineId: number;
-  setParsingPipelineId: (v: number) => void;
-  parsingStageId: number;
-  setParsingStageId: (v: number) => void;
-  parsingProgress: ParsingProgress | null;
-  isParsing: boolean;
-  onStart: () => void;
-  onClose: () => void;
-}> = ({ pipelines, stagesMap, defaultPipeline, defaultStage, parsingUrl, setParsingUrl, parsingPipelineId, setParsingPipelineId, parsingStageId, setParsingStageId, parsingProgress, isParsing, onStart, onClose }) => {
-  const activePipId = parsingPipelineId || defaultPipeline?.id || 0;
-  const stages = stagesMap[activePipId] || [];
-
-  const isCian = parsingUrl.includes('cian.ru');
-  const isAvito = parsingUrl.includes('avito.ru');
-  const isValidUrl = isCian || isAvito;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-lg w-full mx-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Парсинг объявлений</h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none">&times;</button>
-        </div>
-
-        <div className="p-4 space-y-3">
-          <FormField label="URL страницы объявлений" required>
-            <input
-              type="url"
-              value={parsingUrl}
-              onChange={e => setParsingUrl(e.target.value)}
-              placeholder="https://www.cian.ru/cat.php?... или https://www.avito.ru/..."
-              disabled={isParsing}
-              className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            {parsingUrl && !isValidUrl && (
-              <span className="text-[10px] text-red-500 mt-1 block">Поддерживаются только ссылки на cian.ru или avito.ru</span>
-            )}
-          </FormField>
-
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Воронка">
-              <select
-                value={activePipId}
-                onChange={e => {
-                  setParsingPipelineId(Number(e.target.value));
-                  const newStages = stagesMap[Number(e.target.value)] || [];
-                  setParsingStageId(newStages[0]?.id || 0);
-                }}
-                disabled={isParsing}
-                className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
-              >
-                {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </FormField>
-
-            <FormField label="Этап">
-              <select
-                value={parsingStageId || defaultStage?.id || ''}
-                onChange={e => setParsingStageId(Number(e.target.value))}
-                disabled={isParsing}
-                className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
-              >
-                {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </FormField>
-          </div>
-
-          <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
-            Расширение откроет страницу в фоновой вкладке, спарсит объявления и создаст клиентов и сделки в выбранной воронке.
-          </div>
-
-          {/* Progress */}
-          {parsingProgress && (
-            <div className={`rounded-lg p-3 ${
-              parsingProgress.stage === 'done' ? 'bg-green-50 dark:bg-green-900/10' :
-              parsingProgress.stage === 'error' ? 'bg-red-50 dark:bg-red-900/10' :
-              'bg-blue-50 dark:bg-blue-900/10'
-            }`}>
-              <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{parsingProgress.detail}</div>
-              {isParsing && (
-                <div className="mt-1.5 h-1 w-full rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
-                  <div className="h-full rounded-full bg-blue-600 animate-pulse" style={{ width: '60%' }} />
-                </div>
-              )}
+          {duplicateWarning && (
+            <div className="flex-1 mr-2">
+              <div className="text-[10px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1 mb-1">{duplicateWarning}</div>
+              <button onClick={() => handleSubmit(true)} className="text-[10px] text-amber-700 dark:text-amber-400 hover:underline font-medium">Создать всё равно</button>
             </div>
           )}
-        </div>
-
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-200 dark:border-zinc-700">
-          <button onClick={onClose} disabled={isParsing} className="rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-1 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-30">Закрыть</button>
-          <button
-            onClick={onStart}
-            disabled={isParsing || !parsingUrl.trim() || !isValidUrl}
-            className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-30"
-          >
-            {isParsing ? 'Парсинг...' : 'Запустить'}
-          </button>
+          <button onClick={onClose} className="rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-1 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">Отмена</button>
+          <button onClick={() => handleSubmit()} disabled={!isValid} className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-30">{isEdit ? 'Сохранить' : 'Создать'}</button>
         </div>
       </div>
     </div>
   );
 };
 
-export default CrmPage;
+export default CrmDealsPage;

@@ -9,7 +9,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
 import { generateBotMessage } from '@/services/crm-bot-service';
 import { Button } from '@/components/catalyst/button';
-import type { CrmClient, CrmMessage } from '@/types';
+import type { CrmClient, CrmDeal, CrmMessage } from '@/types';
 import {
   ArrowLeftIcon,
   SparklesIcon,
@@ -20,10 +20,11 @@ import {
 
 interface CrmChatPageProps {
   client: CrmClient;
+  deal?: CrmDeal;
   onBack: () => void;
 }
 
-const CrmChatPage: React.FC<CrmChatPageProps> = ({ client, onBack }) => {
+const CrmChatPage: React.FC<CrmChatPageProps> = ({ client, deal, onBack }) => {
   const [messages, setMessages] = useState<CrmMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -126,7 +127,7 @@ const CrmChatPage: React.FC<CrmChatPageProps> = ({ client, onBack }) => {
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-zinc-900 dark:text-white truncate">{client.full_name}</div>
-          <div className="text-[10px] text-zinc-500">{client.phone}{client.ad_data?.address ? ` · ${client.ad_data.address}` : ''}</div>
+          <div className="text-[10px] text-zinc-500">{client.phone}{deal?.title ? ` · ${deal.title}` : ''}</div>
         </div>
         <Button
           onClick={handleAiSuggest}

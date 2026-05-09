@@ -3,11 +3,12 @@ import { getModules, type ModuleInfo } from '@/services/api-service';
 import { Button } from '@/components/catalyst/button';
 import { Badge } from '@/components/catalyst/badge';
 import { Heading } from '@/components/catalyst/heading';
-import { BuildingOffice2Icon, MegaphoneIcon } from '@heroicons/react/20/solid';
+import { BuildingOffice2Icon, MegaphoneIcon, ClipboardDocumentListIcon } from '@heroicons/react/20/solid';
 
 const heroIconMap: Record<string, React.FC<React.SVGProps<SVGSVGElement>>> = {
   'building-office': BuildingOffice2Icon,
   'megaphone': MegaphoneIcon,
+  'clipboard-document-list': ClipboardDocumentListIcon,
 };
 
 const getModuleIcon = (mod: ModuleInfo) => {
@@ -82,7 +83,7 @@ const ModulesPage: React.FC<ModulesPageProps> = ({ onModuleOpen }) => {
           return (
             <div
               key={mod.id}
-              className={`rounded-xl p-4 border transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_2px_8px_rgba(0,0,0,0.3)]
+              className={`rounded-xl p-4 border transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_2px_8px_rgba(0,0,0,0.3)] flex flex-col
                 ${isActive
                   ? isTrial
                     ? 'border-emerald-200 bg-emerald-50/50 dark:bg-emerald-900/10 dark:border-emerald-700/40'
@@ -110,6 +111,9 @@ const ModulesPage: React.FC<ModulesPageProps> = ({ onModuleOpen }) => {
                 {mod.description || 'Описание модуля'}
               </p>
 
+              <div className="flex-1" />
+
+              <div className="space-y-2">
               {isActive ? (
                 <>
                   <div className="mb-3 text-[13px] text-zinc-700 dark:text-zinc-300">
@@ -150,6 +154,7 @@ const ModulesPage: React.FC<ModulesPageProps> = ({ onModuleOpen }) => {
                   Для подключения модуля перейдите в личный кабинет
                 </div>
               )}
+              </div>
             </div>
           );
         })}

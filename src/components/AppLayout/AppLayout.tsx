@@ -32,16 +32,27 @@ import {
   CogIcon,
   ClipboardDocumentListIcon,
   ViewColumnsIcon,
+  UsersIcon,
+  CurrencyDollarIcon,
+  LightBulbIcon,
+  CheckCircleIcon,
+  CalendarDaysIcon,
+  ArrowTrendingUpIcon,
 } from '@heroicons/react/20/solid';
 import { ImportTaskProvider } from '@/contexts/ImportTaskContext';
 import { ImportProgressPanel } from '@/components/ImportProgressPanel';
 import AdsPage from '@/pages/ads/AdsPage';
 import AdsSettingsPage from '@/pages/ads/AdsSettingsPage';
-import CrmPage from '@/pages/crm/CrmPage';
+import CrmDealsPage from '@/pages/crm/CrmDealsPage';
+import CrmClientsPage from '@/pages/crm/CrmClientsPage';
+import CrmLeadsPage from '@/pages/crm/CrmLeadsPage';
+import CrmTasksPage from '@/pages/crm/CrmTasksPage';
+import CrmCalendarPage from '@/pages/crm/CrmCalendarPage';
 import CrmKanbanPage from '@/pages/crm/CrmKanbanPage';
 import CrmSettingsPage from '@/pages/crm/CrmSettingsPage';
+import CrmBpmnPage from '@/pages/crm/CrmBpmnPage';
 
-type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback' | 'ads' | 'ads-settings' | 'crm' | 'crm-kanban' | 'crm-settings';
+type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback' | 'ads' | 'ads-settings' | 'crm-deals' | 'crm-clients' | 'crm-leads' | 'crm-tasks' | 'crm-calendar' | 'crm-kanban' | 'crm-bpmn' | 'crm-settings';
 
 interface ModulePageConfig {
   page: ActivePage;
@@ -95,14 +106,39 @@ const modulesConfig: Record<string, ModuleConfig> = {
     label: 'CRM',
     pages: [
       {
-        page: 'crm',
+        page: 'crm-deals',
+        label: 'Сделки',
+        icon: <CurrencyDollarIcon data-slot="icon" />,
+      },
+      {
+        page: 'crm-clients',
         label: 'Клиенты',
-        icon: <ClipboardDocumentListIcon data-slot="icon" />,
+        icon: <UsersIcon data-slot="icon" />,
       },
       {
         page: 'crm-kanban',
         label: 'Канбан',
         icon: <ViewColumnsIcon data-slot="icon" />,
+      },
+      {
+        page: 'crm-leads',
+        label: 'Лиды',
+        icon: <LightBulbIcon data-slot="icon" />,
+      },
+      {
+        page: 'crm-tasks',
+        label: 'Задачи',
+        icon: <CheckCircleIcon data-slot="icon" />,
+      },
+      {
+        page: 'crm-calendar',
+        label: 'Календарь',
+        icon: <CalendarDaysIcon data-slot="icon" />,
+      },
+      {
+        page: 'crm-bpmn',
+        label: 'BPMN',
+        icon: <ArrowTrendingUpIcon data-slot="icon" />,
       },
       {
         page: 'crm-settings',
@@ -143,7 +179,7 @@ const AppLayout: React.FC = () => {
     if (code === 'ads') {
       setActivePage('ads');
     } else if (code === 'crm') {
-      setActivePage('crm');
+      setActivePage('crm-deals');
     } else {
       setImportModuleCode(code);
       setActivePage('search');
@@ -179,10 +215,20 @@ const AppLayout: React.FC = () => {
         return <AdsPage onNavigate={handleNavigate} />;
       case 'ads-settings':
         return <AdsSettingsPage />;
-      case 'crm':
-        return <CrmPage onNavigate={handleNavigate} />;
+      case 'crm-deals':
+        return <CrmDealsPage onNavigate={handleNavigate} />;
+      case 'crm-clients':
+        return <CrmClientsPage onNavigate={handleNavigate} />;
       case 'crm-kanban':
         return <CrmKanbanPage />;
+      case 'crm-leads':
+        return <CrmLeadsPage onNavigate={handleNavigate} />;
+      case 'crm-tasks':
+        return <CrmTasksPage />;
+      case 'crm-calendar':
+        return <CrmCalendarPage />;
+      case 'crm-bpmn':
+        return <CrmBpmnPage />;
       case 'crm-settings':
         return <CrmSettingsPage />;
       default:

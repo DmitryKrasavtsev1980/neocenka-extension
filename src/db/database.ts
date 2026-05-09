@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmMessage, CrmParsingSource, CrmBotSettings } from '@/types';
+import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmDeal, CrmDealDocument, CrmMessage, CrmParsingSource, CrmBotSettings, CrmSource, CrmLead, CrmTask, CrmStageAction } from '@/types';
 
 /**
  * Класс базы данных для хранения сделок с недвижимостью
@@ -24,9 +24,15 @@ export class DealsDatabase extends Dexie {
   crm_pipelines!: Table<CrmPipeline, number>;
   crm_stages!: Table<CrmStage, number>;
   crm_clients!: Table<CrmClient, number>;
+  crm_deals!: Table<CrmDeal, number>;
+  crm_deal_documents!: Table<CrmDealDocument, number>;
   crm_messages!: Table<CrmMessage, number>;
   crm_parsing_sources!: Table<CrmParsingSource, number>;
   crm_bot_settings!: Table<CrmBotSettings, number>;
+  crm_sources!: Table<CrmSource, number>;
+  crm_leads!: Table<CrmLead, number>;
+  crm_tasks!: Table<CrmTask, number>;
+  crm_stage_actions!: Table<CrmStageAction, number>;
 
   constructor() {
     super('NeocenkaDB');
@@ -180,6 +186,137 @@ export class DealsDatabase extends Dexie {
       `,
       crm_bot_settings: `
         ++id
+      `,
+    });
+
+    // Version 5: сделки (deals) отделены от клиентов
+    this.version(5).stores({
+      crm_clients: `
+        ++id,
+        full_name,
+        phone,
+        source,
+        status,
+        created_at
+      `,
+      crm_deals: `
+        ++id,
+        client_id,
+        pipeline_id,
+        stage_id,
+        title,
+        status,
+        created_at
+      `,
+      crm_deal_documents: `
+        ++id,
+        deal_id,
+        type,
+        title
+      `,
+      crm_messages: `
+        ++id,
+        client_id,
+        deal_id,
+        direction,
+        created_at
+      `,
+    }).upgrade(tx => {
+      // Миграция: переносим pipeline_id/stage_id из клиентов в сделки
+      const clients = tx.table('crm_clients');
+      const deals = tx.table('crm_deals');
+      return clients.toArray(clientList => {
+        const dealPromises = clientList
+          .filter(c => c.pipeline_id && c.stage_id)
+          .map(c => deals.add({
+            client_id: c.id,
+            pipeline_id: c.pipeline_id,
+            stage_id: c.stage_id,
+            title: c.ad_data?.address || c.full_name || 'Сделка',
+            status: c.status || 'active',
+            amount: c.ad_data?.price,
+            ad_data: c.ad_data,
+            notes: c.notes,
+            created_at: c.created_at,
+            updated_at: c.updated_at || c.created_at,
+          }));
+        return Promise.all(dealPromises);
+      });
+    });
+
+    // Version 6: справочник источников клиентов
+    this.version(6).stores({
+      crm_sources: `
+        ++id,
+        code,
+        name,
+        created_at
+      `,
+    }).upgrade(tx => {
+      const sources = tx.table('crm_sources');
+      const now = new Date().toISOString();
+      const defaults: Omit<CrmSource, 'id'>[] = [
+        { code: 'manual', name: 'Вручную', color: '#6b7280', is_system: true, created_at: now },
+        { code: 'cian', name: 'ЦИАН', color: '#f59e0b', is_system: true, created_at: now },
+        { code: 'avito', name: 'Авито', color: '#10b981', is_system: true, created_at: now },
+        { code: 'other', name: 'Другое', color: '#8b5cf6', is_system: true, created_at: now },
+      ];
+      return sources.bulkAdd(defaults);
+    });
+
+    // Version 7: лиды (возможности)
+    this.version(7).stores({
+      crm_leads: `
+        ++id,
+        source,
+        contact_name,
+        contact_phone,
+        pipeline_id,
+        stage_id,
+        status,
+        created_at
+      `,
+    });
+
+    // Version 8: задачи CRM
+    this.version(8).stores({
+      crm_tasks: `
+        ++id,
+        title,
+        client_id,
+        deal_id,
+        lead_id,
+        type,
+        priority,
+        status,
+        due_date,
+        created_at
+      `,
+    });
+
+    // Version 9: действия этапов
+    this.version(9).stores({
+      crm_stage_actions: `
+        ++id,
+        stage_id,
+        type,
+        is_active,
+        order
+      `,
+    });
+
+    // Version 10: индекс source_url для лидов (поиск дубликатов)
+    this.version(10).stores({
+      crm_leads: `
+        ++id,
+        source,
+        contact_name,
+        contact_phone,
+        source_url,
+        pipeline_id,
+        stage_id,
+        status,
+        created_at
       `,
     });
   }
