@@ -28,6 +28,16 @@ import type {
 } from '@/types';
 import { normalizePhone, getPrimaryPhone } from '@/types';
 
+/** Нормализация URL — убираем query-параметры и хеш для сравнения дубликатов */
+function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname;
+  } catch {
+    return url.split('?')[0].split('#')[0];
+  }
+}
+
 export const crmRepository = {
   // ─── Pipelines ───────────────────────────────────
 
@@ -378,7 +388,9 @@ export const crmRepository = {
   /** Получить все известные URL лидов для набора */
   async getKnownLeadUrls(): Promise<Set<string>> {
     const all = await db.crm_leads.toArray();
-    return new Set(all.map(l => l.source_url).filter(Boolean) as string[]);
+    return new Set(
+      all.map(l => l.source_url).filter(Boolean).map(normalizeUrl) as string[]
+    );
   },
 
   // ─── Bot Settings ────────────────────────────────
@@ -454,6 +466,14 @@ export const crmRepository = {
     if (filters.pipeline_id) {
       filtered = filtered.filter(l => l.pipeline_id === filters.pipeline_id);
     }
+    if (filters.date_from) {
+      const from = new Date(filters.date_from).getTime();
+      filtered = filtered.filter(l => new Date(l.created_at).getTime() >= from);
+    }
+    if (filters.date_to) {
+      const to = new Date(filters.date_to).getTime() + 86400000; // включительно до конца дня
+      filtered = filtered.filter(l => new Date(l.created_at).getTime() < to);
+    }
 
     const total = filtered.length;
     const start = (page - 1) * pageSize;
@@ -475,6 +495,42 @@ export const crmRepository = {
 
   async deleteLead(id: number): Promise<void> {
     await db.crm_leads.delete(id);
+  },
+
+  async deleteLeadsByFilter(filters: CrmLeadFilters): Promise<number> {
+    let collection = db.crm_leads.orderBy('created_at').reverse();
+    const all = await collection.toArray();
+    let filtered = all;
+
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      filtered = filtered.filter(l =>
+        l.contact_name.toLowerCase().includes(q) ||
+        (l.phones || []).some(p => p.number.includes(q) || p.number.replace(/\D/g, '').includes(q.replace(/\D/g, ''))) ||
+        (l.contact_email?.toLowerCase().includes(q) ?? false)
+      );
+    }
+    if (filters.source) {
+      filtered = filtered.filter(l => l.source === filters.source);
+    }
+    if (filters.status) {
+      filtered = filtered.filter(l => l.status === filters.status);
+    }
+    if (filters.pipeline_id) {
+      filtered = filtered.filter(l => l.pipeline_id === filters.pipeline_id);
+    }
+    if (filters.date_from) {
+      const from = new Date(filters.date_from).getTime();
+      filtered = filtered.filter(l => new Date(l.created_at).getTime() >= from);
+    }
+    if (filters.date_to) {
+      const to = new Date(filters.date_to).getTime() + 86400000;
+      filtered = filtered.filter(l => new Date(l.created_at).getTime() < to);
+    }
+
+    const ids = filtered.map(l => l.id!).filter(Boolean);
+    await db.crm_leads.bulkDelete(ids);
+    return ids.length;
   },
 
   async convertLeadToDeal(leadId: number): Promise<{ clientId: number; dealId: number } | null> {

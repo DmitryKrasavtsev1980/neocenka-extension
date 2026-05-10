@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
+import { db } from '@/db/database';
 import type { CrmLead, CrmSource, CrmPipeline, CrmStage, CrmLeadFilters, CrmPhone } from '@/types';
 import { formatPhone } from '@/types';
 import { Button } from '@/components/catalyst/button';
@@ -49,7 +50,11 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [allSelected, setAllSelected] = useState(false);
 
   // Модалка
   const [showModal, setShowModal] = useState(false);
@@ -67,10 +72,14 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     search: search || undefined,
     status: statusFilter || undefined,
     source: sourceFilter || undefined,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
   };
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
+    setSelectedIds(new Set());
+    setAllSelected(false);
     try {
       const result = await crmRepository.getLeads(filters, page, PAGE_SIZE);
       setLeads(result.leads);
@@ -78,7 +87,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sourceFilter, page]);
+  }, [search, statusFilter, sourceFilter, dateFrom, dateTo, page]);
 
   const loadDeps = useCallback(async () => {
     await crmRepository.ensureDefaultSources();
@@ -227,6 +236,46 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     setFormStageId(stages[0]?.id || 0);
   };
 
+  // Выделение строк
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+      setAllSelected(false);
+    } else {
+      setSelectedIds(new Set(leads.map(l => l.id!)));
+      setAllSelected(true);
+    }
+  };
+
+  // Массовое удаление выделенных
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Удалить ${selectedIds.size} лидов?`)) return;
+    await db.crm_leads.bulkDelete([...selectedIds]);
+    setSelectedIds(new Set());
+    setAllSelected(false);
+    loadLeads();
+    window.dispatchEvent(new CustomEvent('crm-data-changed'));
+  };
+
+  // Удаление всех лидов по текущему фильтру
+  const handleDeleteAllFiltered = async () => {
+    if (totalLeads === 0) return;
+    if (!confirm(`Удалить все ${totalLeads} лидов по текущему фильтру?`)) return;
+    const deleted = await crmRepository.deleteLeadsByFilter(filters);
+    alert(`Удалено лидов: ${deleted}`);
+    loadLeads();
+    window.dispatchEvent(new CustomEvent('crm-data-changed'));
+  };
+
   const hasValidPhone = formPhones.some(p => p.number.replace(/\D/g, '').length >= 10);
   const isValid = formName.trim() && hasValidPhone && formPipelineId && formStageId;
 
@@ -288,7 +337,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
 
         {/* Filters */}
         {showFilters && (
-          <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             <select
               value={statusFilter}
               onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
@@ -309,8 +358,42 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                 <option key={s.code} value={s.code}>{s.name}</option>
               ))}
             </select>
-            <button onClick={() => { setStatusFilter(''); setSourceFilter(''); setSearch(''); setPage(1); }} className="inline-flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-700">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-zinc-500">от</span>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={e => { setDateFrom(e.target.value); setPage(1); }}
+                className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+              />
+              <span className="text-[10px] text-zinc-500">до</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={e => { setDateTo(e.target.value); setPage(1); }}
+                className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+              />
+            </div>
+            {totalLeads > 0 && (
+              <button onClick={handleDeleteAllFiltered} className="inline-flex items-center gap-1 text-[10px] text-red-500 hover:text-red-700">
+                <TrashIcon className="size-3" /> Удалить все ({totalLeads})
+              </button>
+            )}
+            <button onClick={() => { setStatusFilter(''); setSourceFilter(''); setSearch(''); setDateFrom(''); setDateTo(''); setPage(1); }} className="inline-flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-700">
               <XMarkIcon className="size-3" /> Очистить
+            </button>
+          </div>
+        )}
+
+        {/* Bulk actions bar */}
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 mb-3 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+            <span className="text-xs text-blue-700 dark:text-blue-300 font-medium">Выбрано: {selectedIds.size}</span>
+            <button onClick={handleBulkDelete} className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-800 dark:text-red-400">
+              <TrashIcon className="size-3" /> Удалить выбранные
+            </button>
+            <button onClick={() => { setSelectedIds(new Set()); setAllSelected(false); }} className="text-xs text-zinc-500 hover:text-zinc-700 ml-auto">
+              Снять выделение
             </button>
           </div>
         )}
@@ -321,6 +404,14 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
             <table className="w-full text-sm">
               <thead className="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700">
                 <tr className="text-left text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                  <th className="px-2 py-2 w-8">
+                    <input
+                      type="checkbox"
+                      checked={allSelected && leads.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-zinc-300 dark:border-zinc-600"
+                    />
+                  </th>
                   <th className="px-3 py-2">Контакт</th>
                   <th className="px-3 py-2">Телефон</th>
                   <th className="px-3 py-2">Источник</th>
@@ -333,19 +424,28 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {!loading && leads.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-zinc-400 text-sm">
+                    <td colSpan={8} className="px-4 py-12 text-center text-zinc-400 text-sm">
                       Нет лидов. Нажмите «Лид» для добавления или настройте парсинг.
                     </td>
                   </tr>
                 ) : leads.map(lead => {
                   const statusInfo = LEAD_STATUS[lead.status] || LEAD_STATUS.new;
                   const canConvert = lead.status !== 'converted' && lead.status !== 'rejected';
+                  const isSelected = selectedIds.has(lead.id!);
                   return (
                     <tr
                       key={lead.id}
-                      className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                      className={`cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 dark:bg-blue-900/10' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'}`}
                       onClick={() => openEdit(lead)}
                     >
+                      <td className="px-2 py-2" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(lead.id!)}
+                          className="rounded border-zinc-300 dark:border-zinc-600"
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <div className="text-[11px] font-medium text-zinc-900 dark:text-white whitespace-nowrap max-w-[180px] truncate">{lead.contact_name}</div>
                         {lead.ad_data?.address && <div className="text-[10px] text-zinc-400 truncate max-w-[180px]">{lead.ad_data.address}</div>}

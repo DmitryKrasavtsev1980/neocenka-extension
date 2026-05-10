@@ -204,6 +204,8 @@ export interface CrmLeadFilters {
   source?: string;
   status?: string;
   pipeline_id?: number;
+  date_from?: string;
+  date_to?: string;
 }
 
 /** Результат поиска лидов */
