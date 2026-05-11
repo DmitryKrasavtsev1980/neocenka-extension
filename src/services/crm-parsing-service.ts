@@ -1,8 +1,11 @@
 /**
  * Сервис парсинга объявлений CIAN/Авито для CRM
- * Открывает URL в скрытой вкладке, делегирует парсинг в background service worker
+ * Открывает URL в видимой вкладке, делегирует парсинг в background service worker
  * (chrome.scripting доступен только в service worker)
  * Получает данные и создаёт лиды в IndexedDB
+ *
+ * CIAN:  пагинация по страницам (p=1, p=2, ...), на каждой странице ~28 карточек
+ * Avito: одна страница с прокруткой панели, карточки подгружаются lazy-loading
  */
 
 import { crmRepository } from '@/db/repositories/crm.repository';
@@ -46,9 +49,8 @@ export function detectSourceType(url: string): 'cian' | 'avito' {
   throw new Error('Неподдерживаемый источник. Используйте ссылку на cian.ru или avito.ru');
 }
 
-/**
- * Кликает кнопки телефонов на CIAN для раскрытия номеров
- */
+// ─── Helpers для связи с service worker ─────────────────────────────
+
 async function clickPhoneButtons(tabId: number): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
@@ -68,9 +70,6 @@ async function clickPhoneButtons(tabId: number): Promise<void> {
   });
 }
 
-/**
- * Переустанавливает фильтр продавцов на Авито (кликает Неважно → Частные → Показать)
- */
 async function reapplyAvitoFilter(tabId: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
@@ -90,9 +89,6 @@ async function reapplyAvitoFilter(tabId: number): Promise<boolean> {
   });
 }
 
-/**
- * Проверяет что фильтр продавцов сработал на Авито
- */
 async function checkAvitoFilter(tabId: number): Promise<{ applied: boolean; cardCount: number }> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
@@ -112,9 +108,6 @@ async function checkAvitoFilter(tabId: number): Promise<{ applied: boolean; card
   });
 }
 
-/**
- * Прокручивает панель Авито для подгрузки всех карточек (on-map вид)
- */
 async function scrollAvitoList(tabId: number): Promise<number> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
@@ -134,44 +127,7 @@ async function scrollAvitoList(tabId: number): Promise<number> {
   });
 }
 
-/**
- * Делегирует парсинг в background service worker через sendMessage
- * chrome.scripting.executeScript доступен только в service worker
- */
-async function injectParser(tabId: number, sourceType: 'cian' | 'avito'): Promise<ParsedListing[]> {
-  // Для CIAN — сначала кликаем телефоны, ждём раскрытия, потом парсим
-  if (sourceType === 'cian') {
-    await clickPhoneButtons(tabId);
-    await sleep(1500);
-  }
-
-  // Для Авито — переустанавливаем фильтр продавцов и прокручиваем панель
-  if (sourceType === 'avito') {
-    // Переустановка фильтра с проверкой (до 3 попыток)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await reapplyAvitoFilter(tabId);
-      } catch { /* страница могла навигировать — это нормально */ }
-      // После клика «Показать» страница навигирует — ждём загрузки
-      await waitForTabLoad(tabId);
-      await sleep(3000);
-
-      // Проверяем что фильтр сработал (URL содержит user=1)
-      try {
-        const check = await checkAvitoFilter(tabId);
-        if (check.applied) break; // фильтр сработал
-        if (attempt < 2) {
-          // Фильтр не сработал — пробуем ещё раз
-          await sleep(2000);
-        }
-      } catch {
-        // Не удалось проверить — продолжаем парсинг
-        break;
-      }
-    }
-    await scrollAvitoList(tabId);
-  }
-
+async function executeParser(tabId: number, sourceType: 'cian' | 'avito'): Promise<ParsedListing[]> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
       { type: 'EXECUTE_PARSER', tabId, sourceType },
@@ -190,9 +146,69 @@ async function injectParser(tabId: number, sourceType: 'cian' | 'avito'): Promis
   });
 }
 
-/**
- * Получает URL следующей страницы через background service worker
- */
+async function getAvitoApiUrl(tabId: number): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: 'GET_AVITO_API_URL', tabId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.success) {
+          reject(new Error(response?.error || 'Ошибка получения API URL'));
+          return;
+        }
+        resolve(response.url || null);
+      },
+    );
+  });
+}
+
+interface AvitoApiPage {
+  totalCount: number;
+  items: any[];
+}
+
+async function fetchAvitoApiPage(tabId: number, apiUrl: string, page: number, limit: number = 50): Promise<AvitoApiPage> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: 'FETCH_AVITO_API_PAGE', tabId, apiUrl, page, limit },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (!response?.success) {
+          reject(new Error(response?.error || 'Ошибка API запроса'));
+          return;
+        }
+        resolve({ totalCount: response.totalCount || 0, items: response.items || [] });
+      },
+    );
+  });
+}
+
+/** Конвертация данных API Авито в ParsedListing */
+function avitoItemToParsedListing(item: any): ParsedListing {
+  const title = item.title || '';
+  const roomsMatch = title.match(/(\d+[+-]?к(?:омн)?\.?|студия)/i);
+  const areaMatch = title.match(/(\d+[,.]?\d*)\s*м²/);
+  const floorMatch = title.match(/(\d+)\s*\/\s*(\d+)\s*эт/);
+
+  return {
+    name: '',
+    phones: [],
+    address: item.addressDetailed?.locationName || item.location?.name || '',
+    price: item.priceDetailed?.value || null,
+    url: item.urlPath ? 'https://www.avito.ru' + item.urlPath : '',
+    seller_type: item.type || '',
+    rooms: roomsMatch ? roomsMatch[1] : '',
+    area: areaMatch ? parseFloat(areaMatch[1].replace(',', '.')) : null,
+    floor: floorMatch ? `${floorMatch[1]}/${floorMatch[2]}` : '',
+  };
+}
+
 async function getNextPageUrl(tabId: number): Promise<string | null> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
@@ -212,43 +228,24 @@ async function getNextPageUrl(tabId: number): Promise<string | null> {
   });
 }
 
-/**
- * Парсинг одной страницы: навигация → клик телефонов → парсинг → сохранение лидов
- * Возвращает кол-во найденных/созданных/пропущенных на этой странице
- */
-async function processOnePage(
-  tabId: number,
-  sourceType: 'cian' | 'avito',
+// ─── Сохранение лидов (общее) ───────────────────────────────────────
+
+async function saveListings(
+  listings: ParsedListing[],
   source: CrmParsingSource,
   knownUrls: Set<string>,
   now: string,
-  pageNum: number,
-  onProgress?: ProgressCallback,
-  totalFound?: { value: number },
-  totalNew?: { value: number },
-  totalSkipped?: { value: number },
-): Promise<{ listings: ParsedListing[]; newOnPage: number; skippedOnPage: number }> {
-  const tf = totalFound || { value: 0 };
-  const tn = totalNew || { value: 0 };
-  const ts = totalSkipped || { value: 0 };
-
-  onProgress?.({ stage: 'parsing', detail: `Парсинг страницы ${pageNum}...`, found: tf.value, created: tn.value, duplicates: ts.value });
-
-  const listings = await injectParser(tabId, sourceType);
-  tf.value += listings.length;
-
-  let newOnPage = 0;
-  let skippedOnPage = 0;
-
-  onProgress?.({ stage: 'saving', detail: `Стр. ${pageNum}: найдено ${listings.length}. Всего ${tf.value}. Проверка...`, found: tf.value, created: tn.value, duplicates: ts.value });
+): Promise<{ newCount: number; skippedCount: number }> {
+  let newCount = 0;
+  let skippedCount = 0;
 
   for (const l of listings) {
     if (!l.url && !l.name && (!l.phones || l.phones.length === 0)) {
-      skippedOnPage++;
+      skippedCount++;
       continue;
     }
     if (l.url && knownUrls.has(normalizeUrl(l.url))) {
-      skippedOnPage++;
+      skippedCount++;
       continue;
     }
 
@@ -277,48 +274,203 @@ async function processOnePage(
     });
 
     if (l.url) knownUrls.add(normalizeUrl(l.url));
-    newOnPage++;
+    newCount++;
   }
 
-  tn.value += newOnPage;
-  ts.value += skippedOnPage;
-
-  return { listings, newOnPage, skippedOnPage };
+  return { newCount, skippedCount };
 }
 
+// ─── Авито: одна страница, прокрутка ────────────────────────────────
+
 /**
- * Парсинг одного источника — создаёт ЛИДЫ из новых объявлений
- * Поддерживает пагинацию: проходит все страницы с результатами
+ * Парсинг Авито — одна страница с прокруткой панели.
+ * 1. Открыть URL
+ * 2. Применить фильтр продавцов (Частные)
+ * 3. Прокрутить панель для подгрузки всех карточек
+ * 4. Спарсить все карточки
+ * 5. Сохранить новые лиды
  */
-export async function parseSourceForLeads(
+async function parseAvitoSource(
   source: CrmParsingSource,
   onProgress?: ProgressCallback,
 ): Promise<{ newLeads: number; skipped: number; found: number }> {
-  onProgress?.({ stage: 'opening', detail: `Открытие ${source.source_type.toUpperCase()}...`, found: 0, created: 0, duplicates: 0 });
+  onProgress?.({ stage: 'opening', detail: 'Открытие АВИТО...', found: 0, created: 0, duplicates: 0 });
+
+  const knownUrls = await crmRepository.getKnownLeadUrls();
+  const now = new Date().toISOString();
+  let totalFound = 0;
+  let totalNew = 0;
+  let totalSkipped = 0;
+  const pg = () => ({ found: totalFound, created: totalNew, duplicates: totalSkipped });
+
+  // Открываем отдельное окно для парсинга.
+  const prevWindow = await chrome.windows.getCurrent();
+  const win = await chrome.windows.create({ url: source.url, focused: true, width: 1024, height: 768 });
+  const tabId = win.tabs![0].id!;
+  const winId = win.id!;
+  if (prevWindow.id) {
+    await chrome.windows.update(prevWindow.id, { focused: true }).catch(() => {});
+  }
+
+  try {
+    // Ждём загрузки страницы (Avito делает первый API-запрос при загрузке)
+    await waitForTabLoad(tabId);
+    await sleep(3000);
+
+    // Получаем API URL из performance entries страницы (первый запрос при загрузке)
+    onProgress?.({ stage: 'parsing', detail: 'Поиск API Авито...', ...pg() });
+    let apiUrl = await getAvitoApiUrl(tabId);
+
+    // Если source URL содержит фильтр "Частные" (user=1),
+    // добавляем его в API URL — Avito использует параметр user=1
+    const needPrivateFilter = /[?&]user=1(&|$)/.test(source.url);
+    if (apiUrl && needPrivateFilter && !apiUrl.includes('user=')) {
+      try {
+        const u = new URL(apiUrl);
+        u.searchParams.set('user', '1');
+        // params[178133] конфликтует с user=1 — убираем
+        u.searchParams.delete('params[178133]');
+        apiUrl = u.href;
+      } catch { /* ignore URL parse errors */ }
+    }
+
+    // Если API URL не найден (не on-map страница) — фолбэк на фильтр + скролл
+    if (!apiUrl) {
+      onProgress?.({ stage: 'parsing', detail: 'API не найден, применяется фильтр и прокрутка...', ...pg() });
+
+      // Применяем фильтр «Частные» через UI (до 3 попыток)
+      if (needPrivateFilter) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await reapplyAvitoFilter(tabId);
+          } catch { /* страница могла навигировать */ }
+          await waitForTabLoad(tabId);
+          await sleep(3000);
+          try {
+            const check = await checkAvitoFilter(tabId);
+            if (check.applied) break;
+            if (attempt < 2) await sleep(2000);
+          } catch { break; }
+        }
+      }
+
+      await scrollAvitoList(tabId);
+      const listings = await executeParser(tabId, 'avito');
+      totalFound = listings.length;
+
+      onProgress?.({ stage: 'saving', detail: `Найдено ${totalFound} объявлений. Проверка...`, ...pg() });
+      const { newCount, skippedCount } = await saveListings(listings, source, knownUrls, now);
+      totalNew = newCount;
+      totalSkipped = skippedCount;
+    } else {
+      // === API-подход: быстрая пагинация ===
+      // Первый запрос — получаем totalCount
+      const firstPage = await fetchAvitoApiPage(tabId, apiUrl, 1, 50);
+      const totalCount = firstPage.totalCount;
+      const totalPages = Math.ceil(totalCount / 50);
+
+      onProgress?.({ stage: 'parsing', detail: `Найдено ${totalCount} объявлений. Страниц: ${totalPages}. Загрузка...`, ...pg() });
+
+      // Обрабатываем первую страницу
+      const firstListings = firstPage.items.map(avitoItemToParsedListing);
+      totalFound = firstListings.length;
+      onProgress?.({ stage: 'saving', detail: `Стр. 1/${totalPages}: ${firstListings.length} объявлений. Проверка...`, ...pg() });
+      const { newCount, skippedCount } = await saveListings(firstListings, source, knownUrls, now);
+      totalNew += newCount;
+      totalSkipped += skippedCount;
+
+      // Остальные страницы
+      for (let page = 2; page <= totalPages; page++) {
+        onProgress?.({ stage: 'parsing', detail: `Загрузка стр. ${page}/${totalPages}... (${totalFound}/${totalCount})`, ...pg() });
+        const pageData = await fetchAvitoApiPage(tabId, apiUrl, page, 50);
+        const listings = pageData.items.map(avitoItemToParsedListing);
+        totalFound += listings.length;
+
+        onProgress?.({ stage: 'saving', detail: `Стр. ${page}/${totalPages}: +${listings.length} (${totalFound}/${totalCount}). Проверка...`, ...pg() });
+        const result = await saveListings(listings, source, knownUrls, now);
+        totalNew += result.newCount;
+        totalSkipped += result.skippedCount;
+      }
+    }
+
+    // Обновляем источник
+    if (source.id) {
+      await crmRepository.updateParsingSource(source.id, {
+        last_parsed_at: now,
+        listings_count: (source.listings_count || 0) + totalNew,
+      });
+    } else {
+      await crmRepository.addParsingSource({
+        url: source.url,
+        source_type: source.source_type,
+        pipeline_id: source.pipeline_id,
+        stage_id: source.stage_id,
+        last_parsed_at: now,
+        listings_count: totalNew,
+        created_at: now,
+      });
+    }
+
+    onProgress?.({
+      stage: 'done',
+      detail: `Готово: ${totalNew} новых лидов, ${totalSkipped} пропущено из ${totalFound}`,
+      found: totalFound,
+      created: totalNew,
+      duplicates: totalSkipped,
+    });
+
+    window.dispatchEvent(new CustomEvent('crm-data-changed'));
+    return { newLeads: totalNew, skipped: totalSkipped, found: totalFound };
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    console.error(`[CRM] Ошибка парсинга Авито: ${errMsg}`);
+    onProgress?.({
+      stage: 'error',
+      detail: `Ошибка: ${errMsg}. Сохранено ${totalNew} лидов.`,
+      found: totalFound,
+      created: totalNew,
+      duplicates: totalSkipped,
+    });
+    throw e;
+  } finally {
+    try { await chrome.windows.remove(winId); } catch { /* окно уже закрыто */ }
+  }
+}
+
+// ─── CIAN: пагинация по страницам ───────────────────────────────────
+
+/**
+ * Парсинг CIAN — пагинация по страницам (p=1, p=2, ...).
+ * 1. Открыть первую страницу (с сортировкой по дате)
+ * 2. Кликнуть телефоны → спарсить карточки → сохранить лиды
+ * 3. Перейти на следующую страницу (прямой URL p=N)
+ * 4. Повторять пока не: пустая страница / дубликаты / ошибка / зацикливание
+ */
+async function parseCianSource(
+  source: CrmParsingSource,
+  onProgress?: ProgressCallback,
+): Promise<{ newLeads: number; skipped: number; found: number }> {
+  onProgress?.({ stage: 'opening', detail: 'Открытие CIAN...', found: 0, created: 0, duplicates: 0 });
 
   // Добавляем сортировку по дате (сначала новые) для оптимизации повторного парсинга
   let startUrl = source.url;
-  if (source.source_type === 'cian' && !startUrl.includes('sort=')) {
+  if (!startUrl.includes('sort=')) {
     const sep = startUrl.includes('?') ? '&' : '?';
     startUrl += sep + 'sort=creation_date_desc';
   }
 
-  // Для CIAN: подготавливаем базовый URL для пагинации (без параметра p)
+  // Базовый URL для пагинации (без параметра p)
   let cianBasePageUrl = '';
-  if (source.source_type === 'cian') {
-    try {
-      const u = new URL(startUrl);
-      u.searchParams.delete('p');
-      cianBasePageUrl = u.href;
-    } catch {
-      cianBasePageUrl = startUrl.replace(/[&?]p=\d+/, '');
-    }
+  try {
+    const u = new URL(startUrl);
+    u.searchParams.delete('p');
+    cianBasePageUrl = u.href;
+  } catch {
+    cianBasePageUrl = startUrl.replace(/[&?]p=\d+/, '');
   }
 
-  // Получаем все известные URL лидов — для быстрой проверки дубликатов
   const knownUrls = await crmRepository.getKnownLeadUrls();
-  // URL текущей сессии парсинга — для детекции зацикливания (CIAN показывает первую страницу после последней)
-  const sessionUrls = new Set<string>();
+  const sessionUrls = new Set<string>(); // для детекции зацикливания
   const now = new Date().toISOString();
   const totalFound = { value: 0 };
   const totalNew = { value: 0 };
@@ -329,30 +481,34 @@ export async function parseSourceForLeads(
   const MAX_ERRORS = 3;
 
   let currentUrl: string | null = startUrl;
-  let lastNavigatedUrl: string | null = null;
-  // CIAN блокирует скрытые вкладки (капча) — открываем видимую
-  const tab = await chrome.tabs.create({ url: currentUrl, active: true });
-  lastNavigatedUrl = startUrl;
+  let lastNavigatedUrl: string | null = startUrl;
 
   const pg = () => ({ found: totalFound.value, created: totalNew.value, duplicates: totalSkipped.value });
+
+  // CIAN блокирует скрытые вкладки (капча) — открываем отдельное окно
+  const prevWindow = await chrome.windows.getCurrent();
+  const win = await chrome.windows.create({ url: currentUrl, focused: true, width: 1024, height: 768 });
+  const tabId = win.tabs![0].id!;
+  const winId = win.id!;
+  if (prevWindow.id) {
+    await chrome.windows.update(prevWindow.id, { focused: true }).catch(() => {});
+  }
 
   try {
     while (currentUrl) {
       pageNum++;
+      const prevNewCount = totalNew.value;
 
-      // Навигация + загрузка страницы (с ретраями)
+      // ── Навигация + загрузка страницы ──
       let pageLoaded = false;
       for (let navAttempt = 0; navAttempt <= 1; navAttempt++) {
         try {
           if (pageNum > 1) {
             onProgress?.({ stage: 'opening', detail: `Страница ${pageNum}...${navAttempt > 0 ? ' (повтор)' : ''}`, ...pg() });
-            await chrome.tabs.update(tab.id!, { url: currentUrl });
-            await waitForTabLoad(tab.id!);
-            await sleep(source.source_type === 'cian' ? 6000 : 3000);
-          } else {
-            await waitForTabLoad(tab.id!);
-            await sleep(source.source_type === 'cian' ? 6000 : 3000);
+            await chrome.tabs.update(tabId, { url: currentUrl });
           }
+          await waitForTabLoad(tabId);
+          await sleep(6000);
           pageLoaded = true;
           break;
         } catch (navErr) {
@@ -363,28 +519,24 @@ export async function parseSourceForLeads(
             await sleep(5000);
           } else {
             onProgress?.({ stage: 'saving', detail: `Стр. ${pageNum}: не загрузилась (${errMsg}). Пропуск.`, ...pg() });
-            // Конструируем URL следующей страницы и продолжаем
-            currentUrl = source.source_type === 'cian'
-              ? cianBasePageUrl + (cianBasePageUrl.includes('?') ? '&' : '?') + 'p=' + (pageNum + 1)
-              : null;
-            if (source.source_type !== 'cian') break;
+            currentUrl = cianBasePageUrl + (cianBasePageUrl.includes('?') ? '&' : '?') + 'p=' + (pageNum + 1);
             continue;
           }
         }
       }
-      if (!pageLoaded && source.source_type !== 'cian') break;
 
-      // Парсинг страницы (с ретраями)
+      // ── Парсинг страницы (с ретраями) ──
       let listings: ParsedListing[] = [];
       let parsed = false;
-      const prevNewCount = totalNew.value;
+
       for (let parseAttempt = 0; parseAttempt <= 1; parseAttempt++) {
         try {
-          const result = await processOnePage(
-            tab.id!, source.source_type, source, knownUrls, now, pageNum, onProgress,
-            totalFound, totalNew, totalSkipped,
-          );
-          listings = result.listings;
+          // Кликаем телефоны → ждём → парсим
+          await clickPhoneButtons(tabId);
+          await sleep(1500);
+
+          listings = await executeParser(tabId, 'cian');
+          totalFound.value += listings.length;
           parsed = true;
           consecutiveErrors = 0;
           break;
@@ -402,21 +554,22 @@ export async function parseSourceForLeads(
               currentUrl = null;
               break;
             }
-            // Конструируем URL следующей страницы и продолжаем
-            if (source.source_type === 'cian') {
-              currentUrl = cianBasePageUrl + (cianBasePageUrl.includes('?') ? '&' : '?') + 'p=' + (pageNum + 1);
-            } else {
-              try {
-                currentUrl = await getNextPageUrl(tab.id!);
-              } catch { currentUrl = null; }
-            }
+            currentUrl = cianBasePageUrl + (cianBasePageUrl.includes('?') ? '&' : '?') + 'p=' + (pageNum + 1);
             break;
           }
         }
       }
 
-      if (!parsed) continue; // ошибка — переходим к следующей странице
-      if (!currentUrl) break; // остановка по лимиту ошибок
+      if (!parsed) continue;
+      if (!currentUrl) break;
+
+      // ── Сохранение лидов ──
+      onProgress?.({ stage: 'saving', detail: `Стр. ${pageNum}: найдено ${listings.length}. Проверка...`, ...pg() });
+      const { newCount, skippedCount } = await saveListings(listings, source, knownUrls, now);
+      totalNew.value += newCount;
+      totalSkipped.value += skippedCount;
+
+      // ── Проверки остановки ──
 
       // Пустая страница (капча/антибот)
       if (listings.length === 0) {
@@ -429,57 +582,36 @@ export async function parseSourceForLeads(
         emptyPages = 0;
       }
 
-      // Детекция зацикливания: проверяем ДО добавления URL текущей страницы
-      // Если ВСЕ URL с этой страницы уже были на предыдущих страницах сессии → конец
+      // Детекция зацикливания: все URL уже были в этой сессии
       if (listings.length > 0 && pageNum > 1) {
         const currentUrls = listings.filter(l => l.url).map(l => normalizeUrl(l.url!));
         if (currentUrls.length > 0 && currentUrls.every(u => sessionUrls.has(u))) {
           onProgress?.({ stage: 'saving', detail: `Стр. ${pageNum}: все объявления уже были на предыдущих страницах — достигнута последняя страница`, ...pg() });
-          currentUrl = null;
           break;
         }
       }
 
-      // Если на странице не было новых лидов (все дубликаты из БД) — останавливаемся
+      // Нет новых лидов (CIAN отсортирован по дате — значит дальше новых нет)
       if (pageNum > 1 && totalNew.value === prevNewCount) {
         onProgress?.({ stage: 'saving', detail: `Стр. ${pageNum}: новых лидов не найдено — остановка`, ...pg() });
-        currentUrl = null;
         break;
       }
 
-      // Теперь добавляем URL текущей страницы в сессионный набор
+      // Добавляем URL текущей страницы в сессионный набор
       for (const l of listings) {
         if (l.url) sessionUrls.add(normalizeUrl(l.url));
       }
 
-      // Пагинация
-      if (source.source_type === 'cian') {
-        if (listings.length === 0) {
+      // ── Пагинация ──
+      if (listings.length === 0) {
+        currentUrl = null;
+      } else {
+        const nextUrl = cianBasePageUrl + (cianBasePageUrl.includes('?') ? '&' : '?') + 'p=' + (pageNum + 1);
+        if (nextUrl === lastNavigatedUrl) {
           currentUrl = null;
         } else {
-          const nextP = pageNum + 1;
-          const nextUrl = cianBasePageUrl + (cianBasePageUrl.includes('?') ? '&' : '?') + 'p=' + nextP;
-          // Защита от зацикливания: если следующий URL совпадает с предыдущим
-          if (nextUrl === lastNavigatedUrl) {
-            currentUrl = null;
-          } else {
-            lastNavigatedUrl = currentUrl;
-            currentUrl = nextUrl;
-          }
-        }
-      } else {
-        try {
-          const nextUrl = await getNextPageUrl(tab.id!);
-          // Авито: если getNextPageUrl вернул тот же URL или null — конец
-          if (!nextUrl || nextUrl === currentUrl || nextUrl === lastNavigatedUrl) {
-            currentUrl = null;
-          } else {
-            lastNavigatedUrl = currentUrl;
-            currentUrl = nextUrl;
-          }
-        } catch (e) {
-          console.warn(`[CRM] Ошибка получения URL следующей страницы: ${e instanceof Error ? e.message : String(e)}`);
-          currentUrl = null;
+          lastNavigatedUrl = currentUrl;
+          currentUrl = nextUrl;
         }
       }
     }
@@ -510,13 +642,11 @@ export async function parseSourceForLeads(
       duplicates: totalSkipped.value,
     });
 
-    // Уведомляем об изменении CRM данных (для обновления счётчиков в меню)
     window.dispatchEvent(new CustomEvent('crm-data-changed'));
-
     return { newLeads: totalNew.value, skipped: totalSkipped.value, found: totalFound.value };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
-    console.error(`[CRM] Фатальная ошибка на стр. ${pageNum}: ${errMsg}`);
+    console.error(`[CRM] Фатальная ошибка CIAN на стр. ${pageNum}: ${errMsg}`);
     onProgress?.({
       stage: 'error',
       detail: `Ошибка на стр. ${pageNum}: ${errMsg}. Сохранено ${totalNew.value} лидов.`,
@@ -526,8 +656,20 @@ export async function parseSourceForLeads(
     });
     throw e;
   } finally {
-    try { await chrome.tabs.remove(tab.id!); } catch { /* вкладка уже закрыта */ }
+    try { await chrome.windows.remove(winId); } catch { /* окно уже закрыто */ }
   }
+}
+
+// ─── Единая точка входа ─────────────────────────────────────────────
+
+export async function parseSourceForLeads(
+  source: CrmParsingSource,
+  onProgress?: ProgressCallback,
+): Promise<{ newLeads: number; skipped: number; found: number }> {
+  if (source.source_type === 'avito') {
+    return parseAvitoSource(source, onProgress);
+  }
+  return parseCianSource(source, onProgress);
 }
 
 /**
@@ -569,6 +711,8 @@ export async function parseAllSources(
   return { totalNew, totalSkipped, totalFound };
 }
 
+// ─── Утилиты ────────────────────────────────────────────────────────
+
 function waitForTabLoad(tabId: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -576,8 +720,6 @@ function waitForTabLoad(tabId: number): Promise<void> {
       reject(new Error('Таймаут загрузки страницы'));
     }, 30000);
 
-    // Poll tab status instead of event listener — avoids race condition
-    // when page has already loaded before listener is registered
     const poll = setInterval(() => {
       chrome.tabs.get(tabId, (tab) => {
         if (chrome.runtime.lastError) {

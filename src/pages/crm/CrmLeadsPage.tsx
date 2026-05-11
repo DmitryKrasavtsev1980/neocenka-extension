@@ -14,6 +14,8 @@ import {
   ArrowRightIcon,
   FunnelIcon,
   XMarkIcon,
+  ChatBubbleLeftRightIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/16/solid';
 
 interface CrmLeadsPageProps {
@@ -26,6 +28,14 @@ const LEAD_STATUS: Record<string, { label: string; color: string }> = {
   qualified: { label: 'Квалифицир.', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
   converted: { label: 'Конвертирован', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
   rejected: { label: 'Отклонён', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
+};
+
+const STATUS_FLOW: Record<string, string | null> = {
+  new: 'contacted',
+  contacted: 'qualified',
+  qualified: null,
+  converted: null,
+  rejected: null,
 };
 
 const PHONE_LABELS = [
@@ -66,6 +76,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const [formSourceUrl, setFormSourceUrl] = useState('');
   const [formPipelineId, setFormPipelineId] = useState(0);
   const [formStageId, setFormStageId] = useState(0);
+  const [formStatus, setFormStatus] = useState<string>('new');
   const [formNotes, setFormNotes] = useState('');
 
   const filters: CrmLeadFilters = {
@@ -161,6 +172,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     setFormPipelineId(defaultPipeline?.id || 0);
     const stages = stagesMap[defaultPipeline?.id || 0] || [];
     setFormStageId(stages[0]?.id || 0);
+    setFormStatus('new');
     setFormNotes('');
     setShowModal(true);
   };
@@ -174,6 +186,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     setFormSourceUrl(lead.source_url || '');
     setFormPipelineId(lead.pipeline_id);
     setFormStageId(lead.stage_id);
+    setFormStatus(lead.status);
     setFormNotes(lead.notes || '');
     setShowModal(true);
   };
@@ -193,6 +206,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
         source_url: formSourceUrl.trim() || undefined,
         pipeline_id: formPipelineId,
         stage_id: formStageId,
+        status: formStatus as CrmLead['status'],
         notes: formNotes.trim() || undefined,
       });
     } else {
@@ -204,7 +218,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
         source_url: formSourceUrl.trim() || undefined,
         pipeline_id: formPipelineId,
         stage_id: formStageId,
-        status: 'new',
+        status: formStatus as CrmLead['status'],
         notes: formNotes.trim() || undefined,
         created_at: now,
         updated_at: now,
@@ -228,6 +242,14 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
       loadLeads();
       if (onNavigate) onNavigate('crm-deals');
     }
+  };
+
+  const handleStatusChange = async (id: number, newStatus: string) => {
+    await crmRepository.updateLead(id, {
+      status: newStatus as CrmLead['status'],
+      updated_at: new Date().toISOString(),
+    });
+    loadLeads();
   };
 
   const handlePipelineChange = (id: number) => {
@@ -430,7 +452,8 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                   </tr>
                 ) : leads.map(lead => {
                   const statusInfo = LEAD_STATUS[lead.status] || LEAD_STATUS.new;
-                  const canConvert = lead.status !== 'converted' && lead.status !== 'rejected';
+                  const canConvert = lead.status === 'qualified';
+                  const nextStatus = STATUS_FLOW[lead.status];
                   const isSelected = selectedIds.has(lead.id!);
                   return (
                     <tr
@@ -452,27 +475,56 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                       </td>
                       <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{renderPhones(lead.phones || [])}</td>
                       <td className="px-3 py-2 text-[11px]">
-                        {sourcesMap[lead.source] ? (
-                          <span
-                            className="inline-flex px-1 py-0 rounded text-[9px] font-medium"
-                            style={{ backgroundColor: `${sourcesMap[lead.source].color}20`, color: sourcesMap[lead.source].color }}
-                          >
-                            {sourcesMap[lead.source].name}
-                          </span>
-                        ) : (
-                          <span className="text-zinc-400">{lead.source}</span>
-                        )}
+                        <span className="inline-flex items-center gap-1">
+                          {sourcesMap[lead.source] ? (
+                            <span
+                              className="inline-flex px-1 py-0 rounded text-[9px] font-medium"
+                              style={{ backgroundColor: `${sourcesMap[lead.source].color}20`, color: sourcesMap[lead.source].color }}
+                            >
+                              {sourcesMap[lead.source].name}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400">{lead.source}</span>
+                          )}
+                          {(lead.source_url || lead.ad_data?.url) && (
+                            <button
+                              type="button"
+                              onClick={e => { e.stopPropagation(); window.open(lead.source_url || lead.ad_data?.url, '_blank'); }}
+                              className="text-zinc-400 hover:text-blue-500 transition-colors"
+                              title="Открыть объявление"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            </button>
+                          )}
+                        </span>
                       </td>
                       <td className="px-3 py-2 text-[11px]">
                         <div className="text-zinc-700 dark:text-zinc-300">{getPipelineName(lead.pipeline_id)}</div>
                         <div className="text-[10px] text-zinc-400">{getStageName(lead.pipeline_id, lead.stage_id)}</div>
                       </td>
-                      <td className="px-3 py-2 text-[11px]">
-                        <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
+                      <td className="px-3 py-2 text-[11px]" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
+                          {nextStatus && (
+                            <button onClick={() => handleStatusChange(lead.id!, nextStatus)} className="p-0.5 rounded text-zinc-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20" title={`→ ${LEAD_STATUS[nextStatus].label}`}>
+                              <ChevronRightIcon className="size-3" />
+                            </button>
+                          )}
+                          {lead.status !== 'converted' && lead.status !== 'rejected' && (
+                            <button onClick={() => handleStatusChange(lead.id!, 'rejected')} className="p-0.5 rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" title="Отклонить">
+                              <XMarkIcon className="size-3" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-[11px] text-zinc-500 whitespace-nowrap">{fmtDate(lead.created_at)}</td>
                       <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
+                          {(lead.source_url || lead.ad_data?.url) && (
+                            <button onClick={() => window.open(lead.source_url || lead.ad_data?.url, '_blank')} className="p-1 rounded text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20" title={`Написать на ${lead.source === 'cian' ? 'ЦИАН' : lead.source === 'avito' ? 'Авито' : 'сайте'}`}>
+                              <ChatBubbleLeftRightIcon className="size-3.5" />
+                            </button>
+                          )}
                           {canConvert && (
                             <button onClick={() => handleConvert(lead.id!)} className="p-1 rounded text-zinc-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20" title="Конвертировать в сделку">
                               <ArrowRightIcon className="size-3.5" />
@@ -583,6 +635,21 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                   <select value={formStageId} onChange={e => setFormStageId(Number(e.target.value))} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
                     {(stagesMap[formPipelineId] || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Статус</label>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {Object.entries(LEAD_STATUS).map(([key, info]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFormStatus(key)}
+                      className={`inline-flex px-2 py-1 rounded text-[10px] font-medium transition-colors ${formStatus === key ? info.color : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}
+                    >
+                      {info.label}
+                    </button>
+                  ))}
                 </div>
               </div>
               <div>

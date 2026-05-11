@@ -360,22 +360,21 @@ async function scrollAvitoList(maxCards?: number): Promise<number> {
     }
   }
 
-  if (!scrollContainer) return document.querySelectorAll('[itemtype="http://schema.org/Product"], [data-marker="item"]').length;
+  const cardSelector = '[itemtype="http://schema.org/Product"], [data-marker="item"]';
+  if (!scrollContainer) return document.querySelectorAll(cardSelector).length;
 
   const limit = maxCards || 9999;
-  const step = scrollContainer.clientHeight; // прокрутка на высоту видимой области
+  const step = Math.floor(scrollContainer.clientHeight * 0.8); // 80% высоты — плавнее скролл
   let prevCount = 0;
   let stableRounds = 0;
 
-  while (stableRounds < 5) {
-    // Инкрементальная прокрутка — чтобы сработали все lazy-loading триггеры
+  while (stableRounds < 15) {
     scrollContainer.scrollTop += step;
-    await new Promise(r => setTimeout(r, 2000));
+    // Даём больше времени на подгрузку lazy-loading карточек
+    await new Promise(r => setTimeout(r, 3000));
 
-    const currentCount = document.querySelectorAll('[itemtype="http://schema.org/Product"], [data-marker="item"]').length;
+    const currentCount = document.querySelectorAll(cardSelector).length;
     if (currentCount >= limit) break;
-
-    const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50;
 
     if (currentCount === prevCount) {
       stableRounds++;
@@ -384,11 +383,12 @@ async function scrollAvitoList(maxCards?: number): Promise<number> {
     }
     prevCount = currentCount;
 
-    // Если дошли до низа и количество стабильно — заканчиваем
-    if (atBottom && stableRounds >= 2) break;
+    // Если卡片数 стабильно и скролл не двигается — пробуем ещё раз с большей паузой
+    const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50;
+    if (atBottom && stableRounds >= 5) break;
   }
 
-  return document.querySelectorAll('[itemtype="http://schema.org/Product"], [data-marker="item"]').length;
+  return document.querySelectorAll(cardSelector).length;
 }
 
 // ============================================================
@@ -486,6 +486,78 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }).then(results => {
       const url = (results && results.length > 0) ? results[0].result || null : null;
       sendResponse({ success: true, url });
+    }).catch(err => {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+  // Получить URL Avito API — сначала из performance entries, затем через PerformanceObserver
+  if (message.type === 'GET_AVITO_API_URL') {
+    chrome.scripting.executeScript({
+      target: { tabId: message.tabId },
+      func: () => {
+        // Быстрая проверка: берём последний /map/items из буфера
+        const resources = performance.getEntriesByType('resource');
+        let lastApiEntry: PerformanceResourceTiming | null = null;
+        for (const r of resources) {
+          if ((r as PerformanceResourceTiming).name.includes('/map/items')) {
+            lastApiEntry = r as PerformanceResourceTiming;
+          }
+        }
+        if (lastApiEntry) return lastApiEntry.name;
+
+        // Если в буфере пусто — ждём появления через PerformanceObserver
+        return new Promise<string | null>((resolve) => {
+          let resolved = false;
+          const observer = new PerformanceObserver((list: PerformanceObserverEntryList) => {
+            for (const entry of list.getEntries()) {
+              if (entry.name.includes('/map/items')) {
+                if (!resolved) {
+                  resolved = true;
+                  clearTimeout(timeout);
+                  observer.disconnect();
+                  resolve(entry.name);
+                }
+                return;
+              }
+            }
+          });
+          observer.observe({ type: 'resource' });
+          const timeout = setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              observer.disconnect();
+              resolve(null);
+            }
+          }, 10000);
+        });
+      },
+    }).then(results => {
+      const url = (results && results.length > 0) ? results[0].result || null : null;
+      sendResponse({ success: true, url });
+    }).catch(err => {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+  // Получить страницу данных через Avito API
+  if (message.type === 'FETCH_AVITO_API_PAGE') {
+    chrome.scripting.executeScript({
+      target: { tabId: message.tabId },
+      func: (apiUrl: string, page: number, limit: number) => {
+        const url = new URL(apiUrl, window.location.origin);
+        url.searchParams.set('page', String(page));
+        url.searchParams.set('limit', String(limit));
+        return fetch(url.pathname + url.search, {
+          headers: { 'accept': 'application/json', 'x-requested-with': 'XMLHttpRequest' }
+        }).then(r => r.json() as Promise<{ totalCount: number; items: any[] }>);
+      },
+      args: [message.apiUrl, message.page, message.limit || 50],
+    }).then(results => {
+      const data = (results && results.length > 0) ? results[0].result : null;
+      sendResponse({ success: true, totalCount: data?.totalCount || 0, items: data?.items || [] });
     }).catch(err => {
       sendResponse({ success: false, error: err.message });
     });
