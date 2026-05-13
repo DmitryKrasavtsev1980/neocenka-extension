@@ -8,6 +8,7 @@ import { db } from '@/db/database';
 import type { CrmLead, CrmSource, CrmPipeline, CrmStage, CrmLeadFilters, CrmPhone } from '@/types';
 import { formatPhone } from '@/types';
 import { Button } from '@/components/catalyst/button';
+import { SendMessageModal } from '@/components/crm/SendMessageModal';
 import {
   PlusIcon,
   TrashIcon,
@@ -51,6 +52,7 @@ const PAGE_SIZE = 30;
 const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const [leads, setLeads] = useState<CrmLead[]>([]);
   const [totalLeads, setTotalLeads] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [sourcesMap, setSourcesMap] = useState<Record<string, CrmSource>>({});
@@ -60,6 +62,8 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [pipelineFilter, setPipelineFilter] = useState('');
+  const [stageFilter, setStageFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -78,11 +82,15 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const [formStageId, setFormStageId] = useState(0);
   const [formStatus, setFormStatus] = useState<string>('new');
   const [formNotes, setFormNotes] = useState('');
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [messagingLead, setMessagingLead] = useState<CrmLead | null>(null);
 
   const filters: CrmLeadFilters = {
     search: search || undefined,
     status: statusFilter || undefined,
     source: sourceFilter || undefined,
+    pipeline_id: pipelineFilter ? Number(pipelineFilter) : undefined,
+    stage_id: stageFilter ? Number(stageFilter) : undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
   };
@@ -95,10 +103,11 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
       const result = await crmRepository.getLeads(filters, page, PAGE_SIZE);
       setLeads(result.leads);
       setTotalLeads(result.total);
+      setStatusCounts(result.statusCounts || {});
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sourceFilter, dateFrom, dateTo, page]);
+  }, [search, statusFilter, sourceFilter, pipelineFilter, stageFilter, dateFrom, dateTo, page]);
 
   const loadDeps = useCallback(async () => {
     await crmRepository.ensureDefaultSources();
@@ -298,14 +307,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     window.dispatchEvent(new CustomEvent('crm-data-changed'));
   };
 
-  const hasValidPhone = formPhones.some(p => p.number.replace(/\D/g, '').length >= 10);
-  const isValid = formName.trim() && hasValidPhone && formPipelineId && formStageId;
-
-  // Статистика
-  const stats = leads.reduce((acc, l) => {
-    acc[l.status] = (acc[l.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const isValid = formName.trim() && formPipelineId && formStageId;
 
   // Отображение телефонов в таблице
   const renderPhones = (phones: CrmPhone[]) => {
@@ -333,8 +335,8 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
               Лиды
               <span className="ml-2 text-sm font-normal text-zinc-500 dark:text-zinc-400">
                 {totalLeads} возможностей
-                {stats.new ? ` · ${stats.new} новых` : ''}
-                {stats.converted ? ` · ${stats.converted} конверт.` : ''}
+                {statusCounts.new ? ` · ${statusCounts.new} новых` : ''}
+                {statusCounts.converted ? ` · ${statusCounts.converted} конверт.` : ''}
               </span>
             </h1>
           </div>
@@ -343,7 +345,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
               type="text"
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Поиск по имени/телефону..."
+              placeholder="Поиск по имени, телефону, ссылке..."
               className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-900 dark:text-white w-56 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <Button color="white" onClick={() => setShowFilters(!showFilters)}>
@@ -380,6 +382,30 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                 <option key={s.code} value={s.code}>{s.name}</option>
               ))}
             </select>
+            {pipelines.length > 1 && (
+              <select
+                value={pipelineFilter}
+                onChange={e => { setPipelineFilter(e.target.value); setStageFilter(''); setPage(1); }}
+                className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+              >
+                <option value="">Все воронки</option>
+                {pipelines.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+            {pipelineFilter && stagesMap[Number(pipelineFilter)] && (
+              <select
+                value={stageFilter}
+                onChange={e => { setStageFilter(e.target.value); setPage(1); }}
+                className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+              >
+                <option value="">Все этапы</option>
+                {stagesMap[Number(pipelineFilter)].map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-zinc-500">от</span>
               <input
@@ -401,7 +427,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                 <TrashIcon className="size-3" /> Удалить все ({totalLeads})
               </button>
             )}
-            <button onClick={() => { setStatusFilter(''); setSourceFilter(''); setSearch(''); setDateFrom(''); setDateTo(''); setPage(1); }} className="inline-flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-700">
+            <button onClick={() => { setStatusFilter(''); setSourceFilter(''); setPipelineFilter(''); setStageFilter(''); setSearch(''); setDateFrom(''); setDateTo(''); setPage(1); }} className="inline-flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-700">
               <XMarkIcon className="size-3" /> Очистить
             </button>
           </div>
@@ -521,7 +547,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                       <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           {(lead.source_url || lead.ad_data?.url) && (
-                            <button onClick={() => window.open(lead.source_url || lead.ad_data?.url, '_blank')} className="p-1 rounded text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20" title={`Написать на ${lead.source === 'cian' ? 'ЦИАН' : lead.source === 'avito' ? 'Авито' : 'сайте'}`}>
+                            <button onClick={() => { setMessagingLead(lead); setShowMessageModal(true); }} className="p-1 rounded text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20" title={`Написать на ${lead.source === 'cian' ? 'ЦИАН' : lead.source === 'avito' ? 'Авито' : 'сайте'}`}>
                               <ChatBubbleLeftRightIcon className="size-3.5" />
                             </button>
                           )}
@@ -664,6 +690,14 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {showMessageModal && messagingLead && (
+        <SendMessageModal
+          lead={messagingLead}
+          onClose={() => { setShowMessageModal(false); setMessagingLead(null); }}
+          onSent={() => loadLeads()}
+        />
       )}
     </div>
   );

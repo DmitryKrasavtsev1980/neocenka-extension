@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmDeal, CrmDealDocument, CrmMessage, CrmParsingSource, CrmBotSettings, CrmSource, CrmLead, CrmTask, CrmStageAction, normalizePhone } from '@/types';
+import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmDeal, CrmDealDocument, CrmMessage, CrmParsingSource, CrmBotSettings, CrmSource, CrmLead, CrmTask, CrmStageAction, CrmMessageTemplate, normalizePhone } from '@/types';
 
 /**
  * Класс базы данных для хранения сделок с недвижимостью
@@ -33,6 +33,7 @@ export class DealsDatabase extends Dexie {
   crm_leads!: Table<CrmLead, number>;
   crm_tasks!: Table<CrmTask, number>;
   crm_stage_actions!: Table<CrmStageAction, number>;
+  crm_message_templates!: Table<CrmMessageTemplate, number>;
 
   constructor() {
     super('NeocenkaDB');
@@ -366,6 +367,48 @@ export class DealsDatabase extends Dexie {
           }
         });
       });
+    });
+
+    // Version 12: шаблоны сообщений
+    this.version(12).stores({
+      crm_message_templates: `
+        ++id,
+        category,
+        name,
+        created_at
+      `,
+    }).upgrade(tx => {
+      const tmplTable = tx.table('crm_message_templates');
+      const now = new Date().toISOString();
+
+      const defaults: Omit<CrmMessageTemplate, 'id'>[] = [
+        {
+          name: 'Загородная недвижимость',
+          category: 'suburban',
+          body: `Здравствуйте! Меня зовут Дмитрий. Пишу по вашему объявлению.
+
+Знаю, что главная проблема при продаже загородной недвижимости — это холостые поездки на показы. Человек едет из города, осматривает объект и говорит «не то». У вас потрачены выходные, а результата нет.
+
+Я делаю 3D-туры. Покупатель сможет виртуально пройтись по дому и участку прямо со смартфона, еще до выезда. Он оценит планировку, габариты и расположение онлайн. К вам на показ будут приезжать только те, кто уже фактически выбрал ваш объект. Это ускоряет сделку в разы.
+
+Скинуть вам короткий пример, как это выглядит на практике?`,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          name: 'Квартиры',
+          category: 'flat',
+          body: `Здравствуйте! Меня зовут Дмитрий. Вижу ваше объявление о продаже квартиры. Предлагаю сделать 3D-тур, чтобы продать объект быстрее и без снижения цены. Что это даст:
+• Никаких холостых показов (люди оценят планировку онлайн).
+• Выделение на фоне сотен конкурентов с обычными фото.
+• Привлечение серьезных покупателей из других городов.
+
+Скинуть пример моей работы?`,
+          created_at: now,
+          updated_at: now,
+        },
+      ];
+      return tmplTable.bulkAdd(defaults);
     });
   }
 }

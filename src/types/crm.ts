@@ -55,6 +55,17 @@ export interface CrmSource {
   created_at: string;
 }
 
+/** Шаблон сообщения для отправки лидам */
+export interface CrmMessageTemplate {
+  id?: number;
+  name: string;
+  body: string;
+  /** 'suburban' | 'flat' — для автоподстановки по типу объекта */
+  category?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Сделка — бизнес-процесс, привязанный к клиенту и воронке */
 export interface CrmDeal {
   id?: number;
@@ -204,6 +215,7 @@ export interface CrmLeadFilters {
   source?: string;
   status?: string;
   pipeline_id?: number;
+  stage_id?: number;
   date_from?: string;
   date_to?: string;
 }
@@ -214,6 +226,7 @@ export interface CrmLeadSearchResult {
   total: number;
   page: number;
   pageSize: number;
+  statusCounts?: Record<string, number>;
 }
 
 /** Задача CRM */

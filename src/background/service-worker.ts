@@ -564,6 +564,115 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  // ─── Отправка сообщений через чаты Авито / ЦИАН ────────────────────
+
+  // Открыть чат на Авито (icebreakers textarea уже на странице)
+  if (message.type === 'OPEN_AVITO_CHAT') {
+    // На Авито поле ввода уже доступно на странице (icebreakers)
+    // Проверяем его наличие
+    chrome.scripting.executeScript({
+      target: { tabId: message.tabId },
+      func: () => {
+        const textarea = document.querySelector('[data-marker="icebreakers/textarea"]');
+        if (!textarea) {
+          // Fallback: нажимаем кнопку "Написать сообщение"
+          const writeBtn = document.querySelector('[data-marker="messenger-button/button"]');
+          if (writeBtn) {
+            (writeBtn as HTMLElement).click();
+            return { success: true };
+          }
+          return { success: false, error: 'Не найдено поле ввода чата на странице Авито' };
+        }
+        return { success: true };
+      },
+    }).then(results => {
+      const r = results?.[0]?.result || { success: false, error: 'No result' };
+      sendResponse(r);
+    }).catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Открыть чат на ЦИАН (нажать "Написать")
+  if (message.type === 'OPEN_CIAN_CHAT') {
+    chrome.scripting.executeScript({
+      target: { tabId: message.tabId },
+      func: () => {
+        const writeBtn = document.querySelector('[data-name="SendMessageButton"] button');
+        if (!writeBtn) {
+          return { success: false, error: 'Не найдена кнопка "Написать" на странице ЦИАН' };
+        }
+        (writeBtn as HTMLElement).click();
+        return { success: true };
+      },
+    }).then(results => {
+      const r = results?.[0]?.result || { success: false, error: 'No result' };
+      sendResponse(r);
+    }).catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // Ввести текст и отправить сообщение
+  if (message.type === 'TYPE_AND_SEND_MESSAGE') {
+    chrome.scripting.executeScript({
+      target: { tabId: message.tabId },
+      func: (text: string) => {
+        // ── Авито: icebreakers textarea — только заполняем ──
+        const avitoTextarea = document.querySelector('[data-marker="icebreakers/textarea"]') as HTMLTextAreaElement | null;
+        if (avitoTextarea) {
+          // Устанавливаем значение через native setter (React-compatible)
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(avitoTextarea, text);
+          avitoTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+          avitoTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+          avitoTextarea.focus();
+
+          // Только заполняем — отправляет пользователь сам
+          return { success: true };
+        }
+
+        // ── ЦИАН: чат в iframe после нажатия "Написать" ──
+        // Чат ЦИАН загружается в iframe с src, содержащим /dialogs/
+        const fillOnly = text.startsWith('__FILL_ONLY__');
+        const actualText = fillOnly ? text.substring('__FILL_ONLY__'.length) : text;
+
+        const findChatIframe = (): HTMLIFrameElement | null => {
+          const iframes = document.querySelectorAll('iframe');
+          for (const f of iframes) {
+            if (f.src && f.src.includes('/dialogs/')) return f as HTMLIFrameElement;
+          }
+          return null;
+        };
+
+        const chatIframe = findChatIframe();
+        if (!chatIframe?.contentDocument) {
+          return { success: false, error: 'Не найден чат ЦИАН. Возможно, нужно авторизоваться.' };
+        }
+
+        const chatDoc = chatIframe.contentDocument;
+        // Textarea с placeholder "Написать сообщение"
+        const chatTextarea = chatDoc.querySelector('textarea[placeholder="Написать сообщение"]') as HTMLTextAreaElement | null;
+        if (!chatTextarea) {
+          return { success: false, error: 'Не найдено поле ввода в чате ЦИАН' };
+        }
+
+        // Фокусируем и вставляем текст через native setter
+        chatTextarea.focus();
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        setter?.call(chatTextarea, actualText);
+        chatTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        chatTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // Для ЦИАН — только заполняем, не отправляем (пользователь сам нажмёт)
+        return { success: true };
+      },
+      args: [message.text],
+    }).then(results => {
+      const raw = results?.[0]?.result;
+      sendResponse(raw || { success: false, error: 'No result' });
+    }).catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   return false;
 });
 

@@ -27,7 +27,7 @@ export async function getBotSettings() {
 /**
  * Заменить переменные в шаблоне контекста
  */
-function fillTemplate(template: string, client: CrmClient): string {
+export function fillTemplate(template: string, client: CrmClient): string {
   return template
     .replace(/\{client_name\}/g, client.full_name || 'Клиент')
     .replace(/\{phone\}/g, formatPhone(getPrimaryPhone(client.phones || [])) || '—')

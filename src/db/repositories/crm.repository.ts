@@ -25,6 +25,7 @@ import type {
   CrmLeadSearchResult,
   CrmTaskSearchResult,
   CrmDashboardStats,
+  CrmMessageTemplate,
 } from '@/types';
 import { normalizePhone, getPrimaryPhone } from '@/types';
 
@@ -453,6 +454,8 @@ export const crmRepository = {
       const q = filters.search.toLowerCase();
       filtered = filtered.filter(l =>
         l.contact_name.toLowerCase().includes(q) ||
+        (l.source_url?.toLowerCase().includes(q) ?? false) ||
+        (l.ad_data?.url?.toLowerCase().includes(q) ?? false) ||
         (l.phones || []).some(p => p.number.includes(q) || p.number.replace(/\D/g, '').includes(q.replace(/\D/g, ''))) ||
         (l.contact_email?.toLowerCase().includes(q) ?? false)
       );
@@ -466,6 +469,9 @@ export const crmRepository = {
     if (filters.pipeline_id) {
       filtered = filtered.filter(l => l.pipeline_id === filters.pipeline_id);
     }
+    if (filters.stage_id) {
+      filtered = filtered.filter(l => l.stage_id === filters.stage_id);
+    }
     if (filters.date_from) {
       const from = new Date(filters.date_from).getTime();
       filtered = filtered.filter(l => new Date(l.created_at).getTime() >= from);
@@ -476,9 +482,13 @@ export const crmRepository = {
     }
 
     const total = filtered.length;
+    const statusCounts: Record<string, number> = {};
+    for (const l of filtered) {
+      statusCounts[l.status] = (statusCounts[l.status] || 0) + 1;
+    }
     const start = (page - 1) * pageSize;
     const leads = filtered.slice(start, start + pageSize);
-    return { leads, total, page, pageSize };
+    return { leads, total, page, pageSize, statusCounts };
   },
 
   async getLead(id: number): Promise<CrmLead | undefined> {
@@ -911,5 +921,62 @@ export const crmRepository = {
     });
 
     return pipelineId;
+  },
+
+  // ─── Шаблоны сообщений ─────────────────────────────────────────────
+
+  async getMessageTemplates(): Promise<CrmMessageTemplate[]> {
+    return db.crm_message_templates.orderBy('created_at').toArray();
+  },
+
+  async getMessageTemplate(id: number): Promise<CrmMessageTemplate | undefined> {
+    return db.crm_message_templates.get(id);
+  },
+
+  async addMessageTemplate(data: Omit<CrmMessageTemplate, 'id'>): Promise<number> {
+    return db.crm_message_templates.add(data as CrmMessageTemplate);
+  },
+
+  async updateMessageTemplate(id: number, data: Partial<CrmMessageTemplate>): Promise<void> {
+    await db.crm_message_templates.update(id, { ...data, updated_at: new Date().toISOString() });
+  },
+
+  async deleteMessageTemplate(id: number): Promise<void> {
+    await db.crm_message_templates.delete(id);
+  },
+
+  async ensureDefaultTemplates(): Promise<void> {
+    const count = await db.crm_message_templates.count();
+    if (count > 0) return;
+
+    const now = new Date().toISOString();
+    const defaults: Omit<CrmMessageTemplate, 'id'>[] = [
+      {
+        name: 'Загородная недвижимость',
+        category: 'suburban',
+        body: `Здравствуйте! Меня зовут Дмитрий. Пишу по вашему объявлению.
+
+Знаю, что главная проблема при продаже загородной недвижимости — это холостые поездки на показы. Человек едет из города, осматривает объект и говорит «не то». У вас потрачены выходные, а результата нет.
+
+Я делаю 3D-туры. Покупатель сможет виртуально пройтись по дому и участку прямо со смартфона, еще до выезда. Он оценит планировку, габариты и расположение онлайн. К вам на показ будут приезжать только те, кто уже фактически выбрал ваш объект. Это ускоряет сделку в разы.
+
+Скинуть вам короткий пример, как это выглядит на практике?`,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        name: 'Квартиры',
+        category: 'flat',
+        body: `Здравствуйте! Меня зовут Дмитрий. Вижу ваше объявление о продаже квартиры. Предлагаю сделать 3D-тур, чтобы продать объект быстрее и без снижения цены. Что это даст:
+• Никаких холостых показов (люди оценят планировку онлайн).
+• Выделение на фоне сотен конкурентов с обычными фото.
+• Привлечение серьезных покупателей из других городов.
+
+Скинуть пример моей работы?`,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+    await db.crm_message_templates.bulkAdd(defaults);
   },
 };
