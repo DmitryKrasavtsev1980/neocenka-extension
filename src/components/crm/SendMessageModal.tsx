@@ -19,16 +19,6 @@ interface SendMessageModalProps {
   onSent?: () => void;
 }
 
-/** Определить тип объекта по source_url или source */
-function detectPropertyCategory(lead: CrmLead): string {
-  const url = lead.source_url || lead.ad_data?.url || '';
-  const src = (lead.source || '').toLowerCase();
-  if (url.includes('/doma_') || url.includes('/doma-dachi') || url.includes('/dacha') || url.includes('/kottedzh') || url.includes('/uchastok') || url.includes('/suburban') || src.includes('дом') || src.includes('дач') || src.includes('участ')) {
-    return 'suburban';
-  }
-  return 'flat';
-}
-
 const STAGE_LABELS: Record<string, string> = {
   opening: 'Открытие страницы...',
   waiting_page: 'Загрузка страницы...',
@@ -66,9 +56,8 @@ export const SendMessageModal: React.FC<SendMessageModalProps> = ({ lead, onClos
     const all = await crmRepository.getMessageTemplates();
     setTemplates(all);
 
-    // Автовыбор по типу объекта
-    const category = detectPropertyCategory(lead);
-    const match = all.find(t => t.category === category);
+    // Автовыбор по pipeline_id + source
+    const match = await crmRepository.getTemplateForPipelineAndSource(lead.pipeline_id, lead.source);
     if (match) {
       setSelectedId(match.id!);
       setMessageText(fillTemplateForLead(match.body, lead));
@@ -262,6 +251,15 @@ export const SendMessageModal: React.FC<SendMessageModalProps> = ({ lead, onClos
                     className="rounded-md border border-zinc-300 dark:border-zinc-600 px-2 py-1.5 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
                   >
                     &#9998;
+                  </button>
+                )}
+                {selectedTemplate && templates.length > 1 && (
+                  <button
+                    onClick={handleDeleteTemplate}
+                    title="Удалить шаблон"
+                    className="rounded-md border border-red-200 dark:border-red-800 px-2 py-1.5 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                    &times;
                   </button>
                 )}
               </div>

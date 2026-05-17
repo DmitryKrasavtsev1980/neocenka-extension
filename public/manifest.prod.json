@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "https://*.cian.ru/*",
-    "https://*.avito.ru/*"
+    "https://*.avito.ru/*",
+    "https://*.inpars.ru/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html",

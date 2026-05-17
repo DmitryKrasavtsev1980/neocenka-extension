@@ -613,62 +613,94 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Ввести текст и отправить сообщение
   if (message.type === 'TYPE_AND_SEND_MESSAGE') {
+    const text = message.text as string;
+    const tabId = message.tabId as number;
+
+    // ─── Авито: MAIN world — вызов React onChange напрямую ────────────
     chrome.scripting.executeScript({
-      target: { tabId: message.tabId },
+      target: { tabId },
+      world: 'MAIN' as any,
       func: (text: string) => {
-        // ── Авито: icebreakers textarea — только заполняем ──
-        const avitoTextarea = document.querySelector('[data-marker="icebreakers/textarea"]') as HTMLTextAreaElement | null;
-        if (avitoTextarea) {
-          // Устанавливаем значение через native setter (React-compatible)
-          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-          setter?.call(avitoTextarea, text);
-          avitoTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-          avitoTextarea.dispatchEvent(new Event('change', { bubbles: true }));
-          avitoTextarea.focus();
+        const ta = document.querySelector('[data-marker="icebreakers/textarea"]');
+        if (!ta) return { found: false };
 
-          // Только заполняем — отправляет пользователь сам
-          return { success: true };
+        // Ключевой момент: React — controlled component.
+        // dispatchEvent('input') вызывает React-обработчик, который СБРАСЫВАЕТ
+        // значение обратно к внутреннему state. Поэтому вызываем onChange напрямую.
+
+        // 1. Найти React props на элементе
+        const reactKey = Object.keys(ta).find(k => k.startsWith('__reactProps'));
+        const reactProps = reactKey ? (ta as any)[reactKey] : null;
+
+        if (reactProps?.onChange) {
+          // 2. Установить значение через native setter
+          const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+          if (desc?.set) desc.set.call(ta, text);
+
+          // 3. Вызвать React onChange напрямую — React прочитает ta.value
+          //    и обновит свой внутренний state, после чего перерендерит
+          //    textarea с нашим текстом
+          reactProps.onChange({ target: ta, currentTarget: ta });
+
+          ta.focus();
+          return { found: true, success: true, method: 'react-onChange' };
         }
 
-        // ── ЦИАН: чат в iframe после нажатия "Написать" ──
-        // Чат ЦИАН загружается в iframe с src, содержащим /dialogs/
-        const fillOnly = text.startsWith('__FILL_ONLY__');
-        const actualText = fillOnly ? text.substring('__FILL_ONLY__'.length) : text;
-
-        const findChatIframe = (): HTMLIFrameElement | null => {
-          const iframes = document.querySelectorAll('iframe');
-          for (const f of iframes) {
-            if (f.src && f.src.includes('/dialogs/')) return f as HTMLIFrameElement;
-          }
-          return null;
-        };
-
-        const chatIframe = findChatIframe();
-        if (!chatIframe?.contentDocument) {
-          return { success: false, error: 'Не найден чат ЦИАН. Возможно, нужно авторизоваться.' };
-        }
-
-        const chatDoc = chatIframe.contentDocument;
-        // Textarea с placeholder "Написать сообщение"
-        const chatTextarea = chatDoc.querySelector('textarea[placeholder="Написать сообщение"]') as HTMLTextAreaElement | null;
-        if (!chatTextarea) {
-          return { success: false, error: 'Не найдено поле ввода в чате ЦИАН' };
-        }
-
-        // Фокусируем и вставляем текст через native setter
-        chatTextarea.focus();
-        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-        setter?.call(chatTextarea, actualText);
-        chatTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-        chatTextarea.dispatchEvent(new Event('change', { bubbles: true }));
-
-        // Для ЦИАН — только заполняем, не отправляем (пользователь сам нажмёт)
-        return { success: true };
+        // Fallback: если React props не найдены — обычный метод
+        const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+        if (desc?.set) desc.set.call(ta, text);
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('change', { bubbles: true }));
+        ta.focus();
+        return { found: true, success: (ta as HTMLTextAreaElement).value === text, method: 'fallback-dispatch' };
       },
-      args: [message.text],
+      args: [text],
     }).then(results => {
-      const raw = results?.[0]?.result;
-      sendResponse(raw || { success: false, error: 'No result' });
+      const r = results?.[0]?.result as any;
+      if (r?.found) {
+        // Авито текст вставлен (или попытка сделана)
+        sendResponse({ success: true });
+        return;
+      }
+
+      // ─── ЦИАН: чат в iframe — isolated world ────────────────────────
+      chrome.scripting.executeScript({
+        target: { tabId },
+        func: (text: string) => {
+          const fillOnly = text.startsWith('__FILL_ONLY__');
+          const actualText = fillOnly ? text.substring('__FILL_ONLY__'.length) : text;
+
+          const findChatIframe = (): HTMLIFrameElement | null => {
+            const iframes = document.querySelectorAll('iframe');
+            for (const f of iframes) {
+              if (f.src && f.src.includes('/dialogs/')) return f as HTMLIFrameElement;
+            }
+            return null;
+          };
+
+          const chatIframe = findChatIframe();
+          if (!chatIframe?.contentDocument) {
+            return { success: false, error: 'Не найден чат ЦИАН. Возможно, нужно авторизоваться.' };
+          }
+
+          const chatDoc = chatIframe.contentDocument;
+          const chatTextarea = chatDoc.querySelector('textarea[placeholder="Написать сообщение"]') as HTMLTextAreaElement | null;
+          if (!chatTextarea) {
+            return { success: false, error: 'Не найдено поле ввода в чате ЦИАН' };
+          }
+
+          chatTextarea.focus();
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(chatTextarea, actualText);
+          chatTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+          chatTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+
+          return { success: true };
+        },
+        args: [text],
+      }).then(results2 => {
+        sendResponse(results2?.[0]?.result || { success: false, error: 'No result' });
+      }).catch(err => sendResponse({ success: false, error: err.message }));
     }).catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }

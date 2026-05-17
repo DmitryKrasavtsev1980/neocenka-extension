@@ -16,7 +16,13 @@ export const INPARS_SOURCE_IDS: Record<string, number> = {
   cian: 2,
   youla: 5,
   sob: 7,
+  bazarpnz: 9,
+  move: 11,
+  yandex: 13,
+  gipernn: 19,
+  orsk: 21,
   domclick: 22,
+  doskaYkt: 23,
 };
 
 export const INPARS_SOURCE_NAMES: Record<number, string> = {
@@ -24,18 +30,43 @@ export const INPARS_SOURCE_NAMES: Record<number, string> = {
   2: 'cian',
   5: 'youla',
   7: 'sob',
+  9: 'bazarpnz',
+  11: 'move',
+  13: 'yandex',
+  19: 'gipernn',
+  21: 'orsk',
   22: 'domclick',
+  23: 'doskaYkt',
 };
+
+const STORAGE_KEY = 'inpars_api_token';
 
 let apiToken = '';
 let lastRequestTime = 0;
 
-/** Установить API токен */
-export function setInparsToken(token: string): void {
-  apiToken = token;
+/** Загрузить токен из chrome.storage */
+export async function loadInparsToken(): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      chrome.storage.local.get(STORAGE_KEY, (result) => {
+        apiToken = result[STORAGE_KEY] || '';
+        resolve(apiToken);
+      });
+    } else {
+      resolve(apiToken);
+    }
+  });
 }
 
-/** Получить текущий токен */
+/** Установить API токен (и сохранить в chrome.storage) */
+export function setInparsToken(token: string): void {
+  apiToken = token;
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.set({ [STORAGE_KEY]: token });
+  }
+}
+
+/** Получить текущий токен (из памяти) */
 export function getInparsToken(): string {
   return apiToken;
 }
@@ -98,8 +129,24 @@ export async function checkSubscription(): Promise<{
   subscribed: boolean;
   expires_at?: string;
   plan?: string;
+  regionId?: number;
+  typeId?: number;
 }> {
-  return inparsRequest('GET', 'user/subscribe');
+  const raw = await inparsRequest<{ data: Array<{ regionId?: number; typeId?: number; startTime: string; endTime: string; subscribe: string; api: boolean }>; meta?: unknown }>('GET', 'user/subscribe');
+
+  const items = raw.data || [];
+  const active = items.find(item => {
+    if (!item.endTime) return false;
+    return new Date(item.endTime) > new Date();
+  });
+
+  return {
+    subscribed: !!active,
+    expires_at: active?.endTime,
+    plan: active?.subscribe,
+    regionId: active?.regionId,
+    typeId: active?.typeId,
+  };
 }
 
 /** Загрузить категории */
@@ -108,10 +155,36 @@ export async function loadCategories(): Promise<InparsCategoryRaw[]> {
   return data.data || [];
 }
 
-/** Загрузить регионы */
-export async function loadRegions(): Promise<InparsRegionRaw[]> {
+/** Загрузить регионы (с кешированием в chrome.storage) */
+export async function loadRegions(forceRefresh = false): Promise<InparsRegionRaw[]> {
+  if (!forceRefresh && typeof chrome !== 'undefined' && chrome.storage?.local) {
+    const cached = await new Promise<InparsRegionRaw[] | undefined>((resolve) => {
+      chrome.storage.local.get('inpars_regions', (r) => resolve(r.inpars_regions));
+    });
+    if (cached?.length) return cached;
+  }
   const data = await inparsRequest<{ data: InparsRegionRaw[] }>('GET', 'region');
-  return data.data || [];
+  const regions = data.data || [];
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.set({ inpars_regions: regions });
+  }
+  return regions;
+}
+
+/** Загрузить разделы (с кешированием в chrome.storage) */
+export async function loadSections(forceRefresh = false): Promise<InparsSectionRaw[]> {
+  if (!forceRefresh && typeof chrome !== 'undefined' && chrome.storage?.local) {
+    const cached = await new Promise<InparsSectionRaw[] | undefined>((resolve) => {
+      chrome.storage.local.get('inpars_sections', (r) => resolve(r.inpars_sections));
+    });
+    if (cached?.length) return cached;
+  }
+  const data = await inparsRequest<{ data: InparsSectionRaw[] }>('GET', 'estate/section');
+  const sections = data.data || [];
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.set({ inpars_sections: sections });
+  }
+  return sections;
 }
 
 /** Параметры запроса объявлений */
@@ -121,36 +194,66 @@ export interface InparsListingsOptions {
   limit?: number;
   timeStart?: number;
   timeEnd?: number;
-  categoryId?: number;
-  sourceId?: number;
+  categoryId?: number | string;
+  sourceId?: number | string;
   sellerType?: string;
-  expand?: boolean;
   sortBy?: string;
   isNew?: number;
 }
 
-/** Получить объявления по полигону */
+/** Получить ВСЕ объявления по полигону (с автоматической пагинацией) */
 export async function getListingsByPolygon(
   polygon: [number, number][],
   options: Omit<InparsListingsOptions, 'polygon' | 'regionId'> = {},
+  onProgress?: (loaded: number) => void,
 ): Promise<{ listings: InparsListingRaw[]; total?: number }> {
-  const body: Record<string, unknown> = {
-    polygon,
-    limit: options.limit || MAX_LIMIT,
-    expand: true,
-    ...options,
-  };
+  const polygonString = polygon.map(([lat, lng]) => `${lat},${lng}`).join(',');
+  const allListings: InparsListingRaw[] = [];
+  let timeStart = options.timeStart;
+  let page = 0;
 
-  const data = await inparsRequest<{ data: InparsListingRaw[]; meta?: { total?: number } }>(
-    'POST',
-    'estate',
-    body,
-  );
+  while (true) {
+    const body: Record<string, unknown> = {
+      polygon: polygonString,
+      limit: MAX_LIMIT,
+      expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house',
+      sortBy: 'updated_asc',
+      isNew: 0,
+      sellerType: options.sellerType || '1,2,3',
+    };
+    if (timeStart) body.timeStart = timeStart;
+    if (options.timeEnd) body.timeEnd = options.timeEnd;
+    if (options.categoryId) body.categoryId = options.categoryId;
+    if (options.sourceId) body.sourceId = options.sourceId;
 
-  return {
-    listings: data.data || [],
-    total: data.meta?.total,
-  };
+    const data = await inparsRequest<{ data: InparsListingRaw[]; meta?: { total?: number; totalCount?: number } }>(
+      'POST',
+      'estate',
+      body,
+    );
+
+    const batch = data.data || [];
+    if (batch.length === 0) break;
+
+    allListings.push(...batch);
+    page++;
+    onProgress?.(allListings.length);
+
+    // Если получили меньше лимита — всё загружено
+    if (batch.length < MAX_LIMIT) break;
+
+    // Берём updated последнего как курсор для следующей страницы (с fallback на другие поля)
+    const lastItem = batch[batch.length - 1];
+    const lastUpdated = lastItem.updated || lastItem.dateUpdate || lastItem.dateUpdated;
+    if (!lastUpdated) break;
+    if (typeof lastUpdated === 'number') {
+      timeStart = lastUpdated;
+    } else {
+      timeStart = Math.floor(new Date(lastUpdated as string).getTime() / 1000);
+    }
+  }
+
+  return { listings: allListings, total: allListings.length };
 }
 
 /** Получить объявления по региону с пагинацией */
@@ -166,7 +269,7 @@ export async function getListingsByRegion(
     const body: Record<string, unknown> = {
       regionId,
       limit: MAX_LIMIT,
-      expand: true,
+      expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house',
       sortBy: 'updated_asc',
       ...options,
     };
@@ -194,19 +297,22 @@ export async function getListingsByRegion(
 
 export interface InparsCategoryRaw {
   id: number;
-  name: string;
-  name_eng?: string;
-  parent_id?: number;
-  section_id?: number;
-  type_id?: number;
-  has_children?: boolean;
-  level?: number;
+  title: string;
+  typeId: number;
+  sectionId: number;
 }
 
 export interface InparsRegionRaw {
   id: number;
-  name: string;
+  title?: string;
+  name?: string;
   parent_id?: number;
+}
+
+export interface InparsSectionRaw {
+  id: number;
+  typeId: number;
+  title: string;
 }
 
 export interface InparsListingRaw {
@@ -237,6 +343,8 @@ export interface InparsListingRaw {
   phones?: string[];
   created?: string | number;
   updated?: string | number;
+  dateUpdate?: string | number;
+  dateUpdated?: string | number;
   isNew?: number;
   [key: string]: unknown;
 }
@@ -268,13 +376,13 @@ function normalizeSeller(
   const agentCode = raw.agent;
   let type: SellerInfo['type'] = null;
   if (agentCode === 0) type = 'owner';
-  else if (agentCode === 1) type = 'agent';
-  else if (agentCode === 2) type = 'agency';
+  else if (agentCode === 1 || agentCode === 2) type = 'agent';
+  else if (agentCode === 3) type = 'developer';
 
   return {
     name: raw.name || null,
     type,
-    is_agent: agentCode === 1 || agentCode === 2,
+    is_agent: agentCode === 1 || agentCode === 2 || agentCode === 3,
     phone: raw.phones?.[0] || null,
     phone_protected: null,
   };

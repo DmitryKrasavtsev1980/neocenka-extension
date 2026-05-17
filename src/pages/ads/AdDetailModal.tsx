@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import type { Ad, PriceHistoryItem } from '@/types';
 
 const SELLER_TYPE_LABELS: Record<string, string> = {
-  owner: 'Собственник', agent: 'Агент', agency: 'Агентство', developer: 'Девелопер',
+  owner: 'Собственник', agent: 'Агент', developer: 'Застройщик',
 };
 
 const fmtPrice = (price: number | null): string => {

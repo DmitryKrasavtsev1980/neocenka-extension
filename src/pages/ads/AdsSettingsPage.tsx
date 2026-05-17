@@ -2,38 +2,183 @@
  * Страница настроек модуля «Рекламные объявления»
  * — API ключ Inpars + проверка подписки
  * — Загрузка справочников (категории) из Inpars
+ * — Выбор категорий для использования в фильтрах
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   setInparsToken,
   getInparsToken,
+  loadInparsToken,
   checkSubscription,
   loadCategories,
+  loadRegions,
+  loadSections,
+  INPARS_SOURCE_IDS,
   type InparsCategoryRaw,
+  type InparsRegionRaw,
+  type InparsSectionRaw,
 } from '@/services/inpars-service';
 import { db } from '@/db/database';
 import type { InparsCategory } from '@/types';
 
+const TYPE_ID_LABELS: Record<number, string> = {
+  1: 'Аренда',
+  2: 'Продажа',
+};
+
+const STORAGE_KEY_SELECTED_CATEGORIES = 'inpars_selected_categories';
+const STORAGE_KEY_SELECTED_SOURCES = 'inpars_selected_sources';
+
+const SOURCE_LABELS: Record<string, string> = {
+  avito: 'avito.ru',
+  cian: 'cian.ru',
+  youla: 'youla.io',
+  sob: 'sob.ru',
+  bazarpnz: 'bazarpnz.ru',
+  move: 'move.ru',
+  yandex: 'realty.yandex.ru',
+  gipernn: 'gipernn.ru',
+  orsk: 'orsk.ru',
+  domclick: 'domclick.ru',
+  doskaYkt: 'doska.ykt.ru',
+};
+
+/** Загрузить выбранные значения из chrome.storage */
+async function loadFromStorage<T>(key: string): Promise<T> {
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(key, (result) => {
+        resolve((result as Record<string, T>)[key] ?? ([] as unknown as T));
+      });
+    });
+  }
+  return ([] as unknown) as T;
+}
+
+/** Сохранить значения в chrome.storage */
+async function saveToStorage<T>(key: string, value: T): Promise<void> {
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.set({ [key]: value });
+  }
+}
 const AdsSettingsPage: React.FC = () => {
-  const [token, setToken] = useState(() => getInparsToken() || '');
+  const [token, setToken] = useState('');
+  const [tokenLoaded, setTokenLoaded] = useState(false);
   const [tokenSaved, setTokenSaved] = useState(false);
   const [subscription, setSubscription] = useState<{
     subscribed: boolean;
     expires_at?: string;
     plan?: string;
+    regionId?: number;
+    typeId?: number;
   } | null>(null);
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
 
-  // Справочники
+  // Справочники для подписки
+  const [regions, setRegions] = useState<InparsRegionRaw[]>([]);
+  const [sections, setSections] = useState<InparsSectionRaw[]>([]);
+
+  // Справочники — категории
+  const [allCategories, setAllCategories] = useState<InparsCategoryRaw[]>([]);
   const [categoriesCount, setCategoriesCount] = useState(0);
   const [importingCategories, setImportingCategories] = useState(false);
   const [categoriesResult, setCategoriesResult] = useState<{ imported: number; updated: number } | null>(null);
   const [categoriesError, setCategoriesError] = useState('');
 
+  // Выбранные пользователем категории (inpars_id[])
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
+
+  // Выбранные пользователем источники (sourceIds: number[])
+  const [selectedSourceIds, setSelectedSourceIds] = useState<number[]>([]);
+
+  // Резолв имени региона
+  const regionName = useMemo(() => {
+    if (!subscription?.regionId || regions.length === 0) return undefined;
+    const region = regions.find(r => r.id === subscription.regionId);
+    return region?.title || region?.name || `ID ${subscription.regionId}`;
+  }, [subscription?.regionId, regions]);
+
+  // Резолв типа подписки
+  const typeName = useMemo(() => {
+    if (!subscription?.typeId) return undefined;
+    return TYPE_ID_LABELS[subscription.typeId] || `Тип ${subscription.typeId}`;
+  }, [subscription?.typeId]);
+
+  // Группировка категорий по разделам
+  const categoriesBySection = useMemo(() => {
+    const map = new Map<number, { section: InparsSectionRaw | undefined; categories: InparsCategoryRaw[] }>();
+    for (const cat of allCategories) {
+      if (!map.has(cat.sectionId)) {
+        map.set(cat.sectionId, {
+          section: sections.find(s => s.id === cat.sectionId),
+          categories: [],
+        });
+      }
+      map.get(cat.sectionId)!.categories.push(cat);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, val]) => val);
+  }, [allCategories, sections]);
+
+  /** Загрузить справочники (регионы + разделы) один раз при наличии токена */
+  const loadReferences = async () => {
+    try {
+      const [regionsData, sectionsData] = await Promise.all([
+        loadRegions(),
+        loadSections(),
+      ]);
+      setRegions(regionsData);
+      setSections(sectionsData);
+    } catch {
+      // Не критично — покажем ID вместо имён
+    }
+  };
+
   useEffect(() => {
-    db.table<InparsCategory>('inpars_categories').count().then(setCategoriesCount);
+    (async () => {
+      const savedToken = await loadInparsToken();
+      if (savedToken) {
+        setToken(savedToken);
+        setTokenLoaded(true);
+        setChecking(true);
+        try {
+          const [sub] = await Promise.all([
+            checkSubscription(),
+            loadReferences(),
+          ]);
+          setSubscription(sub);
+        } catch {
+          // Тихо игнорируем
+        } finally {
+          setChecking(false);
+        }
+      } else {
+        setTokenLoaded(true);
+      }
+
+      // Загрузить категории из IndexedDB
+      const saved = await db.table<InparsCategory>('inpars_categories').toArray();
+      setCategoriesCount(saved.length);
+      if (saved.length > 0) {
+        setAllCategories(saved.map(c => ({
+          id: c.inpars_id!,
+          title: c.name,
+          typeId: c.type_id ?? 0,
+          sectionId: c.section_id ?? 0,
+        })));
+      }
+
+      // Загрузить выбранные категории и источники
+      const [selCats, selSources] = await Promise.all([
+        loadFromStorage<number[]>(STORAGE_KEY_SELECTED_CATEGORIES),
+        loadFromStorage<number[]>(STORAGE_KEY_SELECTED_SOURCES),
+      ]);
+      setSelectedCategoryIds(selCats);
+      setSelectedSourceIds(selSources);
+    })();
   }, []);
 
   const handleSaveToken = async () => {
@@ -47,7 +192,10 @@ const AdsSettingsPage: React.FC = () => {
 
     setChecking(true);
     try {
-      const sub = await checkSubscription();
+      const [sub] = await Promise.all([
+        checkSubscription(),
+        loadReferences(),
+      ]);
       setSubscription(sub);
     } catch (e) {
       setError(`Ошибка проверки подписки: ${e instanceof Error ? e.message : String(e)}`);
@@ -79,16 +227,16 @@ const AdsSettingsPage: React.FC = () => {
 
         const record: InparsCategory = {
           inpars_id: cat.id,
-          name: cat.name,
-          name_en: cat.name_eng || '',
-          parent_id: cat.parent_id ?? null,
-          section_id: cat.section_id ?? null,
-          type_id: cat.type_id ?? null,
+          name: cat.title,
+          name_en: '',
+          parent_id: null,
+          section_id: cat.sectionId,
+          type_id: cat.typeId,
           is_active: true,
           sort_order: 0,
           description: '',
-          level: cat.level ?? 0,
-          has_children: cat.has_children ?? false,
+          level: 0,
+          has_children: false,
           imported_at: now,
         };
 
@@ -101,6 +249,7 @@ const AdsSettingsPage: React.FC = () => {
         }
       }
 
+      setAllCategories(rawCategories);
       setCategoriesResult({ imported, updated });
       setCategoriesCount(await table.count());
     } catch (e) {
@@ -109,6 +258,63 @@ const AdsSettingsPage: React.FC = () => {
       setImportingCategories(false);
     }
   };
+
+  const toggleCategory = useCallback((catId: number) => {
+    setSelectedCategoryIds(prev => {
+      const next = prev.includes(catId)
+        ? prev.filter(id => id !== catId)
+        : [...prev, catId];
+      saveToStorage(STORAGE_KEY_SELECTED_CATEGORIES, next);
+      return next;
+    });
+  }, []);
+
+  const selectAllInSection = useCallback((sectionId: number) => {
+    setSelectedCategoryIds(prev => {
+      const sectionCatIds = allCategories
+        .filter(c => c.sectionId === sectionId)
+        .map(c => c.id);
+      const allSelected = sectionCatIds.every(id => prev.includes(id));
+      const next = allSelected
+        ? prev.filter(id => !sectionCatIds.includes(id))
+        : [...new Set([...prev, ...sectionCatIds])];
+      saveToStorage(STORAGE_KEY_SELECTED_CATEGORIES, next);
+      return next;
+    });
+  }, [allCategories]);
+
+  const selectAllCats = useCallback(() => {
+    const allIds = allCategories.map(c => c.id);
+    setSelectedCategoryIds(allIds);
+    saveToStorage(STORAGE_KEY_SELECTED_CATEGORIES, allIds);
+  }, [allCategories]);
+
+  const deselectAllCats = useCallback(() => {
+    setSelectedCategoryIds([]);
+    saveToStorage(STORAGE_KEY_SELECTED_CATEGORIES, []);
+  }, []);
+
+  // Callbacks для источников
+  const toggleSource = useCallback((sourceId: number) => {
+    setSelectedSourceIds(prev => {
+      const next = prev.includes(sourceId)
+        ? prev.filter(id => id !== sourceId)
+        : [...prev, sourceId];
+      saveToStorage(STORAGE_KEY_SELECTED_SOURCES, next);
+      return next;
+    });
+  }, []);
+
+  const selectAllSources = useCallback(() => {
+    const allIds = Object.values(INPARS_SOURCE_IDS);
+    setSelectedSourceIds(allIds);
+    saveToStorage(STORAGE_KEY_SELECTED_SOURCES, allIds);
+  }, []);
+
+  const deselectAllSources = useCallback(() => {
+    setSelectedSourceIds([]);
+    saveToStorage(STORAGE_KEY_SELECTED_SOURCES, []);
+  }, []);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -139,15 +345,77 @@ const AdsSettingsPage: React.FC = () => {
             </button>
           </div>
 
+          {checking && !subscription && token && (
+            <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Проверяем подписку...
+            </div>
+          )}
+
           {subscription && (
-            <div className={`rounded-md px-3 py-2 text-sm ${
+            <div className={`rounded-lg px-4 py-3 text-sm space-y-2 ${
               subscription.subscribed
-                ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-                : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+                ? 'bg-green-50 border border-green-200 dark:bg-green-900/20 dark:border-green-800'
+                : 'bg-red-50 border border-red-200 dark:bg-red-900/20 dark:border-red-800'
             }`}>
-              {subscription.subscribed
-                ? `Подписка активна${subscription.expires_at ? ` до ${new Date(subscription.expires_at).toLocaleDateString('ru-RU')}` : ''}`
-                : 'Подписка не активна'}
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
+                  subscription.subscribed
+                    ? 'bg-green-500 text-white'
+                    : 'bg-red-500 text-white'
+                }`}>
+                  {subscription.subscribed ? '✓' : '✗'}
+                </span>
+                <span className={`font-medium ${
+                  subscription.subscribed
+                    ? 'text-green-700 dark:text-green-400'
+                    : 'text-red-700 dark:text-red-400'
+                }`}>
+                  {subscription.subscribed ? 'Подписка активна' : 'Подписка не активна'}
+                </span>
+              </div>
+              {subscription.subscribed && (
+                <div className="ml-7 space-y-1 text-xs">
+                  {subscription.plan && (
+                    <div className="text-green-600 dark:text-green-400">
+                      <span className="text-green-500 dark:text-green-500">Тариф:</span> {subscription.plan}
+                    </div>
+                  )}
+                  {typeName && (
+                    <div className="text-green-600 dark:text-green-400">
+                      <span className="text-green-500 dark:text-green-500">Тип:</span> {typeName}
+                    </div>
+                  )}
+                  {regionName && (
+                    <div className="text-green-600 dark:text-green-400">
+                      <span className="text-green-500 dark:text-green-500">Регион:</span> {regionName}
+                    </div>
+                  )}
+                  {subscription.expires_at && (
+                    <div className="text-green-600 dark:text-green-400">
+                      <span className="text-green-500 dark:text-green-500">Действует до:</span>{' '}
+                      {new Date(subscription.expires_at).toLocaleDateString('ru-RU', {
+                        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </div>
+                  )}
+                  {subscription.expires_at && (
+                    <div className="text-green-600 dark:text-green-400">
+                      <span className="text-green-500 dark:text-green-500">Осталось:</span>{' '}
+                      {(() => {
+                        const days = Math.ceil((new Date(subscription.expires_at).getTime() - Date.now()) / 86400000);
+                        if (days <= 0) return 'менее суток';
+                        if (days === 1) return '1 день';
+                        if (days < 5) return `${days} дня`;
+                        return `${days} дней`;
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -156,7 +424,7 @@ const AdsSettingsPage: React.FC = () => {
           )}
         </div>
 
-        {/* Справочники */}
+        {/* Справочники — загрузка */}
         <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
           <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Справочники</h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -191,6 +459,131 @@ const AdsSettingsPage: React.FC = () => {
           {categoriesError && (
             <p className="text-sm text-red-600 dark:text-red-400">{categoriesError}</p>
           )}
+        </div>
+
+        {/* Выбор категорий */}
+        {allCategories.length > 0 && (
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Категории для фильтров
+              </h2>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                Выбрано: {selectedCategoryIds.length} из {allCategories.length}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Выберите категории, которые будут отображаться в фильтрах на странице загрузки объявлений.
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                onClick={selectAllCats}
+                className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              >
+                Выбрать все
+              </button>
+              <button
+                onClick={deselectAllCats}
+                className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              >
+                Сбросить
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+              {categoriesBySection.map(({ section, categories }) => {
+                const sectionLabel = section
+                  ? `${section.title} (${TYPE_ID_LABELS[section.typeId] || `тип ${section.typeId}`})`
+                  : 'Без раздела';
+                const allSectionSelected = categories.every(c => selectedCategoryIds.includes(c.id));
+
+                return (
+                  <div key={categories[0]?.sectionId} className="space-y-1.5">
+                    <button
+                      onClick={() => selectAllInSection(categories[0].sectionId)}
+                      className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                    >
+                      <span className={`inline-flex h-4 w-4 items-center justify-center rounded border ${
+                        allSectionSelected
+                          ? 'bg-blue-600 border-blue-600 text-white'
+                          : 'border-zinc-300 dark:border-zinc-600'
+                      }`}>
+                        {allSectionSelected && (
+                          <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </span>
+                      {sectionLabel}
+                    </button>
+                    <div className="flex flex-wrap gap-1.5 pl-6">
+                      {categories.map(cat => (
+                        <button
+                          key={cat.id}
+                          onClick={() => toggleCategory(cat.id)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                            selectedCategoryIds.includes(cat.id)
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                          }`}
+                        >
+                          {cat.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Источники для загрузки */}
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Источники для загрузки
+            </h2>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              Выбрано: {selectedSourceIds.length} из {Object.keys(INPARS_SOURCE_IDS).length}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Выберите источники, которые будут использоваться по умолчанию при загрузке объявлений.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={selectAllSources}
+              className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+            >
+              Выбрать все
+            </button>
+            <button
+              onClick={deselectAllSources}
+              className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+            >
+              Сбросить
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(SOURCE_LABELS).map(([key, label]) => {
+              const id = INPARS_SOURCE_IDS[key];
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggleSource(id)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    selectedSourceIds.includes(id)
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

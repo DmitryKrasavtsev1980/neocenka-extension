@@ -60,8 +60,12 @@ export interface CrmMessageTemplate {
   id?: number;
   name: string;
   body: string;
-  /** 'suburban' | 'flat' — для автоподстановки по типу объекта */
+  /** 'suburban' | 'flat' — устаревшее, для обратной совместимости */
   category?: string;
+  /** Привязка к воронке (undefined = любая) */
+  pipeline_id?: number;
+  /** Привязка к источнику (undefined = любой, код: 'avito', 'cian' и т.д.) */
+  source?: string;
   created_at: string;
   updated_at: string;
 }
@@ -210,6 +214,9 @@ export interface CrmLead {
 }
 
 /** Фильтры для поиска лидов */
+export type LeadSortField = 'source' | 'pipeline_id' | 'status' | 'created_at';
+export type SortDir = 'asc' | 'desc';
+
 export interface CrmLeadFilters {
   search?: string;
   source?: string;
@@ -218,6 +225,8 @@ export interface CrmLeadFilters {
   stage_id?: number;
   date_from?: string;
   date_to?: string;
+  sort_by?: LeadSortField;
+  sort_dir?: SortDir;
 }
 
 /** Результат поиска лидов */

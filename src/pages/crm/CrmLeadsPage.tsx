@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
 import { db } from '@/db/database';
-import type { CrmLead, CrmSource, CrmPipeline, CrmStage, CrmLeadFilters, CrmPhone } from '@/types';
+import type { CrmLead, CrmSource, CrmPipeline, CrmStage, CrmLeadFilters, CrmPhone, LeadSortField, SortDir } from '@/types';
 import { formatPhone } from '@/types';
 import { Button } from '@/components/catalyst/button';
 import { SendMessageModal } from '@/components/crm/SendMessageModal';
@@ -67,6 +67,8 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<LeadSortField>('created_at');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [allSelected, setAllSelected] = useState(false);
 
@@ -93,6 +95,8 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     stage_id: stageFilter ? Number(stageFilter) : undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
+    sort_by: sortBy,
+    sort_dir: sortDir,
   };
 
   const loadLeads = useCallback(async () => {
@@ -107,7 +111,7 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sourceFilter, pipelineFilter, stageFilter, dateFrom, dateTo, page]);
+  }, [search, statusFilter, sourceFilter, pipelineFilter, stageFilter, dateFrom, dateTo, page, sortBy, sortDir]);
 
   const loadDeps = useCallback(async () => {
     await crmRepository.ensureDefaultSources();
@@ -462,10 +466,10 @@ const CrmLeadsPage: React.FC<CrmLeadsPageProps> = ({ onNavigate }) => {
                   </th>
                   <th className="px-3 py-2">Контакт</th>
                   <th className="px-3 py-2">Телефон</th>
-                  <th className="px-3 py-2">Источник</th>
-                  <th className="px-3 py-2">Воронка / Этап</th>
-                  <th className="px-3 py-2">Статус</th>
-                  <th className="px-3 py-2">Создан</th>
+                  <th className="px-3 py-2 cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => { const f = 'source'; if (sortBy === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy(f); setSortDir('asc'); } setPage(1); }}>Источник{sortBy === 'source' && (sortDir === 'asc' ? ' \u2191' : ' \u2193')}</th>
+                  <th className="px-3 py-2 cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => { const f = 'pipeline_id'; if (sortBy === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy(f); setSortDir('asc'); } setPage(1); }}>Воронка / Этап{sortBy === 'pipeline_id' && (sortDir === 'asc' ? ' \u2191' : ' \u2193')}</th>
+                  <th className="px-3 py-2 cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => { const f = 'status'; if (sortBy === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy(f); setSortDir('asc'); } setPage(1); }}>Статус{sortBy === 'status' && (sortDir === 'asc' ? ' \u2191' : ' \u2193')}</th>
+                  <th className="px-3 py-2 cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => { const f = 'created_at'; if (sortBy === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy(f); setSortDir('desc'); } setPage(1); }}>Создан{sortBy === 'created_at' && (sortDir === 'asc' ? ' \u2191' : ' \u2193')}</th>
                   <th className="px-3 py-2 w-36 text-right">Действия</th>
                 </tr>
               </thead>

@@ -410,6 +410,24 @@ export class DealsDatabase extends Dexie {
       ];
       return tmplTable.bulkAdd(defaults);
     });
+
+    // Version 13: добавляем pipeline_id и source в шаблоны сообщений
+    this.version(13).stores({
+      crm_message_templates: `
+        ++id,
+        category,
+        pipeline_id,
+        source,
+        name,
+        created_at
+      `,
+    }).upgrade(tx => {
+      // Обновляем существующие шаблоны — оставляем общими (без привязки)
+      const tmplTable = tx.table('crm_message_templates');
+      return tmplTable.toCollection().modify((tmpl: any) => {
+        // pipeline_id и source оставляем undefined — шаблон общий
+      });
+    });
   }
 }
 

@@ -446,7 +446,7 @@ export const crmRepository = {
   // ─── Leads ─────────────────────────────────────
 
   async getLeads(filters: CrmLeadFilters, page = 1, pageSize = 50): Promise<CrmLeadSearchResult> {
-    let collection = db.crm_leads.orderBy('created_at').reverse();
+    let collection = db.crm_leads.orderBy('created_at');
     const all = await collection.toArray();
     let filtered = all;
 
@@ -486,6 +486,23 @@ export const crmRepository = {
     for (const l of filtered) {
       statusCounts[l.status] = (statusCounts[l.status] || 0) + 1;
     }
+
+    // Сортировка
+    const sortBy = filters.sort_by || 'created_at';
+    const sortDir = filters.sort_dir || 'desc';
+    filtered.sort((a, b) => {
+      let va = (a as Record<string, unknown>)[sortBy];
+      let vb = (b as Record<string, unknown>)[sortBy];
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
     const start = (page - 1) * pageSize;
     const leads = filtered.slice(start, start + pageSize);
     return { leads, total, page, pageSize, statusCounts };
@@ -978,5 +995,32 @@ export const crmRepository = {
       },
     ];
     await db.crm_message_templates.bulkAdd(defaults);
+  },
+
+  /**
+   * Найти подходящий шаблон по воронке и источнику
+   * Приоритет: точное совпадение > только воронка > только источник > общий > первый
+   */
+  async getTemplateForPipelineAndSource(pipelineId: number, source: string): Promise<CrmMessageTemplate | undefined> {
+    const all = await db.crm_message_templates.toArray();
+
+    // 1. Точное совпадение pipeline_id + source
+    const exact = all.find(t => t.pipeline_id === pipelineId && t.source === source);
+    if (exact) return exact;
+
+    // 2. Только воронка
+    const byPipeline = all.find(t => t.pipeline_id === pipelineId && t.source === undefined);
+    if (byPipeline) return byPipeline;
+
+    // 3. Только источник
+    const bySource = all.find(t => t.pipeline_id === undefined && t.source === source);
+    if (bySource) return bySource;
+
+    // 4. Общий (без привязки)
+    const general = all.find(t => t.pipeline_id === undefined && t.source === undefined);
+    if (general) return general;
+
+    // 5. Первый попавшийся
+    return all[0];
   },
 };

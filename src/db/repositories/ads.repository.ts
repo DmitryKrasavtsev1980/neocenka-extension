@@ -58,7 +58,7 @@ export const adsRepository = {
 
   /** Поиск с пагинацией и фильтрами */
   async search(filters: AdSearchFilters, page = 1, pageSize = 50): Promise<AdSearchResult> {
-    let collection = db.ads.orderBy('updated').reverse().toCollection();
+    let collection = db.ads.orderBy('updated').reverse();
 
     // Собираем все и фильтруем в памяти (IndexedDB ограничен в составных запросах)
     const allAds: Ad[] = [];

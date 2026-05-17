@@ -13,10 +13,10 @@ const PROPERTY_TYPE_FULL: Record<string, string> = {
   studio: 'Студия', '1k': '1-комн.', '2k': '2-комн.', '3k': '3-комн.', '4k+': '4+ комн.',
 };
 const SOURCE_LABELS: Record<string, string> = {
-  avito: 'Авито', cian: 'ЦИАН', domclick: 'Домклик', youla: 'Юла', unknown: '?',
+  avito: 'avito.ru', cian: 'cian.ru', domclick: 'domclick.ru', yandex: 'realty.yandex.ru', youla: 'youla.io', sob: 'sob.ru', bazarpnz: 'bazarpnz.ru', move: 'move.ru', gipernn: 'gipernn.ru', orsk: 'orsk.ru', doskaYkt: 'doska.ykt.ru', unknown: '?',
 };
 const SELLER_TYPE_LABELS: Record<string, string> = {
-  owner: 'Собственник', agent: 'Агент', agency: 'Агентство', developer: 'Девелопер',
+  owner: 'Собственник', agent: 'Агент', developer: 'Застройщик',
 };
 
 const fmtPrice = (price: number | null): string => {

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { importFromUrl } from '@/services/csv-parser';
 import { logImport, type ManifestFile } from '@/services/api-service';
 import { downloadCadastralData, type CadastralDownloadProgress } from '@/services/cadastral.service';
-import { getListingsByPolygon, transformInparsListing, getInparsToken } from '@/services/inpars-service';
+import { getListingsByPolygon, transformInparsListing, loadInparsToken } from '@/services/inpars-service';
 import { adsRepository } from '@/db/repositories/ads.repository';
 
 export interface ImportTask {
@@ -18,6 +18,7 @@ export interface AdsImportOptions {
   polygons: [number, number][][];
   sourceIds?: number[];
   categoryIds?: number[];
+  sellerTypes?: number[];
   dateFrom?: string;
   dateTo?: string;
 }
@@ -153,7 +154,7 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
   const startAdsImport = useCallback(
     (options: AdsImportOptions) => {
       const taskId = crypto.randomUUID();
-      const { polygons, sourceIds, categoryIds, dateFrom, dateTo } = options;
+      const { polygons, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo } = options;
 
       setTasks((prev) => [
         ...prev,
@@ -169,16 +170,17 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
 
       (async () => {
         try {
-          if (!getInparsToken()) {
+          const token = await loadInparsToken();
+          if (!token) {
             updateTask(taskId, { status: 'error', detail: 'API ключ не задан' });
             setTimeout(() => removeTask(taskId), 8000);
             return;
           }
 
           const apiOptions: Record<string, unknown> = {};
-          if (categoryIds?.length === 1) apiOptions.categoryId = categoryIds[0];
-          if (sourceIds?.length === 1) apiOptions.sourceId = sourceIds[0];
-          else if (sourceIds && sourceIds.length > 1) apiOptions.sourceId = sourceIds.join(',');
+          if (categoryIds?.length) apiOptions.categoryId = categoryIds.join(',');
+          if (sourceIds?.length) apiOptions.sourceId = sourceIds.join(',');
+          if (sellerTypes?.length) apiOptions.sellerType = sellerTypes.join(',');
           if (dateFrom) apiOptions.timeStart = Math.floor(new Date(dateFrom).getTime() / 1000);
           if (dateTo) apiOptions.timeEnd = Math.floor(new Date(dateTo).getTime() / 1000);
 
@@ -187,13 +189,18 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
           for (let i = 0; i < polygons.length; i++) {
             updateTask(taskId, {
               progress: Math.round((i / polygons.length) * 90),
-              detail: `Полигон ${i + 1}/${polygons.length}...`,
+              detail: `Полигон ${i + 1}/${polygons.length}, загружено ${allListings.length}...`,
             });
-            const result = await getListingsByPolygon(polygons[i], apiOptions);
+            const result = await getListingsByPolygon(polygons[i], apiOptions, (loaded) => {
+              updateTask(taskId, {
+                progress: Math.round((i / polygons.length) * 90),
+                detail: `Полигон ${i + 1}/${polygons.length}, загружено ${allListings.length + loaded}...`,
+              });
+            });
             allListings.push(...result.listings);
           }
 
-          updateTask(taskId, { progress: 92, detail: `Получено ${allListings.length}. Сохранение...` });
+          updateTask(taskId, { progress: 95, detail: `Получено ${allListings.length}. Сохранение в БД...` });
 
           const adsData = allListings.map(transformInparsListing);
           const importResult = await adsRepository.bulkInsert(adsData);

@@ -14,7 +14,7 @@ export interface PriceHistoryItem {
 /** Информация о продавце */
 export interface SellerInfo {
   name: string | null;
-  type: 'owner' | 'agent' | 'agency' | null;
+  type: 'owner' | 'agent' | 'developer' | null;
   is_agent: boolean;
   phone: string | null;
   phone_protected: boolean | null;

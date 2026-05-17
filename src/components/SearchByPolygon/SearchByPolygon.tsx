@@ -72,7 +72,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   useEffect(() => {
     quartersRef.current = quarters;
     quarterStatsRef.current = quarterStats;
-    if (quarters.length > 0 && !quartersLoaded) {
+    if (!quartersLoaded) {
       setQuartersLoaded(true);
     }
   }, [quarters, quarterStats]);

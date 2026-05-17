@@ -7,9 +7,12 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
 import type { Ad, AdObject, AdAddress, AdStats } from '@/types';
+import { REGION_CENTERS } from '@/constants/regions';
 import {
   getInparsToken,
+  loadInparsToken,
   loadCategories,
+  checkSubscription,
   INPARS_SOURCE_IDS,
   type InparsCategoryRaw,
 } from '@/services/inpars-service';
@@ -37,17 +40,22 @@ const PROPERTY_TYPE_FULL: Record<string, string> = {
   studio: 'Студия', '1k': '1-комн.', '2k': '2-комн.', '3k': '3-комн.', '4k+': '4+ комн.',
 };
 const SOURCE_LABELS: Record<string, string> = {
-  avito: 'Авито', cian: 'ЦИАН', domclick: 'Домклик', youla: 'Юла', unknown: '?',
+  avito: 'avito.ru', cian: 'cian.ru', domclick: 'domclick.ru', yandex: 'realty.yandex.ru', youla: 'youla.io', sob: 'sob.ru', bazarpnz: 'bazarpnz.ru', move: 'move.ru', gipernn: 'gipernn.ru', orsk: 'orsk.ru', doskaYkt: 'doska.ykt.ru', unknown: '?',
 };
 const SOURCE_COLORS: Record<string, string> = {
   avito: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   cian: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
   domclick: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  yandex: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   youla: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   unknown: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300',
 };
-const INPARS_SOURCE_LABELS: Record<string, string> = { avito: 'Авито', cian: 'ЦИАН', youla: 'Юла', domclick: 'Домклик' };
-const SELLER_TYPE_LABELS: Record<string, string> = { owner: 'Собственник', agent: 'Агент', agency: 'Агентство', developer: 'Девелопер' };
+const SECTION_LABELS: Record<number, string> = {
+  1: 'Жилая (Продажа)', 4: 'Коммерческая (Продажа)', 5: 'Загородная (Продажа)', 6: 'Жилая (Аренда)', 7: 'Коммерческая (Аренда)', 8: 'Загородная (Аренда)', 9: 'Гараж (Продажа)', 10: 'Гараж (Аренда)', 11: 'Готовый бизнес (Продажа)',
+};
+const SELLER_TYPE_LABELS: Record<string, string> = { owner: 'Собственник', agent: 'Агент', developer: 'Застройщик' };
+/** sellerType для API Inpars: 1=собственник, 2=агент, 3=застройщик */
+const SELLER_TYPE_API_MAP: Record<string, number> = { owner: 1, agent: 2, developer: 3 };
 const PROCESSING_STATUS_LABELS: Record<string, string> = {
   address_needed: 'Определить адрес', duplicate_check_needed: 'Обработать на дубли', needs_update: 'Актуализировать', processed: 'Обработано',
 };
@@ -95,6 +103,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [filterSources, setFilterSources] = useState<string[]>([]);
   const [filterPropertyTypes, setFilterPropertyTypes] = useState<string[]>([]);
+  const [filterCategoryIds, setFilterCategoryIds] = useState<number[]>([]);
   const [filterPriceMin, setFilterPriceMin] = useState('');
   const [filterPriceMax, setFilterPriceMax] = useState('');
   const [filterAreaMin, setFilterAreaMin] = useState('');
@@ -110,9 +119,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // ─── Фильтры обработки ───
+  const [showProcessingFilter, setShowProcessingFilter] = useState(true);
   const [filterProcessingStatus, setFilterProcessingStatus] = useState('');
   const [filterAddressId, setFilterAddressId] = useState<number | ''>('');
   const [filterContactType, setFilterContactType] = useState('');
+  const [filterProcessingCategoryId, setFilterProcessingCategoryId] = useState<number | ''>('');
+  const [filterProcessingFloor, setFilterProcessingFloor] = useState('');
   const [addresses, setAddresses] = useState<AdAddress[]>([]);
 
   // ─── Сохранённые фильтры ───
@@ -129,9 +141,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [categories, setCategories] = useState<InparsCategoryRaw[]>([]);
   const [importSourceIds, setImportSourceIds] = useState<number[]>([]);
   const [importCategoryIds, setImportCategoryIds] = useState<number[]>([]);
+  const [importSellerTypeIds, setImportSellerTypeIds] = useState<number[]>([]);
+  const [enabledSources, setEnabledSources] = useState<{ id: number; key: string }[]>([]);
   const [importDateFrom, setImportDateFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 367); return toDateString(d); });
   const [importDateTo, setImportDateTo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return toDateString(d); });
   const [importError, setImportError] = useState('');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // ─── Чекбоксы задач ───
   const [runImport, setRunImport] = useState(false);
@@ -144,6 +159,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   // ─── Карта ───
   const [showMapFilter, setShowMapFilter] = useState(false);
+  const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lon: number; zoom: number } | null>(null);
+  const [subscriptionRegionCode, setSubscriptionRegionCode] = useState<string | null>(null);
   const [polygonsCoords, setPolygonsCoords] = useState<[number, number][][] | null>(() => {
     try {
       const saved = localStorage.getItem('ret_ads_polygon_coords');
@@ -175,6 +192,33 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { ensureInparsData(); }, []);
+
+  // Отслеживание завершения импорта — обновление таблицы + toast
+  const lastSeenImportStatus = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const task = importTasks.find(t => t.type === 'ads-import');
+    if (!task) return;
+
+    const prev = lastSeenImportStatus.current[task.id];
+    lastSeenImportStatus.current[task.id] = task.status;
+
+    // Статус сменился с running → done/error
+    if (prev === 'running' && task.status === 'done') {
+      loadData();
+      loadStats();
+      setToast({ message: task.detail || 'Импорт завершён', type: 'success' });
+    } else if (prev === 'running' && task.status === 'error') {
+      setToast({ message: task.detail || 'Ошибка импорта', type: 'error' });
+    }
+  }, [importTasks, loadData, loadStats]);
+
+  // Автоскрытие toast
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Загрузка адресов для фильтра
   useEffect(() => {
@@ -184,17 +228,39 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     });
   }, []);
 
-  // Загрузка сохранённых фильтров из localStorage
+  // Загрузка сохранённых фильтров из localStorage + регион подписки
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('ret_ads_saved_filters');
-      if (raw) setSavedFilters(JSON.parse(raw));
-    } catch {}
+    (async () => {
+      try {
+        const raw = localStorage.getItem('ret_ads_saved_filters');
+        if (raw) setSavedFilters(JSON.parse(raw));
+      } catch {}
+      // Подгрузить Inpars токен из chrome.storage и определить регион
+      const token = await loadInparsToken();
+      if (token) {
+        try {
+          // Получаем regionId из подписки
+          const sub = await checkSubscription();
+          if (sub.subscribed && sub.regionId) {
+            const regionKey = String(sub.regionId);
+            const info = REGION_CENTERS[regionKey];
+            if (info) {
+              setSubscriptionRegionCode(regionKey);
+              // Центрируем по региону только если нет сохранённого полигона
+              // (если полигон есть, SearchByPolygon сам сделает fitBounds)
+              if (!polygonsCoords) {
+                setFlyToTarget({ lat: info.lat, lon: info.lon, zoom: info.zoom });
+              }
+            }
+          }
+        } catch {}
+      }
+    })();
   }, []);
 
   // ─── Сохранение фильтров ───
   const getFilterState = useCallback(() => ({
-    sources: filterSources, propertyTypes: filterPropertyTypes,
+    sources: filterSources, propertyTypes: filterPropertyTypes, categoryIds: filterCategoryIds,
     priceMin: filterPriceMin, priceMax: filterPriceMax,
     areaMin: filterAreaMin, areaMax: filterAreaMax,
     floorMin: filterFloorMin, floorMax: filterFloorMax,
@@ -203,13 +269,16 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     dateFrom: filterDateFrom, dateTo: filterDateTo,
     searchQuery,
     processingStatus: filterProcessingStatus, addressId: filterAddressId, contactType: filterContactType,
-  }), [filterSources, filterPropertyTypes, filterPriceMin, filterPriceMax, filterAreaMin, filterAreaMax,
+    processingCategoryId: filterProcessingCategoryId, processingFloor: filterProcessingFloor,
+  }), [filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax, filterAreaMin, filterAreaMax,
     filterFloorMin, filterFloorMax, filterYearMin, filterYearMax, filterSellerTypes, filterStatus,
-    filterDateFrom, filterDateTo, searchQuery, filterProcessingStatus, filterAddressId, filterContactType]);
+    filterDateFrom, filterDateTo, searchQuery, filterProcessingStatus, filterAddressId, filterContactType,
+    filterProcessingCategoryId, filterProcessingFloor]);
 
   const applyFilterState = useCallback((state: Record<string, unknown>) => {
     setFilterSources((state.sources as string[]) || []);
     setFilterPropertyTypes((state.propertyTypes as string[]) || []);
+    setFilterCategoryIds((state.categoryIds as number[]) || []);
     setFilterPriceMin((state.priceMin as string) || '');
     setFilterPriceMax((state.priceMax as string) || '');
     setFilterAreaMin((state.areaMin as string) || '');
@@ -226,6 +295,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     setFilterProcessingStatus((state.processingStatus as string) || '');
     setFilterAddressId((state.addressId as number | '') ?? '');
     setFilterContactType((state.contactType as string) || '');
+    setFilterProcessingCategoryId((state.processingCategoryId as number | '') ?? '');
+    setFilterProcessingFloor((state.processingFloor as string) || '');
   }, []);
 
   const handleSaveFilter = () => {
@@ -267,6 +338,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterStatus) result = result.filter(a => a.status === filterStatus);
     if (filterSources.length > 0) result = result.filter(a => filterSources.includes(a.source));
     if (filterPropertyTypes.length > 0) result = result.filter(a => filterPropertyTypes.includes(a.property_type));
+    if (filterCategoryIds.length > 0) result = result.filter(a => a.category_id != null && filterCategoryIds.includes(a.category_id));
     if (filterPriceMin) result = result.filter(a => a.price != null && a.price >= Number(filterPriceMin));
     if (filterPriceMax) result = result.filter(a => a.price != null && a.price <= Number(filterPriceMax));
     if (filterAreaMin) result = result.filter(a => a.area_total != null && a.area_total >= Number(filterAreaMin));
@@ -287,12 +359,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterProcessingStatus) result = result.filter(a => a.processing_status === filterProcessingStatus);
     if (filterAddressId) result = result.filter(a => a.address_id === filterAddressId);
     if (filterContactType) result = result.filter(a => (a.seller_info?.type || a.seller_type) === filterContactType);
+    if (filterProcessingCategoryId) result = result.filter(a => a.category_id === filterProcessingCategoryId);
+    if (filterProcessingFloor) result = result.filter(a => a.floor != null && a.floor === Number(filterProcessingFloor));
 
     return result;
-  }, [allAds, filterStatus, filterSources, filterPropertyTypes, filterPriceMin, filterPriceMax,
+  }, [allAds, filterStatus, filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax,
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax, filterYearMin, filterYearMax,
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
-    filterProcessingStatus, filterAddressId, filterContactType]);
+    filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor]);
 
   const filteredObjects = useMemo(() => {
     let result = allObjects;
@@ -304,9 +378,13 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterAreaMax) result = result.filter(o => o.area_total != null && o.area_total <= Number(filterAreaMax));
     if (filterFloorMin) result = result.filter(o => o.floor != null && o.floor >= Number(filterFloorMin));
     if (filterFloorMax) result = result.filter(o => o.floor != null && o.floor <= Number(filterFloorMax));
+    // Фильтр обработки
+    if (filterAddressId) result = result.filter(o => o.address_id === filterAddressId);
+    if (filterProcessingFloor) result = result.filter(o => o.floor != null && o.floor === Number(filterProcessingFloor));
     return result;
   }, [allObjects, filterStatus, filterPropertyTypes, filterPriceMin, filterPriceMax,
-    filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax]);
+    filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax,
+    filterAddressId, filterProcessingFloor]);
 
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
@@ -343,6 +421,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterStatus) tags.push({ key: 'status', label: `Статус: ${filterStatus === 'active' ? 'Активные' : 'Архивные'}` });
     if (filterSources.length > 0) tags.push({ key: 'sources', label: `Источник: ${filterSources.map(s => SOURCE_LABELS[s] || s).join(', ')}` });
     if (filterPropertyTypes.length > 0) tags.push({ key: 'ptypes', label: `Тип: ${filterPropertyTypes.map(t => PROPERTY_TYPE_FULL[t] || t).join(', ')}` });
+    if (filterCategoryIds.length > 0) tags.push({ key: 'cats', label: `Категория: ${filterCategoryIds.length} выбрано` });
     if (filterPriceMin || filterPriceMax) tags.push({ key: 'price', label: `Цена: ${filterPriceMin ? Number(filterPriceMin).toLocaleString('ru-RU') : '—'} – ${filterPriceMax ? Number(filterPriceMax).toLocaleString('ru-RU') : '—'}` });
     if (filterAreaMin || filterAreaMax) tags.push({ key: 'area', label: `Площадь: ${filterAreaMin || '—'} – ${filterAreaMax || '—'} м²` });
     if (filterFloorMin || filterFloorMax) tags.push({ key: 'floor', label: `Этаж: ${filterFloorMin || '—'} – ${filterFloorMax || '—'}` });
@@ -355,16 +434,23 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       if (addr) tags.push({ key: 'addr', label: `Адрес: ${addr.address}` });
     }
     if (filterContactType) tags.push({ key: 'contact', label: `Контакт: ${SELLER_TYPE_LABELS[filterContactType] || filterContactType}` });
+    if (filterProcessingCategoryId) {
+      const cat = categories.find(c => c.id === filterProcessingCategoryId);
+      if (cat) tags.push({ key: 'pcat', label: `Кат. обработки: ${cat.title}` });
+    }
+    if (filterProcessingFloor) tags.push({ key: 'pfloor', label: `Этаж обработки: ${filterProcessingFloor}` });
     if (searchQuery) tags.push({ key: 'query', label: `Поиск: ${searchQuery}` });
     return tags;
-  }, [filterStatus, filterSources, filterPropertyTypes, filterPriceMin, filterPriceMax, filterAreaMin, filterAreaMax,
+  }, [filterStatus, filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax, filterAreaMin, filterAreaMax,
     filterFloorMin, filterFloorMax, filterYearMin, filterYearMax, filterSellerTypes, filterDateFrom, filterDateTo,
-    filterProcessingStatus, filterAddressId, filterContactType, searchQuery, addresses]);
+    filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor,
+    searchQuery, addresses, categories]);
 
   const removeFilterTag = (key: string) => {
     if (key === 'status') setFilterStatus('');
     if (key === 'sources') setFilterSources([]);
     if (key === 'ptypes') setFilterPropertyTypes([]);
+    if (key === 'cats') setFilterCategoryIds([]);
     if (key === 'price') { setFilterPriceMin(''); setFilterPriceMax(''); }
     if (key === 'area') { setFilterAreaMin(''); setFilterAreaMax(''); }
     if (key === 'floor') { setFilterFloorMin(''); setFilterFloorMax(''); }
@@ -374,15 +460,18 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (key === 'proc') setFilterProcessingStatus('');
     if (key === 'addr') setFilterAddressId('');
     if (key === 'contact') setFilterContactType('');
+    if (key === 'pcat') setFilterProcessingCategoryId('');
+    if (key === 'pfloor') setFilterProcessingFloor('');
     if (key === 'query') setSearchQuery('');
   };
 
   const clearAllFilters = () => {
-    setFilterStatus(''); setFilterSources([]); setFilterPropertyTypes([]);
+    setFilterStatus(''); setFilterSources([]); setFilterPropertyTypes([]); setFilterCategoryIds([]);
     setFilterPriceMin(''); setFilterPriceMax(''); setFilterAreaMin(''); setFilterAreaMax('');
     setFilterFloorMin(''); setFilterFloorMax(''); setFilterYearMin(''); setFilterYearMax('');
     setFilterSellerTypes([]); setFilterDateFrom(''); setFilterDateTo('');
     setFilterProcessingStatus(''); setFilterAddressId(''); setFilterContactType('');
+    setFilterProcessingCategoryId(''); setFilterProcessingFloor('');
     setSearchQuery(''); setActiveFilterId(null); setActiveFilterName(null);
   };
 
@@ -421,35 +510,78 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   };
 
   // Быстрый фильтр по строке
+  /** Заполнить фильтры обработки данными из строки (как в neocenka-extension) */
   const quickFilter = (row: TableRow) => {
+    // Показать панель фильтра обработки, если скрыта
+    if (!showProcessingFilter) setShowProcessingFilter(true);
+
     if (row.kind === 'object') {
       const o = row.data;
-      if (o.property_type && !filterPropertyTypes.includes(o.property_type)) setFilterPropertyTypes([...filterPropertyTypes, o.property_type]);
       if (o.address_id) setFilterAddressId(o.address_id);
+      if (o.floor != null) setFilterProcessingFloor(String(o.floor));
     } else {
       const a = row.data;
-      if (a.property_type && !filterPropertyTypes.includes(a.property_type)) setFilterPropertyTypes([...filterPropertyTypes, a.property_type]);
       if (a.address_id) setFilterAddressId(a.address_id);
-      if (a.floor != null) setFilterFloorMin(String(a.floor));
-      if (a.source && !filterSources.includes(a.source)) setFilterSources([...filterSources, a.source]);
+      if (a.category_id) setFilterProcessingCategoryId(a.category_id);
+      if (a.floor != null) setFilterProcessingFloor(String(a.floor));
+      // Статус обработки и контакт НЕ заполняются — как в neocenka-extension
     }
+  };
+
+  // ─── Загрузка данных Inpars (категории + источники из настроек) ───
+  const ensureInparsData = async () => {
+    if (categoriesLoadedRef.current) return;
+    try {
+      // Загрузить настройки пользователя из chrome.storage
+      let selectedCatIds: number[] = [];
+      let selectedSrcIds: number[] = [];
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const stored = await new Promise<Record<string, number[]>>((resolve) => {
+          chrome.storage.local.get(
+            ['inpars_selected_categories', 'inpars_selected_sources'],
+            (r) => resolve(r as Record<string, number[]>)
+          );
+        });
+        selectedCatIds = stored.inpars_selected_categories || [];
+        selectedSrcIds = stored.inpars_selected_sources || [];
+      }
+
+      // Загрузить и отфильтровать категории — только выбранные пользователем
+      const saved = await db.table('inpars_categories').toArray();
+      let allCats: InparsCategoryRaw[];
+      if (saved.length > 0) {
+        allCats = saved.map((c: any) => ({ id: c.inpars_id, title: c.name, typeId: c.type_id ?? 0, sectionId: c.section_id ?? 0 }));
+      } else if (getInparsToken()) {
+        allCats = await loadCategories();
+      } else {
+        allCats = [];
+      }
+      const filteredCats = selectedCatIds.length > 0
+        ? allCats.filter(c => selectedCatIds.includes(c.id))
+        : allCats;
+      setCategories(filteredCats);
+      categoriesLoadedRef.current = true;
+
+      // В панели загрузки — все показанные категории выбраны по умолчанию
+      setImportCategoryIds(filteredCats.map(c => c.id));
+
+      // Источники — только выбранные пользователем
+      const allSourceEntries = Object.entries(INPARS_SOURCE_IDS) as [string, number][];
+      if (selectedSrcIds.length > 0) {
+        const enabled = allSourceEntries.filter(([, id]) => selectedSrcIds.includes(id)).map(([key, id]) => ({ id, key }));
+        setEnabledSources(enabled);
+        setImportSourceIds(enabled.map(s => s.id));
+      } else {
+        setEnabledSources(allSourceEntries.map(([key, id]) => ({ id, key })));
+      }
+    } catch {}
   };
 
   // ─── Загрузка из Inpars ───
   const handleOpenImport = async () => {
     setShowImportPanel(!showImportPanel);
-    if (!showImportPanel && !categoriesLoadedRef.current) {
-      try {
-        const saved = await db.table('inpars_categories').toArray();
-        if (saved.length > 0) {
-          setCategories(saved.map((c: any) => ({ id: c.inpars_id, name: c.name })));
-          categoriesLoadedRef.current = true;
-        } else if (getInparsToken()) {
-          const cats = await loadCategories();
-          setCategories(cats);
-          categoriesLoadedRef.current = true;
-        }
-      } catch {}
+    if (!showImportPanel) {
+      await ensureInparsData();
     }
   };
 
@@ -461,6 +593,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       polygons: polygonsCoords,
       sourceIds: importSourceIds.length > 0 ? importSourceIds : undefined,
       categoryIds: importCategoryIds.length > 0 ? importCategoryIds : undefined,
+      sellerTypes: importSellerTypeIds.length > 0 ? importSellerTypeIds : undefined,
       dateFrom: importDateFrom || undefined,
       dateTo: importDateTo || undefined,
     });
@@ -482,6 +615,15 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (polygons) localStorage.setItem('ret_ads_polygon_coords', JSON.stringify(polygons));
     else localStorage.removeItem('ret_ads_polygon_coords');
   }, []);
+
+  const handleFlyToRegion = (regionCode: string) => {
+    const info = REGION_CENTERS[regionCode];
+    if (!info) return;
+    setFlyToTarget(null);
+    requestAnimationFrame(() => {
+      setFlyToTarget({ lat: info.lat, lon: info.lon, zoom: info.zoom });
+    });
+  };
 
   // ─── Форматтеры ───
   const fmtPrice = (price: number | null): string => {
@@ -593,15 +735,37 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[1400px] px-4 py-4 sm:px-6">
 
+        {/* Toast уведомление */}
+        {toast && (
+          <div className={`fixed top-4 right-4 z-50 max-w-sm rounded-lg border px-4 py-3 shadow-lg transition-all ${
+            toast.type === 'success' ? 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800' :
+            toast.type === 'error' ? 'bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800' :
+            'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800'
+          }`}>
+            <div className="flex items-start gap-2">
+              {toast.type === 'success' && (
+                <svg className="h-4 w-4 mt-0.5 text-green-600 dark:text-green-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+              )}
+              {toast.type === 'error' && (
+                <svg className="h-4 w-4 mt-0.5 text-red-600 dark:text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              )}
+              <span className={`text-sm font-medium ${
+                toast.type === 'success' ? 'text-green-800 dark:text-green-200' :
+                toast.type === 'error' ? 'text-red-800 dark:text-red-200' :
+                'text-blue-800 dark:text-blue-200'
+              }`}>{toast.message}</span>
+              <button onClick={() => setToast(null)} className="ml-2 shrink-0 opacity-50 hover:opacity-100">
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-semibold text-zinc-900 dark:text-white">
               Поиск объявлений
-              <span className="ml-2 text-sm font-normal text-zinc-500 dark:text-zinc-400">
-                {totalAds.toLocaleString('ru-RU')} шт.
-                {stats?.avgPrice != null && ` · ср. ${(stats.avgPrice / 1000000).toFixed(1)} млн`}
-              </span>
             </h1>
           </div>
           {activeFilterName && (
@@ -612,11 +776,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             </span>
           )}
           <div className="flex items-center gap-2">
-            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Поиск по адресу..."
-              className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-1.5 text-sm text-zinc-900 dark:text-white w-48 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             {/* Сохранённые фильтры */}
             <div className="relative">
-              <Button color="white" onClick={() => { setShowSavedDropdown(!showSavedDropdown); setShowSaveInput(false); }}>
+              <Button color={showSavedDropdown ? 'dark' : 'white'} onClick={() => { setShowSavedDropdown(!showSavedDropdown); setShowSaveInput(false); }}>
                 <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
                 Сохранённые
               </Button>
@@ -653,7 +815,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               )}
             </div>
             <Button onClick={handleOpenImport} color={showImportPanel ? 'dark' : 'white'}><ArrowDownTrayIcon className="size-4" />Загрузка</Button>
-            <Button onClick={() => setShowFilters(!showFilters)}><FunnelIcon className="size-4" />{showFilters ? 'Скрыть' : 'Фильтры'}</Button>
+            <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureInparsData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтры</Button>
           </div>
         </div>
 
@@ -668,18 +830,67 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Источник</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(INPARS_SOURCE_LABELS).map(([key, label]) => {
-                    const id = INPARS_SOURCE_IDS[key];
-                    return <button key={key} onClick={() => toggleNumFilter(importSourceIds, id, setImportSourceIds)} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${importSourceIds.includes(id) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{label}</button>;
-                  })}
+                  {enabledSources.map(({ id, key }) => (
+                    <button key={key} onClick={() => toggleNumFilter(importSourceIds, id, setImportSourceIds)} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${importSourceIds.includes(id) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{SOURCE_LABELS[key] || key}</button>
+                  ))}
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Категория</label>
-                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
-                  {categories.map(c => <button key={c.id} onClick={() => toggleNumFilter(importCategoryIds, c.id, setImportCategoryIds)} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${importCategoryIds.includes(c.id) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{c.name}</button>)}
-                  {categories.length === 0 && <span className="text-xs text-zinc-400">Загрузка категорий...</span>}
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Категория</label>
+                  <span className="text-[10px] text-zinc-400">{importCategoryIds.length} из {categories.length}</span>
                 </div>
+                {categories.length === 0 ? (
+                  <span className="text-xs text-zinc-400">Загрузка категорий...</span>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {(() => {
+                      const sectionMap = new Map<number, InparsCategoryRaw[]>();
+                      for (const c of categories) {
+                        if (!sectionMap.has(c.sectionId)) sectionMap.set(c.sectionId, []);
+                        sectionMap.get(c.sectionId)!.push(c);
+                      }
+                      return Array.from(sectionMap.entries()).map(([sectionId, cats]) => {
+                        const allSelected = cats.every(c => importCategoryIds.includes(c.id));
+                        return (
+                          <div key={sectionId}>
+                            <button
+                              onClick={() => {
+                                const catIds = cats.map(c => c.id);
+                                if (allSelected) {
+                                  setImportCategoryIds(prev => prev.filter(id => !catIds.includes(id)));
+                                } else {
+                                  setImportCategoryIds(prev => [...new Set([...prev, ...catIds])]);
+                                }
+                              }}
+                              className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 mb-1"
+                            >
+                              <span className={`inline-flex h-3 w-3 items-center justify-center rounded border text-[8px] ${allSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-zinc-300 dark:border-zinc-600'}`}>
+                                {allSelected && '✓'}
+                              </span>
+                              {SECTION_LABELS[sectionId] || `Раздел ${sectionId}`}
+                            </button>
+                            <div className="flex flex-wrap gap-1 pl-4">
+                              {cats.map(c => (
+                                <button key={c.id} onClick={() => toggleNumFilter(importCategoryIds, c.id, setImportCategoryIds)} className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${importCategoryIds.includes(c.id) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{c.title}</button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Продавец</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries({ owner: 'Собственник', agent: 'Агент', developer: 'Застройщик' }).map(([key, label]) => {
+                    const apiId = SELLER_TYPE_API_MAP[key];
+                    return <button key={key} onClick={() => toggleNumFilter(importSellerTypeIds, apiId, setImportSellerTypeIds)} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${importSellerTypeIds.includes(apiId) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{label}</button>;
+                  })}
+                </div>
+                {importSellerTypeIds.length === 0 && <span className="text-[10px] text-zinc-400">Все типы (если не выбрано)</span>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата от</label><input type="date" value={importDateFrom} onChange={e => setImportDateFrom(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white" /></div>
@@ -687,8 +898,32 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               </div>
               <button onClick={handleImport} disabled={adsImportRunning || !polygonsCoords || !getInparsToken()} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                 {adsImportRunning && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
-                {adsImportRunning ? 'Загрузка в фоне...' : 'Загрузить'}
+                {adsImportRunning ? 'Загрузка...' : 'Загрузить'}
               </button>
+              {(() => {
+                const t = importTasks.find(t => t.type === 'ads-import');
+                if (!t) return null;
+                return (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      {t.status === 'running' && (
+                        <span className="text-xs text-blue-600 dark:text-blue-400">{t.detail}</span>
+                      )}
+                      {t.status === 'done' && (
+                        <span className="text-xs text-green-600 dark:text-green-400 font-medium">{t.detail}</span>
+                      )}
+                      {t.status === 'error' && (
+                        <span className="text-xs text-red-600 dark:text-red-400 font-medium">{t.detail}</span>
+                      )}
+                    </div>
+                    {t.status === 'running' && (
+                      <div className="h-1.5 w-full max-w-xs rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+                        <div className="h-full rounded-full bg-blue-600 transition-all duration-300" style={{ width: `${t.progress}%` }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {importError && <p className="text-sm text-red-600 dark:text-red-400">{importError}</p>}
             </div>
 
@@ -729,77 +964,116 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         {showFilters && (
           <div className="space-y-3 mb-4">
             {/* Основной фильтр (сегментный) — синяя панель */}
-            <div className="rounded-xl bg-blue-50 dark:bg-blue-950/30 p-4 border border-blue-200 dark:border-blue-800">
+            <div className="rounded-xl bg-white dark:bg-zinc-900 p-5 shadow-sm border border-blue-200 dark:border-blue-800 mb-4">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-medium text-blue-700 dark:text-blue-300 uppercase">Фильтр</h4>
-                <button onClick={clearAllFilters} className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-white"><XMarkIcon className="size-3" />Очистить все</button>
+                <h4 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Фильтр</h4>
+                <button onClick={clearAllFilters} className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"><XMarkIcon className="size-3" />Очистить все</button>
               </div>
 
               {/* Источник */}
               <div className="mb-3">
-                <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Источник</label>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Источник</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(SOURCE_LABELS).map(([key, label]) => (
+                  {enabledSources.map(({ key }) => (
                     <button key={key} onClick={() => setFilterSources(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSources.includes(key) ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-800/50 border border-blue-200 dark:border-blue-700'}`}>{label}</button>
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSources.includes(key) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{SOURCE_LABELS[key] || key}</button>
                   ))}
                 </div>
               </div>
 
-              {/* Тип недвижимости */}
+              {/* Категория (тип недвижимости) */}
               <div className="mb-3">
-                <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Тип недвижимости</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(PROPERTY_TYPE_LABELS).map(([key, label]) => (
-                    <button key={key} onClick={() => setFilterPropertyTypes(prev => prev.includes(key) ? prev.filter(t => t !== key) : [...prev, key])}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterPropertyTypes.includes(key) ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-800/50 border border-blue-200 dark:border-blue-700'}`}>{label}</button>
-                  ))}
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Категория</label>
+                  <span className="text-[10px] text-zinc-400">{filterCategoryIds.length} из {categories.length}</span>
                 </div>
+                {categories.length === 0 ? (
+                  <span className="text-xs text-zinc-400">Загрузка категорий...</span>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {(() => {
+                      const sectionMap = new Map<number, InparsCategoryRaw[]>();
+                      for (const c of categories) {
+                        if (!sectionMap.has(c.sectionId)) sectionMap.set(c.sectionId, []);
+                        sectionMap.get(c.sectionId)!.push(c);
+                      }
+                      return Array.from(sectionMap.entries()).map(([sectionId, cats]) => {
+                        const allSelected = cats.every(c => filterCategoryIds.includes(c.id));
+                        return (
+                          <div key={sectionId}>
+                            <button
+                              onClick={() => {
+                                const catIds = cats.map(c => c.id);
+                                if (allSelected) {
+                                  setFilterCategoryIds(prev => prev.filter(id => !catIds.includes(id)));
+                                } else {
+                                  setFilterCategoryIds(prev => [...new Set([...prev, ...catIds])]);
+                                }
+                              }}
+                              className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 mb-1"
+                            >
+                              <span className={`inline-flex h-3 w-3 items-center justify-center rounded border text-[8px] ${allSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-zinc-300 dark:border-zinc-600'}`}>
+                                {allSelected && '✓'}
+                              </span>
+                              {SECTION_LABELS[sectionId] || `Раздел ${sectionId}`}
+                            </button>
+                            <div className="flex flex-wrap gap-1 pl-4">
+                              {cats.map(c => (
+                                <button key={c.id} onClick={() => setFilterCategoryIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])}
+                                  className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterCategoryIds.includes(c.id) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{c.title}</button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Диапазоны: цена, площадь, этаж, год */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Цена от</label>
-                  <input type="number" placeholder="0" value={filterPriceMin} onChange={e => setFilterPriceMin(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Цена от</label>
+                  <input type="number" placeholder="0" value={filterPriceMin} onChange={e => setFilterPriceMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Цена до</label>
-                  <input type="number" placeholder="∞" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Цена до</label>
+                  <input type="number" placeholder="∞" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Площадь от (м²)</label>
-                  <input type="number" placeholder="0" value={filterAreaMin} onChange={e => setFilterAreaMin(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Площадь от (м²)</label>
+                  <input type="number" placeholder="0" value={filterAreaMin} onChange={e => setFilterAreaMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Площадь до (м²)</label>
-                  <input type="number" placeholder="∞" value={filterAreaMax} onChange={e => setFilterAreaMax(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Площадь до (м²)</label>
+                  <input type="number" placeholder="∞" value={filterAreaMax} onChange={e => setFilterAreaMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Этаж от</label>
-                  <input type="number" min={1} max={100} placeholder="1" value={filterFloorMin} onChange={e => setFilterFloorMin(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этаж от</label>
+                  <input type="number" min={1} max={100} placeholder="1" value={filterFloorMin} onChange={e => setFilterFloorMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Этаж до</label>
-                  <input type="number" min={1} max={100} placeholder="∞" value={filterFloorMax} onChange={e => setFilterFloorMax(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этаж до</label>
+                  <input type="number" min={1} max={100} placeholder="∞" value={filterFloorMax} onChange={e => setFilterFloorMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Год постройки от</label>
-                  <input type="number" min={1900} max={2030} placeholder="1900" value={filterYearMin} onChange={e => setFilterYearMin(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Год постройки от</label>
+                  <input type="number" min={1900} max={2030} placeholder="1900" value={filterYearMin} onChange={e => setFilterYearMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Год постройки до</label>
-                  <input type="number" min={1900} max={2030} placeholder="2030" value={filterYearMax} onChange={e => setFilterYearMax(e.target.value)} className="w-full rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1.5 text-xs text-zinc-900 dark:text-white placeholder:text-blue-300 dark:placeholder:text-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Год постройки до</label>
+                  <input type="number" min={1900} max={2030} placeholder="2030" value={filterYearMax} onChange={e => setFilterYearMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
 
               {/* Продавец */}
               <div className="mb-3">
-                <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Продавец</label>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Продавец</label>
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(SELLER_TYPE_LABELS).map(([key, label]) => (
                     <button key={key} onClick={() => setFilterSellerTypes(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSellerTypes.includes(key) ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-800/50 border border-blue-200 dark:border-blue-700'}`}>{label}</button>
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSellerTypes.includes(key) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{label}</button>
                   ))}
                 </div>
               </div>
@@ -807,50 +1081,20 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               {/* Статус + Даты */}
               <div className="flex flex-wrap items-end gap-3">
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Статус</label>
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Статус</label>
                   <div className="flex gap-1">
-                    <button onClick={() => setFilterStatus('')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${!filterStatus ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 hover:bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300 border border-blue-200 dark:border-blue-700'}`}>Все</button>
-                    <button onClick={() => setFilterStatus('active')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'active' ? 'bg-green-600 text-white' : 'bg-white text-green-700 hover:bg-green-100 dark:bg-green-900/50 dark:text-green-300 border border-green-200 dark:border-green-700'}`}>Активные</button>
-                    <button onClick={() => setFilterStatus('archived')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'archived' ? 'bg-zinc-600 text-white' : 'bg-white text-zinc-700 hover:bg-zinc-100 dark:bg-zinc-800/50 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-600'}`}>Архивные</button>
+                    <button onClick={() => setFilterStatus('')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${!filterStatus ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Все</button>
+                    <button onClick={() => setFilterStatus('active')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'active' ? 'bg-green-600 text-white' : 'bg-zinc-100 text-green-700 hover:bg-green-100 dark:bg-zinc-800 dark:text-green-400'}`}>Активные</button>
+                    <button onClick={() => setFilterStatus('archived')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'archived' ? 'bg-zinc-600 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Архивные</button>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Дата создания от</label>
-                  <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата создания от</label>
+                  <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-medium text-blue-600 dark:text-blue-400 mb-1">Дата создания до</label>
-                  <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="rounded-md border border-blue-200 dark:border-blue-700 bg-white dark:bg-blue-900/50 px-2 py-1 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                </div>
-              </div>
-            </div>
-
-            {/* Фильтр обработки — серая панель */}
-            <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 p-4 border border-zinc-200 dark:border-zinc-700">
-              <h4 className="text-xs font-medium text-zinc-600 dark:text-zinc-400 uppercase mb-3">Фильтр обработки</h4>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Статус обработки</label>
-                  <select value={filterProcessingStatus} onChange={e => setFilterProcessingStatus(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
-                    <option value="">Все статусы</option>
-                    <option value="address_needed">Определить адрес</option>
-                    <option value="duplicate_check_needed">Обработать на дубли</option>
-                    <option value="needs_update">Актуализировать</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Адрес</label>
-                  <select value={filterAddressId} onChange={e => setFilterAddressId(Number(e.target.value) || '')} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
-                    <option value="">Все адреса</option>
-                    {addresses.map(a => <option key={a.id} value={a.id}>{a.address}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Контакт</label>
-                  <select value={filterContactType} onChange={e => setFilterContactType(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
-                    <option value="">Все контакты</option>
-                    {Object.entries(SELLER_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата создания до</label>
+                  <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
             </div>
@@ -862,9 +1106,24 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 {polygonsCoords && <Badge color="blue" className="ml-2">{polygonsCoords.length} полигон(ов)</Badge>}
                 <ChevronDownIcon className={`ml-auto size-4 transition-transform ${showMapFilter ? 'rotate-180' : ''}`} />
               </button>
-              <div className={`transition-[max-height] duration-300 ease-in-out ${showMapFilter ? 'max-h-[1200px]' : 'max-h-0'} overflow-hidden`}>
-                <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} />
-              </div>
+              {showMapFilter && subscriptionRegionCode && (() => {
+                const info = REGION_CENTERS[subscriptionRegionCode];
+                if (!info) return null;
+                return (
+                  <div className="flex flex-wrap gap-1.5 border-b border-zinc-200 dark:border-zinc-700 px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800">
+                    <span className="flex items-center text-xs text-zinc-400 dark:text-zinc-500">Регион:</span>
+                    <button
+                      onClick={() => handleFlyToRegion(subscriptionRegionCode)}
+                      className="rounded-md bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-800/40"
+                    >
+                      {info.name}
+                    </button>
+                  </div>
+                );
+              })()}
+              {showMapFilter && (
+                <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} />
+              )}
             </div>
 
             {/* Active filters */}
@@ -882,6 +1141,53 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           </div>
         )}
 
+        {/* Фильтр обработки — над таблицей */}
+        {showProcessingFilter && (
+          <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 p-4 border border-zinc-200 dark:border-zinc-700 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-medium text-zinc-600 dark:text-zinc-400 uppercase">Фильтр обработки</h4>
+              <button onClick={() => { setFilterProcessingStatus(''); setFilterAddressId(''); setFilterContactType(''); setFilterProcessingCategoryId(''); setFilterProcessingFloor(''); }} className="text-[10px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">Очистить</button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Статус обработки</label>
+                <select value={filterProcessingStatus} onChange={e => setFilterProcessingStatus(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
+                  <option value="">Все статусы</option>
+                  <option value="address_needed">Определить адрес</option>
+                  <option value="duplicate_check_needed">Обработать на дубли</option>
+                  <option value="needs_update">Актуализировать</option>
+                  <option value="processed">Обработано</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Адрес</label>
+                <select value={filterAddressId} onChange={e => setFilterAddressId(Number(e.target.value) || '')} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
+                  <option value="">Все адреса</option>
+                  {addresses.map(a => <option key={a.id} value={a.id}>{a.address}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Категория</label>
+                <select value={filterProcessingCategoryId} onChange={e => setFilterProcessingCategoryId(Number(e.target.value) || '')} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
+                  <option value="">Все категории</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этаж</label>
+                <input type="number" min={1} max={100} placeholder="Этаж" value={filterProcessingFloor} onChange={e => setFilterProcessingFloor(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Контакт</label>
+                <select value={filterContactType} onChange={e => setFilterContactType(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
+                  <option value="">Все контакты</option>
+                  {Object.entries(SELLER_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Action buttons + table */}
         <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
           {/* Toolbar */}
@@ -891,6 +1197,10 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             <button disabled={selectedIds.size === 0} className="px-2 py-1 rounded text-[11px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed">Разбить</button>
             {selectedIds.size > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400 ml-2">{selectedIds.size} выбрано</span>}
             <div className="flex-1" />
+            <label className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
+              <input type="checkbox" checked={showProcessingFilter} onChange={e => setShowProcessingFilter(e.target.checked)} className="h-3 w-3 rounded border-zinc-300 text-blue-600" />
+              Фильтр обработки
+            </label>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">{loading ? 'Загрузка...' : `Всего: ${tableRows.length}`}</span>
           </div>
 

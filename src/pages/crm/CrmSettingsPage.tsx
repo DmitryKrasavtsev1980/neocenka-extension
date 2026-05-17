@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
 import { parseSourceForLeads, detectSourceType, type ParsingProgress } from '@/services/crm-parsing-service';
 import { Button } from '@/components/catalyst/button';
-import type { CrmPipeline, CrmStage, CrmBotSettings, CrmSource, CrmStageAction, CrmStageActionConfig, CrmParsingSource } from '@/types';
+import type { CrmPipeline, CrmStage, CrmBotSettings, CrmSource, CrmStageAction, CrmStageActionConfig, CrmParsingSource, CrmMessageTemplate } from '@/types';
 import {
   TrashIcon,
   PencilSquareIcon,
@@ -78,6 +78,15 @@ const CrmSettingsPage: React.FC = () => {
   const [parsingProgress, setParsingProgress] = useState<ParsingProgress | null>(null);
   const [parsingResult, setParsingResult] = useState<string | null>(null);
 
+  // Message Templates
+  const [msgTemplates, setMsgTemplates] = useState<CrmMessageTemplate[]>([]);
+  const [editingTemplate, setEditingTemplate] = useState<CrmMessageTemplate | null>(null);
+  const [isNewTemplate, setIsNewTemplate] = useState(false);
+  const [tmplName, setTmplName] = useState('');
+  const [tmplBody, setTmplBody] = useState('');
+  const [tmplPipelineId, setTmplPipelineId] = useState<string>('');
+  const [tmplSource, setTmplSource] = useState<string>('');
+
   const loadData = useCallback(async () => {
     const pips = await crmRepository.getPipelines();
     setPipelines(pips);
@@ -120,6 +129,11 @@ const CrmSettingsPage: React.FC = () => {
       setParsingStages(defaultStages);
       if (defaultStages.length > 0) setNewParsingStageId(defaultStages[0].id!);
     }
+
+    // Шаблоны сообщений
+    await crmRepository.ensureDefaultTemplates();
+    const tmpls = await crmRepository.getMessageTemplates();
+    setMsgTemplates(tmpls);
   }, []);
 
   useEffect(() => {
@@ -925,16 +939,183 @@ const CrmSettingsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* ─── Messaging (stub) ──────────── */}
+          {/* ─── Шаблоны сообщений ──────────── */}
           <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
-              <h3 className="text-sm font-medium text-zinc-900 dark:text-white">Отправка сообщений</h3>
-              <span className="text-[9px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">В разработке</span>
+              <div>
+                <h3 className="text-sm font-medium text-zinc-900 dark:text-white">Шаблоны сообщений</h3>
+                <p className="text-[10px] text-zinc-500 mt-0.5">Привязка к воронке и источнику для авто-подбора при отправке</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-zinc-500">{msgTemplates.length} шаблонов</span>
+                <button
+                  onClick={() => {
+                    setIsNewTemplate(true);
+                    setEditingTemplate({ name: '', body: '', pipeline_id: undefined, source: undefined, created_at: '', updated_at: '' });
+                    setTmplName('');
+                    setTmplBody('');
+                    setTmplPipelineId('');
+                    setTmplSource('');
+                  }}
+                  className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] text-white hover:bg-blue-700 flex items-center gap-1"
+                >
+                  <PlusIcon className="w-3 h-3" /> Добавить
+                </button>
+              </div>
             </div>
-            <div className="p-4">
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Отправка сообщений через MAX, ЦИАН, Авито будет доступна в следующих обновлениях.
-              </p>
+
+            {/* Список шаблонов */}
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {msgTemplates.map(t => {
+                const pl = t.pipeline_id ? pipelines.find(p => p.id === t.pipeline_id) : null;
+                const src = t.source ? sources.find(s => s.code === t.source) : null;
+                const isEditing = editingTemplate && !isNewTemplate && editingTemplate.id === t.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={t.id} className="p-4 bg-blue-50/50 dark:bg-blue-900/10 space-y-2">
+                      <div className="text-[10px] font-medium text-blue-700 dark:text-blue-300">Редактирование шаблона</div>
+                      <input
+                        type="text" value={tmplName} onChange={e => setTmplName(e.target.value)}
+                        placeholder="Название шаблона"
+                        className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <div className="flex gap-2">
+                        <select value={tmplPipelineId} onChange={e => setTmplPipelineId(e.target.value)}
+                          className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+                        >
+                          <option value="">— Любая воронка —</option>
+                          {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                        <select value={tmplSource} onChange={e => setTmplSource(e.target.value)}
+                          className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+                        >
+                          <option value="">— Любой источник —</option>
+                          {sources.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <textarea value={tmplBody} onChange={e => setTmplBody(e.target.value)} rows={6}
+                        placeholder="Текст шаблона..."
+                        className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                      />
+                      <div className="text-[9px] text-zinc-400">
+                        Переменные: {'{client_name}'} {'{phone}'} {'{address}'} {'{price}'} {'{property_type}'} {'{area}'} {'{source}'}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={async () => {
+                          if (!tmplName.trim() || !tmplBody.trim()) return;
+                          await crmRepository.updateMessageTemplate(t.id!, {
+                            name: tmplName.trim(), body: tmplBody.trim(),
+                            pipeline_id: tmplPipelineId ? Number(tmplPipelineId) : undefined,
+                            source: tmplSource || undefined,
+                          });
+                          setEditingTemplate(null);
+                          const tmpls = await crmRepository.getMessageTemplates();
+                          setMsgTemplates(tmpls);
+                        }} className="rounded-md bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700">Сохранить</button>
+                        <button onClick={() => setEditingTemplate(null)} className="rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-1 text-xs text-zinc-700 dark:text-zinc-300">Отмена</button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-zinc-900 dark:text-white truncate">{t.name}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {pl ? (
+                          <span className="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{pl.name}</span>
+                        ) : (
+                          <span className="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500">Любая воронка</span>
+                        )}
+                        {src ? (
+                          <span className="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">{src.name}</span>
+                        ) : (
+                          <span className="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500">Любой источник</span>
+                        )}
+                        <span className="text-[9px] text-zinc-400 truncate max-w-[200px]">{t.body.substring(0, 50)}...</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => {
+                        setIsNewTemplate(false);
+                        setEditingTemplate(t);
+                        setTmplName(t.name);
+                        setTmplBody(t.body);
+                        setTmplPipelineId(t.pipeline_id ? String(t.pipeline_id) : '');
+                        setTmplSource(t.source || '');
+                      }} className="p-1 text-zinc-400 hover:text-blue-600" title="Редактировать">
+                        <PencilSquareIcon className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={async () => {
+                        if (!confirm('Удалить шаблон «' + t.name + '»?')) return;
+                        await crmRepository.deleteMessageTemplate(t.id!);
+                        const tmpls = await crmRepository.getMessageTemplates();
+                        setMsgTemplates(tmpls);
+                      }} className="p-1 text-zinc-400 hover:text-red-600" title="Удалить">
+                        <TrashIcon className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Форма нового шаблона */}
+              {isNewTemplate && (
+                <div className="p-4 bg-blue-50/50 dark:bg-blue-900/10 space-y-2">
+                  <div className="text-[10px] font-medium text-blue-700 dark:text-blue-300">Новый шаблон</div>
+                  <input
+                    type="text" value={tmplName} onChange={e => setTmplName(e.target.value)}
+                    placeholder="Название шаблона"
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <div className="flex gap-2">
+                    <select value={tmplPipelineId} onChange={e => setTmplPipelineId(e.target.value)}
+                      className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+                    >
+                      <option value="">— Любая воронка —</option>
+                      {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <select value={tmplSource} onChange={e => setTmplSource(e.target.value)}
+                      className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white"
+                    >
+                      <option value="">— Любой источник —</option>
+                      {sources.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <textarea value={tmplBody} onChange={e => setTmplBody(e.target.value)} rows={6}
+                    placeholder="Текст шаблона..."
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                  />
+                  <div className="text-[9px] text-zinc-400">
+                    Переменные: {'{client_name}'} {'{phone}'} {'{address}'} {'{price}'} {'{property_type}'} {'{area}'} {'{source}'}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={async () => {
+                      if (!tmplName.trim() || !tmplBody.trim()) return;
+                      const now = new Date().toISOString();
+                      await crmRepository.addMessageTemplate({
+                        name: tmplName.trim(), body: tmplBody.trim(),
+                        pipeline_id: tmplPipelineId ? Number(tmplPipelineId) : undefined,
+                        source: tmplSource || undefined,
+                        created_at: now, updated_at: now,
+                      });
+                      setIsNewTemplate(false);
+                      setTmplName(''); setTmplBody(''); setTmplPipelineId(''); setTmplSource('');
+                      const tmpls = await crmRepository.getMessageTemplates();
+                      setMsgTemplates(tmpls);
+                    }} className="rounded-md bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700">Сохранить</button>
+                    <button onClick={() => { setIsNewTemplate(false); setTmplName(''); setTmplBody(''); }} className="rounded-md border border-zinc-300 dark:border-zinc-600 px-3 py-1 text-xs text-zinc-700 dark:text-zinc-300">Отмена</button>
+                  </div>
+                </div>
+              )}
+
+              {msgTemplates.length === 0 && !isNewTemplate && (
+                <div className="p-4 text-center">
+                  <p className="text-xs text-zinc-500">Нет шаблонов. Нажмите «Добавить» для создания.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
