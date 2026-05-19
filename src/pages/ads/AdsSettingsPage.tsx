@@ -21,6 +21,7 @@ import {
 } from '@/services/inpars-service';
 import { db } from '@/db/database';
 import type { InparsCategory } from '@/types';
+import { addressSyncService } from '@/services/address-sync-service';
 
 const TYPE_ID_LABELS: Record<number, string> = {
   1: 'Аренда',
@@ -92,6 +93,14 @@ const AdsSettingsPage: React.FC = () => {
 
   // Выбранные пользователем источники (sourceIds: number[])
   const [selectedSourceIds, setSelectedSourceIds] = useState<number[]>([]);
+
+  // Адресная база — синхронизация
+  const [addressCount, setAddressCount] = useState(0);
+  const [addressSyncing, setAddressSyncing] = useState(false);
+  const [addressProgress, setAddressProgress] = useState<{ loaded: number; total: number } | null>(null);
+  const [addressLastSync, setAddressLastSync] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState('');
+  const [addressSyncResult, setAddressSyncResult] = useState<{ downloaded: number; upserted: number } | null>(null);
 
   // Резолв имени региона
   const regionName = useMemo(() => {
@@ -178,6 +187,12 @@ const AdsSettingsPage: React.FC = () => {
       ]);
       setSelectedCategoryIds(selCats);
       setSelectedSourceIds(selSources);
+
+      // Статистика адресной базы
+      const stats = await addressSyncService.getLocalStats();
+      setAddressCount(stats.total);
+      const lastSync = await addressSyncService.getLastSyncDate();
+      setAddressLastSync(lastSync);
     })();
   }, []);
 
@@ -315,6 +330,31 @@ const AdsSettingsPage: React.FC = () => {
     setSelectedSourceIds([]);
     saveToStorage(STORAGE_KEY_SELECTED_SOURCES, []);
   }, []);
+
+  const handleSyncAddresses = async () => {
+    setAddressSyncing(true);
+    setAddressError('');
+    setAddressSyncResult(null);
+    setAddressProgress(null);
+
+    try {
+      const region = subscription?.regionId ? String(subscription.regionId) : undefined;
+      const result = await addressSyncService.syncFromServer(region, (loaded, total) => {
+        setAddressProgress({ loaded, total });
+      });
+
+      setAddressSyncResult(result);
+      const stats = await addressSyncService.getLocalStats();
+      setAddressCount(stats.total);
+      const lastSync = await addressSyncService.getLastSyncDate();
+      setAddressLastSync(lastSync);
+    } catch (e) {
+      setAddressError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddressSyncing(false);
+      setAddressProgress(null);
+    }
+  };
 
   return (
     <div className="h-full overflow-y-auto">
@@ -538,6 +578,64 @@ const AdsSettingsPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Адресная база — синхронизация */}
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
+          <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Адресная база</h2>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Загрузка адресов с характеристиками домов с сервера. Адреса используются для привязки объявлений и отображения на карте.
+          </p>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSyncAddresses}
+              disabled={addressSyncing}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {addressSyncing && (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              )}
+              {addressSyncing ? 'Загрузка...' : 'Загрузить с сервера'}
+            </button>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              В базе: {addressCount.toLocaleString('ru-RU')} адресов
+            </span>
+          </div>
+
+          {addressProgress && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                <span>Загружено {addressProgress.loaded.toLocaleString('ru-RU')} из {addressProgress.total.toLocaleString('ru-RU')}</span>
+                <span>{Math.round((addressProgress.loaded / addressProgress.total) * 100)}%</span>
+              </div>
+              <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(addressProgress.loaded / addressProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {addressSyncResult && (
+            <div className="rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-3 py-2 text-sm text-green-700 dark:text-green-300">
+              Синхронизация завершена: загружено {addressSyncResult.downloaded.toLocaleString('ru-RU')} адресов, обновлено {addressSyncResult.upserted.toLocaleString('ru-RU')}
+            </div>
+          )}
+
+          {addressLastSync && (
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+              Последняя синхронизация: {new Date(addressLastSync).toLocaleString('ru-RU')}
+            </p>
+          )}
+
+          {addressError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{addressError}</p>
+          )}
+        </div>
 
         {/* Источники для загрузки */}
         <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">

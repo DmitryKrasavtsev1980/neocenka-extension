@@ -157,21 +157,40 @@ export interface AdObject {
 /** Адрес с характеристиками дома */
 export interface AdAddress {
   id?: number;
+  // Связь с сервером
+  server_id: number | null;
+  house_id: string | null;
+  // Основное
   address: string;
   coordinates: { lat: number | null; lng: number | null };
   type: string;
-  house_series_id: number | null;
-  house_class_id: number | null;
-  ceiling_material_id: number | null;
-  wall_material_id: number | null;
+  region: string | null;
+  cadno: string | null;
+  house_type: string | null;
+  serie: string | null;
+  // Справочники (ID)
+  house_series_id: string | null;
+  house_class_id: string | null;
+  ceiling_material_id: string | null;
+  wall_material_id: string | null;
+  house_problem_id: string | null;
+  // Параметры
   floors_count: number | null;
   build_year: number | null;
   entrances_count: number | null;
   living_spaces_count: number | null;
+  area_total: number | null;
+  area_live: number | null;
+  ceiling_height: string | null;
+  // Коммуникации
   gas_supply: boolean | null;
   individual_heating: boolean | null;
   has_playground: boolean;
   has_sports_area: boolean;
+  // Мета
+  comment: string;
+  source: string;
+  synced_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -196,6 +215,7 @@ export interface InparsCategory {
 /** Справочник (универсальный) */
 export interface ReferenceItem {
   id?: number;
+  server_id?: string;
   name: string;
   color?: string;
   created_at: string;

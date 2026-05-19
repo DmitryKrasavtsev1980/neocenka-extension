@@ -69,3 +69,16 @@
 .dark .prose img {
   border-radius: 0.75rem;
 }
+
+/* Обрезка текста слева — показываем конец адреса */
+.truncate-left {
+  overflow: hidden;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.truncate-left * {
+  direction: ltr;
+}

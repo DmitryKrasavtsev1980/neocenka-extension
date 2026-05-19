@@ -389,10 +389,13 @@ function normalizeSeller(
 }
 
 /** Нормализация координат */
-function normalizeCoordinates(lat: number | undefined, lng: number | undefined): { lat: number | null; lng: number | null } {
-  const latNum = typeof lat === 'number' && !isNaN(lat) ? lat : null;
-  const lngNum = typeof lng === 'number' && !isNaN(lng) ? lng : null;
-  return { lat: latNum, lng: lngNum };
+function normalizeCoordinates(lat: number | string | undefined, lng: number | string | undefined): { lat: number | null; lng: number | null } {
+  const parse = (v: number | string | undefined): number | null => {
+    if (v == null) return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return !isNaN(n) ? n : null;
+  };
+  return { lat: parse(lat), lng: parse(lng) };
 }
 
 /** Нормализация даты */
@@ -408,6 +411,11 @@ function normalizeDate(d: string | number | undefined | null): string | null {
 export function transformInparsListing(raw: InparsListingRaw): Ad {
   const source = raw.source || (raw.sourceId ? INPARS_SOURCE_NAMES[raw.sourceId] : null) || 'unknown';
   const pricePerMeter = raw.cost && raw.sq ? Math.round(raw.cost / raw.sq) : null;
+
+  // Отладка: проверяем наличие координат
+  if (!raw.lat || !raw.lng) {
+    console.warn('[Inpars] No coordinates for listing', raw.id, 'keys:', Object.keys(raw).filter(k => k.toLowerCase().includes('lat') || k.toLowerCase().includes('lng') || k.toLowerCase().includes('geo') || k.toLowerCase().includes('point')));
+  }
 
   const sellerInfo = normalizeSeller(raw);
   const coordinates = normalizeCoordinates(raw.lat, raw.lng);

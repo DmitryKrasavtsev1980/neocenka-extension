@@ -8,13 +8,95 @@ import 'leaflet/dist/leaflet.css';
   return !Array.isArray(latlngs[0]) || (typeof latlngs[0][0] !== 'object' && typeof latlngs[0][0] !== 'undefined');
 };
 
+// Патч безопасности: в минифицированном бандле Leaflet метод LatLngBounds.contains
+// вызывает J(y) (latLngBounds factory) вместо K(y) (latLng factory).
+// Из-за этого contains([lat, lng]) создаёт пустой bounds и падает с TypeError.
+// Также extend получает отдельные числа (lat/lng из массива) вместо LatLng —
+// патчим оба метода для безопасной конвертации.
+const _origExtend = L.LatLngBounds.prototype.extend;
+(L.LatLngBounds.prototype as any).extend = function (obj: any): any {
+  if (obj && !(obj instanceof L.LatLng) && !(obj instanceof (L.LatLngBounds as any))) {
+    if (typeof obj === 'object' && '_southWest' in obj && '_northEast' in obj) {
+      const sw = obj._southWest, ne = obj._northEast;
+      if (sw && ne) {
+        _origExtend.call(this, L.latLng(sw.lat, sw.lng));
+        _origExtend.call(this, L.latLng(ne.lat, ne.lng));
+        return this;
+      }
+      return this;
+    }
+    const latlng = L.latLng(obj);
+    if (latlng) return _origExtend.call(this, latlng);
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        const ll = L.latLng(item);
+        if (ll) _origExtend.call(this, ll);
+      }
+      return this;
+    }
+    return this;
+  }
+  return _origExtend.call(this, obj);
+};
+(L.LatLngBounds.prototype as any).contains = function (obj: any): boolean {
+  if (!this._southWest || !this._northEast) return false;
+  if (obj && (obj instanceof (L.LatLngBounds as any)) && obj._southWest && obj._northEast) {
+    return obj._southWest.lat >= this._southWest.lat &&
+           obj._northEast.lat <= this._northEast.lat &&
+           obj._southWest.lng >= this._southWest.lng &&
+           obj._northEast.lng <= this._northEast.lng;
+  }
+  const latlng = L.latLng(obj);
+  if (!latlng) return false;
+  return latlng.lat >= this._southWest.lat && latlng.lat <= this._northEast.lat &&
+         latlng.lng >= this._southWest.lng && latlng.lng <= this._northEast.lng;
+};
+
 import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import { booleanIntersects, polygon as turfPolygon } from '@turf/turf';
 import type { Feature, Polygon as TurfPolygon } from 'geojson';
 import { CadastralQuarter } from '../../types';
+import type { AdAddress, ReferenceItem } from '../../types';
 import { getMapConfig, createTileLayer } from '../../services/map-config';
 import './SearchByPolygon.css';
+
+// ─── Константы маркеров ───
+
+type MapFilterType = 'year' | 'series' | 'floors' | 'objects' | 'listings';
+
+/** Цвета материалов стен (по server_id) */
+const WALL_MATERIAL_COLORS: Record<string, string> = {
+  brick: '#8B4513',
+  panel: '#808080',
+  monolith: '#cbcbc8',
+  blocky: '#F5F5DC',
+};
+
+/** Названия материалов стен */
+const WALL_MATERIAL_NAMES: Record<string, string> = {
+  brick: 'Кирпичный',
+  panel: 'Панельный',
+  monolith: 'Монолитный',
+  blocky: 'Блочный',
+};
+
+/** Названия серий домов (fallback) */
+const HOUSE_SERIES_NAMES: Record<string, string> = {
+  khrushchevka: 'Хрущёвка',
+  stalinka: 'Сталинка',
+  brezhnevka: 'Брежневка',
+  modern: 'Современная',
+};
+
+function getMarkerHeight(floors: number | null): number {
+  if (!floors || floors <= 5) return 10;
+  if (floors <= 10) return 15;
+  if (floors <= 20) return 20;
+  return 25;
+}
+
+// ─── Интерфейсы ───
 
 interface FlyToTarget {
   lat: number;
@@ -34,6 +116,12 @@ interface SearchByPolygonProps {
   onQuartersSelected: (cadNumbers: string[], polygonsCoords?: [number, number][][]) => void;
   initialPolygons?: [number, number][][] | null;
   flyTo?: FlyToTarget | null;
+  addresses?: AdAddress[];
+  addressStats?: Record<number, { objects: number; listings: number }>;
+  referenceData?: {
+    wallMaterials: ReferenceItem[];
+    houseSeries: ReferenceItem[];
+  };
 }
 
 const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
@@ -42,12 +130,16 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   onQuartersSelected,
   initialPolygons,
   flyTo,
+  addresses,
+  addressStats,
+  referenceData,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const drawnItemsRef = useRef<L.FeatureGroup | null>(null);
   const quarterLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const addressLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const quartersRef = useRef(quarters);
   const quarterStatsRef = useRef(quarterStats);
   const onQuartersSelectedRef = useRef(onQuartersSelected);
@@ -59,6 +151,18 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const [geocoding, setGeocoding] = useState(false);
   const addressMarkerRef = useRef<L.Marker | null>(null);
 
+  // Маркеры адресов
+  const [activeMapFilter, setActiveMapFilter] = useState<MapFilterType>('year');
+  const addressesRef = useRef(addresses);
+  const addressStatsRef = useRef(addressStats);
+  const activeMapFilterRef = useRef(activeMapFilter);
+  const [addressVisible, setAddressVisible] = useState(true);
+  const [addressCount, setAddressCount] = useState(0);
+
+  // Справочники (загружаются из IndexedDB)
+  const wallMaterialMapRef = useRef<Map<string, ReferenceItem>>(new Map());
+  const houseSeriesMapRef = useRef<Map<string, ReferenceItem>>(new Map());
+
   // Флаг: предотвращает циклическое пересоздание полигонов
   const isInternalUpdateRef = useRef(false);
 
@@ -68,7 +172,34 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const addressEnabledRef = useRef(addressEnabled);
   addressEnabledRef.current = addressEnabled;
 
-  // Держим quarters/quarterStats в актуальных ref + отслеживаем загрузку
+  // ─── Построение мапов справочников из пропсов ───
+  useEffect(() => {
+    if (referenceData?.wallMaterials) {
+      const map = new Map<string, ReferenceItem>();
+      referenceData.wallMaterials.forEach(item => {
+        if (item.server_id) map.set(item.server_id, item);
+      });
+      wallMaterialMapRef.current = map;
+    }
+    if (referenceData?.houseSeries) {
+      const map = new Map<string, ReferenceItem>();
+      referenceData.houseSeries.forEach(item => {
+        if (item.server_id) map.set(item.server_id, item);
+      });
+      houseSeriesMapRef.current = map;
+    }
+  }, [referenceData]);
+
+  // Держим refs актуальными
+  useEffect(() => {
+    addressesRef.current = addresses;
+    addressStatsRef.current = addressStats;
+  }, [addresses, addressStats]);
+
+  useEffect(() => {
+    activeMapFilterRef.current = activeMapFilter;
+  }, [activeMapFilter]);
+
   useEffect(() => {
     quartersRef.current = quarters;
     quarterStatsRef.current = quarterStats;
@@ -76,6 +207,142 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       setQuartersLoaded(true);
     }
   }, [quarters, quarterStats]);
+
+  // ─── Создание треугольного маркера адреса ───
+  const createTriangleMarker = useCallback((address: AdAddress, filter: MapFilterType): L.Marker => {
+    const floors = address.floors_count || 0;
+    const markerHeight = getMarkerHeight(floors);
+
+    // Цвет: из справочника по wall_material_id, или дефолт
+    let markerColor = '#3b82f6';
+    if (address.wall_material_id) {
+      const refItem = wallMaterialMapRef.current.get(address.wall_material_id);
+      if (refItem?.color) {
+        markerColor = refItem.color;
+      } else if (WALL_MATERIAL_COLORS[address.wall_material_id]) {
+        markerColor = WALL_MATERIAL_COLORS[address.wall_material_id];
+      }
+    }
+
+    // Метка в зависимости от фильтра
+    let labelText = '';
+    switch (filter) {
+      case 'year':
+        labelText = address.build_year ? String(address.build_year) : '';
+        break;
+      case 'series':
+        if (address.house_series_id) {
+          const refItem = houseSeriesMapRef.current.get(address.house_series_id);
+          labelText = refItem?.name || HOUSE_SERIES_NAMES[address.house_series_id] || address.house_series_id;
+        }
+        break;
+      case 'floors':
+        labelText = address.floors_count ? String(address.floors_count) : '';
+        break;
+      case 'objects':
+        if (address.id && addressStatsRef.current) {
+          const stats = addressStatsRef.current[address.id];
+          labelText = stats ? String(stats.objects) : '';
+        }
+        break;
+      case 'listings':
+        if (address.id && addressStatsRef.current) {
+          const stats = addressStatsRef.current[address.id];
+          labelText = stats ? String(stats.listings) : '';
+        }
+        break;
+    }
+
+    const marker = L.marker([address.coordinates.lat!, address.coordinates.lng!], {
+      icon: L.divIcon({
+        className: 'triangle-marker',
+        html: `<div style="position:relative;">
+          <div style="width:0;height:0;border-left:7.5px solid transparent;border-right:7.5px solid transparent;border-top:${markerHeight}px solid ${markerColor};"></div>
+          ${labelText ? `<span style="position:absolute;left:15px;top:0;font-size:11px;font-weight:600;color:#374151;background:rgba(255,255,255,0.95);padding:1px 4px;border-radius:3px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.1);">${labelText}</span>` : ''}
+        </div>`,
+        iconSize: [15, markerHeight],
+        iconAnchor: [7.5, markerHeight],
+      }),
+    });
+
+    // Popup
+    const wallName = address.wall_material_id
+      ? (wallMaterialMapRef.current.get(address.wall_material_id)?.name || WALL_MATERIAL_NAMES[address.wall_material_id] || address.wall_material_id)
+      : '';
+    const seriesName = address.house_series_id
+      ? (houseSeriesMapRef.current.get(address.house_series_id)?.name || HOUSE_SERIES_NAMES[address.house_series_id] || address.house_series_id)
+      : '';
+
+    const popupContent = `
+      <div style="width:250px;">
+        <div style="font-weight:bold;font-size:13px;margin-bottom:4px;">${address.address || 'Адрес'}</div>
+        <div style="font-size:12px;color:#555;line-height:1.5;">
+          ${address.floors_count ? `<div><strong>Этажей:</strong> ${address.floors_count}</div>` : ''}
+          ${address.build_year ? `<div><strong>Год:</strong> ${address.build_year}</div>` : ''}
+          ${wallName ? `<div><strong>Материал:</strong> ${wallName}</div>` : ''}
+          ${seriesName ? `<div><strong>Серия:</strong> ${seriesName}</div>` : ''}
+          ${address.house_type ? `<div><strong>Тип:</strong> ${address.house_type}</div>` : ''}
+        </div>
+      </div>
+    `;
+    marker.bindPopup(popupContent, { maxWidth: 280 });
+
+    return marker;
+  }, []);
+
+  // ─── Рендер адресных маркеров на карте ───
+  const renderAddressMarkers = useCallback(() => {
+    const layerGroup = addressLayerGroupRef.current;
+    const map = mapInstanceRef.current;
+    if (!layerGroup || !map) return;
+
+    layerGroup.clearLayers();
+
+    if (!addressVisible) {
+      setAddressCount(0);
+      return;
+    }
+
+    const currentAddresses = addressesRef.current;
+    if (!currentAddresses || currentAddresses.length === 0) {
+      setAddressCount(0);
+      return;
+    }
+
+    // Показываем маркеры только при достаточном зуме
+    const zoom = map.getZoom();
+    if (zoom < 12) {
+      setAddressCount(0);
+      return;
+    }
+
+    // Фильтрация по видимой области
+    const bounds = map.getBounds();
+    const visible = currentAddresses.filter(a => {
+      if (!a.coordinates?.lat || !a.coordinates?.lng) return false;
+      return bounds.contains([a.coordinates.lat, a.coordinates.lng]);
+    });
+
+    // Ограничение для производительности
+    const maxMarkers = 800;
+    const toRender = visible.length > maxMarkers ? visible.slice(0, maxMarkers) : visible;
+
+    const filter = activeMapFilterRef.current;
+    for (const addr of toRender) {
+      const marker = createTriangleMarker(addr, filter);
+      marker.addTo(layerGroup);
+    }
+
+    setAddressCount(toRender.length);
+  }, [createTriangleMarker, addressVisible]);
+
+  const renderAddressMarkersRef = useRef(renderAddressMarkers);
+  renderAddressMarkersRef.current = renderAddressMarkers;
+
+  // Перерисовка при изменении фильтра или адресов
+  useEffect(() => {
+    renderAddressMarkers();
+  }, [renderAddressMarkers, activeMapFilter, addresses, addressVisible]);
 
   // Поиск пересекающихся кварталов для одного полигона
   const findIntersectingForLayer = useCallback(
@@ -166,7 +433,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       });
   }, []);
 
-  // Кастомная иконка маркера (SVG) — не зависит от загрузки изображений
+  // Кастомная иконка маркера (SVG)
   const createMarkerIcon = useCallback(() => {
     return L.divIcon({
       html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="40" viewBox="0 0 28 40">
@@ -192,7 +459,6 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         draggable: true,
       }).addTo(map);
 
-      // При перетаскивании маркера — обратное геокодирование
       marker.on('dragend', () => {
         const pos = marker.getLatLng();
         reverseGeocode(pos.lat, pos.lng);
@@ -202,7 +468,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     }
   }, [createMarkerIcon]);
 
-  // Nominatim обратное геокодирование (координаты → адрес)
+  // Nominatim обратное геокодирование
   const reverseGeocode = useCallback(async (lat: number, lng: number) => {
     try {
       const res = await fetch(
@@ -216,7 +482,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     } catch { /* ignore */ }
   }, []);
 
-  // Nominatim прямое геокодирование (адрес → координаты)
+  // Nominatim прямое геокодирование
   const geocodeAddress = useCallback(async () => {
     const query = addressQuery.trim();
     if (!query) return;
@@ -280,11 +546,10 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     onQuartersSelectedRef.current(Array.from(allCadNumbers), allPolyCoords);
   }, [findIntersectingForLayer, renderQuartersOnMap]);
 
-  // Ref для доступа из замыканий инициализации карты
   const recalcAndNotifyRef = useRef(recalcAndNotify);
   recalcAndNotifyRef.current = recalcAndNotify;
 
-  // Инициализация карты
+  // ─── Инициализация карты ───
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
@@ -304,9 +569,17 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     quarterLayerGroupRef.current = quarterLayerGroup;
     map.addLayer(quarterLayerGroup);
 
+    // Слой для адресных маркеров
+    const addressLayerGroup = L.layerGroup();
+    addressLayerGroupRef.current = addressLayerGroup;
+    map.addLayer(addressLayerGroup);
+
     // Управление слоями
     const baseLayers: Record<string, L.Layer> = {};
-    const overlayLayers = { 'Кадастровые кварталы': quarterLayerGroup };
+    const overlayLayers = {
+      'Кадастровые кварталы': quarterLayerGroup,
+      'Адреса': addressLayerGroup,
+    };
     L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);
 
     // Контроллер рисования
@@ -338,18 +611,15 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       recalcAndNotifyRef.current();
     });
 
-    // Обработка сохранения редактирования
     map.on((L as any).Draw.Event.EDITED, () => {
       recalcAndNotifyRef.current();
     });
 
-    // Обработка удаления полигона
     map.on((L as any).Draw.Event.DELETED, () => {
       recalcAndNotifyRef.current();
     });
 
-    // Перетаскивание вершин — обновляем кварталы при отпускании вершины
-    // (не уведомляем родителя, чтобы не пересоздавать полигоны)
+    // Перетаскивание вершин
     const recalcForVertexRef = { current: () => {} };
     map.on((L as any).Draw.Event.EDITVERTEX, () => {
       recalcForVertexRef.current();
@@ -380,6 +650,11 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       reverseGeocodeRef.current(lat, lng);
     });
 
+    // При перемещении карты — обновить адресные маркеры
+    map.on('moveend', () => {
+      renderAddressMarkersRef.current();
+    });
+
     mapInstanceRef.current = map;
 
     return () => {
@@ -391,7 +666,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     };
   }, []);
 
-  // Восстановление полигонов из initialPolygons (только для внешних изменений)
+  // Восстановление полигонов из initialPolygons
   const prevPolygonsJsonRef = useRef('');
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -402,13 +677,11 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     const polygonsChanged = prevPolygonsJsonRef.current !== currentJson;
     prevPolygonsJsonRef.current = currentJson;
 
-    // Если изменение пришло от нашего recalcAndNotify — пропускаем
     if (!polygonsChanged || isInternalUpdateRef.current) {
       isInternalUpdateRef.current = false;
       return;
     }
 
-    // Внешнее изменение initialPolygons — пересоздаём полигоны
     drawnItems.clearLayers();
 
     if (!initialPolygons || initialPolygons.length === 0) {
@@ -442,7 +715,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     recalcAndNotify();
   }, [initialPolygons, recalcAndNotify, quartersLoaded, renderQuartersOnMap]);
 
-  // ResizeObserver для invalidateSize
+  // ResizeObserver
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -457,7 +730,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // Обработка flyTo
+  // flyTo
   useEffect(() => {
     if (!flyTo || !mapInstanceRef.current) return;
     mapInstanceRef.current.flyTo([flyTo.lat, flyTo.lon], flyTo.zoom, { duration: 1.5 });
@@ -480,6 +753,12 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     }
   };
 
+  const handleFilterClick = (filter: MapFilterType) => {
+    setActiveMapFilter(prev => prev === filter ? prev : filter);
+  };
+
+  const hasAddresses = addresses && addresses.length > 0;
+
   return (
     <div className="search-by-polygon" ref={containerRef}>
       <div className="polygon-toolbar">
@@ -495,6 +774,41 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
           Сбросить
         </button>
       </div>
+
+      {/* Панель фильтров маркеров */}
+      {hasAddresses && (
+        <div className="marker-filter-toolbar">
+          <label className="address-toggle" title="Показать/скрыть маркеры адресов">
+            <input
+              type="checkbox"
+              checked={addressVisible}
+              onChange={(e) => setAddressVisible(e.target.checked)}
+            />
+            <span className="address-toggle-label">Адреса</span>
+          </label>
+          <div className="marker-filter-buttons">
+            {([
+              { key: 'year' as MapFilterType, label: 'Год' },
+              { key: 'series' as MapFilterType, label: 'Серия' },
+              { key: 'floors' as MapFilterType, label: 'Этажность' },
+              { key: 'objects' as MapFilterType, label: 'Объектов' },
+              { key: 'listings' as MapFilterType, label: 'Объявлений' },
+            ]).map(f => (
+              <button
+                key={f.key}
+                className={`marker-filter-btn${activeMapFilter === f.key ? ' active' : ''}`}
+                onClick={() => handleFilterClick(f.key)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <span className="marker-filter-count">
+            {addressCount > 0 ? `${addressCount} на карте` : `${addresses.length} всего`}
+          </span>
+        </div>
+      )}
+
       <div className="address-toolbar">
         <label className="address-toggle" title="Включить поиск по адресу">
           <input

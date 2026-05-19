@@ -18,6 +18,7 @@ export class DealsDatabase extends Dexie {
   ad_house_classes!: Table<ReferenceItem, number>;
   ad_house_series!: Table<ReferenceItem, number>;
   ad_ceiling_materials!: Table<ReferenceItem, number>;
+  ad_house_problems!: Table<ReferenceItem, number>;
   ad_imports!: Table<AdImport, number>;
 
   // Модуль CRM
@@ -427,6 +428,49 @@ export class DealsDatabase extends Dexie {
       return tmplTable.toCollection().modify((tmpl: any) => {
         // pipeline_id и source оставляем undefined — шаблон общий
       });
+    });
+
+    // Версия 14: расширение адресной базы (server_id, house_id, region и т.д.)
+    this.version(14).stores({
+      ad_addresses: `
+        ++id,
+        server_id,
+        house_id,
+        address,
+        type,
+        region,
+        house_series_id,
+        house_class_id,
+        wall_material_id,
+        ceiling_material_id,
+        build_year,
+        source
+      `,
+    }).upgrade(tx => {
+      const addrs = tx.table('ad_addresses');
+      return addrs.toCollection().modify((addr: any) => {
+        if (!('server_id' in addr)) addr.server_id = null;
+        if (!('house_id' in addr)) addr.house_id = null;
+        if (!('region' in addr)) addr.region = null;
+        if (!('cadno' in addr)) addr.cadno = null;
+        if (!('house_type' in addr)) addr.house_type = null;
+        if (!('serie' in addr)) addr.serie = null;
+        if (!('house_problem_id' in addr)) addr.house_problem_id = null;
+        if (!('area_total' in addr)) addr.area_total = null;
+        if (!('area_live' in addr)) addr.area_live = null;
+        if (!('ceiling_height' in addr)) addr.ceiling_height = null;
+        if (!('comment' in addr)) addr.comment = '';
+        if (!('source' in addr)) addr.source = 'user';
+        if (!('synced_at' in addr)) addr.synced_at = null;
+      });
+    });
+
+    // Version 15: справочник проблем домов
+    this.version(15).stores({
+      ad_house_problems: `
+        ++id,
+        name
+      `,
     });
   }
 }

@@ -153,3 +153,58 @@
   min-height: 500px;
   height: 70vh;
 }
+
+/* ─── Marker filter toolbar ─── */
+
+.marker-filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: #f0f4f8;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.marker-filter-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.marker-filter-btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-family: Inter, system-ui, sans-serif;
+  font-weight: 500;
+  color: #555;
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.marker-filter-btn:hover {
+  background: #e8f0fe;
+  border-color: #a0c0f0;
+}
+
+.marker-filter-btn.active {
+  background: #d0e4f7;
+  border-color: #7baed8;
+  color: #1a5a94;
+}
+
+.marker-filter-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+}
+
+/* Треугольные маркеры — убрать leaflet default стили */
+.triangle-marker {
+  background: none !important;
+  border: none !important;
+}

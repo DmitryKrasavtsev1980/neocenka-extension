@@ -548,3 +548,72 @@ export async function reorderSavedFilters(items: Array<{
 }>): Promise<{ updated: boolean }> {
   return apiRequest<{ updated: boolean }>('PUT', '/user/saved-filters/reorder', { items });
 }
+
+// === Addresses ===
+
+export interface AddressResponse {
+  id: number;
+  house_id: string | null;
+  address: string;
+  lat: number;
+  lon: number;
+  region: string | null;
+  type: string;
+  cadno: string | null;
+  house_type: string | null;
+  serie: string | null;
+  house_series_id: string | null;
+  house_class_id: string | null;
+  wall_material_id: string | null;
+  ceiling_material_id: string | null;
+  house_problem_id: string | null;
+  levels: number | null;
+  build_year: number | null;
+  entrances_count: number | null;
+  living_spaces_count: number | null;
+  area_total: number | null;
+  area_live: number | null;
+  ceiling_height: string | null;
+  gas_supply: boolean | null;
+  individual_heating: boolean | null;
+  has_playground: boolean;
+  has_sports_area: boolean;
+  comment: string | null;
+  source: string;
+  updated_at: string;
+}
+
+export interface AddressesListResponse {
+  addresses: AddressResponse[];
+  total: number;
+  updated_at: string | null;
+}
+
+export interface AddressRefsResponse {
+  house_series: { id: string; name: string; build_years: string | null }[];
+  house_classes: { id: string; name: string; rating: number | null; color: string | null }[];
+  wall_materials: { id: string; name: string; color: string | null }[];
+  ceiling_materials: { id: string; name: string }[];
+  house_problems: { id: string; name: string; color: string | null }[];
+}
+
+export async function getAddresses(region?: string, updatedSince?: string): Promise<AddressesListResponse> {
+  const params: Record<string, string> = {};
+  if (region) params.region = region;
+  if (updatedSince) params.updated_since = updatedSince;
+  const query = new URLSearchParams(params).toString();
+  const path = `/addresses${query ? '?' + query : ''}`;
+  return apiRequest<AddressesListResponse>('GET', path);
+}
+
+export async function getAddressRefs(): Promise<AddressRefsResponse> {
+  return apiRequest<AddressRefsResponse>('GET', '/addresses/refs');
+}
+
+export async function getAddressesStats(): Promise<{ total: number; by_region: Record<string, number>; last_updated: string | null }> {
+  return apiRequest<{ total: number; by_region: Record<string, number>; last_updated: string | null }>('GET', '/addresses/stats');
+}
+
+export async function postAddresses(addresses: Record<string, unknown>[]): Promise<{ synced: number }> {
+  return apiRequest<{ synced: number }>('POST', '/addresses', { addresses });
+}

@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
-import type { Ad, AdObject, AdAddress, AdStats } from '@/types';
+import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem } from '@/types';
 import { REGION_CENTERS } from '@/constants/regions';
 import {
   getInparsToken,
@@ -22,6 +22,8 @@ import { Button } from '@/components/catalyst/button';
 import { Badge } from '@/components/catalyst/badge';
 import AdDetailModal from './AdDetailModal';
 import AdObjectDetailModal from './AdObjectDetailModal';
+import AdAddressModal from './AdAddressModal';
+import { adsAddressService } from '@/services/ads-address-service';
 import {
   FunnelIcon,
   ArrowDownTrayIcon,
@@ -29,6 +31,7 @@ import {
   XMarkIcon,
   ArrowPathIcon,
   MapPinIcon,
+  TrashIcon,
 } from '@heroicons/react/16/solid';
 
 // ─── Константы ───
@@ -65,6 +68,20 @@ const CONFIDENCE_LABELS: Record<string, string> = {
 const PAGE_SIZE = 25;
 
 function toDateString(d: Date): string { return d.toISOString().slice(0, 10); }
+
+/** Проверка принадлежности точки полигону (ray casting). Полигон: [lat, lng][] */
+function pointInPolygon(lat: number, lng: number, polygon: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const latI = polygon[i][0], lngI = polygon[i][1];
+    const latJ = polygon[j][0], lngJ = polygon[j][1];
+    if (((latI > lat) !== (latJ > lat)) &&
+        (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
 
 function daysAgo(dateStr: string | null): number | null {
   if (!dateStr) return null;
@@ -126,6 +143,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [filterProcessingCategoryId, setFilterProcessingCategoryId] = useState<number | ''>('');
   const [filterProcessingFloor, setFilterProcessingFloor] = useState('');
   const [addresses, setAddresses] = useState<AdAddress[]>([]);
+  const [refWallMaterials, setRefWallMaterials] = useState<ReferenceItem[]>([]);
+  const [refHouseSeries, setRefHouseSeries] = useState<ReferenceItem[]>([]);
+  const [refHouseClasses, setRefHouseClasses] = useState<ReferenceItem[]>([]);
+  const [refCeilingMaterials, setRefCeilingMaterials] = useState<ReferenceItem[]>([]);
+  const [refHouseProblems, setRefHouseProblems] = useState<ReferenceItem[]>([]);
 
   // ─── Сохранённые фильтры ───
   const [savedFilters, setSavedFilters] = useState<{ id: string; name: string; state: string }[]>([]);
@@ -153,9 +175,19 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [runAddress, setRunAddress] = useState(false);
   const [runUpdate, setRunUpdate] = useState(false);
 
+  // ─── Matching адресов ───
+  const [matchRunning, setMatchRunning] = useState(false);
+  const [matchProgress, setMatchProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // ─── Удаление ───
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteRunning, setDeleteRunning] = useState(false);
+  const [deleteSelectedConfirm, setDeleteSelectedConfirm] = useState(false);
+
   // ─── Модалки ───
   const [detailAd, setDetailAd] = useState<Ad | null>(null);
   const [detailObject, setDetailObject] = useState<AdObject | null>(null);
+  const [detailAddress, setDetailAddress] = useState<AdAddress | null>(null);
 
   // ─── Карта ───
   const [showMapFilter, setShowMapFilter] = useState(false);
@@ -220,13 +252,36 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  // Загрузка адресов для фильтра
+  // Загрузка адресов и справочников для карты
   useEffect(() => {
     db.table<AdAddress>('ad_addresses').toArray().then(addrs => {
       addrs.sort((a, b) => (a.address || '').localeCompare(b.address || '', 'ru'));
       setAddresses(addrs);
     });
+    db.table<ReferenceItem>('ad_wall_materials').toArray().then(setRefWallMaterials);
+    db.table<ReferenceItem>('ad_house_series').toArray().then(setRefHouseSeries);
+    db.table<ReferenceItem>('ad_house_classes').toArray().then(setRefHouseClasses);
+    db.table<ReferenceItem>('ad_ceiling_materials').toArray().then(setRefCeilingMaterials);
+    db.table<ReferenceItem>('ad_house_problems').toArray().then(setRefHouseProblems);
   }, []);
+
+  // Статистика объектов/объявлений по адресам (для маркеров на карте)
+  const addressStatsMap = useMemo(() => {
+    const statsMap: Record<number, { objects: number; listings: number }> = {};
+    for (const obj of allObjects) {
+      if (obj.address_id) {
+        if (!statsMap[obj.address_id]) statsMap[obj.address_id] = { objects: 0, listings: 0 };
+        statsMap[obj.address_id].objects++;
+      }
+    }
+    for (const ad of allAds) {
+      if (ad.address_id) {
+        if (!statsMap[ad.address_id]) statsMap[ad.address_id] = { objects: 0, listings: 0 };
+        statsMap[ad.address_id].listings++;
+      }
+    }
+    return statsMap;
+  }, [allAds, allObjects]);
 
   // Загрузка сохранённых фильтров из localStorage + регион подписки
   useEffect(() => {
@@ -355,8 +410,15 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       result = result.filter(a => (a.address || '').toLowerCase().includes(q) || (a.title || '').toLowerCase().includes(q));
     }
 
-    // Фильтр обработки
-    if (filterProcessingStatus) result = result.filter(a => a.processing_status === filterProcessingStatus);
+    // Фильтр обработки: «Определить адрес» — показывает address_needed + low/very_low confidence
+    if (filterProcessingStatus === 'address_needed') {
+      result = result.filter(a =>
+        a.processing_status === 'address_needed' ||
+        (a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low'))
+      );
+    } else if (filterProcessingStatus) {
+      result = result.filter(a => a.processing_status === filterProcessingStatus);
+    }
     if (filterAddressId) result = result.filter(a => a.address_id === filterAddressId);
     if (filterContactType) result = result.filter(a => (a.seller_info?.type || a.seller_type) === filterContactType);
     if (filterProcessingCategoryId) result = result.filter(a => a.category_id === filterProcessingCategoryId);
@@ -599,10 +661,107 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     });
   };
 
+  const handleMatchAddresses = async () => {
+    setMatchRunning(true);
+    setMatchProgress(null);
+    try {
+      const result = await adsAddressService.matchAdsToAddresses(
+        (processed, total) => {
+          setMatchProgress({ done: processed, total });
+        },
+        polygonsCoords ?? undefined,
+      );
+      await loadData();
+      const addrs = await db.table<AdAddress>('ad_addresses').toArray();
+      addrs.sort((a, b) => (a.address || '').localeCompare(b.address || '', 'ru'));
+      setAddresses(addrs);
+      setToast({ message: `Адреса определены: ${result.matched} совпадений, ${result.unmatched} без адреса`, type: 'success' });
+    } catch {
+      setToast({ message: 'Ошибка при определении адресов', type: 'error' });
+    } finally {
+      setMatchRunning(false);
+      setMatchProgress(null);
+    }
+  };
+
+  const adsInPolygonCount = useMemo(() => {
+    if (!polygonsCoords || polygonsCoords.length === 0) return 0;
+    return allAds.filter(ad => {
+      const lat = ad.coordinates.lat;
+      const lng = ad.coordinates.lng;
+      if (lat == null || lng == null) return false;
+      return polygonsCoords.some(poly => pointInPolygon(lat, lng, poly));
+    }).length;
+  }, [allAds, polygonsCoords]);
+
+  const adsWithCoordsCount = useMemo(() => {
+    return allAds.filter(ad => ad.coordinates.lat != null && ad.coordinates.lng != null).length;
+  }, [allAds]);
+
+  const handleDeleteInPolygon = async () => {
+    if (!polygonsCoords || polygonsCoords.length === 0) return;
+    setDeleteRunning(true);
+    try {
+      const idsToDelete = allAds
+        .filter(ad => {
+          const lat = ad.coordinates.lat;
+          const lng = ad.coordinates.lng;
+          if (lat == null || lng == null) return false;
+          return polygonsCoords.some(poly => pointInPolygon(lat, lng, poly));
+        })
+        .map(ad => ad.id!)
+        .filter((id): id is number => id != null);
+      await db.ads.bulkDelete(idsToDelete);
+      await loadData();
+      await loadStats();
+      setDeleteConfirm(false);
+      setToast({ message: `Удалено ${idsToDelete.length} объявлений`, type: 'success' });
+    } catch {
+      setToast({ message: 'Ошибка при удалении', type: 'error' });
+    } finally {
+      setDeleteRunning(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    setDeleteRunning(true);
+    try {
+      const adIds: number[] = [];
+      const objectIds: number[] = [];
+      selectedIds.forEach(id => {
+        const type = selectedTypes.get(id);
+        if (type === 'object') objectIds.push(id);
+        else adIds.push(id);
+      });
+
+      // Удаляем объявления
+      if (adIds.length > 0) await db.ads.bulkDelete(adIds);
+
+      // Удаляем объекты (и их объявления)
+      if (objectIds.length > 0) {
+        for (const objId of objectIds) {
+          await db.ads.where('object_id').equals(objId).delete();
+        }
+        await db.ad_objects.bulkDelete(objectIds);
+      }
+
+      setSelectedIds(new Set());
+      setSelectedTypes(new Map());
+      await loadData();
+      await loadStats();
+      setDeleteSelectedConfirm(false);
+      setToast({ message: `Удалено: ${adIds.length} объявлений, ${objectIds.length} объектов`, type: 'success' });
+    } catch {
+      setToast({ message: 'Ошибка при удалении', type: 'error' });
+    } finally {
+      setDeleteRunning(false);
+    }
+  };
+
   const handleRunAll = () => {
     if (runImport) handleImport();
-    // Заглушки для адресов и обновления
-    if (runAddress) { alert('Определение адресов — в разработке'); }
+    if (runAddress) handleMatchAddresses();
     if (runUpdate) { alert('Обновление объявлений — в разработке'); }
   };
 
@@ -664,7 +823,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             {o.area_total != null ? `, ${o.area_total}м²` : ''}
           </td>
           <td className="px-2 py-1.5 text-[11px] max-w-[200px]">
-            <span className="cursor-pointer text-blue-600 dark:text-blue-400 hover:underline truncate block" onClick={e => { e.stopPropagation(); setDetailObject(o); }}>{o.address_id ? 'Адрес #' + o.address_id : 'Адрес не определен'}</span>
+            <span className="cursor-pointer text-blue-600 dark:text-blue-400 hover:underline truncate block" onClick={e => { e.stopPropagation(); if (o.address_id) { const a = addresses.find(x => x.id === o.address_id); if (a) setDetailAddress(a); } else setDetailObject(o); }}>{o.address_id ? 'Адрес #' + o.address_id : 'Адрес не определен'}</span>
           </td>
           <td className="px-2 py-1.5 text-[11px] text-right whitespace-nowrap">
             <div className="text-green-600 dark:text-green-400 font-medium">{fmtPrice(o.current_price)}</div>
@@ -713,9 +872,30 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         <td className="px-2 py-1.5 text-[11px] text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
           {a.property_type ? PROPERTY_TYPE_LABELS[a.property_type] || a.property_type : ''}{a.area_total != null ? `, ${a.area_total}${a.area_living ? '/' + a.area_living : ''}${a.area_kitchen ? '/' + a.area_kitchen : ''}м²` : ''}{a.floor != null ? `, ${a.floor}/${a.floors_total ?? '?'} эт.` : ''}
         </td>
-        <td className="px-2 py-1.5 text-[11px] max-w-[200px]">
-          <div className={`cursor-pointer truncate text-blue-600 dark:text-blue-400 hover:underline ${!a.address ? 'text-red-500 dark:text-red-400' : ''}`} onClick={e => { e.stopPropagation(); setDetailAd(a); }}>{a.address || 'Адрес не указан'}</div>
-          {addrFromDb && <div className="truncate text-zinc-400 text-[10px]">{addrFromDb} {a.address_match_confidence ? <span className={a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low' ? 'text-red-400' : 'text-green-500'}>{CONFIDENCE_LABELS[a.address_match_confidence]}</span> : ''}</div>}
+        <td className="px-2 py-1.5 text-[11px] max-w-[320px]">
+          {/* Исходный адрес объявления */}
+          <div
+            className={`truncate-left cursor-pointer ${a.address ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400' : 'text-red-600 hover:text-red-800 dark:text-red-400'}`}
+            title={a.address || 'Адрес не указан'}
+            onClick={e => { e.stopPropagation(); setDetailAd(a); }}
+          >{a.address || 'Адрес не указан'}</div>
+          {/* Адрес из БД (результат матчинга) */}
+          <div
+            className={`truncate-left text-[10px] ${addrFromDb ? 'text-zinc-500 dark:text-zinc-400' : 'text-red-500 dark:text-red-400'}`}
+            title={addrFromDb ? (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low' ? `${addrFromDb} (${CONFIDENCE_LABELS[a.address_match_confidence] || ''})` : addrFromDb) : 'Адрес не определен'}
+          >
+            {addrFromDb ? (
+              <span className="cursor-pointer hover:text-blue-500" onClick={e => { e.stopPropagation(); const addrObj = a.address_id ? addresses.find(x => x.id === a.address_id) : null; if (addrObj) setDetailAddress(addrObj); }}>
+                {addrFromDb}
+                {a.address_match_confidence && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low') && (
+                  <span className="text-red-400"> ({CONFIDENCE_LABELS[a.address_match_confidence]})</span>
+                )}
+                {a.address_match_confidence === 'manual' && (
+                  <span className="text-green-500"> (Подтвержден)</span>
+                )}
+              </span>
+            ) : 'Адрес не определен'}
+          </div>
         </td>
         <td className="px-2 py-1.5 text-[11px] text-right whitespace-nowrap">
           <div className="text-green-600 dark:text-green-400 font-medium">{fmtPrice(a.price)}</div>
@@ -929,11 +1109,26 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
 
-            {/* Раздел 2: Определение адресов (ЗАГЛУШКА) */}
+            {/* Раздел 2: Определение адресов */}
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><MapPinIcon className="size-4" /> Определение адресов</h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Автоматическое определение адресов для объявлений без адреса. <span className="text-amber-600">В разработке</span></p>
-              <p className="text-xs text-zinc-400">Объявлений без адреса: {allAds.filter(a => !a.address_id || a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low').length}</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Автоматическое определение адресов для объявлений без привязки к адресной базе.</p>
+              <p className="text-xs text-zinc-400">Без адреса: {allAds.filter(a => !a.address_id).length} / Низкая точность: {allAds.filter(a => a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low')).length}</p>
+              <button onClick={handleMatchAddresses} disabled={matchRunning} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                {matchRunning && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
+                {matchRunning ? 'Определение...' : 'Определить адреса'}
+              </button>
+              {matchProgress && matchProgress.total > 0 && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                    <span>Обработано: {matchProgress.done} / {matchProgress.total}</span>
+                    <span>{Math.round((matchProgress.done / matchProgress.total) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 w-full max-w-xs rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+                    <div className="h-full rounded-full bg-blue-600 transition-all duration-300" style={{ width: `${(matchProgress.done / matchProgress.total) * 100}%` }} />
+                  </div>
+                </div>
+              )}
             </div>
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
@@ -943,6 +1138,36 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><ArrowPathIcon className="size-4" /> Обновление объявлений</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">Обновление данных по существующим объявлениям. <span className="text-amber-600">В разработке</span></p>
               <p className="text-xs text-zinc-400">Активных объявлений: {allAds.filter(a => a.status === 'active').length}</p>
+            </div>
+
+            <hr className="border-zinc-200 dark:border-zinc-700" />
+
+            {/* Раздел 4: Удаление объявлений */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><TrashIcon className="size-4" /> Удаление объявлений</h3>
+              <p className="text-xs text-zinc-400">Всего: {allAds.length}, с координатами: {adsWithCoordsCount}</p>
+              {!polygonsCoords && <p className="text-xs text-amber-600 dark:text-amber-400">Нарисуйте полигон на карте для удаления объявлений в области.</p>}
+              {polygonsCoords && (
+                <>
+                  <p className="text-xs text-zinc-400">Объявлений в полигоне: {adsInPolygonCount}</p>
+                  {!deleteConfirm ? (
+                    <button onClick={() => setDeleteConfirm(true)} disabled={adsInPolygonCount === 0} className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                      <TrashIcon className="size-4" /> Удалить в полигоне
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                      <p className="text-xs text-red-700 dark:text-red-300 font-medium">Удалить {adsInPolygonCount} объявлений в полигоне?</p>
+                      <button onClick={handleDeleteInPolygon} disabled={deleteRunning} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5">
+                        {deleteRunning && <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
+                        Да, удалить
+                      </button>
+                      <button onClick={() => setDeleteConfirm(false)} className="rounded-md bg-zinc-200 dark:bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-600">
+                        Отмена
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
@@ -1122,7 +1347,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 );
               })()}
               {showMapFilter && (
-                <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} />
+                <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries }} />
               )}
             </div>
 
@@ -1195,6 +1420,15 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             <input type="checkbox" checked={pagedRows.length > 0 && selectedIds.size > 0} onChange={toggleSelectAll} className="h-3 w-3 rounded border-zinc-300 text-blue-600" title="Выбрать все на странице" />
             <button disabled={selectedIds.size === 0} className="px-2 py-1 rounded text-[11px] font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 disabled:opacity-30 disabled:cursor-not-allowed">Объединить</button>
             <button disabled={selectedIds.size === 0} className="px-2 py-1 rounded text-[11px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed">Разбить</button>
+            {!deleteSelectedConfirm ? (
+              <button disabled={selectedIds.size === 0} onClick={() => setDeleteSelectedConfirm(true)} className="px-2 py-1 rounded text-[11px] font-medium bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 hover:bg-red-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"><TrashIcon className="size-3" />Удалить</button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-red-600 dark:text-red-400">Удалить {selectedIds.size}?</span>
+                <button onClick={handleDeleteSelected} disabled={deleteRunning} className="px-2 py-1 rounded text-[10px] font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">Да</button>
+                <button onClick={() => setDeleteSelectedConfirm(false)} className="px-2 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300">Нет</button>
+              </div>
+            )}
             {selectedIds.size > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400 ml-2">{selectedIds.size} выбрано</span>}
             <div className="flex-1" />
             <label className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
@@ -1257,6 +1491,24 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           listings={objectAds.get(detailObject.id!) || []}
           onClose={() => setDetailObject(null)}
           onAdClick={(ad) => { setDetailObject(null); setDetailAd(ad); }}
+        />
+      )}
+
+      {/* Address Modal */}
+      {detailAddress && (
+        <AdAddressModal
+          address={detailAddress}
+          referenceData={{
+            wallMaterials: refWallMaterials,
+            houseSeries: refHouseSeries,
+            houseClasses: refHouseClasses,
+            ceilingMaterials: refCeilingMaterials,
+            houseProblems: refHouseProblems,
+          }}
+          onClose={() => setDetailAddress(null)}
+          onSave={(updated) => {
+            setAddresses(prev => prev.map(a => a.id === updated.id ? updated : a));
+          }}
         />
       )}
     </div>

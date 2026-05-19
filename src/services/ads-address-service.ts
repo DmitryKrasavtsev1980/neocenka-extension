@@ -1,10 +1,13 @@
 /**
  * Сервис адресов для модуля объявлений
- * CRUD + упрощённый матчинг (без ML)
+ * CRUD + SmartAddressMatcher (порт из neocenka-extension)
  */
 
 import { db } from '@/db/database';
 import type { AdAddress } from '@/types';
+import { SmartAddressMatcher } from './smart-address-matcher';
+
+const matcher = new SmartAddressMatcher();
 
 export const adsAddressService = {
   /** Получить все адреса */
@@ -46,99 +49,63 @@ export const adsAddressService = {
   },
 
   /**
-   * Найти или создать адрес для объявления
-   * Упрощённый алгоритм: точное совпадение нормализованного адреса → географическая близость
+   * Привязать объявления к адресам через SmartAddressMatcher
+   *
+   * Алгоритм (идентичен neocenka-extension):
+   * 1. Загружаем все адреса из БД (с сервера)
+   * 2. Для каждого объявления без адреса запускаем 5-этапный матчинг
+   * 3. НЕ создаём новые адреса — только привязка к существующим
    */
-  async findOrCreateForAd(adAddress: string, lat: number | null, lng: number | null): Promise<{ addressId: number; confidence: string; method: string }> {
-    const normalized = normalizeAddress(adAddress);
+  async matchAdsToAddresses(
+    onProgress?: (processed: number, total: number) => void,
+    polygons?: [number, number][][],
+  ): Promise<{ matched: number; unmatched: number }> {
+    // Загружаем все адреса из БД (с сервера)
+    const allAddresses = await db.ad_addresses.toArray();
 
-    // Стадия 1: точное совпадение нормализованного адреса
-    let match: AdAddress | undefined;
-    await db.ad_addresses.each((addr) => {
-      if (normalizeAddress(addr.address) === normalized) {
-        match = addr;
-      }
-    });
+    // Фильтруем объявления без привязки к адресу
+    const allAds = await db.ads.toArray();
+    let ads = allAds.filter(a => !a.address_id);
 
-    if (match) {
-      return { addressId: match.id!, confidence: 'high', method: 'exact' };
-    }
-
-    // Стадия 2: географическая близость (50м)
-    if (lat != null && lng != null) {
-      const nearbyThreshold = 50; // метров
-      await db.ad_addresses.each((addr) => {
-        if (addr.coordinates.lat != null && addr.coordinates.lng != null) {
-          const dist = haversineDistance(lat, lng, addr.coordinates.lat, addr.coordinates.lng);
-          if (dist <= nearbyThreshold && normalizeAddress(addr.address) !== normalized) {
-            // Проверяем что похоже по адресу (та же улица)
-            if (sameStreet(addr.address, adAddress)) {
-              match = addr;
-            }
-          }
-        }
+    // Если задан полигон — оставляем только объявления внутри полигона
+    if (polygons && polygons.length > 0) {
+      ads = ads.filter(ad => {
+        const lat = ad.coordinates.lat;
+        const lng = ad.coordinates.lng;
+        if (lat == null || lng == null) return false;
+        return polygons.some(poly => pointInPolygon(lat, lng, poly));
       });
-
-      if (match) {
-        return { addressId: match.id!, confidence: 'medium', method: 'geo_near' };
-      }
     }
 
-    // Не найден — создаём новый
-    const now = new Date().toISOString();
-    const newAddress: Omit<AdAddress, 'id'> = {
-      address: adAddress,
-      coordinates: { lat, lng },
-      type: 'house',
-      house_series_id: null,
-      house_class_id: null,
-      ceiling_material_id: null,
-      wall_material_id: null,
-      floors_count: null,
-      build_year: null,
-      entrances_count: null,
-      living_spaces_count: null,
-      gas_supply: null,
-      individual_heating: null,
-      has_playground: false,
-      has_sports_area: false,
-      created_at: now,
-      updated_at: now,
-    };
-
-    const addressId = await db.ad_addresses.add(newAddress as AdAddress);
-    return { addressId, confidence: 'low', method: 'new' };
-  },
-
-  /** Привязать объявления к адресам (пакетная обработка) */
-  async matchAdsToAddresses(onProgress?: (processed: number, total: number) => void): Promise<{ matched: number; created: number }> {
-    const ads = await db.ads.where('address_id').equals(0).or('address_id').equals(null as unknown as number).toArray();
     let matched = 0;
-    let created = 0;
+    let unmatched = 0;
 
     for (let i = 0; i < ads.length; i++) {
       const ad = ads[i];
-      if (!ad.address) continue;
 
-      const result = await adsAddressService.findOrCreateForAd(
-        ad.address,
-        ad.coordinates.lat,
-        ad.coordinates.lng,
-      );
+      // Запускаем SmartAddressMatcher
+      const result = matcher.matchAddressSmart(ad, allAddresses);
 
-      await db.ads.update(ad.id!, {
-        address_id: result.addressId,
-        address_match_confidence: result.confidence,
-        address_match_method: result.method,
-      });
-
-      if (result.method === 'new') created++;
-      else matched++;
+      if (result.address && result.confidence !== 'none') {
+        // Найден подходящий адрес — привязываем
+        await db.ads.update(ad.id!, {
+          address_id: result.address.id!,
+          address_match_confidence: result.confidence,
+          address_match_method: result.method,
+          address_match_score: result.score,
+          address_distance: result.distance,
+          processing_status: 'duplicate_check_needed',
+        });
+        matched++;
+      } else {
+        // Адрес не найден — оставляем без привязки
+        unmatched++;
+      }
 
       onProgress?.(i + 1, ads.length);
     }
 
-    return { matched, created };
+    return { matched, unmatched };
   },
 
   /** Очистить все адреса */
@@ -147,42 +114,16 @@ export const adsAddressService = {
   },
 };
 
-/** Нормализация адреса для сравнения */
-function normalizeAddress(address: string): string {
-  return address
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/[,.;]/g, '')
-    .replace(/улица/g, 'ул')
-    .replace(/проспект/g, 'пр')
-    .replace(/бульвар/g, 'б-р')
-    .replace(/переулок/g, 'пер')
-    .replace(/дом\s*/g, 'д ')
-    .replace(/корпус\s*/g, 'к ')
-    .replace(/строение\s*/g, 'с ')
-    .replace(/квартира\s*/g, 'кв ');
-}
-
-/** Расстояние Хаверсина в метрах */
-function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-/** Проверка что два адреса на одной улице */
-function sameStreet(addr1: string, addr2: string): boolean {
-  const n1 = normalizeAddress(addr1);
-  const n2 = normalizeAddress(addr2);
-  // Извлекаем улицу (до "д ")
-  const street1 = n1.split(/д\s/i)[0]?.trim();
-  const street2 = n2.split(/д\s/i)[0]?.trim();
-  return street1 === street2;
+/** Проверка принадлежности точки полигону (ray casting). Полигон: [lat, lng][] */
+function pointInPolygon(lat: number, lng: number, polygon: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const latI = polygon[i][0], lngI = polygon[i][1];
+    const latJ = polygon[j][0], lngJ = polygon[j][1];
+    if (((latI > lat) !== (latJ > lat)) &&
+        (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
