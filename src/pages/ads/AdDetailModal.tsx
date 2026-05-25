@@ -1,17 +1,52 @@
 /**
  * Модальное окно деталей объявления
  * — Заголовок, адрес, характеристики
+ * — Секция «Местоположение» с селектором адреса (как в neocenka-extension)
  * — Цена + история цены
  * — Продавец, описание, фото
  * — Ссылка на источник
- * — Переключатель статуса
  */
 
-import React, { useState } from 'react';
-import type { Ad, PriceHistoryItem } from '@/types';
+import React, { useState, useMemo } from 'react';
+import type { Ad, AdAddress, PriceHistoryItem, ReferenceItem } from '@/types';
+import { adsAddressService } from '@/services/ads-address-service';
 
 const SELLER_TYPE_LABELS: Record<string, string> = {
   owner: 'Собственник', agent: 'Агент', developer: 'Застройщик',
+};
+
+const CONFIDENCE_COLORS: Record<string, string> = {
+  perfect: 'text-green-600 dark:text-green-400',
+  high: 'text-green-600 dark:text-green-400',
+  medium: 'text-yellow-600 dark:text-yellow-400',
+  low: 'text-orange-600 dark:text-orange-400',
+  very_low: 'text-red-600 dark:text-red-400',
+  manual: 'text-blue-600 dark:text-blue-400',
+  none: 'text-gray-500',
+};
+
+const CONFIDENCE_TEXTS: Record<string, string> = {
+  perfect: 'Идеальное',
+  high: 'Высокая',
+  medium: 'Средняя',
+  low: 'Низкая',
+  very_low: 'Очень низкая',
+  manual: 'Вручную',
+  none: 'Не определена',
+};
+
+const METHOD_TEXTS: Record<string, string> = {
+  exact_geo: 'Точное совпадение по координатам',
+  near_geo_text: 'Поиск рядом + анализ текста',
+  extended_geo_text: 'Расширенный поиск + анализ текста',
+  global_text: 'Глобальный поиск по тексту',
+  obvious: 'Очевидное совпадение',
+  smart_near: 'Умный поиск рядом',
+  ml_extended: 'ML-расширенный поиск',
+  fuzzy_global: 'Нечёткий глобальный поиск',
+  manual: 'Вручную',
+  manual_selection: 'Ручной выбор',
+  no_match: 'Совпадения не найдены',
 };
 
 const fmtPrice = (price: number | null): string => {
@@ -27,14 +62,64 @@ const fmtDate = (date: string | null): string => {
 
 interface AdDetailModalProps {
   ad: Ad;
+  addresses: AdAddress[];
+  referenceData: {
+    wallMaterials: ReferenceItem[];
+    houseSeries: ReferenceItem[];
+    houseClasses?: ReferenceItem[];
+    ceilingMaterials?: ReferenceItem[];
+    houseProblems?: ReferenceItem[];
+  };
   onClose: () => void;
   onSave?: (updated: Ad) => void;
+  onAddressChange?: () => void;
+  onOpenCreateAddress?: (ad: Ad) => void;
+  onOpenEditAddress?: (address: AdAddress) => void;
 }
 
-const AdDetailModal: React.FC<AdDetailModalProps> = ({ ad: initialAd, onClose, onSave }) => {
+const AdDetailModal: React.FC<AdDetailModalProps> = ({
+  ad: initialAd,
+  addresses,
+  referenceData,
+  onClose,
+  onSave,
+  onAddressChange,
+  onOpenCreateAddress,
+  onOpenEditAddress,
+}) => {
   const [ad, setAd] = useState<Ad>(initialAd);
   const [editPrice, setEditPrice] = useState('');
   const [showPriceInput, setShowPriceInput] = useState(false);
+  const [locationExpanded, setLocationExpanded] = useState(true);
+  const [selectedAddressId, setSelectedAddressId] = useState<string>(String(ad.address_id || ''));
+  const [saving, setSaving] = useState(false);
+  const [addressSearch, setAddressSearch] = useState('');
+
+  // Текущий привязанный адрес
+  const currentAddress = ad.address_id
+    ? addresses.find(a => a.id === ad.address_id)
+    : null;
+
+  // Фильтрация адресов для селектора
+  const filteredAddresses = useMemo(() => {
+    if (!addressSearch || addressSearch.length < 2) return addresses;
+    const q = addressSearch.toLowerCase();
+    return addresses.filter(a => a.address.toLowerCase().includes(q));
+  }, [addressSearch, addresses]);
+
+  // Статус для шапки секции
+  const statusInfo = useMemo(() => {
+    if (!ad.address_id) {
+      return { text: 'Не определён', cls: 'text-orange-600 dark:text-orange-400' };
+    }
+    const conf = ad.address_match_confidence;
+    if (conf === 'manual') {
+      return { text: 'Подтверждён', cls: 'text-green-600 dark:text-green-400' };
+    }
+    const label = CONFIDENCE_TEXTS[conf || 'none'] || conf;
+    const cls = CONFIDENCE_COLORS[conf || 'none'] || 'text-gray-500';
+    return { text: label, cls };
+  }, [ad]);
 
   const handleSavePrice = () => {
     const newPrice = Number(editPrice.replace(/\s/g, '').replace(',', '.'));
@@ -60,9 +145,84 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({ ad: initialAd, onClose, o
     onSave?.(updated);
   };
 
+  /** Сохранить выбранный адрес из селектора */
+  const handleSaveAddress = async () => {
+    if (!ad.id) return;
+    setSaving(true);
+    try {
+      if (selectedAddressId) {
+        const addrId = Number(selectedAddressId);
+        await adsAddressService.linkAdToAddress(ad.id, addrId);
+        const updated: Ad = {
+          ...ad,
+          address_id: addrId,
+          address_match_confidence: 'manual',
+          address_match_method: 'manual_selection',
+          address_match_score: 1.0,
+          address_distance: null,
+        };
+        setAd(updated);
+        onSave?.(updated);
+      } else {
+        await adsAddressService.unlinkAdFromAddress(ad.id);
+        const updated: Ad = {
+          ...ad,
+          address_id: null,
+          address_match_confidence: null,
+          address_match_method: null,
+          address_match_score: null,
+          address_distance: null,
+        };
+        setAd(updated);
+        onSave?.(updated);
+      }
+      onAddressChange?.();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Подтвердить текущий адрес */
+  const handleConfirmAddress = async () => {
+    if (!ad.id) return;
+    setSaving(true);
+    try {
+      await adsAddressService.confirmAdAddress(ad.id);
+      const updated: Ad = { ...ad, address_match_confidence: 'manual' };
+      setAd(updated);
+      onSave?.(updated);
+      onAddressChange?.();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Отклонить текущий адрес */
+  const handleRejectAddress = async () => {
+    if (!ad.id) return;
+    setSaving(true);
+    try {
+      await adsAddressService.unlinkAdFromAddress(ad.id);
+      const updated: Ad = {
+        ...ad,
+        address_id: null,
+        address_match_confidence: null,
+        address_match_method: null,
+        address_match_score: null,
+        address_distance: null,
+      };
+      setAd(updated);
+      setSelectedAddressId('');
+      onSave?.(updated);
+      onAddressChange?.();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto mx-4" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto mx-4 relative" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 dark:border-zinc-700 sticky top-0 bg-white dark:bg-zinc-900 z-10">
           <div className="flex items-center gap-2">
@@ -75,10 +235,143 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({ ad: initialAd, onClose, o
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Адрес */}
-          <div>
-            <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Адрес</span>
-            <p className="text-sm text-zinc-800 dark:text-zinc-200">{ad.address || 'Не указан'}</p>
+          {/* ─── Секция «Местоположение» (как в neocenka-extension) ─── */}
+          <div className="bg-white dark:bg-zinc-800 shadow overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-700">
+            {/* Шапка секции */}
+            <div
+              className="px-4 py-3 cursor-pointer flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-700/50"
+              onClick={() => setLocationExpanded(!locationExpanded)}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-zinc-900 dark:text-white">📍 Местоположение</span>
+                <span className={`text-xs ${statusInfo.cls}`}>{statusInfo.text}{ad.address_distance != null ? ` (${ad.address_distance}м)` : ''}</span>
+              </div>
+              <svg className={`w-4 h-4 text-zinc-400 transition-transform ${locationExpanded ? '-rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+
+            {/* Содержимое */}
+            {locationExpanded && (
+              <div className="px-4 pb-4 space-y-3 border-t border-zinc-100 dark:border-zinc-700">
+                {/* Адрес из объявления */}
+                <div className="pt-3">
+                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Адрес из объявления:</span>
+                  <span className="text-sm text-zinc-600 dark:text-zinc-300 ml-2">{ad.address || 'Не указан'}</span>
+                </div>
+
+                {/* Селектор адреса */}
+                <div>
+                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                    {ad.address_id ? 'Определённый адрес:' : 'Определить адрес:'}
+                  </span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input
+                      list={`address-datalist-${ad.id}`}
+                      value={selectedAddressId ? (addresses.find(a => a.id === Number(selectedAddressId))?.address || addressSearch) : addressSearch}
+                      onChange={e => {
+                        const val = e.target.value;
+                        // Проверяем, выбран ли существующий адрес
+                        const found = addresses.find(a => a.address === val);
+                        if (found) {
+                          setSelectedAddressId(String(found.id));
+                          setAddressSearch('');
+                        } else {
+                          setSelectedAddressId('');
+                          setAddressSearch(val);
+                        }
+                      }}
+                      placeholder="Поиск адреса..."
+                      className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <datalist id={`address-datalist-${ad.id}`}>
+                      {filteredAddresses.slice(0, 100).map(a => (
+                        <option key={a.id} value={a.address} />
+                      ))}
+                    </datalist>
+                    <button
+                      onClick={handleSaveAddress}
+                      disabled={saving}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
+                        ad.address_id ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
+                      }`}
+                    >{saving ? '...' : 'Сохранить'}</button>
+                  </div>
+                </div>
+
+                {/* Точность / Статус */}
+                <div>
+                  {ad.address_id && ad.address_match_confidence ? (
+                    <>
+                      <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Точность:</span>
+                      <span className={`text-sm ml-2 ${CONFIDENCE_COLORS[ad.address_match_confidence] || 'text-zinc-600'}`}>
+                        {CONFIDENCE_TEXTS[ad.address_match_confidence] || ad.address_match_confidence}
+                        {ad.address_distance != null ? ` (${ad.address_distance}м)` : ''}
+                      </span>
+                      <div className="flex items-center gap-2 mt-1.5 ml-2">
+                        {ad.address_match_confidence !== 'manual' && (
+                          <>
+                            <button
+                              onClick={handleConfirmAddress}
+                              disabled={saving}
+                              className="rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                            >✅ Верный адрес</button>
+                            <button
+                              onClick={handleRejectAddress}
+                              disabled={saving}
+                              className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                            >❌ Неверный адрес</button>
+                          </>
+                        )}
+                        {currentAddress && onOpenEditAddress && (
+                          <button
+                            onClick={() => onOpenEditAddress(currentAddress)}
+                            className="rounded-md bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300 px-2.5 py-1 text-[11px] font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                          >Редактировать</button>
+                        )}
+                      </div>
+                      {(ad.address_match_method || ad.address_match_score != null) && (
+                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 ml-2">
+                          Метод: {METHOD_TEXTS[ad.address_match_method || ''] || ad.address_match_method}
+                          {ad.address_match_score != null && ` • Оценка: ${Math.round(ad.address_match_score * 100)}%`}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Статус:</span>
+                      <span className="text-sm text-orange-600 dark:text-orange-400 ml-2">Адрес не определён</span>
+                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 ml-2">Требуется обработка для определения адреса</div>
+                    </>
+                  )}
+                </div>
+
+                {/* Координаты */}
+                <div>
+                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Координаты:</span>
+                  <span className="text-sm text-zinc-700 dark:text-zinc-300 ml-2">
+                    {ad.coordinates.lat != null && ad.coordinates.lng != null
+                      ? `${ad.coordinates.lat}, ${ad.coordinates.lng}`
+                      : 'Не указаны'}
+                  </span>
+                  {(ad.coordinates.lat != null && ad.coordinates.lng != null) && (
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 ml-2">
+                      {currentAddress ? 'Используются координаты определённого адреса' : 'Используются координаты из объявления'}
+                    </div>
+                  )}
+                </div>
+
+                {/* Кнопка «Новый адрес» */}
+                {onOpenCreateAddress && (
+                  <div className="pt-1">
+                    <button
+                      onClick={() => onOpenCreateAddress(ad)}
+                      className="rounded-md bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                    >+ Новый адрес</button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Характеристики */}

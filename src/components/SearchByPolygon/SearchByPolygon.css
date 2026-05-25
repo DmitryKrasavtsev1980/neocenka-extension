@@ -208,3 +208,136 @@
   background: none !important;
   border: none !important;
 }
+
+/* ─── Selected addresses panel ─── */
+
+.selected-addresses-panel {
+  border-top: 1px solid #e0e0e0;
+  background: #f8f9fa;
+}
+
+.selected-addresses-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+}
+
+.selected-addresses-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.selected-addresses-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a73e8;
+}
+
+.selected-addresses-clear {
+  font-size: 11px;
+  color: #888;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.selected-addresses-clear:hover {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+.selected-addresses-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border-top: 1px solid #e8e8e8;
+}
+
+.selected-addresses-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.selected-addresses-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.selected-addresses-table th {
+  text-align: left;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #eef1f5;
+  border-bottom: 1px solid #dde0e4;
+}
+
+.selected-addresses-table th:last-child {
+  width: 28px;
+}
+
+.selected-addresses-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
+}
+
+.selected-addresses-table tr:hover td {
+  background: #e8f0fe;
+}
+
+.selected-addresses-table .addr-cell {
+  color: #333;
+  max-width: none;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
+}
+
+.selected-addresses-table .meta-cell {
+  color: #555;
+  white-space: nowrap;
+  text-align: center;
+  width: 60px;
+}
+
+.selected-addresses-table .action-cell {
+  width: 28px;
+  text-align: center;
+}
+
+.addr-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.addr-remove-btn:hover {
+  background: #fee2e2;
+}
+
+.addr-remove-btn:hover svg {
+  stroke: #dc2626;
+}

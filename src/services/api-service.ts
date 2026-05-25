@@ -597,11 +597,13 @@ export interface AddressRefsResponse {
   house_problems: { id: string; name: string; color: string | null }[];
 }
 
-export async function getAddresses(region?: string, updatedSince?: string): Promise<AddressesListResponse> {
-  const params: Record<string, string> = {};
-  if (region) params.region = region;
-  if (updatedSince) params.updated_since = updatedSince;
-  const query = new URLSearchParams(params).toString();
+export async function getAddresses(regions?: string[], updatedSince?: string): Promise<AddressesListResponse> {
+  const params = new URLSearchParams();
+  if (regions && regions.length > 0) {
+    regions.forEach(r => params.append('region[]', r));
+  }
+  if (updatedSince) params.set('updated_since', updatedSince);
+  const query = params.toString();
   const path = `/addresses${query ? '?' + query : ''}`;
   return apiRequest<AddressesListResponse>('GET', path);
 }
@@ -616,4 +618,22 @@ export async function getAddressesStats(): Promise<{ total: number; by_region: R
 
 export async function postAddresses(addresses: Record<string, unknown>[]): Promise<{ synced: number }> {
   return apiRequest<{ synced: number }>('POST', '/addresses', { addresses });
+}
+
+export interface AddressChangeResponse {
+  id: number;
+  address_id: number | null;
+  change_type: 'create' | 'update';
+  status: 'pending' | 'approved' | 'rejected';
+  admin_comment: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export async function postAddressChanges(changes: Record<string, unknown>[]): Promise<{ created: number }> {
+  return apiRequest<{ created: number }>('POST', '/address-changes', { changes });
+}
+
+export async function getAddressChanges(): Promise<{ changes: AddressChangeResponse[] }> {
+  return apiRequest<{ changes: AddressChangeResponse[] }>('GET', '/address-changes');
 }

@@ -11,7 +11,10 @@ import {
   getAddressRefs,
   getAddressesStats,
   postAddresses,
+  postAddressChanges,
+  getAddressChanges,
   type AddressResponse,
+  type AddressChangeResponse,
 } from '@/services/api-service';
 
 const SYNC_KEY = 'address_last_sync';
@@ -67,16 +70,16 @@ function mapServerAddress(a: AddressResponse): Omit<AdAddress, 'id'> {
 export const addressSyncService = {
   /**
    * Скачать адреса с сервера → IndexedDB
-   * По региону (если передан) или все доступные
+   * По выбранным регионам (если переданы) или все доступные
    */
   async syncFromServer(
-    region?: string,
+    regions?: string[],
     onProgress?: (loaded: number, total: number) => void
   ): Promise<{ downloaded: number; upserted: number }> {
     // 1. Скачать справочники
     const refs = await getAddressRefs();
 
-    await db.transaction('rw', [db.ad_wall_materials, db.ad_house_classes, db.ad_house_series, db.ad_ceiling_materials], async () => {
+    await db.transaction('rw', [db.ad_wall_materials, db.ad_house_classes, db.ad_house_series, db.ad_ceiling_materials, db.ad_house_problems], async () => {
       await db.ad_wall_materials.clear();
       await db.ad_wall_materials.bulkAdd(
         refs.wall_materials.map((w) => ({ id: undefined as unknown as number, server_id: w.id, name: w.name, color: w.color || undefined, created_at: '', updated_at: '' }) as ReferenceItem)
@@ -96,11 +99,16 @@ export const addressSyncService = {
       await db.ad_ceiling_materials.bulkAdd(
         refs.ceiling_materials.map((c) => ({ id: undefined as unknown as number, server_id: c.id, name: c.name, created_at: '', updated_at: '' }) as ReferenceItem)
       );
+
+      await db.ad_house_problems.clear();
+      await db.ad_house_problems.bulkAdd(
+        refs.house_problems.map((p) => ({ id: undefined as unknown as number, server_id: p.id, name: p.name, color: p.color || undefined, created_at: '', updated_at: '' }) as ReferenceItem)
+      );
     });
 
     // 2. Скачать адреса
     const lastSync = await getLastSync();
-    const response = await getAddresses(region, lastSync || undefined);
+    const response = await getAddresses(regions, lastSync || undefined);
 
     onProgress?.(0, response.total);
 
@@ -132,45 +140,92 @@ export const addressSyncService = {
 
     setLastSync(new Date().toISOString());
 
+    // 4. Починить битые ссылки: address_id в ads → локальный id, который мог измениться
+    const allAddresses = await db.ad_addresses.toArray();
+    const validAddressIds = new Set(allAddresses.map(a => a.id));
+    const adsWithAddress = await db.ads.filter(a => a.address_id != null).toArray();
+    let fixedCount = 0;
+    for (const ad of adsWithAddress) {
+      if (ad.address_id && !validAddressIds.has(ad.address_id)) {
+        await db.ads.update(ad.id!, {
+          address_id: null,
+          address_match_confidence: null,
+          address_match_method: null,
+          address_match_score: null,
+          address_distance: null,
+          processing_status: 'address_needed',
+        });
+        fixedCount++;
+      }
+    }
+    if (fixedCount > 0) {
+      console.log(`[address-sync] Fixed ${fixedCount} broken address links`);
+    }
+
     return { downloaded: response.total, upserted };
   },
 
   /**
-   * Отправить user-created адреса на сервер
+   * Отправить изменения адресов как предложения на модерацию
+   * Находит адреса с source='user' и synced_at=null
+   * Отправляет через POST /api/address-changes
    */
-  async syncToServer(): Promise<{ synced: number }> {
+  async submitChanges(): Promise<{ submitted: number }> {
     const unsynced = await db.ad_addresses
       .where('source')
       .equals('user')
-      .or('source')
-      .equals('auto')
       .toArray();
 
     const toSync = unsynced.filter((a) => !a.synced_at);
 
-    if (toSync.length === 0) return { synced: 0 };
+    if (toSync.length === 0) return { submitted: 0 };
 
-    const payload = toSync.map((a) => ({
+    const changes = toSync.map((a) => ({
+      address_id: a.server_id, // server_id = ID на сервере (для update), null для новых
       address: a.address,
       lat: a.coordinates.lat,
       lon: a.coordinates.lng,
       type: a.type,
       region: a.region,
-      house_id: a.house_id,
-      build_year: a.build_year,
+      house_type: a.house_type,
+      cadno: a.cadno,
+      serie: a.serie,
+      house_series_id: a.house_series_id,
+      house_class_id: a.house_class_id,
+      wall_material_id: a.wall_material_id,
+      ceiling_material_id: a.ceiling_material_id,
+      house_problem_id: a.house_problem_id,
       levels: a.floors_count,
-      source: 'user',
+      build_year: a.build_year,
+      entrances_count: a.entrances_count,
+      living_spaces_count: a.living_spaces_count,
+      area_total: a.area_total,
+      area_live: a.area_live,
+      gas_supply: a.gas_supply,
+      individual_heating: a.individual_heating,
+      has_playground: a.has_playground,
+      has_sports_area: a.has_sports_area,
+      ceiling_height: a.ceiling_height,
+      comment: a.comment,
     }));
 
-    const result = await postAddresses(payload);
+    const result = await postAddressChanges(changes);
 
-    // Пометить как синхронизированные
+    // Пометить как отправленные (на модерации)
     const now = new Date().toISOString();
     for (const addr of toSync) {
-      await db.ad_addresses.update(addr.id!, { synced_at: now, source: 'user' });
+      await db.ad_addresses.update(addr.id!, { synced_at: now });
     }
 
-    return result;
+    return { submitted: result.created };
+  },
+
+  /**
+   * Получить статус своих предложений
+   */
+  async getChangesStatus(): Promise<AddressChangeResponse[]> {
+    const result = await getAddressChanges();
+    return result.changes;
   },
 
   /**

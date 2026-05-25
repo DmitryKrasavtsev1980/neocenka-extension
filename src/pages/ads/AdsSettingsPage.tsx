@@ -22,6 +22,9 @@ import {
 import { db } from '@/db/database';
 import type { InparsCategory } from '@/types';
 import { addressSyncService } from '@/services/address-sync-service';
+import { adsAddressService } from '@/services/ads-address-service';
+import { REGION_CENTERS } from '@/constants/regions';
+import { getAddressesStats } from '@/services/api-service';
 
 const TYPE_ID_LABELS: Record<number, string> = {
   1: 'Аренда',
@@ -101,6 +104,19 @@ const AdsSettingsPage: React.FC = () => {
   const [addressLastSync, setAddressLastSync] = useState<string | null>(null);
   const [addressError, setAddressError] = useState('');
   const [addressSyncResult, setAddressSyncResult] = useState<{ downloaded: number; upserted: number } | null>(null);
+  const [addressDeleting, setAddressDeleting] = useState(false);
+  const [addressUnlinking, setAddressUnlinking] = useState(false);
+  const [addressUnlinkResult, setAddressUnlinkResult] = useState<number | null>(null);
+  const [addressSubmitting, setAddressSubmitting] = useState(false);
+  const [addressSubmitResult, setAddressSubmitResult] = useState<{ submitted: number } | null>(null);
+
+  // Выбранные регионы для синхронизации адресов
+  const STORAGE_KEY_SYNC_REGIONS = 'address_sync_regions';
+  const [selectedSyncRegions, setSelectedSyncRegions] = useState<string[]>([]);
+  const [showRegionPicker, setShowRegionPicker] = useState(false);
+  const [regionStats, setRegionStats] = useState<Record<string, number>>({});
+  const [regionStatsLoading, setRegionStatsLoading] = useState(false);
+  const [regionSearch, setRegionSearch] = useState('');
 
   // Резолв имени региона
   const regionName = useMemo(() => {
@@ -193,6 +209,10 @@ const AdsSettingsPage: React.FC = () => {
       setAddressCount(stats.total);
       const lastSync = await addressSyncService.getLastSyncDate();
       setAddressLastSync(lastSync);
+
+      // Загрузить выбранные регионы для синхронизации
+      const savedRegions = await loadFromStorage<string[]>(STORAGE_KEY_SYNC_REGIONS);
+      if (savedRegions) setSelectedSyncRegions(savedRegions);
     })();
   }, []);
 
@@ -331,15 +351,62 @@ const AdsSettingsPage: React.FC = () => {
     saveToStorage(STORAGE_KEY_SELECTED_SOURCES, []);
   }, []);
 
+  const handleDeleteAddresses = async () => {
+    if (!confirm('Удалить все загруженные адреса из локальной базы?')) return;
+    setAddressDeleting(true);
+    try {
+      await addressSyncService.clearLocal();
+      setAddressCount(0);
+      setAddressLastSync(null);
+      setAddressSyncResult(null);
+    } catch (e) {
+      setAddressError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddressDeleting(false);
+    }
+  };
+
+  const handleUnlinkAddresses = async () => {
+    if (!confirm('Отвязать адреса от всех объявлений? Статус будет сброшен на «Требуется определение адреса».')) return;
+    setAddressUnlinking(true);
+    setAddressUnlinkResult(null);
+    try {
+      const result = await adsAddressService.unlinkAllAddresses();
+      setAddressUnlinkResult(result.unlinked);
+    } catch (e) {
+      setAddressError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddressUnlinking(false);
+    }
+  };
+
+  const handleSubmitChanges = async () => {
+    setAddressSubmitting(true);
+    setAddressSubmitResult(null);
+    setAddressError('');
+    try {
+      const result = await addressSyncService.submitChanges();
+      setAddressSubmitResult(result);
+    } catch (e) {
+      setAddressError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddressSubmitting(false);
+    }
+  };
+
   const handleSyncAddresses = async () => {
+    if (selectedSyncRegions.length === 0) {
+      setAddressError('Выберите хотя бы один регион для загрузки');
+      return;
+    }
+
     setAddressSyncing(true);
     setAddressError('');
     setAddressSyncResult(null);
     setAddressProgress(null);
 
     try {
-      const region = subscription?.regionId ? String(subscription.regionId) : undefined;
-      const result = await addressSyncService.syncFromServer(region, (loaded, total) => {
+      const result = await addressSyncService.syncFromServer(selectedSyncRegions, (loaded, total) => {
         setAddressProgress({ loaded, total });
       });
 
@@ -355,6 +422,40 @@ const AdsSettingsPage: React.FC = () => {
       setAddressProgress(null);
     }
   };
+
+  const toggleSyncRegion = (code: string) => {
+    setSelectedSyncRegions(prev => {
+      const next = prev.includes(code) ? prev.filter(r => r !== code) : [...prev, code];
+      saveToStorage(STORAGE_KEY_SYNC_REGIONS, next);
+      return next;
+    });
+  };
+
+  const handleOpenRegionPicker = async () => {
+    setShowRegionPicker(true);
+    setRegionSearch('');
+    if (Object.keys(regionStats).length === 0) {
+      setRegionStatsLoading(true);
+      try {
+        const stats = await getAddressesStats();
+        setRegionStats(stats.by_region || {});
+      } catch {
+        // Не критично
+      } finally {
+        setRegionStatsLoading(false);
+      }
+    }
+  };
+
+  // Фильтрованный список регионов
+  const filteredRegions = useMemo(() => {
+    const entries = Object.entries(REGION_CENTERS).sort(([a], [b]) => a.localeCompare(b));
+    if (!regionSearch) return entries;
+    const q = regionSearch.toLowerCase();
+    return entries.filter(([code, info]) =>
+      code.includes(q) || info.name.toLowerCase().includes(q)
+    );
+  }, [regionSearch]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -586,10 +687,98 @@ const AdsSettingsPage: React.FC = () => {
             Загрузка адресов с характеристиками домов с сервера. Адреса используются для привязки объявлений и отображения на карте.
           </p>
 
-          <div className="flex items-center gap-3">
+          {/* Выбор регионов */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleOpenRegionPicker}
+                className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-600"
+              >
+                Выбрать регионы
+              </button>
+              {selectedSyncRegions.length > 0 && (
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Выбрано: {selectedSyncRegions.length} — {selectedSyncRegions.slice(0, 3).map(r => REGION_CENTERS[r]?.name || r).join(', ')}{selectedSyncRegions.length > 3 ? '...' : ''}
+                </span>
+              )}
+            </div>
+
+            {/* Выбранные регионы — чипы */}
+            {selectedSyncRegions.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {selectedSyncRegions.map(code => (
+                  <button
+                    key={code}
+                    onClick={() => toggleSyncRegion(code)}
+                    className="inline-flex items-center gap-1 rounded-md bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                  >
+                    {REGION_CENTERS[code]?.name || code}
+                    <span className="text-blue-400 dark:text-blue-500">&times;</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setSelectedSyncRegions([]); saveToStorage(STORAGE_KEY_SYNC_REGIONS, []); }}
+                  className="text-xs text-zinc-400 hover:text-red-500 ml-1"
+                >
+                  Очистить
+                </button>
+              </div>
+            )}
+
+            {/* Модальное окно выбора регионов */}
+            {showRegionPicker && (
+              <div className="border border-zinc-200 dark:border-zinc-600 rounded-lg bg-white dark:bg-zinc-800 shadow-lg max-h-80 flex flex-col">
+                <div className="p-2 border-b border-zinc-200 dark:border-zinc-700 flex items-center justify-between gap-2">
+                  <input
+                    type="text"
+                    value={regionSearch}
+                    onChange={e => setRegionSearch(e.target.value)}
+                    placeholder="Поиск региона..."
+                    className="flex-1 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => setShowRegionPicker(false)}
+                    className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                  >
+                    Закрыть
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-1">
+                  {regionStatsLoading && (
+                    <div className="text-xs text-zinc-400 p-2 text-center">Загрузка статистики...</div>
+                  )}
+                  {!regionStatsLoading && filteredRegions.map(([code, info]) => {
+                    const cnt = regionStats[code];
+                    return (
+                      <label
+                        key={code}
+                        className="flex items-center gap-2 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-700 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedSyncRegions.includes(code)}
+                          onChange={() => toggleSyncRegion(code)}
+                          className="rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-xs text-zinc-700 dark:text-zinc-300 flex-1">
+                          {code} — {info.name}
+                        </span>
+                        {cnt !== undefined && (
+                          <span className="text-xs text-zinc-400">{cnt.toLocaleString('ru-RU')}</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={handleSyncAddresses}
-              disabled={addressSyncing}
+              disabled={addressSyncing || selectedSyncRegions.length === 0}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {addressSyncing && (
@@ -599,6 +788,29 @@ const AdsSettingsPage: React.FC = () => {
                 </svg>
               )}
               {addressSyncing ? 'Загрузка...' : 'Загрузить с сервера'}
+            </button>
+            {addressCount > 0 && (
+              <button
+                onClick={handleDeleteAddresses}
+                disabled={addressDeleting || addressSyncing}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {addressDeleting ? 'Удаление...' : 'Удалить адреса'}
+              </button>
+            )}
+            <button
+              onClick={handleUnlinkAddresses}
+              disabled={addressUnlinking}
+              className="rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {addressUnlinking ? 'Отвязка...' : 'Отвязать от объявлений'}
+            </button>
+            <button
+              onClick={handleSubmitChanges}
+              disabled={addressSubmitting}
+              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {addressSubmitting ? 'Отправка...' : 'Отправить на модерацию'}
             </button>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               В базе: {addressCount.toLocaleString('ru-RU')} адресов
@@ -623,6 +835,18 @@ const AdsSettingsPage: React.FC = () => {
           {addressSyncResult && (
             <div className="rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-3 py-2 text-sm text-green-700 dark:text-green-300">
               Синхронизация завершена: загружено {addressSyncResult.downloaded.toLocaleString('ru-RU')} адресов, обновлено {addressSyncResult.upserted.toLocaleString('ru-RU')}
+            </div>
+          )}
+
+          {addressUnlinkResult !== null && (
+            <div className="rounded-md bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-3 py-2 text-sm text-orange-700 dark:text-orange-300">
+              Отвязано адресов от объявлений: {addressUnlinkResult.toLocaleString('ru-RU')}. Статус сброшен на «Требуется определение адреса».
+            </div>
+          )}
+
+          {addressSubmitResult && (
+            <div className="rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+              Отправлено предложений на модерацию: {addressSubmitResult.submitted}. Администратор рассмотрит изменения.
             </div>
           )}
 

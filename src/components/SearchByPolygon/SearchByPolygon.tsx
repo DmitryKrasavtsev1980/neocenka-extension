@@ -121,7 +121,16 @@ interface SearchByPolygonProps {
   referenceData?: {
     wallMaterials: ReferenceItem[];
     houseSeries: ReferenceItem[];
+    houseClasses?: ReferenceItem[];
+    ceilingMaterials?: ReferenceItem[];
   };
+  onAddressClick?: (address: AdAddress) => void;
+  selectedAddressIds?: Set<number>;
+  highlightedAddressIds?: Set<number>;
+  excludedAddressIds?: Set<number>;
+  onAddressToggle?: (address: AdAddress) => void;
+  onSelectAllInPolygon?: () => void;
+  polygonsCoords?: [number, number][][] | null;
 }
 
 const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
@@ -133,6 +142,13 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   addresses,
   addressStats,
   referenceData,
+  onAddressClick,
+  selectedAddressIds,
+  highlightedAddressIds,
+  excludedAddressIds,
+  onAddressToggle,
+  onSelectAllInPolygon,
+  polygonsCoords,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -155,6 +171,16 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const [activeMapFilter, setActiveMapFilter] = useState<MapFilterType>('year');
   const addressesRef = useRef(addresses);
   const addressStatsRef = useRef(addressStats);
+  const onAddressClickRef = useRef(onAddressClick);
+  onAddressClickRef.current = onAddressClick;
+  const selectedAddressIdsRef = useRef(selectedAddressIds);
+  selectedAddressIdsRef.current = selectedAddressIds;
+  const highlightedAddressIdsRef = useRef(highlightedAddressIds);
+  highlightedAddressIdsRef.current = highlightedAddressIds;
+  const excludedAddressIdsRef = useRef(excludedAddressIds);
+  excludedAddressIdsRef.current = excludedAddressIds;
+  const onAddressToggleRef = useRef(onAddressToggle);
+  onAddressToggleRef.current = onAddressToggle;
   const activeMapFilterRef = useRef(activeMapFilter);
   const [addressVisible, setAddressVisible] = useState(true);
   const [addressCount, setAddressCount] = useState(0);
@@ -162,6 +188,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   // Справочники (загружаются из IndexedDB)
   const wallMaterialMapRef = useRef<Map<string, ReferenceItem>>(new Map());
   const houseSeriesMapRef = useRef<Map<string, ReferenceItem>>(new Map());
+  const houseClassMapRef = useRef<Map<string, ReferenceItem>>(new Map());
+  const ceilingMaterialMapRef = useRef<Map<string, ReferenceItem>>(new Map());
 
   // Флаг: предотвращает циклическое пересоздание полигонов
   const isInternalUpdateRef = useRef(false);
@@ -187,6 +215,20 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         if (item.server_id) map.set(item.server_id, item);
       });
       houseSeriesMapRef.current = map;
+    }
+    if (referenceData?.houseClasses) {
+      const map = new Map<string, ReferenceItem>();
+      referenceData.houseClasses.forEach(item => {
+        if (item.server_id) map.set(item.server_id, item);
+      });
+      houseClassMapRef.current = map;
+    }
+    if (referenceData?.ceilingMaterials) {
+      const map = new Map<string, ReferenceItem>();
+      referenceData.ceilingMaterials.forEach(item => {
+        if (item.server_id) map.set(item.server_id, item);
+      });
+      ceilingMaterialMapRef.current = map;
     }
   }, [referenceData]);
 
@@ -265,29 +307,108 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       }),
     });
 
-    // Popup
+    // Popup — как в neocenka-extension
     const wallName = address.wall_material_id
-      ? (wallMaterialMapRef.current.get(address.wall_material_id)?.name || WALL_MATERIAL_NAMES[address.wall_material_id] || address.wall_material_id)
+      ? (wallMaterialMapRef.current.get(address.wall_material_id)?.name || WALL_MATERIAL_NAMES[address.wall_material_id] || String(address.wall_material_id))
       : '';
     const seriesName = address.house_series_id
-      ? (houseSeriesMapRef.current.get(address.house_series_id)?.name || HOUSE_SERIES_NAMES[address.house_series_id] || address.house_series_id)
+      ? (houseSeriesMapRef.current.get(address.house_series_id)?.name || HOUSE_SERIES_NAMES[address.house_series_id] || String(address.house_series_id))
       : '';
+    const classId = address.house_class_id;
+    const className = classId
+      ? (houseClassMapRef.current.get(classId)?.name || String(classId))
+      : '';
+    const ceilingId = address.ceiling_material_id;
+    const ceilingName = ceilingId
+      ? (ceilingMaterialMapRef.current.get(ceilingId)?.name || String(ceilingId))
+      : '';
+    const gasText = address.gas_supply === true ? 'Да' : (address.gas_supply === false ? 'Нет' : 'Не указано');
+    const heatingText = address.individual_heating === true ? 'Да' : (address.individual_heating === false ? 'Нет' : 'Не указано');
+    const addrId = address.id ?? '';
+    const isExcluded = excludedAddressIdsRef.current?.has(address.id!) ?? false;
 
     const popupContent = `
-      <div style="width:250px;">
-        <div style="font-weight:bold;font-size:13px;margin-bottom:4px;">${address.address || 'Адрес'}</div>
-        <div style="font-size:12px;color:#555;line-height:1.5;">
-          ${address.floors_count ? `<div><strong>Этажей:</strong> ${address.floors_count}</div>` : ''}
-          ${address.build_year ? `<div><strong>Год:</strong> ${address.build_year}</div>` : ''}
-          ${wallName ? `<div><strong>Материал:</strong> ${wallName}</div>` : ''}
-          ${seriesName ? `<div><strong>Серия:</strong> ${seriesName}</div>` : ''}
-          ${address.house_type ? `<div><strong>Тип:</strong> ${address.house_type}</div>` : ''}
+      <div style="width:260px;max-width:260px;">
+        <div style="margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-weight:bold;font-size:13px;color:#111;">📍 Адрес</div>
+          <button data-action="edit-address" data-address-id="${addrId}"
+            style="padding:3px 8px;font-size:11px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;">
+            ✏️ Редактировать
+          </button>
+        </div>
+        <div style="font-weight:500;font-size:12px;color:#333;margin-bottom:6px;">${address.address || 'Не указан'}</div>
+        <div style="font-size:12px;color:#555;line-height:1.6;">
+          <div><strong>Серия дома:</strong> ${seriesName || 'Не указана'}</div>
+          <div><strong>Класс дома:</strong> ${className || 'Не указан'}</div>
+          <div><strong>Материал стен:</strong> ${wallName || 'Не указан'}</div>
+          <div><strong>Материал перекрытий:</strong> ${ceilingName || 'Не указано'}</div>
+          <div><strong>Газоснабжение:</strong> ${gasText}</div>
+          <div><strong>Индивидуальное отопление:</strong> ${heatingText}</div>
+          <div><strong>Этажей:</strong> ${address.floors_count || 'Не указано'}</div>
+          <div><strong>Год постройки:</strong> ${address.build_year || 'Не указан'}</div>
+        </div>
+        <div style="margin-top:8px;">
+          <button data-action="toggle-address-filter" data-address-id="${addrId}"
+            style="display:block;width:100%;padding:5px 8px;font-size:12px;background:${isExcluded ? '#16a34a' : '#dc2626'};color:#fff;border:none;border-radius:4px;cursor:pointer;">
+            ${isExcluded ? '＋ Добавить в фильтр' : '✕ Убрать из фильтра'}
+          </button>
         </div>
       </div>
     `;
-    marker.bindPopup(popupContent, { maxWidth: 280 });
+    marker.bindPopup(popupContent, { maxWidth: 280, className: 'address-popup-container' });
+
+    // Обработка кнопок в popup
+    marker.on('popupopen', () => {
+      setTimeout(() => {
+        const btn = document.querySelector(`[data-action="edit-address"][data-address-id="${addrId}"]`);
+        if (btn) {
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            marker.closePopup();
+            if (onAddressClickRef.current) onAddressClickRef.current(address);
+          });
+        }
+        // Обновляем состояние кнопки toggle по текущему excludedAddressIds
+        const toggleBtn = document.querySelector(`[data-action="toggle-address-filter"][data-address-id="${addrId}"]`) as HTMLElement | null;
+        if (toggleBtn) {
+          const nowExcluded = excludedAddressIdsRef.current?.has(address.id!) ?? false;
+          toggleBtn.style.background = nowExcluded ? '#16a34a' : '#dc2626';
+          toggleBtn.textContent = nowExcluded ? '＋ Добавить в фильтр' : '✕ Убрать из фильтра';
+          toggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (onAddressToggleRef.current) onAddressToggleRef.current(address);
+            marker.closePopup();
+          });
+        }
+      }, 0);
+    });
 
     return marker;
+  }, []);
+
+  // ─── Применение прозрачности маркеров ───
+  const applyMarkerOpacity = useCallback((layerGroup: L.LayerGroup) => {
+    const sel = selectedAddressIdsRef.current;
+    const hl = highlightedAddressIdsRef.current;
+    const excl = excludedAddressIdsRef.current;
+    const hasSelection = sel && sel.size > 0;
+    layerGroup.eachLayer((layer) => {
+      const el = (layer as L.Marker).getElement?.();
+      if (!el) return;
+      el.style.transition = 'opacity 0.2s';
+      if (!hasSelection) { el.style.opacity = '1'; return; }
+      const marker = layer as L.Marker;
+      const popupContent = marker.getPopup?.()?.getContent?.() as string | undefined;
+      const match = popupContent?.match(/data-address-id="(\d+)"/);
+      const addrId = match ? Number(match[1]) : null;
+      if (addrId == null || !sel!.has(addrId)) { el.style.opacity = '0.5'; return; }
+      // Подходит (не excluded и в highlighted) → полная непрозрачность
+      const isExcluded = excl && excl.has(addrId);
+      const isHighlighted = hl && hl.has(addrId);
+      el.style.opacity = (!isExcluded && isHighlighted) ? '1' : '0.5';
+    });
   }, []);
 
   // ─── Рендер адресных маркеров на карте ───
@@ -316,9 +437,16 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       return;
     }
 
+    // Фильтрация: если есть выбранные адреса (полигон) — показываем только их
+    const sel = selectedAddressIdsRef.current;
+    const hasSelection = sel && sel.size > 0;
+    const filtered = hasSelection
+      ? currentAddresses.filter(a => a.id != null && sel.has(a.id))
+      : currentAddresses;
+
     // Фильтрация по видимой области
     const bounds = map.getBounds();
-    const visible = currentAddresses.filter(a => {
+    const visible = filtered.filter(a => {
       if (!a.coordinates?.lat || !a.coordinates?.lng) return false;
       return bounds.contains([a.coordinates.lat, a.coordinates.lng]);
     });
@@ -333,8 +461,11 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       marker.addTo(layerGroup);
     }
 
+    // Применяем прозрачность сразу после создания маркеров
+    requestAnimationFrame(() => applyMarkerOpacity(layerGroup));
+
     setAddressCount(toRender.length);
-  }, [createTriangleMarker, addressVisible]);
+  }, [createTriangleMarker, addressVisible, applyMarkerOpacity]);
 
   const renderAddressMarkersRef = useRef(renderAddressMarkers);
   renderAddressMarkersRef.current = renderAddressMarkers;
@@ -343,6 +474,13 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   useEffect(() => {
     renderAddressMarkers();
   }, [renderAddressMarkers, activeMapFilter, addresses, addressVisible]);
+
+  // Обновление прозрачности маркеров при изменении выбранных/подсвеченных адресов
+  useEffect(() => {
+    const layerGroup = addressLayerGroupRef.current;
+    if (!layerGroup) return;
+    applyMarkerOpacity(layerGroup);
+  }, [selectedAddressIds, highlightedAddressIds, excludedAddressIds, renderAddressMarkers, activeMapFilter, addresses, addressVisible]);
 
   // Поиск пересекающихся кварталов для одного полигона
   const findIntersectingForLayer = useCallback(
@@ -856,6 +994,113 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         </div>
       </div>
       <div ref={mapRef} className="polygon-map"></div>
+
+      {/* Панель адресов: либо список, либо кнопка «Выбрать все» */}
+      {(!selectedAddressIds || selectedAddressIds.size === 0) && polygonsCoords && polygonsCoords.length > 0 && onSelectAllInPolygon && (
+        <div className="selected-addresses-panel">
+          <div className="selected-addresses-header" style={{ justifyContent: 'center' }}>
+            <button onClick={onSelectAllInPolygon} style={{
+              padding: '5px 14px', fontSize: '12px', fontWeight: 500, border: 'none',
+              background: '#2563eb', color: '#fff', borderRadius: '6px', cursor: 'pointer',
+            }}>
+              Выбрать все адреса в полигоне
+            </button>
+          </div>
+        </div>
+      )}
+      {selectedAddressIds && selectedAddressIds.size > 0 && (
+        <div className="selected-addresses-panel">
+          <div className="selected-addresses-header">
+            <button className="selected-addresses-toggle" onClick={() => {
+              const el = document.getElementById('selected-addresses-list');
+              if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+            }}>
+              <span className="selected-addresses-title">
+                {(() => {
+                  const excluded = excludedAddressIds ? excludedAddressIds.size : 0;
+                  const active = selectedAddressIds.size - excluded;
+                  const hl = highlightedAddressIds ? highlightedAddressIds.size : active;
+                  if (hl !== active) return `Подходит: ${hl} из ${selectedAddressIds.size} (активных: ${active})`;
+                  if (excluded > 0) return `Активных: ${active} из ${selectedAddressIds.size} адресов`;
+                  return `Выбрано адресов: ${selectedAddressIds.size}`;
+                })()}
+              </span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <button className="selected-addresses-clear" onClick={() => {
+              if (onAddressToggle) {
+                const current = addressesRef.current || [];
+                for (const addr of current) {
+                  if (addr.id != null && selectedAddressIds.has(addr.id) && !(excludedAddressIds?.has(addr.id))) {
+                    onAddressToggle(addr);
+                  }
+                }
+              }
+            }}>
+              Отключить все
+            </button>
+          </div>
+          <div id="selected-addresses-list" className="selected-addresses-list">
+            <table className="selected-addresses-table">
+              <thead>
+                <tr>
+                  <th>Адрес</th>
+                  <th>Серия</th>
+                  <th>Этаж.</th>
+                  <th>Год</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const all = (addressesRef.current || [])
+                    .filter(a => a.id != null && selectedAddressIds.has(a.id));
+                  const hasHL = highlightedAddressIds && highlightedAddressIds.size > 0;
+                  const hasExcl = excludedAddressIds && excludedAddressIds.size > 0;
+                  // Сортировка: highlighted → active → excluded
+                  const sorted = [...all].sort((a, b) => {
+                    const aExcl = hasExcl && excludedAddressIds!.has(a.id!) ? 2 : 0;
+                    const bExcl = hasExcl && excludedAddressIds!.has(b.id!) ? 2 : 0;
+                    const aH = hasHL && highlightedAddressIds!.has(a.id!) ? 0 : 1;
+                    const bH = hasHL && highlightedAddressIds!.has(b.id!) ? 0 : 1;
+                    return (aExcl + aH) - (bExcl + bH);
+                  });
+                  return sorted.map(a => {
+                    const seriesName = a.house_series_id
+                      ? (houseSeriesMapRef.current.get(a.house_series_id)?.name || a.house_series_id)
+                      : '—';
+                    const isExcluded = hasExcl && excludedAddressIds!.has(a.id!);
+                    const isHighlighted = hasHL && highlightedAddressIds!.has(a.id!);
+                    const dimmed = isExcluded || (hasHL && !isHighlighted);
+                    const opacity = dimmed ? 0.5 : 1;
+                    return (
+                      <tr key={a.id} style={{ opacity }}>
+                        <td className="addr-cell" title={a.address}>{a.address}</td>
+                        <td className="meta-cell">{seriesName}</td>
+                        <td className="meta-cell">{a.floors_count || '—'}</td>
+                        <td className="meta-cell">{a.build_year || '—'}</td>
+                        <td className="action-cell">
+                          <button className="addr-remove-btn" onClick={() => {
+                            if (onAddressToggle) onAddressToggle(a);
+                          }} title={isExcluded ? 'Добавить в фильтр' : 'Убрать из фильтра'}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isExcluded ? '#16a34a' : '#dc2626'} strokeWidth="2" strokeLinecap="round">
+                              {isExcluded
+                                ? <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>
+                                : <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>}
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

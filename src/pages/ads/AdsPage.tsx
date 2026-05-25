@@ -23,6 +23,7 @@ import { Badge } from '@/components/catalyst/badge';
 import AdDetailModal from './AdDetailModal';
 import AdObjectDetailModal from './AdObjectDetailModal';
 import AdAddressModal from './AdAddressModal';
+import AdAddressAssignModal from './AdAddressAssignModal';
 import { adsAddressService } from '@/services/ads-address-service';
 import {
   FunnelIcon,
@@ -149,6 +150,20 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [refCeilingMaterials, setRefCeilingMaterials] = useState<ReferenceItem[]>([]);
   const [refHouseProblems, setRefHouseProblems] = useState<ReferenceItem[]>([]);
 
+  // ─── Фильтры по параметрам адресов ───
+  const [filterHouseSeriesIds, setFilterHouseSeriesIds] = useState<string[]>([]);
+  const [filterWallMaterialIds, setFilterWallMaterialIds] = useState<string[]>([]);
+  const [filterFloorsMin, setFilterFloorsMin] = useState('');
+  const [filterFloorsMax, setFilterFloorsMax] = useState('');
+  const [excludedAddressIds, setExcludedAddressIds] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem('ret_ads_excluded_address_ids');
+      if (!saved) return new Set();
+      const arr = JSON.parse(saved);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch { return new Set(); }
+  });
+
   // ─── Сохранённые фильтры ───
   const [savedFilters, setSavedFilters] = useState<{ id: string; name: string; state: string }[]>([]);
   const [showSavedDropdown, setShowSavedDropdown] = useState(false);
@@ -188,6 +203,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [detailAd, setDetailAd] = useState<Ad | null>(null);
   const [detailObject, setDetailObject] = useState<AdObject | null>(null);
   const [detailAddress, setDetailAddress] = useState<AdAddress | null>(null);
+  const [assignAd, setAssignAd] = useState<Ad | null>(null);
+  const [createAddressForAd, setCreateAddressForAd] = useState<Ad | null>(null);
+  const [addressModalMode, setAddressModalMode] = useState<'edit' | 'create'>('edit');
 
   // ─── Карта ───
   const [showMapFilter, setShowMapFilter] = useState(false);
@@ -201,6 +219,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       if (parsed && Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0]) && !Array.isArray(parsed[0][0])) return [parsed];
       return parsed;
     } catch { return null; }
+  });
+  const [filterAddressIds, setFilterAddressIds] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem('ret_ads_filter_address_ids');
+      if (!saved) return new Set();
+      const arr = JSON.parse(saved);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch { return new Set(); }
   });
 
   // ─── Загрузка данных ───
@@ -252,17 +278,63 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  // Загрузка адресов и справочников для карты
+  // Загрузка адресов и справочников для карты (+ дефолтные данные если пусто)
   useEffect(() => {
     db.table<AdAddress>('ad_addresses').toArray().then(addrs => {
       addrs.sort((a, b) => (a.address || '').localeCompare(b.address || '', 'ru'));
       setAddresses(addrs);
     });
-    db.table<ReferenceItem>('ad_wall_materials').toArray().then(setRefWallMaterials);
-    db.table<ReferenceItem>('ad_house_series').toArray().then(setRefHouseSeries);
-    db.table<ReferenceItem>('ad_house_classes').toArray().then(setRefHouseClasses);
-    db.table<ReferenceItem>('ad_ceiling_materials').toArray().then(setRefCeilingMaterials);
-    db.table<ReferenceItem>('ad_house_problems').toArray().then(setRefHouseProblems);
+
+    // Справочники: загрузить, если пустые — заполнить дефолтными значениями
+    const loadRef = async (table: string, defaults: ReferenceItem[]) => {
+      const t = db.table<ReferenceItem>(table);
+      let items = await t.toArray();
+      if (items.length === 0 && defaults.length > 0) {
+        await t.bulkAdd(defaults);
+        items = await t.toArray();
+      }
+      return items;
+    };
+
+    const DEFAULT_WALL_MATERIALS: ReferenceItem[] = [
+      { id: undefined as any, server_id: 'brick', name: 'Кирпичный', color: '#ef4444', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'panel', name: 'Панельный', color: '#3b82f6', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'monolith', name: 'Монолитный', color: '#f59e0b', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'block', name: 'Блочный', color: '#8b5cf6', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'wood', name: 'Деревянный', color: '#92400e', created_at: '', updated_at: '' },
+    ];
+    const DEFAULT_HOUSE_SERIES: ReferenceItem[] = [
+      { id: undefined as any, server_id: 'khrushchevka', name: 'Хрущёвка', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'stalinka', name: 'Сталинка', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'brezhnevka', name: 'Брежневка', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'modern', name: 'Современная', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'improved', name: 'Улучшенная планировка', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'individual', name: 'Индивидуальный проект', created_at: '', updated_at: '' },
+    ];
+    const DEFAULT_HOUSE_CLASSES: ReferenceItem[] = [
+      { id: undefined as any, server_id: 'economy', name: 'Эконом', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'comfort', name: 'Комфорт', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'comfort_plus', name: 'Комфорт+', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'business', name: 'Бизнес', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'elite', name: 'Элитное', created_at: '', updated_at: '' },
+    ];
+    const DEFAULT_CEILING_MATERIALS: ReferenceItem[] = [
+      { id: undefined as any, server_id: 'reinforced_concrete', name: 'Железобетонное', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'wooden', name: 'Деревянное', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'metal', name: 'Металлическое', created_at: '', updated_at: '' },
+    ];
+    const DEFAULT_HOUSE_PROBLEMS: ReferenceItem[] = [
+      { id: undefined as any, server_id: 'emergency', name: 'Аварийный', color: '#ef4444', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'struts', name: 'На стяжках', color: '#f59e0b', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'renovation', name: 'Под реновацию', color: '#8b5cf6', created_at: '', updated_at: '' },
+      { id: undefined as any, server_id: 'bad_entrance', name: 'Плохое состояние подъездов', color: '#f97316', created_at: '', updated_at: '' },
+    ];
+
+    loadRef('ad_wall_materials', DEFAULT_WALL_MATERIALS).then(setRefWallMaterials);
+    loadRef('ad_house_series', DEFAULT_HOUSE_SERIES).then(setRefHouseSeries);
+    loadRef('ad_house_classes', DEFAULT_HOUSE_CLASSES).then(setRefHouseClasses);
+    loadRef('ad_ceiling_materials', DEFAULT_CEILING_MATERIALS).then(setRefCeilingMaterials);
+    loadRef('ad_house_problems', DEFAULT_HOUSE_PROBLEMS).then(setRefHouseProblems);
   }, []);
 
   // Статистика объектов/объявлений по адресам (для маркеров на карте)
@@ -289,6 +361,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       try {
         const raw = localStorage.getItem('ret_ads_saved_filters');
         if (raw) setSavedFilters(JSON.parse(raw));
+      } catch {}
+      // Восстановление последнего состояния фильтров
+      try {
+        const lastFilter = localStorage.getItem('ret_ads_last_filter');
+        if (lastFilter) applyFilterState(JSON.parse(lastFilter));
       } catch {}
       // Подгрузить Inpars токен из chrome.storage и определить регион
       const token = await loadInparsToken();
@@ -325,10 +402,17 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     searchQuery,
     processingStatus: filterProcessingStatus, addressId: filterAddressId, contactType: filterContactType,
     processingCategoryId: filterProcessingCategoryId, processingFloor: filterProcessingFloor,
+    filterAddressIds: [...filterAddressIds],
+    excludedAddressIds: [...excludedAddressIds],
+    polygonsCoords,
+    houseSeriesIds: filterHouseSeriesIds,
+    wallMaterialIds: filterWallMaterialIds,
+    floorsMin: filterFloorsMin, floorsMax: filterFloorsMax,
   }), [filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax, filterAreaMin, filterAreaMax,
     filterFloorMin, filterFloorMax, filterYearMin, filterYearMax, filterSellerTypes, filterStatus,
     filterDateFrom, filterDateTo, searchQuery, filterProcessingStatus, filterAddressId, filterContactType,
-    filterProcessingCategoryId, filterProcessingFloor]);
+    filterProcessingCategoryId, filterProcessingFloor, filterAddressIds, excludedAddressIds, polygonsCoords,
+    filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
 
   const applyFilterState = useCallback((state: Record<string, unknown>) => {
     setFilterSources((state.sources as string[]) || []);
@@ -352,7 +436,52 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     setFilterContactType((state.contactType as string) || '');
     setFilterProcessingCategoryId((state.processingCategoryId as number | '') ?? '');
     setFilterProcessingFloor((state.processingFloor as string) || '');
+    // Восстановление адресного фильтра
+    const savedAddrIds = state.filterAddressIds as number[] | undefined;
+    if (savedAddrIds && Array.isArray(savedAddrIds)) {
+      const ids = new Set(savedAddrIds);
+      setFilterAddressIds(ids);
+      localStorage.setItem('ret_ads_filter_address_ids', JSON.stringify([...ids]));
+    } else {
+      setFilterAddressIds(new Set());
+      localStorage.removeItem('ret_ads_filter_address_ids');
+    }
+    const savedPolygons = state.polygonsCoords as [number, number][][] | null | undefined;
+    if (savedPolygons && savedPolygons.length > 0) {
+      setPolygonsCoords(savedPolygons);
+      localStorage.setItem('ret_ads_polygon_coords', JSON.stringify(savedPolygons));
+    } else {
+      setPolygonsCoords(null);
+      localStorage.removeItem('ret_ads_polygon_coords');
+    }
+    // Восстановление исключённых адресов
+    const savedExcluded = state.excludedAddressIds as number[] | undefined;
+    if (savedExcluded && Array.isArray(savedExcluded)) {
+      const ids = new Set(savedExcluded);
+      setExcludedAddressIds(ids);
+      localStorage.setItem('ret_ads_excluded_address_ids', JSON.stringify([...ids]));
+    } else {
+      setExcludedAddressIds(new Set());
+      localStorage.removeItem('ret_ads_excluded_address_ids');
+    }
+    // Восстановление фильтров по серии, материалу стен и этажности дома
+    setFilterHouseSeriesIds((state.houseSeriesIds as string[]) || []);
+    setFilterWallMaterialIds((state.wallMaterialIds as string[]) || []);
+    setFilterFloorsMin((state.floorsMin as string) || '');
+    setFilterFloorsMax((state.floorsMax as string) || '');
   }, []);
+
+  // Автосохранение фильтров при любом изменении (пропускаем первый рендер)
+  const filterSaveReady = useRef(false);
+  useEffect(() => {
+    if (!filterSaveReady.current) {
+      filterSaveReady.current = true;
+      return;
+    }
+    try {
+      localStorage.setItem('ret_ads_last_filter', JSON.stringify(getFilterState()));
+    } catch {}
+  }, [getFilterState]);
 
   const handleSaveFilter = () => {
     if (!saveFilterName.trim()) return;
@@ -384,6 +513,48 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     localStorage.setItem('ret_ads_saved_filters', JSON.stringify(updated));
     if (activeFilterId === id) { setActiveFilterId(null); setActiveFilterName(null); }
   };
+
+  // ─── Доступные серии домов (только из релевантных адресов) ───
+  const availableHouseSeries = useMemo(() => {
+    if (filterAddressIds.size === 0) return [];
+    const relevantAddresses = addresses.filter(a => a.id != null && filterAddressIds.has(a.id));
+    const usedIds = new Set(
+      relevantAddresses.map(a => a.house_series_id).filter(Boolean) as string[]
+    );
+    return refHouseSeries.filter(s => s.server_id && usedIds.has(s.server_id));
+  }, [refHouseSeries, addresses, filterAddressIds]);
+
+  // ─── Доступные материалы стен (только из релевантных адресов) ───
+  const availableWallMaterials = useMemo(() => {
+    if (filterAddressIds.size === 0) return [];
+    const relevantAddresses = addresses.filter(a => a.id != null && filterAddressIds.has(a.id));
+    const usedIds = new Set(
+      relevantAddresses.map(a => a.wall_material_id).filter(Boolean) as string[]
+    );
+    return refWallMaterials.filter(s => s.server_id && usedIds.has(s.server_id));
+  }, [refWallMaterials, addresses, filterAddressIds]);
+
+  // ─── Адреса, подходящие под все адресные фильтры (полигон + серия + материал + этажность, без excluded) ───
+  const highlightedAddressIds = useMemo(() => {
+    const hasAddrFilters = filterHouseSeriesIds.length > 0 || filterWallMaterialIds.length > 0 || !!filterFloorsMin || !!filterFloorsMax;
+    // Без доп.фильтров — все активные (не excluded) адреса пула
+    const activePool = filterAddressIds.size > 0
+      ? [...filterAddressIds].filter(id => !excludedAddressIds.has(id))
+      : [];
+    const activeSet = new Set(activePool);
+    if (!hasAddrFilters) return activeSet;
+
+    const result = new Set<number>();
+    const pool = addresses.filter(a => a.id != null && activeSet.has(a.id));
+    for (const addr of pool) {
+      if (filterHouseSeriesIds.length > 0 && (!addr.house_series_id || !filterHouseSeriesIds.includes(addr.house_series_id))) continue;
+      if (filterWallMaterialIds.length > 0 && (!addr.wall_material_id || !filterWallMaterialIds.includes(addr.wall_material_id))) continue;
+      if (filterFloorsMin && (!addr.floors_count || addr.floors_count < Number(filterFloorsMin))) continue;
+      if (filterFloorsMax && (!addr.floors_count || addr.floors_count > Number(filterFloorsMax))) continue;
+      if (addr.id != null) result.add(addr.id);
+    }
+    return result;
+  }, [filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
 
   // ─── Фильтрация ───
   const filteredAds = useMemo(() => {
@@ -424,11 +595,31 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterProcessingCategoryId) result = result.filter(a => a.category_id === filterProcessingCategoryId);
     if (filterProcessingFloor) result = result.filter(a => a.floor != null && a.floor === Number(filterProcessingFloor));
 
+    // Фильтр по выбранным адресам (из полигона), исключая отключённые
+    if (filterAddressIds.size > 0) result = result.filter(a => a.address_id != null && filterAddressIds.has(a.address_id) && !excludedAddressIds.has(a.address_id));
+
+    // Фильтр по серии дома, материалу стен и этажности (через адрес)
+    if (filterHouseSeriesIds.length > 0 || filterWallMaterialIds.length > 0 || filterFloorsMin || filterFloorsMax) {
+      const addrMap = new Map<number, AdAddress>();
+      for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
+      result = result.filter(a => {
+        if (!a.address_id) return false;
+        const addr = addrMap.get(a.address_id);
+        if (!addr) return false;
+        if (filterHouseSeriesIds.length > 0 && (!addr.house_series_id || !filterHouseSeriesIds.includes(addr.house_series_id))) return false;
+        if (filterWallMaterialIds.length > 0 && (!addr.wall_material_id || !filterWallMaterialIds.includes(addr.wall_material_id))) return false;
+        if (filterFloorsMin && (!addr.floors_count || addr.floors_count < Number(filterFloorsMin))) return false;
+        if (filterFloorsMax && (!addr.floors_count || addr.floors_count > Number(filterFloorsMax))) return false;
+        return true;
+      });
+    }
+
     return result;
   }, [allAds, filterStatus, filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax,
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax, filterYearMin, filterYearMax,
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
-    filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor]);
+    filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor,
+    filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
 
   const filteredObjects = useMemo(() => {
     let result = allObjects;
@@ -443,10 +634,27 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     // Фильтр обработки
     if (filterAddressId) result = result.filter(o => o.address_id === filterAddressId);
     if (filterProcessingFloor) result = result.filter(o => o.floor != null && o.floor === Number(filterProcessingFloor));
+    // Фильтр по выбранным адресам (из полигона)
+    if (filterAddressIds.size > 0) result = result.filter(o => o.address_id != null && filterAddressIds.has(o.address_id) && !excludedAddressIds.has(o.address_id));
+    // Фильтр по серии дома, материалу стен и этажности (через адрес)
+    if (filterHouseSeriesIds.length > 0 || filterWallMaterialIds.length > 0 || filterFloorsMin || filterFloorsMax) {
+      const addrMap = new Map<number, AdAddress>();
+      for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
+      result = result.filter(o => {
+        if (!o.address_id) return false;
+        const addr = addrMap.get(o.address_id);
+        if (!addr) return false;
+        if (filterHouseSeriesIds.length > 0 && (!addr.house_series_id || !filterHouseSeriesIds.includes(addr.house_series_id))) return false;
+        if (filterWallMaterialIds.length > 0 && (!addr.wall_material_id || !filterWallMaterialIds.includes(addr.wall_material_id))) return false;
+        if (filterFloorsMin && (!addr.floors_count || addr.floors_count < Number(filterFloorsMin))) return false;
+        if (filterFloorsMax && (!addr.floors_count || addr.floors_count > Number(filterFloorsMax))) return false;
+        return true;
+      });
+    }
     return result;
   }, [allObjects, filterStatus, filterPropertyTypes, filterPriceMin, filterPriceMax,
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax,
-    filterAddressId, filterProcessingFloor]);
+    filterAddressId, filterProcessingFloor, filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
 
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
@@ -502,11 +710,24 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
     if (filterProcessingFloor) tags.push({ key: 'pfloor', label: `Этаж обработки: ${filterProcessingFloor}` });
     if (searchQuery) tags.push({ key: 'query', label: `Поиск: ${searchQuery}` });
+    if (filterAddressIds.size > 0) {
+      const active = filterAddressIds.size - excludedAddressIds.size;
+      tags.push({ key: 'polygonAddresses', label: excludedAddressIds.size > 0 ? `Полигон: ${active} из ${filterAddressIds.size} адресов` : `Полигон: ${filterAddressIds.size} адрес(ов)` });
+    }
+    if (filterHouseSeriesIds.length > 0) {
+      const names = filterHouseSeriesIds.map(id => availableHouseSeries.find(r => r.server_id === id)?.name || id);
+      tags.push({ key: 'houseSeries', label: `Серия: ${names.join(', ')}` });
+    }
+    if (filterWallMaterialIds.length > 0) {
+      const names = filterWallMaterialIds.map(id => availableWallMaterials.find(r => r.server_id === id)?.name || id);
+      tags.push({ key: 'wallMaterial', label: `Материал стен: ${names.join(', ')}` });
+    }
+    if (filterFloorsMin || filterFloorsMax) tags.push({ key: 'addrFloors', label: `Этажность дома: ${filterFloorsMin || '—'} – ${filterFloorsMax || '—'}` });
     return tags;
   }, [filterStatus, filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax, filterAreaMin, filterAreaMax,
     filterFloorMin, filterFloorMax, filterYearMin, filterYearMax, filterSellerTypes, filterDateFrom, filterDateTo,
     filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor,
-    searchQuery, addresses, categories]);
+    searchQuery, addresses, categories, filterAddressIds, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, availableHouseSeries, availableWallMaterials]);
 
   const removeFilterTag = (key: string) => {
     if (key === 'status') setFilterStatus('');
@@ -525,6 +746,10 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (key === 'pcat') setFilterProcessingCategoryId('');
     if (key === 'pfloor') setFilterProcessingFloor('');
     if (key === 'query') setSearchQuery('');
+    if (key === 'polygonAddresses') { setFilterAddressIds(new Set()); localStorage.removeItem('ret_ads_filter_address_ids'); }
+    if (key === 'houseSeries') setFilterHouseSeriesIds([]);
+    if (key === 'wallMaterial') setFilterWallMaterialIds([]);
+    if (key === 'addrFloors') { setFilterFloorsMin(''); setFilterFloorsMax(''); }
   };
 
   const clearAllFilters = () => {
@@ -535,6 +760,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     setFilterProcessingStatus(''); setFilterAddressId(''); setFilterContactType('');
     setFilterProcessingCategoryId(''); setFilterProcessingFloor('');
     setSearchQuery(''); setActiveFilterId(null); setActiveFilterName(null);
+    setFilterAddressIds(new Set()); localStorage.removeItem('ret_ads_filter_address_ids');
+    setExcludedAddressIds(new Set()); localStorage.removeItem('ret_ads_excluded_address_ids');
+    setFilterHouseSeriesIds([]); setFilterWallMaterialIds([]); setFilterFloorsMin(''); setFilterFloorsMax('');
   };
 
   // ─── Обработчики ───
@@ -759,6 +987,80 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
   };
 
+  // ─── Привязка адресов ───
+  const handleLinkAd = async (adId: number, addressId: number) => {
+    await adsAddressService.linkAdToAddress(adId, addressId);
+    await loadData();
+    setAssignAd(null);
+    setToast({ message: 'Адрес привязан', type: 'success' });
+  };
+
+  const handleUnlinkAd = async (adId: number) => {
+    await adsAddressService.unlinkAdFromAddress(adId);
+    await loadData();
+    setAssignAd(null);
+    setToast({ message: 'Привязка отменена', type: 'success' });
+  };
+
+  const handleConfirmAd = async (adId: number) => {
+    await adsAddressService.confirmAdAddress(adId);
+    await loadData();
+    setAssignAd(null);
+    setToast({ message: 'Адрес подтверждён', type: 'success' });
+  };
+
+  const handleOpenCreateAddress = (ad: Ad) => {
+    setAssignAd(null);
+    setCreateAddressForAd(ad);
+    setAddressModalMode('create');
+    setDetailAddress({
+      id: undefined,
+      server_id: null,
+      house_id: null,
+      address: ad.address || '',
+      coordinates: { ...ad.coordinates },
+      type: 'house',
+      region: null,
+      cadno: null,
+      house_type: null,
+      serie: null,
+      house_series_id: null,
+      house_class_id: null,
+      ceiling_material_id: null,
+      wall_material_id: null,
+      house_problem_id: null,
+      floors_count: null,
+      build_year: null,
+      entrances_count: null,
+      living_spaces_count: null,
+      area_total: null,
+      area_live: null,
+      ceiling_height: null,
+      gas_supply: null,
+      individual_heating: null,
+      has_playground: false,
+      has_sports_area: false,
+      comment: '',
+      source: 'user',
+      synced_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  };
+
+  const handleAddressSaved = async (savedAddr: AdAddress) => {
+    // Если создавали новый адрес для объявления — привязываем его
+    if (addressModalMode === 'create' && createAddressForAd && savedAddr.id) {
+      await adsAddressService.linkAdToAddress(createAddressForAd.id!, savedAddr.id);
+      setCreateAddressForAd(null);
+      await loadData();
+      setToast({ message: 'Новый адрес создан и привязан', type: 'success' });
+    } else {
+      // Обновление списка адресов
+      setAddresses(prev => prev.map(a => a.id === savedAddr.id ? savedAddr : a));
+    }
+  };
+
   const handleRunAll = () => {
     if (runImport) handleImport();
     if (runAddress) handleMatchAddresses();
@@ -773,6 +1075,44 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     setPolygonsCoords(polygons);
     if (polygons) localStorage.setItem('ret_ads_polygon_coords', JSON.stringify(polygons));
     else localStorage.removeItem('ret_ads_polygon_coords');
+
+    // При смене полигона — сбросить исключённые адреса
+    setExcludedAddressIds(new Set());
+    localStorage.removeItem('ret_ads_excluded_address_ids');
+
+    // Автовыбор адресов внутри полигона
+    if (polygons && polygons.length > 0 && addresses.length > 0) {
+      const ids = new Set<number>();
+      for (const addr of addresses) {
+        const lat = addr.coordinates.lat;
+        const lng = addr.coordinates.lng;
+        if (lat != null && lng != null && polygons.some(poly => pointInPolygon(lat, lng, poly))) {
+          if (addr.id != null) ids.add(addr.id);
+        }
+      }
+      setFilterAddressIds(ids);
+      localStorage.setItem('ret_ads_filter_address_ids', JSON.stringify([...ids]));
+    } else {
+      setFilterAddressIds(new Set());
+      localStorage.removeItem('ret_ads_filter_address_ids');
+    }
+  }, [addresses]);
+
+  const handleSelectAllInPolygon = useCallback(() => {
+    setExcludedAddressIds(new Set());
+    localStorage.removeItem('ret_ads_excluded_address_ids');
+  }, []);
+
+  const handleAddressToggle = useCallback((address: AdAddress) => {
+    setExcludedAddressIds(prev => {
+      const next = new Set(prev);
+      if (address.id != null) {
+        if (next.has(address.id)) next.delete(address.id);
+        else next.add(address.id);
+      }
+      localStorage.setItem('ret_ads_excluded_address_ids', JSON.stringify([...next]));
+      return next;
+    });
   }, []);
 
   const handleFlyToRegion = (regionCode: string) => {
@@ -806,7 +1146,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const updatedDays = daysAgo(o.updated);
       return (
         <tr key={`obj-${id}`} className={`cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
-          onClick={() => toggleSelect(id, 'object')}>
+          onClick={() => setDetailObject(o)}>
           <td className="px-2 py-1.5"><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(id, 'object')} onClick={e => e.stopPropagation()} className="h-3 w-3 rounded border-zinc-300 text-blue-600" /></td>
           <td className="px-1 py-1.5"><button onClick={e => { e.stopPropagation(); quickFilter(row); }} className="text-zinc-400 hover:text-blue-600" title="Быстрый фильтр"><FunnelIcon className="size-3.5" /></button></td>
           <td className="px-2 py-1.5 text-xs">
@@ -848,7 +1188,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       <tr key={`ad-${id}${isChild ? '-child' : ''}`}
         className={`${isChild ? 'bg-zinc-50/50 dark:bg-zinc-800/30' : ''} cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
         style={isChild ? { paddingLeft: '2rem' } : undefined}
-        onClick={() => toggleSelect(id, 'ad')}>
+        onClick={() => setDetailAd(a)}>
         <td className="px-2 py-1.5"><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(id, 'ad')} onClick={e => e.stopPropagation()} className="h-3 w-3 rounded border-zinc-300 text-blue-600" /></td>
         <td className="px-1 py-1.5"><button onClick={e => { e.stopPropagation(); quickFilter(row); }} className="text-zinc-400 hover:text-blue-600" title="Быстрый фильтр"><FunnelIcon className="size-3.5" /></button></td>
         <td className="px-2 py-1.5 text-xs space-y-0.5">
@@ -1292,6 +1632,46 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 </div>
               </div>
 
+              {/* Параметры дома (через адрес) */}
+              {availableHouseSeries.length > 0 && (
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Серия дома</label>
+                    <span className="text-[10px] text-zinc-400">{filterHouseSeriesIds.length} из {availableHouseSeries.length}{filterAddressIds.size > 0 ? ' (в полигоне)' : ''}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {availableHouseSeries.map(s => (
+                      <button key={s.server_id} onClick={() => setFilterHouseSeriesIds(prev => prev.includes(s.server_id!) ? prev.filter(x => x !== s.server_id) : [...prev, s.server_id!])}
+                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterHouseSeriesIds.includes(s.server_id!) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{s.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {availableWallMaterials.length > 0 && (
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Материал стен</label>
+                    <span className="text-[10px] text-zinc-400">{filterWallMaterialIds.length} из {availableWallMaterials.length}{filterAddressIds.size > 0 ? ' (в полигоне)' : ''}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {availableWallMaterials.map(s => (
+                      <button key={s.server_id} onClick={() => setFilterWallMaterialIds(prev => prev.includes(s.server_id!) ? prev.filter(x => x !== s.server_id) : [...prev, s.server_id!])}
+                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterWallMaterialIds.includes(s.server_id!) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{s.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этажность дома от</label>
+                  <input type="number" min={1} max={100} placeholder="1" value={filterFloorsMin} onChange={e => setFilterFloorsMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этажность дома до</label>
+                  <input type="number" min={1} max={100} placeholder="∞" value={filterFloorsMax} onChange={e => setFilterFloorsMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+
               {/* Продавец */}
               <div className="mb-3">
                 <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Продавец</label>
@@ -1347,22 +1727,23 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 );
               })()}
               {showMapFilter && (
-                <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries }} />
+                <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries, houseClasses: refHouseClasses, ceilingMaterials: refCeilingMaterials }} onAddressClick={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }} selectedAddressIds={filterAddressIds} highlightedAddressIds={highlightedAddressIds} excludedAddressIds={excludedAddressIds} onAddressToggle={handleAddressToggle} onSelectAllInPolygon={handleSelectAllInPolygon} polygonsCoords={polygonsCoords} />
               )}
             </div>
 
-            {/* Active filters */}
-            {activeFilterTags.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] text-zinc-500">Фильтры:</span>
-                {activeFilterTags.map(t => (
-                  <span key={t.key} className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
-                    {t.label}
-                    <button onClick={() => removeFilterTag(t.key)} className="text-blue-500 hover:text-blue-700"><XMarkIcon className="size-3" /></button>
-                  </span>
-                ))}
-              </div>
-            )}
+          </div>
+        )}
+
+        {/* Active filters — всегда видны */}
+        {activeFilterTags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-4">
+            <span className="text-[10px] text-zinc-500">Фильтры:</span>
+            {activeFilterTags.map(t => (
+              <span key={t.key} className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                {t.label}
+                <button onClick={() => removeFilterTag(t.key)} className="text-blue-500 hover:text-blue-700"><XMarkIcon className="size-3" /></button>
+              </span>
+            ))}
           </div>
         )}
 
@@ -1478,10 +1859,29 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
       {/* Detail Ad Modal */}
       {detailAd && (
-        <AdDetailModal ad={detailAd} onClose={() => setDetailAd(null)} onSave={(updated) => {
-          // Обновляем ad в allAds
-          setAllAds(prev => prev.map(a => a.id === updated.id ? updated : a));
-        }} />
+        <AdDetailModal
+          ad={detailAd}
+          addresses={addresses}
+          referenceData={{
+            wallMaterials: refWallMaterials,
+            houseSeries: refHouseSeries,
+            houseClasses: refHouseClasses,
+            ceilingMaterials: refCeilingMaterials,
+            houseProblems: refHouseProblems,
+          }}
+          onClose={() => setDetailAd(null)}
+          onSave={(updated) => {
+            setAllAds(prev => prev.map(a => a.id === updated.id ? updated : a));
+          }}
+          onAddressChange={async () => {
+            await loadData();
+            // Обновляем detailAd свежими данными
+            const fresh = await db.table<Ad>('ads').get(detailAd.id!);
+            if (fresh) setDetailAd(fresh);
+          }}
+          onOpenCreateAddress={handleOpenCreateAddress}
+          onOpenEditAddress={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }}
+        />
       )}
 
       {/* Detail Object Modal */}
@@ -1494,10 +1894,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         />
       )}
 
-      {/* Address Modal */}
-      {detailAddress && (
-        <AdAddressModal
-          address={detailAddress}
+      {/* Address Assign Modal — привязка/смена адреса */}
+      {assignAd && (
+        <AdAddressAssignModal
+          ad={assignAd}
+          addresses={addresses}
           referenceData={{
             wallMaterials: refWallMaterials,
             houseSeries: refHouseSeries,
@@ -1505,10 +1906,29 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             ceilingMaterials: refCeilingMaterials,
             houseProblems: refHouseProblems,
           }}
-          onClose={() => setDetailAddress(null)}
-          onSave={(updated) => {
-            setAddresses(prev => prev.map(a => a.id === updated.id ? updated : a));
+          onClose={() => setAssignAd(null)}
+          onLink={handleLinkAd}
+          onUnlink={handleUnlinkAd}
+          onConfirm={handleConfirmAd}
+          onOpenCreate={handleOpenCreateAddress}
+          onOpenEdit={(addr) => { setAssignAd(null); setAddressModalMode('edit'); setDetailAddress(addr); }}
+        />
+      )}
+
+      {/* Address Modal — редактирование / создание адреса */}
+      {detailAddress && (
+        <AdAddressModal
+          address={detailAddress}
+          mode={addressModalMode}
+          referenceData={{
+            wallMaterials: refWallMaterials,
+            houseSeries: refHouseSeries,
+            houseClasses: refHouseClasses,
+            ceilingMaterials: refCeilingMaterials,
+            houseProblems: refHouseProblems,
           }}
+          onClose={() => { setDetailAddress(null); setCreateAddressForAd(null); }}
+          onSave={handleAddressSaved}
         />
       )}
     </div>

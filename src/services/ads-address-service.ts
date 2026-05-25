@@ -112,6 +112,55 @@ export const adsAddressService = {
   async clear(): Promise<void> {
     await db.ad_addresses.clear();
   },
+
+  /** Привязать адрес к объявлению вручную (confidence=manual) */
+  async linkAdToAddress(adId: number, addressId: number): Promise<void> {
+    await db.ads.update(adId, {
+      address_id: addressId,
+      address_match_confidence: 'manual',
+      address_match_method: 'manual_selection',
+      address_match_score: 1.0,
+      address_distance: null,
+      processing_status: 'duplicate_check_needed',
+    });
+  },
+
+  /** Отвязать адрес от объявления */
+  async unlinkAdFromAddress(adId: number): Promise<void> {
+    await db.ads.update(adId, {
+      address_id: null,
+      address_match_confidence: null,
+      address_match_method: null,
+      address_match_score: null,
+      address_distance: null,
+      processing_status: 'address_needed',
+    });
+  },
+
+  /** Отвязать адреса от всех объявлений и сбросить статус */
+  async unlinkAllAddresses(): Promise<{ unlinked: number }> {
+    const adsWithAddress = await db.ads.filter(a => a.address_id != null).toArray();
+    let unlinked = 0;
+    for (const ad of adsWithAddress) {
+      await db.ads.update(ad.id!, {
+        address_id: null,
+        address_match_confidence: null,
+        address_match_method: null,
+        address_match_score: null,
+        address_distance: null,
+        processing_status: 'address_needed',
+      });
+      unlinked++;
+    }
+    return { unlinked };
+  },
+
+  /** Подтвердить текущий адрес (confidence=manual) */
+  async confirmAdAddress(adId: number): Promise<void> {
+    await db.ads.update(adId, {
+      address_match_confidence: 'manual',
+    });
+  },
 };
 
 /** Проверка принадлежности точки полигону (ray casting). Полигон: [lat, lng][] */
