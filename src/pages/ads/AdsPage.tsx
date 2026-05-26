@@ -23,6 +23,7 @@ import { Badge } from '@/components/catalyst/badge';
 import AdDetailModal from './AdDetailModal';
 import AdObjectDetailModal from './AdObjectDetailModal';
 import AdAddressModal from './AdAddressModal';
+import AdsSavedFiltersPanel from './AdsSavedFiltersPanel';
 import AdAddressAssignModal from './AdAddressAssignModal';
 import { adsAddressService } from '@/services/ads-address-service';
 import {
@@ -45,6 +46,16 @@ const PROPERTY_TYPE_FULL: Record<string, string> = {
 };
 const SOURCE_LABELS: Record<string, string> = {
   avito: 'avito.ru', cian: 'cian.ru', domclick: 'domclick.ru', yandex: 'realty.yandex.ru', youla: 'youla.io', sob: 'sob.ru', bazarpnz: 'bazarpnz.ru', move: 'move.ru', gipernn: 'gipernn.ru', orsk: 'orsk.ru', doskaYkt: 'doska.ykt.ru', unknown: '?',
+};
+// Нормализация source: "avito.ru" → "avito", "cian.ru" → "cian"
+const normalizeSource = (s: string | null | undefined): string => {
+  if (!s) return '';
+  if (SOURCE_LABELS[s]) return s;
+  const keys = Object.keys(SOURCE_LABELS);
+  for (const k of keys) {
+    if (s.startsWith(k + '.') || s === SOURCE_LABELS[k]) return k;
+  }
+  return s;
 };
 const SOURCE_COLORS: Record<string, string> = {
   avito: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -137,7 +148,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // ─── Фильтры обработки ───
-  const [showProcessingFilter, setShowProcessingFilter] = useState(true);
+  const [showProcessingFilter, setShowProcessingFilter] = useState(false);
   const [filterProcessingStatus, setFilterProcessingStatus] = useState('');
   const [filterAddressId, setFilterAddressId] = useState<number | ''>('');
   const [filterContactType, setFilterContactType] = useState('');
@@ -155,6 +166,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [filterWallMaterialIds, setFilterWallMaterialIds] = useState<string[]>([]);
   const [filterFloorsMin, setFilterFloorsMin] = useState('');
   const [filterFloorsMax, setFilterFloorsMax] = useState('');
+  const [sortColumn, setSortColumn] = useState<'price' | 'created' | 'updated' | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [excludedAddressIds, setExcludedAddressIds] = useState<Set<number>>(() => {
     try {
       const saved = localStorage.getItem('ret_ads_excluded_address_ids');
@@ -165,12 +178,10 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   });
 
   // ─── Сохранённые фильтры ───
-  const [savedFilters, setSavedFilters] = useState<{ id: string; name: string; state: string }[]>([]);
-  const [showSavedDropdown, setShowSavedDropdown] = useState(false);
-  const [saveFilterName, setSaveFilterName] = useState('');
-  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [showSavedPanel, setShowSavedPanel] = useState(false);
   const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [activeFilterName, setActiveFilterName] = useState<string | null>(null);
+  const [activeFilterStateJson, setActiveFilterStateJson] = useState<string | null>(null);
 
   // ─── Загрузка из Inpars ───
   const [showImportPanel, setShowImportPanel] = useState(false);
@@ -228,6 +239,13 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       return new Set(Array.isArray(arr) ? arr : []);
     } catch { return new Set(); }
   });
+
+  // JSON текущего полигона — для сравнения в handlePolygonsChange.
+  // Если SearchByPolygon возвращает тот же полигон что уже установлен —
+  // это восстановление из initialPolygons, а не действие пользователя.
+  const polygonsCoordsJsonRef = useRef<string>('null');
+  // Синхронизируем ref с state
+  polygonsCoordsJsonRef.current = polygonsCoords ? JSON.stringify(polygonsCoords) : 'null';
 
   // ─── Загрузка данных ───
   const loadData = useCallback(async () => {
@@ -355,17 +373,16 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return statsMap;
   }, [allAds, allObjects]);
 
-  // Загрузка сохранённых фильтров из localStorage + регион подписки
+  // Загрузка данных + регион подписки
   useEffect(() => {
     (async () => {
-      try {
-        const raw = localStorage.getItem('ret_ads_saved_filters');
-        if (raw) setSavedFilters(JSON.parse(raw));
-      } catch {}
       // Восстановление последнего состояния фильтров
       try {
         const lastFilter = localStorage.getItem('ret_ads_last_filter');
-        if (lastFilter) applyFilterState(JSON.parse(lastFilter));
+        if (lastFilter) {
+          const parsed = JSON.parse(lastFilter);
+          applyFilterState(parsed);
+        }
       } catch {}
       // Подгрузить Inpars токен из chrome.storage и определить регион
       const token = await loadInparsToken();
@@ -479,39 +496,73 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       return;
     }
     try {
-      localStorage.setItem('ret_ads_last_filter', JSON.stringify(getFilterState()));
+      const state = getFilterState();
+      localStorage.setItem('ret_ads_last_filter', JSON.stringify(state));
     } catch {}
   }, [getFilterState]);
 
-  const handleSaveFilter = () => {
-    if (!saveFilterName.trim()) return;
-    const id = activeFilterId || crypto.randomUUID();
-    const state = JSON.stringify(getFilterState());
-    const updated = activeFilterId
-      ? savedFilters.map(f => f.id === id ? { ...f, name: saveFilterName, state } : f)
-      : [...savedFilters, { id, name: saveFilterName, state }];
-    setSavedFilters(updated);
-    localStorage.setItem('ret_ads_saved_filters', JSON.stringify(updated));
-    setActiveFilterId(id);
-    setActiveFilterName(saveFilterName);
-    setSaveFilterName('');
-    setShowSaveInput(false);
+  // Ref для отложенной установки activeFilterStateJson после рендера
+  const pendingFilterSnapshot = useRef<string | null>(null);
+
+  // После рендера — снимаем snapshot реального состояния фильтра
+  useEffect(() => {
+    if (pendingFilterSnapshot.current !== null) {
+      // Задержка чтобы SearchByPolygon успел обработать новый initialPolygons
+      // и вызвать handlePolygonsChange, который может изменить polygonsCoords
+      const timer = setTimeout(() => {
+        setActiveFilterStateJson(JSON.stringify(getFilterState()));
+        pendingFilterSnapshot.current = null;
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  });
+
+  const handleApplySavedFilter = (state: Record<string, unknown>, filterId?: string, filterName?: string, _groupName?: string) => {
+    applyFilterState(state);
+    setActiveFilterId(filterId ?? null);
+    setActiveFilterName(filterName ?? null);
+    // Откладываем snapshot до следующего рендера, когда все setState'ы применятся
+    pendingFilterSnapshot.current = filterId ? 'pending' : null;
+    setActiveFilterStateJson(null); // временно null, чтобы не мигало
   };
 
-  const handleLoadFilter = (f: { id: string; name: string; state: string }) => {
-    try {
-      applyFilterState(JSON.parse(f.state));
-      setActiveFilterId(f.id);
-      setActiveFilterName(f.name);
-      setShowSavedDropdown(false);
-    } catch {}
+  // Проверяем, изменился ли активный фильтр
+  const filterChanged = useMemo(() => {
+    if (!activeFilterId || !activeFilterStateJson) return false;
+    const current = getFilterState();
+    return JSON.stringify(current) !== activeFilterStateJson;
+  }, [activeFilterId, activeFilterStateJson, getFilterState]);
+
+  const handleSaveToActiveFilter = () => {
+    if (!activeFilterId) return;
+    const currentState = getFilterState();
+    const STORAGE_KEY = 'ret_ads_saved_filters_v2';
+    chrome.storage.local.get(STORAGE_KEY, (result: any) => {
+      const raw = result?.[STORAGE_KEY];
+      if (!raw) return;
+      try {
+        const filters = JSON.parse(raw);
+        const updated = filters.map((f: any) =>
+          f.id === activeFilterId ? { ...f, state: currentState } : f
+        );
+        chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(updated) });
+        const target = updated.find((f: any) => f.id === activeFilterId);
+        if (target?.serverId) {
+          import('@/services/api-service').then(api => {
+            api.updateSavedFilter(target.serverId, {
+              filter_data: currentState as unknown as Record<string, unknown>,
+            }).catch(() => {});
+          });
+        }
+      } catch {}
+    });
+    setActiveFilterStateJson(JSON.stringify(currentState));
   };
 
-  const handleDeleteFilter = (id: string) => {
-    const updated = savedFilters.filter(f => f.id !== id);
-    setSavedFilters(updated);
-    localStorage.setItem('ret_ads_saved_filters', JSON.stringify(updated));
-    if (activeFilterId === id) { setActiveFilterId(null); setActiveFilterName(null); }
+  const handleCancelFilterChanges = () => {
+    if (!activeFilterStateJson) return;
+    const savedState = JSON.parse(activeFilterStateJson);
+    applyFilterState(savedState);
   };
 
   // ─── Доступные серии домов (только из релевантных адресов) ───
@@ -562,7 +613,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
     // Основной фильтр
     if (filterStatus) result = result.filter(a => a.status === filterStatus);
-    if (filterSources.length > 0) result = result.filter(a => filterSources.includes(a.source));
+    if (filterSources.length > 0) result = result.filter(a => filterSources.includes(normalizeSource(a.source)));
     if (filterPropertyTypes.length > 0) result = result.filter(a => filterPropertyTypes.includes(a.property_type));
     if (filterCategoryIds.length > 0) result = result.filter(a => a.category_id != null && filterCategoryIds.includes(a.category_id));
     if (filterPriceMin) result = result.filter(a => a.price != null && a.price >= Number(filterPriceMin));
@@ -676,8 +727,32 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         rows.push({ kind: 'ad', data: ad });
       }
     }
+
+    // Сортировка
+    if (sortColumn) {
+      const mul = sortDir === 'asc' ? 1 : -1;
+      const getVal = (row: TableRow): number => {
+        const d = row.data as any;
+        if (sortColumn === 'price') {
+          return d.price ?? d.current_price ?? -Infinity;
+        }
+        if (sortColumn === 'created') {
+          return d.created ? new Date(d.created).getTime() : 0;
+        }
+        if (sortColumn === 'updated') {
+          return d.updated ? new Date(d.updated).getTime() : 0;
+        }
+        return 0;
+      };
+      rows.sort((a, b) => {
+        // expanded_ad всегда следует за parent object — не сортируем
+        if (a.kind === 'expanded_ad' || b.kind === 'expanded_ad') return 0;
+        return (getVal(a) - getVal(b)) * mul;
+      });
+    }
+
     return rows;
-  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds]);
+  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir]);
 
   const totalPages = Math.ceil(tableRows.length / PAGE_SIZE);
   const pagedRows = useMemo(() => {
@@ -1072,15 +1147,23 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   };
 
   const handlePolygonsChange = useCallback((polygons: [number, number][][] | null) => {
+    const incomingJson = polygons ? JSON.stringify(polygons) : 'null';
+    const currentJson = polygonsCoordsJsonRef.current;
+    const polygonChanged = incomingJson !== currentJson;
+
+    // Обновляем полигон в state и localStorage
     setPolygonsCoords(polygons);
+    polygonsCoordsJsonRef.current = incomingJson;
     if (polygons) localStorage.setItem('ret_ads_polygon_coords', JSON.stringify(polygons));
     else localStorage.removeItem('ret_ads_polygon_coords');
 
-    // При смене полигона — сбросить исключённые адреса
-    setExcludedAddressIds(new Set());
-    localStorage.removeItem('ret_ads_excluded_address_ids');
+    // Сбросить исключённые адреса только если полигон реально изменился (пользователь нарисовал новый)
+    if (polygonChanged) {
+      setExcludedAddressIds(new Set());
+      localStorage.removeItem('ret_ads_excluded_address_ids');
+    }
 
-    // Автовыбор адресов внутри полигона
+    // Всегда пересчитываем адреса внутри полигона по текущей базе адресов
     if (polygons && polygons.length > 0 && addresses.length > 0) {
       const ids = new Set<number>();
       for (const addr of addresses) {
@@ -1092,10 +1175,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       }
       setFilterAddressIds(ids);
       localStorage.setItem('ret_ads_filter_address_ids', JSON.stringify([...ids]));
-    } else {
+    } else if (!polygons) {
+      // Полигон удалён — сбросить адреса
       setFilterAddressIds(new Set());
       localStorage.removeItem('ret_ads_filter_address_ids');
     }
+    // Если полигон есть, но адреса ещё не загружены — не трогаем filterAddressIds
   }, [addresses]);
 
   const handleSelectAllInPolygon = useCallback(() => {
@@ -1125,6 +1210,19 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   };
 
   // ─── Форматтеры ───
+  const toggleSort = (col: 'price' | 'created' | 'updated') => {
+    if (sortColumn === col) {
+      if (sortDir === 'desc') setSortDir('asc');
+      else { setSortColumn(null); setSortDir('desc'); }
+    } else {
+      setSortColumn(col);
+      setSortDir('desc');
+    }
+  };
+  const sortIcon = (col: 'price' | 'created' | 'updated') => {
+    if (sortColumn !== col) return ' ↕';
+    return sortDir === 'desc' ? ' ↓' : ' ↑';
+  };
   const fmtPrice = (price: number | null): string => {
     if (price == null) return '—';
     return price.toLocaleString('ru-RU');
@@ -1242,7 +1340,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           {a.price_per_meter != null && <div className="text-zinc-500 dark:text-zinc-500">{a.price_per_meter.toLocaleString('ru-RU')} ₽/м²</div>}
         </td>
         <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400">
-          {a.url && <a href={a.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-blue-600 hover:underline text-[10px] block">{a.source_metadata?.original_source || SOURCE_LABELS[a.source] || a.source}</a>}
+          {a.url && <a href={a.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-blue-600 hover:underline text-[10px] block">{SOURCE_LABELS[normalizeSource(a.source)] || a.source_metadata?.original_source || a.source}</a>}
           <div className="text-[10px]">{SELLER_TYPE_LABELS[a.seller_info?.type || a.seller_type] || a.seller_type || ''}</div>
           {a.seller_info?.name && <div className="text-[10px] text-zinc-400 truncate max-w-[100px]">{a.seller_info.name}</div>}
         </td>
@@ -1292,48 +1390,25 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             <span className="flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
               <svg className="size-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
               <span className="truncate max-w-[200px]">{activeFilterName}</span>
-              <button onClick={() => { setActiveFilterId(null); setActiveFilterName(null); }} className="text-blue-400 hover:text-blue-600 ml-0.5">&times;</button>
+              {filterChanged ? (
+                <>
+                  <button onClick={handleSaveToActiveFilter} className="ml-1 inline-flex items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] text-white hover:bg-blue-700 border-none cursor-pointer">
+                    <ArrowPathIcon className="size-2.5" />Сохранить
+                  </button>
+                  <button onClick={handleCancelFilterChanges} className="inline-flex items-center gap-0.5 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] text-zinc-600 hover:bg-zinc-300 border-none cursor-pointer dark:bg-zinc-700 dark:text-zinc-300">
+                    <XMarkIcon className="size-2.5" />Отменить
+                  </button>
+                </>
+              ) : null}
+              <button onClick={() => { setActiveFilterId(null); setActiveFilterName(null); setActiveFilterStateJson(null); }} className="text-blue-400 hover:text-blue-600 ml-0.5">&times;</button>
             </span>
           )}
           <div className="flex items-center gap-2">
             {/* Сохранённые фильтры */}
-            <div className="relative">
-              <Button color={showSavedDropdown ? 'dark' : 'white'} onClick={() => { setShowSavedDropdown(!showSavedDropdown); setShowSaveInput(false); }}>
-                <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
-                Сохранённые
-              </Button>
-              {showSavedDropdown && (
-                <div className="absolute right-0 top-full mt-1 w-64 rounded-lg bg-white dark:bg-zinc-800 shadow-lg border border-zinc-200 dark:border-zinc-700 z-50 max-h-80 overflow-y-auto">
-                  <div className="p-2 border-b border-zinc-100 dark:border-zinc-700">
-                    {showSaveInput ? (
-                      <div className="flex gap-1">
-                        <input type="text" value={saveFilterName} onChange={e => setSaveFilterName(e.target.value)} placeholder="Название фильтра" onKeyDown={e => { if (e.key === 'Enter') handleSaveFilter(); }}
-                          className="flex-1 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" autoFocus />
-                        <button onClick={handleSaveFilter} className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700">OK</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => { setSaveFilterName(activeFilterName || ''); setShowSaveInput(true); }} className="w-full rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700">
-                        {activeFilterId ? 'Обновить фильтр' : 'Сохранить текущий'}
-                      </button>
-                    )}
-                  </div>
-                  {savedFilters.length === 0 ? (
-                    <div className="p-3 text-xs text-zinc-400 text-center">Нет сохранённых фильтров</div>
-                  ) : (
-                    <div className="py-1">
-                      {savedFilters.map(f => (
-                        <div key={f.id} className={`flex items-center gap-2 px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 ${activeFilterId === f.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                          <button onClick={() => handleLoadFilter(f)} className="flex-1 text-left text-xs text-zinc-700 dark:text-zinc-300 truncate">{f.name}</button>
-                          <button onClick={() => handleDeleteFilter(f.id)} className="text-zinc-400 hover:text-red-500 shrink-0">
-                            <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <Button color={showSavedPanel ? 'dark' : 'white'} onClick={() => setShowSavedPanel(true)}>
+              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+              Сохранённые
+            </Button>
             <Button onClick={handleOpenImport} color={showImportPanel ? 'dark' : 'white'}><ArrowDownTrayIcon className="size-4" />Загрузка</Button>
             <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureInparsData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтры</Button>
           </div>
@@ -1827,11 +1902,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                   <th className="px-2 py-2 w-6"></th>
                   <th className="px-1 py-2 w-6"></th>
                   <th className="px-2 py-2 w-32">Статус</th>
-                  <th className="px-2 py-2 w-20">Создано</th>
-                  <th className="px-2 py-2 w-20">Обновлено</th>
+                  <th className="px-2 py-2 w-24 cursor-pointer select-none whitespace-nowrap hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => toggleSort('created')}>Создано{sortIcon('created')}</th>
+                  <th className="px-2 py-2 w-24 cursor-pointer select-none whitespace-nowrap hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => toggleSort('updated')}>Обновлено{sortIcon('updated')}</th>
                   <th className="px-2 py-2">Характеристики</th>
                   <th className="px-2 py-2">Адрес</th>
-                  <th className="px-2 py-2 w-28 text-right">Цена</th>
+                  <th className="px-2 py-2 w-28 text-right cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => toggleSort('price')}>Цена{sortIcon('price')}</th>
                   <th className="px-2 py-2 w-28">Контакт</th>
                 </tr>
               </thead>
@@ -1931,6 +2006,15 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           onSave={handleAddressSaved}
         />
       )}
+
+      {/* Saved Filters Panel */}
+      <AdsSavedFiltersPanel
+        open={showSavedPanel}
+        onClose={() => setShowSavedPanel(false)}
+        currentState={getFilterState()}
+        onApply={handleApplySavedFilter}
+        activeFilterId={activeFilterId}
+      />
     </div>
   );
 };

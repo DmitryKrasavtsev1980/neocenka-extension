@@ -6,7 +6,10 @@
  * — Статус собственника
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
 import type { AdObject, Ad } from '@/types';
 
 const PROPERTY_TYPE_FULL: Record<string, string> = {
@@ -38,6 +41,19 @@ interface AdObjectDetailModalProps {
 }
 
 const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({ obj, listings, onClose, onAdClick }) => {
+  // Данные для графика цены объекта
+  const priceChartData = useMemo(() => {
+    const history = obj.price_history || [];
+    if (history.length === 0 && obj.current_price != null) {
+      return [{ date: fmtDate(obj.created), price: obj.current_price, shortDate: fmtDate(obj.created) }];
+    }
+    return history.map(h => ({
+      date: fmtDate(h.date),
+      price: h.new_price ?? h.price ?? 0,
+      shortDate: fmtDate(h.date),
+    }));
+  }, [obj.price_history, obj.current_price, obj.created]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto mx-4" onClick={e => e.stopPropagation()}>
@@ -68,6 +84,33 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({ obj, listings
             <div className="text-lg font-semibold text-green-700 dark:text-green-400">{fmtPrice(obj.current_price)} ₽</div>
             {obj.price_per_meter != null && <div className="text-xs text-green-600 dark:text-green-500">{obj.price_per_meter.toLocaleString('ru-RU')} ₽/м²</div>}
           </div>
+
+          {/* График цены */}
+          {priceChartData.length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Динамика цены</h4>
+              <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700 p-2">
+                {priceChartData.length === 1 ? (
+                  <div className="flex items-center justify-center h-[160px] text-sm text-zinc-500">
+                    {fmtPrice(priceChartData[0].price)} ₽ — единственная запись
+                  </div>
+                ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={priceChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} stroke="#9ca3af" />
+                    <YAxis tick={{ fontSize: 10 }} stroke="#9ca3af" tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}к`} />
+                    <Tooltip
+                      formatter={(value: number) => [`${value.toLocaleString('ru-RU')} ₽`, 'Цена']}
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                    />
+                    <Line type="stepAfter" dataKey="price" stroke="#16a34a" strokeWidth={2} dot={{ r: 3, fill: '#16a34a' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Статус собственника */}
           <div className="flex items-center gap-2">

@@ -1,0 +1,970 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  XMarkIcon,
+  CheckIcon,
+  PencilSquareIcon,
+  TrashIcon,
+  ChevronDownIcon,
+  FolderPlusIcon,
+  PlusIcon,
+  Bars2Icon,
+} from '@heroicons/react/16/solid';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  useDroppable,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import * as api from '@/services/api-service';
+
+// ─── Типы ───
+
+export interface AdsFilterState {
+  sources: string[];
+  propertyTypes: string[];
+  categoryIds: number[];
+  priceMin: string;
+  priceMax: string;
+  areaMin: string;
+  areaMax: string;
+  floorMin: string;
+  floorMax: string;
+  yearMin: string;
+  yearMax: string;
+  sellerTypes: string[];
+  status: string;
+  dateFrom: string;
+  dateTo: string;
+  searchQuery: string;
+  processingStatus: string;
+  addressId: number | '';
+  contactType: string;
+  processingCategoryId: number | '';
+  processingFloor: string;
+  filterAddressIds: number[];
+  excludedAddressIds: number[];
+  polygonsCoords: [number, number][][] | null;
+  houseSeriesIds: string[];
+  wallMaterialIds: string[];
+  floorsMin: string;
+  floorsMax: string;
+}
+
+export interface SavedFilter {
+  id: string;
+  name: string;
+  groupId: string | null;
+  sortOrder: number;
+  createdAt: number;
+  state: AdsFilterState;
+  serverId?: number;
+}
+
+export interface FilterGroup {
+  id: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  isCollapsed: boolean;
+  serverId?: number;
+}
+
+const FILTERS_STORAGE_KEY = 'ret_ads_saved_filters_v2';
+const GROUPS_STORAGE_KEY = 'ret_ads_filter_groups';
+
+const GROUP_COLORS = [
+  '#3b82f6', '#ef4444', '#22c55e', '#f59e0b',
+  '#8b5cf6', '#ec4899', '#06b6d4', '#f97316',
+  '#14b8a6', '#6366f1', '#a855f7', '#84cc16',
+  '#0ea5e9', '#d946ef', '#78716c', '#e11d48',
+  '#059669', '#7c3aed', '#ea580c', '#0891b2',
+];
+
+// === Storage helpers ===
+
+async function loadFromStorage<T>(key: string): Promise<T | null> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(key, (result: any) => {
+      const raw = result?.[key];
+      if (!raw) { resolve(null); return; }
+      try { resolve(JSON.parse(raw)); }
+      catch { resolve(null); }
+    });
+  });
+}
+
+async function saveToStorage(key: string, data: unknown): Promise<void> {
+  chrome.storage.local.set({ [key]: JSON.stringify(data) });
+}
+
+// === Sortable Filter Card ===
+
+interface SortableFilterCardProps {
+  filter: SavedFilter;
+  isActive: boolean;
+  isEditing: boolean;
+  editingName: string;
+  onApply: () => void;
+  onDelete: () => void;
+  onStartEdit: () => void;
+  onFinishEdit: () => void;
+  onCancelEdit: () => void;
+  onEditingNameChange: (name: string) => void;
+}
+
+const SortableFilterCard: React.FC<SortableFilterCardProps> = ({
+  filter, isActive, isEditing, editingName,
+  onApply, onDelete, onStartEdit, onFinishEdit, onCancelEdit, onEditingNameChange,
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: filter.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`rounded-lg border p-2.5 ${
+        isActive
+          ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950'
+          : 'border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800'
+      }`}
+    >
+      {isEditing ? (
+        <div className="flex items-center gap-1">
+          <input
+            value={editingName}
+            onChange={(e) => onEditingNameChange(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && onFinishEdit()}
+            className="py-1 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
+            autoFocus
+          />
+          <button onClick={onFinishEdit} className="rounded p-1 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
+            <CheckIcon className="size-3.5" />
+          </button>
+          <button onClick={onCancelEdit} className="rounded p-1 text-zinc-400 hover:bg-zinc-100 bg-transparent border-none cursor-pointer">
+            <XMarkIcon className="size-3.5" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-1 min-w-0">
+            <span {...attributes} {...listeners} className="cursor-grab text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400 shrink-0">
+              <Bars2Icon className="size-3" />
+            </span>
+            <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate">
+              {filter.name}
+              {isActive && <span className="ml-1 text-[10px] text-blue-500 font-normal">активен</span>}
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={onStartEdit} className="rounded p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 bg-transparent border-none cursor-pointer" title="Переименовать">
+              <PencilSquareIcon className="size-3" />
+            </button>
+            <button onClick={onDelete} className="rounded p-1 text-zinc-400 hover:text-red-500 bg-transparent border-none cursor-pointer" title="Удалить">
+              <TrashIcon className="size-3" />
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="flex items-center justify-between mt-1.5">
+        <span className="text-[10px] text-zinc-400">
+          {new Date(filter.createdAt).toLocaleDateString('ru-RU')}
+        </span>
+        <button onClick={onApply} className="text-[10px] text-blue-500 hover:text-blue-600 bg-transparent border-none cursor-pointer font-medium">
+          Применить
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// === Group Component ===
+
+interface FilterGroupSectionProps {
+  group: FilterGroup;
+  filters: SavedFilter[];
+  activeFilterId: string | null;
+  editingId: string | null;
+  editingName: string;
+  isEditingGroup: boolean;
+  editingGroupName: string;
+  showColorPicker: boolean;
+  onApply: (filter: SavedFilter) => void;
+  onDelete: (id: string) => void;
+  onStartEdit: (id: string, name: string) => void;
+  onFinishEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onEditingNameChange: (name: string) => void;
+  onToggleCollapse: () => void;
+  onStartEditGroup: () => void;
+  onFinishEditGroup: () => void;
+  onCancelEditGroup: () => void;
+  onEditingGroupNameChange: (name: string) => void;
+  onDeleteGroup: () => void;
+  onToggleColorPicker: () => void;
+  onSelectColor: (color: string) => void;
+}
+
+const FilterGroupSection: React.FC<FilterGroupSectionProps> = ({
+  group, filters, activeFilterId, editingId, editingName,
+  isEditingGroup, editingGroupName, showColorPicker,
+  onApply, onDelete, onStartEdit, onFinishEdit, onCancelEdit, onEditingNameChange,
+  onToggleCollapse, onStartEditGroup, onFinishEditGroup, onCancelEditGroup,
+  onEditingGroupNameChange, onDeleteGroup, onToggleColorPicker, onSelectColor,
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: group.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-800 group/header">
+        <span {...attributes} {...listeners} className="cursor-grab text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400 shrink-0">
+          <Bars2Icon className="size-3" />
+        </span>
+        <div
+          className="size-3 rounded-full shrink-0 cursor-pointer hover:ring-2 hover:ring-offset-1 relative"
+          style={{ backgroundColor: group.color }}
+          onClick={onToggleColorPicker}
+          title="Изменить цвет"
+        />
+        {isEditingGroup ? (
+          <div className="flex items-center gap-1 flex-1">
+            <input
+              value={editingGroupName}
+              onChange={(e) => onEditingGroupNameChange(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && onFinishEditGroup()}
+              className="py-0.5 px-1.5 text-xs flex-1 rounded border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-700 dark:text-white dark:focus:border-blue-500"
+              autoFocus
+            />
+            <button onClick={onFinishEditGroup} className="rounded p-0.5 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
+              <CheckIcon className="size-3" />
+            </button>
+            <button onClick={onCancelEditGroup} className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 bg-transparent border-none cursor-pointer">
+              <XMarkIcon className="size-3" />
+            </button>
+          </div>
+        ) : (
+          <button
+            className="flex items-center gap-1 flex-1 min-w-0 bg-transparent border-none cursor-pointer text-left p-0"
+            onClick={onToggleCollapse}
+          >
+            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
+              {group.name}
+            </span>
+            <span className="text-[10px] text-zinc-400 shrink-0">({filters.length})</span>
+            <ChevronDownIcon className={`size-3 text-zinc-400 transition-transform ml-auto shrink-0 ${group.isCollapsed ? '' : 'rotate-180'}`} />
+          </button>
+        )}
+        {!isEditingGroup && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover/header:opacity-100 transition-opacity">
+            <button onClick={onStartEditGroup} className="rounded p-0.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 bg-transparent border-none cursor-pointer" title="Переименовать">
+              <PencilSquareIcon className="size-3" />
+            </button>
+            <button onClick={onDeleteGroup} className="rounded p-0.5 text-zinc-400 hover:text-red-500 bg-transparent border-none cursor-pointer" title="Удалить группу">
+              <TrashIcon className="size-3" />
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Color picker */}
+      {showColorPicker && (
+        <div className="px-3 py-2 border-t border-zinc-100 dark:border-zinc-700 bg-white dark:bg-zinc-850">
+          <div className="flex flex-wrap gap-1.5">
+            {GROUP_COLORS.map(c => (
+              <button
+                key={c}
+                onClick={() => onSelectColor(c)}
+                className={`size-5 rounded-full border-2 transition-transform hover:scale-110 ${group.color === c ? 'border-zinc-800 dark:border-white scale-110' : 'border-transparent'}`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+            <label className="size-5 rounded-full border-2 border-dashed border-zinc-300 dark:border-zinc-600 cursor-pointer overflow-hidden relative flex items-center justify-center" title="Свой цвет">
+              <span className="text-[10px] text-zinc-400">+</span>
+              <input
+                type="color"
+                value={group.color}
+                onChange={(e) => onSelectColor(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+      {!group.isCollapsed && !showColorPicker && (
+        <SortableContext items={filters.map(f => f.id)} strategy={verticalListSortingStrategy}>
+          <div className="p-2 space-y-1.5">
+            {filters.map(filter => (
+              <SortableFilterCard
+                key={filter.id}
+                filter={filter}
+                isActive={activeFilterId === filter.id}
+                isEditing={editingId === filter.id}
+                editingName={editingName}
+                onApply={() => onApply(filter)}
+                onDelete={() => onDelete(filter.id)}
+                onStartEdit={() => onStartEdit(filter.id, filter.name)}
+                onFinishEdit={() => onFinishEdit(filter.id)}
+                onCancelEdit={onCancelEdit}
+                onEditingNameChange={onEditingNameChange}
+              />
+            ))}
+            {filters.length === 0 && (
+              <p className="py-2 text-center text-[10px] text-zinc-400">Перетащите фильтр сюда</p>
+            )}
+          </div>
+        </SortableContext>
+      )}
+    </div>
+  );
+};
+
+// === Droppable zone for ungrouped filters ===
+
+const UNGROUPED_DROPPABLE_ID = 'ungrouped-zone';
+
+const UngroupedDroppableZone: React.FC<{
+  visible: boolean;
+  hasFilters: boolean;
+  children: React.ReactNode;
+}> = ({ visible, hasFilters, children }) => {
+  const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED_DROPPABLE_ID });
+
+  if (!visible && !hasFilters) return <>{children}</>;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-lg transition-colors duration-150 ${
+        isOver ? 'bg-blue-50 ring-2 ring-blue-300 ring-dashed dark:bg-blue-950/30 dark:ring-blue-700' : ''
+      } ${visible && !hasFilters ? 'border border-dashed border-zinc-200 p-2 dark:border-zinc-700' : ''}`}
+    >
+      {children}
+    </div>
+  );
+};
+
+// === Resizable Panel ===
+
+const ResizablePanel: React.FC<{
+  defaultWidth: number;
+  minWidth: number;
+  maxWidth: number;
+  children: React.ReactNode;
+}> = ({ defaultWidth, minWidth, maxWidth, children }) => {
+  const [width, setWidth] = useState(defaultWidth);
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    startX.current = e.clientX;
+    startWidth.current = width;
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = startX.current - ev.clientX;
+      const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth.current + delta));
+      setWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [width, minWidth, maxWidth]);
+
+  return (
+    <div className="fixed right-0 top-0 z-[10001] h-full bg-white shadow-xl dark:bg-zinc-900 flex flex-col"
+      style={{ width: `${width}px` }}
+    >
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-blue-400/30 active:bg-blue-400/50 transition-colors"
+        onMouseDown={handleMouseDown}
+      />
+      {children}
+    </div>
+  );
+};
+
+// === Main Panel ===
+
+interface AdsSavedFiltersPanelProps {
+  open: boolean;
+  onClose: () => void;
+  currentState: AdsFilterState;
+  onApply: (state: AdsFilterState, filterId?: string, filterName?: string, groupName?: string) => void;
+  activeFilterId: string | null;
+}
+
+const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClose, currentState, onApply, activeFilterId }) => {
+  const [filters, setFilters] = useState<SavedFilter[]>([]);
+  const [groups, setGroups] = useState<FilterGroup[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newFilterGroupId, setNewFilterGroupId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState('');
+  const [colorPickerGroupId, setColorPickerGroupId] = useState<string | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupColor, setNewGroupColor] = useState(GROUP_COLORS[0]);
+  const [isOnline, setIsOnline] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Load data
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const auth = await api.loadAuth();
+      if (auth?.token) {
+        setIsOnline(true);
+        const [serverGroups, serverFilters] = await Promise.all([
+          api.getFilterGroups(),
+          api.getSavedFilters(),
+        ]);
+        const mappedGroups: FilterGroup[] = serverGroups.map(sg => ({
+          id: `g_${sg.id}`,
+          name: sg.name,
+          color: sg.color,
+          sortOrder: sg.sort_order,
+          isCollapsed: sg.is_collapsed,
+          serverId: sg.id,
+        }));
+        const mappedFilters: SavedFilter[] = serverFilters.map(sf => ({
+          id: `f_${sf.id}`,
+          name: sf.name,
+          groupId: sf.saved_filter_group_id ? `g_${sf.saved_filter_group_id}` : null,
+          sortOrder: sf.sort_order,
+          createdAt: new Date(sf.created_at).getTime(),
+          state: sf.filter_data as unknown as AdsFilterState,
+          serverId: sf.id,
+        }));
+        setGroups(mappedGroups);
+        setFilters(mappedFilters);
+        // Cache locally
+        await Promise.all([
+          saveToStorage(GROUPS_STORAGE_KEY, mappedGroups),
+          saveToStorage(FILTERS_STORAGE_KEY, mappedFilters),
+        ]);
+        setLoading(false);
+        return;
+      }
+    } catch {
+      setIsOnline(false);
+    }
+
+    // Fallback: migration from old format
+    const oldFilters = await loadFromStorage<{ id: string; name: string; state: string }[]>('ret_ads_saved_filters');
+    if (oldFilters && oldFilters.length > 0) {
+      const migrated: SavedFilter[] = oldFilters.map(f => ({
+        id: f.id,
+        name: f.name,
+        groupId: null,
+        sortOrder: 0,
+        createdAt: Date.now(),
+        state: JSON.parse(f.state) as AdsFilterState,
+      }));
+      setFilters(migrated);
+      await saveToStorage(FILTERS_STORAGE_KEY, migrated);
+      chrome.storage.local.remove('ret_ads_saved_filters');
+    } else {
+      const [localGroups, localFilters] = await Promise.all([
+        loadFromStorage<FilterGroup[]>(GROUPS_STORAGE_KEY),
+        loadFromStorage<SavedFilter[]>(FILTERS_STORAGE_KEY),
+      ]);
+      setGroups(localGroups || []);
+      setFilters(localFilters || []);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (open) loadData();
+  }, [open, loadData]);
+
+  // Persist to storage
+  const persistLocal = useCallback(async () => {
+    await Promise.all([
+      saveToStorage(GROUPS_STORAGE_KEY, groups),
+      saveToStorage(FILTERS_STORAGE_KEY, filters),
+    ]);
+  }, [groups, filters]);
+
+  useEffect(() => {
+    if (open && (groups.length > 0 || filters.length > 0)) {
+      persistLocal();
+    }
+  }, [groups, filters, open, persistLocal]);
+
+  // === Handlers ===
+
+  const handleApplyFilter = (filter: SavedFilter) => {
+    const group = filter.groupId ? groups.find(g => g.id === filter.groupId) : null;
+    onApply(filter.state, filter.id, filter.name, group?.name);
+    // Закрываем с задержкой, чтобы клик не пробился на элементы под панелью
+    setTimeout(() => onClose(), 50);
+  };
+
+  const handleDeleteFilter = async (id: string) => {
+    const filter = filters.find(f => f.id === id);
+    if (!confirm(`Удалить фильтр «${filter?.name || ''}»?`)) return;
+    const updated = filters.filter(f => f.id !== id);
+    setFilters(updated);
+
+    if (isOnline && filter?.serverId) {
+      try { await api.deleteSavedFilter(filter.serverId); } catch {}
+    }
+  };
+
+  const handleRenameFilter = async (id: string) => {
+    if (!editingName.trim()) { setEditingId(null); return; }
+    const updated = filters.map(f => f.id === id ? { ...f, name: editingName.trim() } : f);
+    setFilters(updated);
+    setEditingId(null);
+
+    if (isOnline) {
+      const filter = updated.find(f => f.id === id);
+      if (filter?.serverId) {
+        try { await api.updateSavedFilter(filter.serverId, { name: editingName.trim() }); } catch {}
+      }
+    }
+  };
+
+  const handleSaveFilter = async () => {
+    if (!newName.trim()) return;
+    const filter: SavedFilter = {
+      id: crypto.randomUUID(),
+      name: newName.trim(),
+      groupId: newFilterGroupId,
+      sortOrder: filters.filter(f => f.groupId === newFilterGroupId).length,
+      createdAt: Date.now(),
+      state: currentState,
+    };
+    const updated = [...filters, filter];
+    setFilters(updated);
+    setNewName('');
+    setSaving(false);
+    setNewFilterGroupId(null);
+
+    if (isOnline) {
+      try {
+        const serverFilter = await api.createSavedFilter({
+          name: filter.name,
+          saved_filter_group_id: filter.groupId ? groups.find(g => g.id === filter.groupId)?.serverId : null,
+          filter_data: currentState as unknown as Record<string, unknown>,
+          sort_order: filter.sortOrder,
+        });
+        setFilters(prev => prev.map(f => f.id === filter.id ? { ...f, serverId: serverFilter.id } : f));
+      } catch {}
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return;
+    const group: FilterGroup = {
+      id: crypto.randomUUID(),
+      name: newGroupName.trim(),
+      color: newGroupColor,
+      sortOrder: groups.length,
+      isCollapsed: false,
+    };
+    const updated = [...groups, group];
+    setGroups(updated);
+    setNewGroupName('');
+    setCreatingGroup(false);
+
+    if (isOnline) {
+      try {
+        const serverGroup = await api.createFilterGroup({
+          name: group.name,
+          color: group.color,
+          sort_order: group.sortOrder,
+        });
+        setGroups(prev => prev.map(g => g.id === group.id ? { ...g, serverId: serverGroup.id } : g));
+      } catch {}
+    }
+  };
+
+  const handleToggleGroup = (groupId: string) => {
+    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, isCollapsed: !g.isCollapsed } : g));
+
+    if (isOnline) {
+      const group = groups.find(g => g.id === groupId);
+      if (group?.serverId) {
+        api.updateFilterGroup(group.serverId, { is_collapsed: !group.isCollapsed }).catch(() => {});
+      }
+    }
+  };
+
+  const handleRenameGroup = async (groupId: string) => {
+    if (!editingGroupName.trim()) { setEditingGroupId(null); return; }
+    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, name: editingGroupName.trim() } : g));
+    setEditingGroupId(null);
+
+    if (isOnline) {
+      const group = groups.find(g => g.id === groupId);
+      if (group?.serverId) {
+        try { await api.updateFilterGroup(group.serverId, { name: editingGroupName.trim() }); } catch {}
+      }
+    }
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    const group = groups.find(g => g.id === groupId);
+    const filterCount = filters.filter(f => f.groupId === groupId).length;
+    if (!confirm(`Удалить группу «${group?.name || ''}»?${filterCount > 0 ? ` ${filterCount} фильтров будут перемещены в «Без группы».` : ''}`)) return;
+    setFilters(prev => prev.map(f => f.groupId === groupId ? { ...f, groupId: null } : f));
+    setGroups(prev => prev.filter(g => g.id !== groupId));
+
+    if (isOnline && group?.serverId) {
+      try { await api.deleteFilterGroup(group.serverId); } catch {}
+    }
+  };
+
+  const handleSelectColor = (groupId: string, color: string) => {
+    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, color } : g));
+    setColorPickerGroupId(null);
+
+    const group = groups.find(g => g.id === groupId);
+    if (isOnline && group?.serverId) {
+      api.updateFilterGroup(group.serverId, { color }).catch(() => {});
+    }
+  };
+
+  // DnD handler
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const activeId = String(active.id);
+
+    // Check if dragging a group
+    const isGroupDrag = groups.some(g => g.id === activeId);
+    if (isGroupDrag) {
+      const overId = String(over.id);
+      setGroups(prev => {
+        const sorted = [...prev].sort((a, b) => a.sortOrder - b.sortOrder);
+        const activeIdx = sorted.findIndex(g => g.id === activeId);
+        const overIdx = sorted.findIndex(g => g.id === overId);
+        if (activeIdx < 0 || overIdx < 0) return prev;
+        const [moved] = sorted.splice(activeIdx, 1);
+        sorted.splice(overIdx, 0, moved);
+        sorted.forEach((g, i) => { g.sortOrder = i; });
+        const updated = sorted as FilterGroup[];
+        saveToStorage(GROUPS_STORAGE_KEY, updated);
+        if (isOnline) {
+          updated.forEach(g => {
+            if (g.serverId) {
+              api.updateFilterGroup(g.serverId, { sort_order: g.sortOrder }).catch(() => {});
+            }
+          });
+        }
+        return updated;
+      });
+      return;
+    }
+
+    // Filter drag
+    const isUngroupedDrop = String(over.id) === UNGROUPED_DROPPABLE_ID;
+    const overFilter = filters.find(f => f.id === String(over.id));
+    const overGroup = groups.find(g => g.id === String(over.id));
+    const targetGroupId = isUngroupedDrop ? null : (overFilter?.groupId ?? overGroup?.id ?? null);
+
+    let newFilters: SavedFilter[] = [];
+    setFilters(prev => {
+      const updated = prev.map(f =>
+        f.id === activeId ? { ...f, groupId: targetGroupId } : f
+      );
+      const groupFilters = updated.filter(f => f.groupId === targetGroupId);
+      const otherFilters = updated.filter(f => f.groupId !== targetGroupId);
+      const overIdx = groupFilters.findIndex(f => f.id === String(over.id));
+      const activeIdx = groupFilters.findIndex(f => f.id === activeId);
+
+      if (overIdx >= 0 && activeIdx >= 0) {
+        const [moved] = groupFilters.splice(activeIdx, 1);
+        groupFilters.splice(overIdx, 0, moved);
+      }
+      groupFilters.forEach((f, i) => { f.sortOrder = i; });
+
+      newFilters = [...otherFilters, ...groupFilters];
+      return newFilters;
+    });
+
+    saveToStorage(FILTERS_STORAGE_KEY, newFilters);
+
+    if (isOnline) {
+      const targetGroup = targetGroupId ? groups.find(g => g.id === targetGroupId) : null;
+      newFilters.filter(f => f.groupId === targetGroupId).forEach(f => {
+        if (f.serverId) {
+          api.updateSavedFilter(f.serverId, {
+            sort_order: f.sortOrder,
+            saved_filter_group_id: targetGroup?.serverId ?? null,
+          }).catch(() => {});
+        }
+      });
+    }
+  };
+
+  if (!open) return null;
+
+  const groupedFilters = groups
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(g => ({
+      group: g,
+      filters: filters.filter(f => f.groupId === g.id).sort((a, b) => a.sortOrder - b.sortOrder),
+    }));
+
+  const ungroupedFilters = filters
+    .filter(f => !f.groupId || !groups.find(g => g.id === f.groupId))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const allFilterIds = [
+    ...groupedFilters.flatMap(({ filters: gf }) => gf.map(f => f.id)),
+    ...ungroupedFilters.map(f => f.id),
+  ];
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[10000] bg-black/30" onClick={onClose} />
+      <ResizablePanel defaultWidth={320} minWidth={280} maxWidth={560}>
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Сохранённые фильтры
+            </h3>
+            {isOnline && (
+              <span className="size-1.5 rounded-full bg-green-400" title="Синхронизировано" />
+            )}
+          </div>
+          <button onClick={onClose} className="rounded p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 bg-transparent border-none cursor-pointer">
+            <XMarkIcon className="size-4" />
+          </button>
+        </div>
+
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
+          <button
+            onClick={() => { setCreatingGroup(true); setNewGroupName(''); setNewGroupColor(GROUP_COLORS[0]); }}
+            className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 bg-transparent border-none cursor-pointer"
+          >
+            <FolderPlusIcon className="size-3.5" />
+            Группа
+          </button>
+          <button
+            onClick={() => { setSaving(true); setNewName(''); setNewFilterGroupId(null); }}
+            className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 bg-transparent border-none cursor-pointer"
+          >
+            <PlusIcon className="size-3.5" />
+            Фильтр
+          </button>
+        </div>
+
+        {/* Content */}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {loading && (
+              <div className="flex items-center justify-center gap-2 py-8 text-zinc-500 dark:text-zinc-400">
+                <svg className="h-4 w-4 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span className="text-sm">Загрузка...</span>
+              </div>
+            )}
+            {creatingGroup && (
+              <div className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 p-3">
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {GROUP_COLORS.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setNewGroupColor(c)}
+                      className={`size-4 rounded-full border-2 ${newGroupColor === c ? 'border-zinc-800 dark:border-white' : 'border-transparent'}`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                  <label className="size-4 rounded-full border-2 border-dashed border-zinc-300 dark:border-zinc-600 cursor-pointer overflow-hidden relative flex items-center justify-center" title="Свой цвет">
+                    <span className="text-[8px] text-zinc-400">+</span>
+                    <input
+                      type="color"
+                      value={newGroupColor}
+                      onChange={(e) => setNewGroupColor(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                  </label>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
+                    placeholder="Название группы..."
+                    className="py-1 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
+                    autoFocus
+                  />
+                  <button onClick={handleCreateGroup} className="rounded p-1 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
+                    <CheckIcon className="size-3.5" />
+                  </button>
+                  <button onClick={() => setCreatingGroup(false)} className="rounded p-1 text-zinc-400 hover:bg-zinc-100 bg-transparent border-none cursor-pointer">
+                    <XMarkIcon className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <SortableContext items={[...groupedFilters.map(({ group }) => group.id), ...allFilterIds, UNGROUPED_DROPPABLE_ID]} strategy={verticalListSortingStrategy}>
+              {groupedFilters.map(({ group, filters: groupFilters }) => (
+                <FilterGroupSection
+                  key={group.id}
+                  group={group}
+                  filters={groupFilters}
+                  activeFilterId={activeFilterId}
+                  editingId={editingId}
+                  editingName={editingName}
+                  onApply={handleApplyFilter}
+                  onDelete={handleDeleteFilter}
+                  onStartEdit={(id, name) => { setEditingId(id); setEditingName(name); }}
+                  onFinishEdit={handleRenameFilter}
+                  onCancelEdit={() => setEditingId(null)}
+                  onEditingNameChange={setEditingName}
+                  onToggleCollapse={() => handleToggleGroup(group.id)}
+                  isEditingGroup={editingGroupId === group.id}
+                  editingGroupName={editingGroupName}
+                  onStartEditGroup={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}
+                  onFinishEditGroup={() => handleRenameGroup(group.id)}
+                  onCancelEditGroup={() => setEditingGroupId(null)}
+                  onEditingGroupNameChange={setEditingGroupName}
+                  onDeleteGroup={() => handleDeleteGroup(group.id)}
+                  showColorPicker={colorPickerGroupId === group.id}
+                  onToggleColorPicker={() => setColorPickerGroupId(prev => prev === group.id ? null : group.id)}
+                  onSelectColor={(color) => handleSelectColor(group.id, color)}
+                />
+              ))}
+
+              <UngroupedDroppableZone
+                visible={groupedFilters.length > 0}
+                hasFilters={ungroupedFilters.length > 0}
+              >
+                {ungroupedFilters.length > 0 && groupedFilters.length > 0 && (
+                  <p className="text-[10px] text-zinc-400 uppercase tracking-wide mb-2 px-1">Без группы</p>
+                )}
+                <div className="space-y-1.5">
+                  {ungroupedFilters.map(filter => (
+                    <SortableFilterCard
+                      key={filter.id}
+                      filter={filter}
+                      isActive={activeFilterId === filter.id}
+                      isEditing={editingId === filter.id}
+                      editingName={editingName}
+                      onApply={() => handleApplyFilter(filter)}
+                      onDelete={() => handleDeleteFilter(filter.id)}
+                      onStartEdit={() => { setEditingId(filter.id); setEditingName(filter.name); }}
+                      onFinishEdit={() => handleRenameFilter(filter.id)}
+                      onCancelEdit={() => setEditingId(null)}
+                      onEditingNameChange={setEditingName}
+                    />
+                  ))}
+                </div>
+                {ungroupedFilters.length === 0 && groupedFilters.length > 0 && (
+                  <p className="py-2 text-center text-[10px] text-zinc-400">Перетащите фильтр сюда</p>
+                )}
+              </UngroupedDroppableZone>
+            </SortableContext>
+
+            {filters.length === 0 && !creatingGroup && (
+              <p className="py-8 text-center text-xs text-zinc-400">
+                Нет сохранённых фильтров
+              </p>
+            )}
+          </div>
+        </DndContext>
+
+        {/* Save current filter (inline) */}
+        {saving && (
+          <div className="border-t border-zinc-200 p-3 dark:border-zinc-700">
+            <div className="flex items-center gap-1 mb-2">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSaveFilter()}
+                placeholder="Название фильтра..."
+                className="h-7 py-0 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
+                autoFocus
+              />
+              <button onClick={handleSaveFilter} className="flex items-center justify-center h-7 w-7 rounded-md bg-blue-600 text-white border-none cursor-pointer hover:bg-blue-700 shrink-0">
+                <CheckIcon className="size-3.5" />
+              </button>
+              <button onClick={() => { setSaving(false); setNewFilterGroupId(null); }} className="flex items-center justify-center h-7 w-7 rounded-md bg-zinc-100 text-zinc-600 border-none cursor-pointer hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600 shrink-0">
+                <XMarkIcon className="size-3.5" />
+              </button>
+            </div>
+            {groups.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                <button
+                  onClick={() => setNewFilterGroupId(null)}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border cursor-pointer ${!newFilterGroupId ? 'border-blue-400 bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-500' : 'border-zinc-200 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400'} bg-transparent`}
+                >
+                  Без группы
+                </button>
+                {groups.map(g => (
+                  <button
+                    key={g.id}
+                    onClick={() => setNewFilterGroupId(g.id)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border cursor-pointer flex items-center gap-1 ${newFilterGroupId === g.id ? 'border-blue-400 bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-500' : 'border-zinc-200 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400'} bg-transparent`}
+                  >
+                    <span className="size-2 rounded-full" style={{ backgroundColor: g.color }} />
+                    {g.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </ResizablePanel>
+    </>
+  );
+};
+
+export default AdsSavedFiltersPanel;

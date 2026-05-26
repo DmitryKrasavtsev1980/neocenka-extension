@@ -7,7 +7,10 @@
  * — Ссылка на источник
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
 import type { Ad, AdAddress, PriceHistoryItem, ReferenceItem } from '@/types';
 import { adsAddressService } from '@/services/ads-address-service';
 
@@ -94,6 +97,14 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
   const [selectedAddressId, setSelectedAddressId] = useState<string>(String(ad.address_id || ''));
   const [saving, setSaving] = useState(false);
   const [addressSearch, setAddressSearch] = useState('');
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [editHistoryIdx, setEditHistoryIdx] = useState<number | null>(null);
+  const [editHistoryDate, setEditHistoryDate] = useState('');
+  const [editHistoryPrice, setEditHistoryPrice] = useState('');
+  const [showAddHistory, setShowAddHistory] = useState(false);
+  const [newHistDate, setNewHistDate] = useState('');
+  const [newHistOldPrice, setNewHistOldPrice] = useState('');
+  const [newHistNewPrice, setNewHistNewPrice] = useState('');
 
   // Текущий привязанный адрес
   const currentAddress = ad.address_id
@@ -120,6 +131,71 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     const cls = CONFIDENCE_COLORS[conf || 'none'] || 'text-gray-500';
     return { text: label, cls };
   }, [ad]);
+
+  // Данные для графика цены
+  const priceChartData = useMemo(() => {
+    const history = ad.price_history || [];
+    if (history.length === 0 && ad.price != null) {
+      return [{ date: fmtDate(ad.created), price: ad.price, shortDate: fmtDate(ad.created) }];
+    }
+    return history.map(h => ({
+      date: fmtDate(h.date),
+      price: h.new_price ?? h.price ?? 0,
+      shortDate: fmtDate(h.date),
+    }));
+  }, [ad.price_history, ad.price, ad.created]);
+
+  // Lightbox: навигация клавиатурой
+  const photos = ad.photos || [];
+  useEffect(() => {
+    if (lightboxIndex == null) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxIndex(null);
+      else if (e.key === 'ArrowLeft' && lightboxIndex > 0) setLightboxIndex(lightboxIndex - 1);
+      else if (e.key === 'ArrowRight' && lightboxIndex < photos.length - 1) setLightboxIndex(lightboxIndex + 1);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [lightboxIndex, photos.length]);
+
+  // История цен: обработчики
+  const handleDeleteHistoryEntry = useCallback((idx: number) => {
+    const history = [...(ad.price_history || [])];
+    history.splice(idx, 1);
+    const updated = { ...ad, price_history: history };
+    setAd(updated);
+    onSave?.(updated);
+  }, [ad, onSave]);
+
+  const handleSaveHistoryEdit = useCallback(() => {
+    if (editHistoryIdx == null) return;
+    const history = [...(ad.price_history || [])];
+    const entry = { ...history[editHistoryIdx] };
+    if (editHistoryDate) entry.date = new Date(editHistoryDate).toISOString();
+    const newP = Number(editHistoryPrice.replace(/\s/g, '').replace(',', '.'));
+    if (!isNaN(newP) && newP > 0) entry.new_price = newP;
+    history[editHistoryIdx] = entry;
+    const updated = { ...ad, price_history: history };
+    setAd(updated);
+    onSave?.(updated);
+    setEditHistoryIdx(null);
+  }, [editHistoryIdx, editHistoryDate, editHistoryPrice, ad, onSave]);
+
+  const handleAddHistoryEntry = useCallback(() => {
+    const newP = Number(newHistNewPrice.replace(/\s/g, '').replace(',', '.'));
+    if (isNaN(newP) || newP <= 0) return;
+    const oldP = newHistOldPrice ? Number(newHistOldPrice.replace(/\s/g, '').replace(',', '.')) : undefined;
+    const date = newHistDate ? new Date(newHistDate).toISOString() : new Date().toISOString();
+    const entry: PriceHistoryItem = { date, new_price: newP, old_price: oldP };
+    const history = [...(ad.price_history || []), entry];
+    const updated = { ...ad, price_history: history };
+    setAd(updated);
+    onSave?.(updated);
+    setShowAddHistory(false);
+    setNewHistDate('');
+    setNewHistOldPrice('');
+    setNewHistNewPrice('');
+  }, [newHistDate, newHistOldPrice, newHistNewPrice, ad, onSave]);
 
   const handleSavePrice = () => {
     const newPrice = Number(editPrice.replace(/\s/g, '').replace(',', '.'));
@@ -412,19 +488,94 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
             )}
           </div>
 
-          {/* История цены */}
+          {/* График цены */}
+          {priceChartData.length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Динамика цены</h4>
+              <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700 p-2">
+                {priceChartData.length === 1 ? (
+                  <div className="flex items-center justify-center h-[160px] text-sm text-zinc-500">
+                    {fmtPrice(priceChartData[0].price)} ₽ — единственная запись
+                  </div>
+                ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={priceChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} stroke="#9ca3af" />
+                    <YAxis tick={{ fontSize: 10 }} stroke="#9ca3af" tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}к`} />
+                    <Tooltip
+                      formatter={(value: number) => [`${value.toLocaleString('ru-RU')} ₽`, 'Цена']}
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                    />
+                    <Line type="stepAfter" dataKey="price" stroke="#16a34a" strokeWidth={2} dot={{ r: 3, fill: '#16a34a' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* История цены — таблица */}
           {ad.price_history && ad.price_history.length > 0 && (
             <div>
-              <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">История цены</h4>
-              <div className="space-y-1">
-                {ad.price_history.slice(-15).reverse().map((h: PriceHistoryItem, i: number) => (
-                  <div key={i} className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400">
-                    <span className="text-zinc-400 w-16">{fmtDate(h.date)}</span>
-                    {h.old_price != null && <span className="line-through text-red-400">{fmtPrice(h.old_price)}</span>}
-                    {h.old_price != null && <span className="text-zinc-400">→</span>}
-                    <span className="font-medium text-green-600 dark:text-green-400">{fmtPrice(h.new_price || h.price)}</span>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300">История цены ({ad.price_history.length})</h4>
+                <button onClick={() => setShowAddHistory(!showAddHistory)} className="text-[10px] text-blue-600 hover:underline">
+                  {showAddHistory ? 'Отмена' : '+ Добавить'}
+                </button>
+              </div>
+
+              {showAddHistory && (
+                <div className="flex items-center gap-2 mb-2 p-2 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+                  <input type="date" value={newHistDate} onChange={e => setNewHistDate(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-[11px] text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <input type="text" value={newHistOldPrice} onChange={e => setNewHistOldPrice(e.target.value)} placeholder="Старая цена" className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-[11px] text-zinc-900 dark:text-white w-24 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                  <input type="text" value={newHistNewPrice} onChange={e => setNewHistNewPrice(e.target.value)} placeholder="Новая цена" className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-[11px] text-zinc-900 dark:text-white w-24 focus:outline-none focus:ring-1 focus:ring-blue-500" onKeyDown={e => { if (e.key === 'Enter') handleAddHistoryEntry(); }} />
+                  <button onClick={handleAddHistoryEntry} className="rounded bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700">OK</button>
+                </div>
+              )}
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-zinc-50 dark:bg-zinc-800">
+                    <tr className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">
+                      <th className="px-2 py-1.5 text-left">Дата</th>
+                      <th className="px-2 py-1.5 text-left">Старая</th>
+                      <th className="px-2 py-1.5 text-left">Новая</th>
+                      <th className="px-2 py-1.5 text-center w-16">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {[...(ad.price_history || [])].reverse().map((h: PriceHistoryItem, ri: number) => {
+                      const idx = (ad.price_history?.length ?? 0) - 1 - ri;
+                      const isEditing = editHistoryIdx === idx;
+                      return (
+                        <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                          {isEditing ? (
+                            <>
+                              <td className="px-2 py-1"><input type="date" value={editHistoryDate} onChange={e => setEditHistoryDate(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1 py-0.5 text-[11px] text-zinc-900 dark:text-white w-full focus:outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                              <td className="px-2 py-1 text-zinc-400">{h.old_price != null ? fmtPrice(h.old_price) : '—'}</td>
+                              <td className="px-2 py-1"><input type="text" value={editHistoryPrice} onChange={e => setEditHistoryPrice(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1 py-0.5 text-[11px] text-zinc-900 dark:text-white w-20 focus:outline-none focus:ring-1 focus:ring-blue-500" onKeyDown={e => { if (e.key === 'Enter') handleSaveHistoryEdit(); if (e.key === 'Escape') setEditHistoryIdx(null); }} /></td>
+                              <td className="px-2 py-1 text-center">
+                                <button onClick={handleSaveHistoryEdit} className="text-green-600 hover:text-green-700 text-[10px] mr-1">OK</button>
+                                <button onClick={() => setEditHistoryIdx(null)} className="text-zinc-400 hover:text-zinc-600 text-[10px]">&times;</button>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-2 py-1 text-zinc-500">{fmtDate(h.date)}</td>
+                              <td className="px-2 py-1 text-zinc-400">{h.old_price != null ? <span className="line-through">{fmtPrice(h.old_price)}</span> : '—'}</td>
+                              <td className="px-2 py-1 font-medium text-green-600 dark:text-green-400">{fmtPrice(h.new_price || h.price)}</td>
+                              <td className="px-2 py-1 text-center">
+                                <button onClick={() => { setEditHistoryIdx(idx); setEditHistoryDate(h.date ? h.date.slice(0, 10) : ''); setEditHistoryPrice(String(h.new_price || h.price || '')); }} className="text-blue-500 hover:text-blue-700 text-[10px] mr-1">изм.</button>
+                                <button onClick={() => handleDeleteHistoryEntry(idx)} className="text-red-400 hover:text-red-600 text-[10px]">уд.</button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -445,14 +596,37 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
           )}
 
           {/* Фото */}
-          {ad.photos && ad.photos.length > 0 && (
+          {photos.length > 0 && (
             <div>
-              <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Фотографии ({ad.photos.length})</h4>
+              <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Фотографии ({photos.length})</h4>
               <div className="grid grid-cols-4 gap-2">
-                {ad.photos.slice(0, 12).map((url, i) => (
-                  <img key={i} src={url} alt="" className="rounded-md w-full h-24 object-cover" onError={e => { (e.currentTarget.style.display = 'none'); }} />
+                {photos.map((url, i) => (
+                  <div key={i} className="relative group cursor-pointer" onClick={() => setLightboxIndex(i)}>
+                    <img src={url} alt="" className="rounded-md w-full h-24 object-cover" onError={e => { (e.currentTarget.style.display = 'none'); }} />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-md" />
+                  </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Lightbox */}
+          {lightboxIndex != null && photos[lightboxIndex] && (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90" onClick={() => setLightboxIndex(null)}>
+              <button onClick={() => setLightboxIndex(null)} className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl font-light z-10">&times;</button>
+              <div className="text-white/60 text-sm absolute top-4 left-4">{lightboxIndex + 1} / {photos.length}</div>
+              {lightboxIndex > 0 && (
+                <button onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex - 1); }} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white text-3xl z-10 w-10 h-10 flex items-center justify-center">&#8249;</button>
+              )}
+              {lightboxIndex < photos.length - 1 && (
+                <button onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex + 1); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white text-3xl z-10 w-10 h-10 flex items-center justify-center">&#8250;</button>
+              )}
+              <img
+                src={photos[lightboxIndex]}
+                alt=""
+                className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
+                onClick={e => e.stopPropagation()}
+              />
             </div>
           )}
 

@@ -664,8 +664,12 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     if (layers.length === 0) {
       setSelectedCount(0);
       renderQuartersOnMap(new Set());
-      isInternalUpdateRef.current = true;
-      onQuartersSelectedRef.current([], undefined);
+      // Не уведомляем родителя если есть initialPolygons — значит слои ещё не восстановлены
+      const hasInitial = initialPolygonsRef.current && initialPolygonsRef.current.length > 0;
+      if (!hasInitial) {
+        isInternalUpdateRef.current = true;
+        onQuartersSelectedRef.current([], undefined);
+      }
       return;
     }
 
@@ -682,7 +686,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     renderQuartersOnMap(allCadNumbers);
     isInternalUpdateRef.current = true;
     onQuartersSelectedRef.current(Array.from(allCadNumbers), allPolyCoords);
-  }, [findIntersectingForLayer, renderQuartersOnMap]);
+  }, [findIntersectingForLayer, renderQuartersOnMap, initialPolygons]);
 
   const recalcAndNotifyRef = useRef(recalcAndNotify);
   recalcAndNotifyRef.current = recalcAndNotify;
@@ -806,6 +810,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
 
   // Восстановление полигонов из initialPolygons
   const prevPolygonsJsonRef = useRef('');
+  const initialPolygonsRef = useRef(initialPolygons);
+  initialPolygonsRef.current = initialPolygons;
   useEffect(() => {
     const map = mapInstanceRef.current;
     const drawnItems = drawnItemsRef.current;
@@ -815,10 +821,14 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     const polygonsChanged = prevPolygonsJsonRef.current !== currentJson;
     prevPolygonsJsonRef.current = currentJson;
 
-    if (!polygonsChanged || isInternalUpdateRef.current) {
+    // Если полигон не изменился — пропускаем
+    if (!polygonsChanged) {
       isInternalUpdateRef.current = false;
       return;
     }
+    // Если полигон изменился — всегда перерисовываем,
+    // даже если isInternalUpdateRef = true (остаточный от предыдущего recalcAndNotify)
+    isInternalUpdateRef.current = false;
 
     drawnItems.clearLayers();
 
@@ -1029,18 +1039,25 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
                 <path d="M6 9l6 6 6-6"/>
               </svg>
             </button>
-            <button className="selected-addresses-clear" onClick={() => {
-              if (onAddressToggle) {
-                const current = addressesRef.current || [];
-                for (const addr of current) {
-                  if (addr.id != null && selectedAddressIds.has(addr.id) && !(excludedAddressIds?.has(addr.id))) {
-                    onAddressToggle(addr);
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <button className="selected-addresses-clear" onClick={() => {
+                if (onSelectAllInPolygon) onSelectAllInPolygon();
+              }}>
+                Включить все
+              </button>
+              <button className="selected-addresses-clear" onClick={() => {
+                if (onAddressToggle) {
+                  const current = addressesRef.current || [];
+                  for (const addr of current) {
+                    if (addr.id != null && selectedAddressIds.has(addr.id) && !(excludedAddressIds?.has(addr.id))) {
+                      onAddressToggle(addr);
+                    }
                   }
                 }
-              }
-            }}>
-              Отключить все
-            </button>
+              }}>
+                Отключить все
+              </button>
+            </div>
           </div>
           <div id="selected-addresses-list" className="selected-addresses-list">
             <table className="selected-addresses-table">
