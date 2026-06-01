@@ -86,6 +86,15 @@ function polygonArea(polygon: [number, number][]): number {
   return Math.abs(area / 2);
 }
 
+// Кэш кадастровых кварталов — загружаем один раз при первом обращении
+let quartersCache: Promise<{ cad_number: string; geojson: any }[]> | null = null;
+function getCachedQuarters() {
+  if (!quartersCache) {
+    quartersCache = cadastralRepository.getAllWithGeojson();
+  }
+  return quartersCache;
+}
+
 // Текущий + следующий квартал года
 function getRelevantYearQuarters(dateStr: string | null): string[] {
   const date = dateStr ? new Date(dateStr) : new Date();
@@ -122,6 +131,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
 
   // Deals state
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [softDeals, setSoftDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
   const [cadQuarter, setCadQuarter] = useState<string | null>(null);
   const [selectedDealId, setSelectedDealId] = useState<number | null>(null);
@@ -207,8 +217,8 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
     if (!dealsModuleActive || !objAddress?.coordinates?.lat || !objAddress?.coordinates?.lng) return;
     setLoadingDeals(true);
     try {
-      // Найти кадастровый квартал
-      const quarters = await cadastralRepository.getAllWithGeojson();
+      // Найти кадастровый квартал (из кэша)
+      const quarters = await getCachedQuarters();
       // Фильтруем «мусорные» кварталы вида "54:00:000000" — это областные/районные охваты
       const realQuarters = quarters.filter(q => {
         const parts = q.cad_number.split(':');
@@ -255,6 +265,42 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
       }, 1, 100);
 
       setDeals(result.pageDeals);
+
+      // «Мягкий» поиск: сделки в том же регионе с мусорным кадастровым номером,
+      // но подходящие по городу/улице/типу/площади
+      const regionCode = foundCadNumber.split(':')[0];
+      // Формируем мусорные номера для района: XX:YY:000000 (и 6- и 7-значные нули)
+      const parts = foundCadNumber.split(':');
+      const districtPart = parts[1] || '';
+      const garbageCadNumbers = [
+        `${regionCode}:${districtPart}:000000`,
+        `${regionCode}:${districtPart}:0000000`,
+      ];
+
+      // Извлекаем город и улицу из адреса
+      const addressText = objAddress?.address || '';
+      const cityMatch = addressText.match(/,\s*г\s*\.?\s*([^(,]+)/i);
+      const cityName = cityMatch ? cityMatch[1].trim() : undefined;
+      const streetMatch = addressText.match(/,\s*(ул|улица|пр-т|проспект|пер|переулок|б-р|бульвар)\.?\s*([^(,]+)/i);
+      const streetName = streetMatch ? streetMatch[0].replace(/^,\s*/, '').trim() : undefined;
+
+      const excludeIds = new Set(result.pageDeals.map(d => d.id!));
+
+      const softResults = await dealsRepository.searchSoftByRegion({
+        regionCode,
+        garbageCadNumbers,
+        city: cityName,
+        street: streetName,
+        realestateTypeCode: obj.property_type ? undefined : undefined, // типы не совпадают (flat/1k vs код Росреестра)
+        floorMin,
+        floorMax,
+        areaMin,
+        areaMax,
+        yearQuarters,
+        excludeIds,
+      }, 50);
+
+      setSoftDeals(softResults);
     } catch (err) {
       console.error('[Deals] Error loading deals:', err);
     } finally {
@@ -505,6 +551,76 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
                       </button>
                     )}
                   </div>
+
+                  {/* «Мягкие» сделки — без точного кадастрового квартала */}
+                  {softDeals.length > 0 && (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h5 className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                          Возможные совпадения ({softDeals.length})
+                        </h5>
+                        <span className="text-[9px] text-amber-500 dark:text-amber-500">
+                          — без точного кадастрового квартала, подобраны по городу/улице
+                        </span>
+                      </div>
+                      <div className="overflow-x-auto rounded-lg border border-amber-200 dark:border-amber-800">
+                        <table className="w-full text-xs min-w-[700px]">
+                          <thead className="bg-amber-50 dark:bg-amber-900/20">
+                            <tr className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase">
+                              <th className="px-2 py-1.5 text-left">Период</th>
+                              <th className="px-2 py-1.5 text-left">Тип</th>
+                              <th className="px-2 py-1.5 text-right">Пл.</th>
+                              <th className="px-2 py-1.5 text-center">Этаж</th>
+                              <th className="px-2 py-1.5 text-center">Год</th>
+                              <th className="px-2 py-1.5 text-left">Материал</th>
+                              <th className="px-2 py-1.5 text-right">Цена</th>
+                              <th className="px-2 py-1.5 text-center">Док.</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-amber-100 dark:divide-amber-900/20">
+                            {softDeals.map(deal => (
+                              <tr
+                                key={`soft-${deal.id}`}
+                                className={`cursor-pointer transition-colors bg-amber-50/50 dark:bg-amber-900/10 ${
+                                  selectedDealId === deal.id
+                                    ? 'bg-emerald-50 dark:bg-emerald-900/10'
+                                    : 'hover:bg-amber-100 dark:hover:bg-amber-900/20'
+                                }`}
+                                onClick={() => setSelectedDealId(selectedDealId === deal.id ? null : deal.id!)}
+                              >
+                                <td className="px-2 py-1.5 whitespace-nowrap">{formatPeriod(deal.year_quarter)}</td>
+                                <td className="px-2 py-1.5">
+                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                    {(REAL_ESTATE_TYPES[deal.realestate_type_code] || deal.realestate_type_code).substring(0, 3)}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                  {deal.area > 0 ? deal.area.toLocaleString('ru-RU') : '—'}
+                                  {deal.number > 1 && <span className="text-amber-400 ml-1">×{deal.number}</span>}
+                                </td>
+                                <td className="px-2 py-1.5 text-center">{deal.floor ?? '—'}</td>
+                                <td className="px-2 py-1.5 text-center">{deal.year_build ?? '—'}</td>
+                                <td className="px-2 py-1.5 text-amber-600 dark:text-amber-400">{getWallMaterialName(deal.wall_material_code)}</td>
+                                <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                  <div className="font-semibold text-amber-700 dark:text-amber-300">{formatDealPrice(deal.deal_price)} ₽</div>
+                                  {formatPricePerMeter(deal.deal_price, deal.area) && (
+                                    <div className="text-[10px] text-amber-400">{formatPricePerMeter(deal.deal_price, deal.area)}</div>
+                                  )}
+                                </td>
+                                <td className="px-2 py-1.5 text-center">
+                                  <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
+                                    deal.doc_type === 'ДКП' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                    : deal.doc_type === 'ДДУ' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                    : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300'
+                                  }`}>{deal.doc_type}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

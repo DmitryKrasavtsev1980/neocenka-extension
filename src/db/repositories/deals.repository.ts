@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { db } from '../database';
 import { Deal, SearchFilters, SearchResult, SearchLightResult, SearchAggregates } from '@/types';
 
@@ -8,10 +9,15 @@ const DEFAULT_PAGE_SIZE = 50;
  * Единственное место где происходит загрузка + фильтрация данных.
  */
 function applyFilters(filters: SearchFilters): Promise<Deal[]> {
-  let collection = db.deals.toCollection();
+  let collection: Dexie.Collection<Deal, number>;
 
-  if (filters.region_codes?.length) {
+  // Приоритет: quarter_cad_number (самый селективный) → region_code → полный скан
+  if (filters.quarter_cad_numbers?.length) {
+    collection = db.deals.where('quarter_cad_number').anyOf(filters.quarter_cad_numbers);
+  } else if (filters.region_codes?.length) {
     collection = db.deals.where('region_code').anyOf(filters.region_codes);
+  } else {
+    collection = db.deals.toCollection();
   }
 
   let filteredDeals = collection.toArray();
@@ -451,14 +457,83 @@ export const dealsRepository = {
    */
   async getWallMaterialsByCadNumbers(cadNumbers: string[]): Promise<string[]> {
     if (cadNumbers.length === 0) return [];
-    const cadSet = new Set(cadNumbers);
     const materials = new Set<string>();
-    await db.deals.each(d => {
-      if (cadSet.has(d.quarter_cad_number) && d.wall_material_code) {
+    // Используем индекс quarter_cad_number вместо полного скана таблицы
+    await db.deals.where('quarter_cad_number').anyOf(cadNumbers).each(d => {
+      if (d.wall_material_code) {
         materials.add(d.wall_material_code);
       }
     });
     return [...materials].sort();
+  },
+
+  /**
+   * «Мягкий» поиск: сделки в том же регионе, но с мусорным кадастровым номером (XX:YY:000000),
+   * подходящие по городу/улице/типу/площади/этажу.
+   * Возвращает сделки, которые не попали в точный поиск по кадастровому кварталу.
+   */
+  async searchSoftByRegion(params: {
+    regionCode: string;
+    garbageCadNumbers: string[];
+    city?: string;
+    street?: string;
+    realestateTypeCode?: string;
+    floorMin?: number;
+    floorMax?: number;
+    areaMin?: number;
+    areaMax?: number;
+    yearQuarters?: string[];
+    excludeIds?: Set<number>;
+  }, limit = 50): Promise<Deal[]> {
+    if (params.garbageCadNumbers.length === 0) return [];
+
+    const garbageSet = new Set(params.garbageCadNumbers);
+    const matched: Deal[] = [];
+
+    // Ищем по region_code — индексный запрос
+    const collection = db.deals.where('region_code').equals(params.regionCode);
+
+    await collection.each(d => {
+      // Только сделки с мусорным кадастровым номером, подходящим по формату района
+      if (!garbageSet.has(d.quarter_cad_number)) return;
+
+      // Фильтр по городу
+      if (params.city && d.city.toLowerCase() !== params.city.toLowerCase()) return;
+
+      // Фильтр по улице (частичное совпадение)
+      if (params.street) {
+        const streetLower = d.street.toLowerCase();
+        const terms = params.street.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (terms.length > 0 && !terms.some(t => streetLower.includes(t))) return;
+      }
+
+      // Фильтр по типу недвижимости
+      if (params.realestateTypeCode && d.realestate_type_code !== params.realestateTypeCode) return;
+
+      // Фильтр по площади
+      if (params.areaMin !== undefined && d.area < params.areaMin) return;
+      if (params.areaMax !== undefined && d.area > params.areaMax) return;
+
+      // Фильтр по этажу
+      if (params.floorMin !== undefined && (d.floor === null || d.floor < params.floorMin)) return;
+      if (params.floorMax !== undefined && (d.floor === null || d.floor > params.floorMax)) return;
+
+      // Фильтр по кварталу года
+      if (params.yearQuarters?.length) {
+        const yqSet = new Set(params.yearQuarters);
+        if (!yqSet.has(d.year_quarter)) return;
+      }
+
+      // Исключаем уже найденные точные сделки
+      if (params.excludeIds?.has(d.id!)) return;
+
+      matched.push(d);
+      if (matched.length >= limit) return; // early exit ( Dexie each не поддерживает break, но limit проверится )
+    });
+
+    // Сортировка по дате (новые первые)
+    matched.sort((a, b) => b.period_start_date.localeCompare(a.period_start_date));
+    return matched.slice(0, limit);
   },
 
   /**
