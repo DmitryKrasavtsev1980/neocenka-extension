@@ -28,6 +28,7 @@ import {
 } from '@heroicons/react/16/solid';
 import SavedFiltersPanel, { SavedFilterState } from './SavedFiltersPanel';
 import SegmentationPanel from './SegmentationPanel';
+import { MultiSelectDropdown } from '@/components/shared/MultiSelectDropdown';
 
 type SortField = 'period' | 'price' | 'area' | 'year_quarter' | 'floor' | 'year_build' | 'type' | 'material' | 'doc';
 type SortOrder = 'asc' | 'desc';
@@ -63,15 +64,25 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [floorMax, setFloorMax] = useState<string>('');
   const [yearBuildMin, setYearBuildMin] = useState<string>('');
   const [yearBuildMax, setYearBuildMax] = useState<string>('');
-  const [searchCity, setSearchCity] = useState('');
-  const [searchStreet, setSearchStreet] = useState('');
+  const [selectedCities, setSelectedCities] = useState<string[]>([]);
+  const [selectedStreets, setSelectedStreets] = useState<string[]>([]);
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedDealForMap, setSelectedDealForMap] = useState<Deal | null>(null);
   const [cadastralQuarters, setCadastralQuarters] = useState<CadastralQuarter[]>([]);
   const [selectedCadNumbers, setSelectedCadNumbers] = useState<string[]>([]);
   const [showMapFilter, setShowMapFilter] = useState(false);
   const [availableWallMaterials, setAvailableWallMaterials] = useState<string[] | null>(null);
+  const [softDeals, setSoftDeals] = useState<Deal[]>([]);
   const [wallMaterialsLoading, setWallMaterialsLoading] = useState(false);
+  const [filterOptions, setFilterOptions] = useState<{
+    districts: string[];
+    cities: string[];
+    streets: string[];
+    districtsByRegion: Record<string, string[]>;
+    citiesByRegion: Record<string, string[]>;
+    streetsByRegion: Record<string, string[]>;
+  } | null>(null);
   const [polygonsCoords, setPolygonsCoords] = useState<[number, number][][] | null>(() => {
     try {
       const saved = localStorage.getItem('ret_polygon_coords');
@@ -108,8 +119,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     floorMax: string;
     yearBuildMin: string;
     yearBuildMax: string;
-    searchCity: string;
-    searchStreet: string;
+    selectedCities: string[];
+    selectedStreets: string[];
+    selectedDistricts: string[];
     selectedCadNumbers: string[];
     page: number;
     pageSize: number;
@@ -119,7 +131,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     selectedRegions: [], selectedTypes: [], selectedDocTypes: [], selectedPeriods: [],
     selectedWallMaterials: [], priceMin: '', priceMax: '', areaMin: '', areaMax: '',
     floorMin: '', floorMax: '', yearBuildMin: '', yearBuildMax: '',
-    searchCity: '', searchStreet: '', selectedCadNumbers: [],
+    selectedCities: [], selectedStreets: [], selectedDistricts: [], selectedCadNumbers: [],
     page: 1, pageSize: 25, sortField: 'period', sortOrder: 'desc',
   });
 
@@ -127,9 +139,19 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   filterValuesRef.current = {
     selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials,
     priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax,
-    searchCity, searchStreet, selectedCadNumbers,
+    selectedCities, selectedStreets, selectedDistricts, selectedCadNumbers,
     page, pageSize, sortField, sortOrder,
   };
+
+  // Сброс мягких сделок при изменении кадастровых кварталов
+  const prevCadNumbersForSoftRef = useRef<string[]>([]);
+  if (selectedCadNumbers !== prevCadNumbersForSoftRef.current) {
+    if (selectedCadNumbers.length !== prevCadNumbersForSoftRef.current.length ||
+        selectedCadNumbers.some((cn, i) => cn !== prevCadNumbersForSoftRef.current[i])) {
+      setSoftDeals([]);
+    }
+    prevCadNumbersForSoftRef.current = selectedCadNumbers;
+  }
 
   // Регионы с данными из справочника для навигации по карте
   const loadedRegions = useMemo(() => {
@@ -163,6 +185,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   useEffect(() => {
     loadStats();
     loadCadastralQuarters();
+    loadFilterOptions();
   }, []);
 
   const loadCadastralQuarters = async () => {
@@ -175,16 +198,52 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setStats(dbStats);
   };
 
+  const loadFilterOptions = async () => {
+    const options = await dealsRepository.getFilterOptions();
+    setFilterOptions(options);
+  };
+
+  // Доступные районы/города/улицы с учётом выбранных регионов
+  const availableDistricts = useMemo(() => {
+    if (!filterOptions) return [];
+    if (selectedRegions.length === 0) return filterOptions.districts;
+    const combined = new Set<string>();
+    for (const r of selectedRegions) {
+      for (const d of (filterOptions.districtsByRegion[r] || [])) combined.add(d);
+    }
+    return [...combined].sort();
+  }, [filterOptions, selectedRegions]);
+
+  const availableCities = useMemo(() => {
+    if (!filterOptions) return [];
+    if (selectedRegions.length === 0) return filterOptions.cities;
+    const combined = new Set<string>();
+    for (const r of selectedRegions) {
+      for (const c of (filterOptions.citiesByRegion[r] || [])) combined.add(c);
+    }
+    return [...combined].sort();
+  }, [filterOptions, selectedRegions]);
+
+  const availableStreets = useMemo(() => {
+    if (!filterOptions) return [];
+    if (selectedRegions.length === 0) return filterOptions.streets;
+    const combined = new Set<string>();
+    for (const r of selectedRegions) {
+      for (const s of (filterOptions.streetsByRegion[r] || [])) combined.add(s);
+    }
+    return [...combined].sort();
+  }, [filterOptions, selectedRegions]);
+
   // === Filter persistence ===
   const LAST_FILTER_KEY = 'ret_last_filter';
 
   const getCurrentFilterState = useCallback((): SavedFilterState => ({
     selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials,
     priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax,
-    searchCity, searchStreet, selectedCadNumbers, polygonCoords: polygonsCoords,
+    selectedCities, selectedStreets, selectedDistricts, selectedCadNumbers, polygonCoords: polygonsCoords,
   }), [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials,
     priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax,
-    searchCity, searchStreet, selectedCadNumbers, polygonsCoords]);
+    selectedCities, selectedStreets, selectedDistricts, selectedCadNumbers, polygonsCoords]);
   getCurrentFilterStateRef.current = getCurrentFilterState;
 
   const saveCurrentFilter = useCallback(() => {
@@ -217,8 +276,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setFloorMax(state.floorMax);
     setYearBuildMin(state.yearBuildMin);
     setYearBuildMax(state.yearBuildMax);
-    setSearchCity(state.searchCity);
-    setSearchStreet(state.searchStreet);
+    setSelectedCities(state.selectedCities ?? []);
+    setSelectedStreets(state.selectedStreets ?? []);
+    setSelectedDistricts(state.selectedDistricts ?? []);
     setSelectedCadNumbers(state.selectedCadNumbers);
     if (state.polygonCoords) {
       setPolygonsCoords(state.polygonCoords);
@@ -233,8 +293,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   // Filter summary text
   const filterSummary = useMemo(() => {
     const parts: string[] = [];
-    if (searchCity) parts.push(searchCity);
-    if (searchStreet) parts.push(searchStreet);
+    if (selectedCities.length > 0) parts.push(`${selectedCities.length} гор.`);
+    if (selectedStreets.length > 0) parts.push(`${selectedStreets.length} ул.`);
+    if (selectedDistricts.length > 0) parts.push(`${selectedDistricts.length} рай.`);
     if (selectedCadNumbers.length > 0) parts.push(`${selectedCadNumbers.length} кв.`);
     else if (polygonsCoords) parts.push(`${polygonsCoords.length} полигон(ов)`);
     if (selectedPeriods.length > 0) {
@@ -269,7 +330,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     if (floorMin || floorMax) parts.push(`Этаж ${floorMin || '?'}-${floorMax || '?'}`);
     if (yearBuildMin || yearBuildMax) parts.push(`Год ${yearBuildMin || '?'}-${yearBuildMax || '?'}`);
     return parts.length > 0 ? parts.join(' • ') : 'Все сделки';
-  }, [searchCity, searchStreet, selectedCadNumbers, polygonsCoords, selectedPeriods, selectedTypes, selectedDocTypes, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax]);
+  }, [selectedCities, selectedStreets, selectedDistricts, selectedCadNumbers, polygonsCoords, selectedPeriods, selectedTypes, selectedDocTypes, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax]);
 
   const doSearch = useCallback(async () => {
     setLoading(true);
@@ -290,8 +351,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         year_build_min: v.yearBuildMin ? parseInt(v.yearBuildMin) : undefined,
         year_build_max: v.yearBuildMax ? parseInt(v.yearBuildMax) : undefined,
         wall_material_codes: v.selectedWallMaterials.length > 0 ? v.selectedWallMaterials : undefined,
-        search_city: v.searchCity || undefined,
-        search_street: v.searchStreet || undefined,
+        cities: v.selectedCities.length > 0 ? v.selectedCities : undefined,
+        districts: v.selectedDistricts.length > 0 ? v.selectedDistricts : undefined,
+        streets: v.selectedStreets.length > 0 ? v.selectedStreets : undefined,
         quarter_cad_numbers: v.selectedCadNumbers.length > 0 ? v.selectedCadNumbers : undefined,
       };
 
@@ -304,6 +366,52 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         totalPages: lightResult.totalPages,
       });
       setAggregates(lightResult.aggregates);
+
+      // Мягкий поиск: если выбраны кадастровые кварталы — ищем сделки с мусорными кад. номерами
+      // Берём улицы и районы из ТОЧНЫХ сделок и ищем мусорные с теми же улицами/районами
+      if (v.selectedCadNumbers.length > 0 && lightResult.pageDeals.length > 0) {
+        // Собираем мусорные номера для каждого кадастрового квартала
+        const garbageSet = new Set<string>();
+        const regionsSet = new Set<string>();
+        for (const cn of v.selectedCadNumbers) {
+          const parts = cn.split(':');
+          if (parts.length >= 2) {
+            regionsSet.add(parts[0]);
+            garbageSet.add(`${parts[0]}:${parts[1]}:000000`);
+            garbageSet.add(`${parts[0]}:${parts[1]}:0000000`);
+          }
+        }
+
+        // Извлекаем уникальные районы и улицы из точных сделок
+        const districts = [...new Set(lightResult.pageDeals.map(d => d.district).filter(Boolean))];
+        const streets = [...new Set(lightResult.pageDeals.map(d => d.street?.toLowerCase()).filter(Boolean))];
+
+        if (garbageSet.size > 0 && (districts.length > 0 || streets.length > 0)) {
+          const excludeIds = new Set(lightResult.pageDeals.map(d => d.id!));
+          const allSoft: Deal[] = [];
+
+          for (const regionCode of regionsSet) {
+            const regionGarbage = [...garbageSet].filter(g => g.startsWith(regionCode + ':'));
+            const soft = await dealsRepository.searchSoftByRegion({
+              regionCode,
+              garbageCadNumbers: regionGarbage,
+              districts,
+              streets,
+              floorMin: v.floorMin ? parseInt(v.floorMin) : undefined,
+              floorMax: v.floorMax ? parseInt(v.floorMax) : undefined,
+              areaMin: v.areaMin ? parseFloat(v.areaMin) : undefined,
+              areaMax: v.areaMax ? parseFloat(v.areaMax) : undefined,
+              yearQuarters: v.selectedPeriods.length > 0 ? v.selectedPeriods : undefined,
+              excludeIds,
+            }, 50);
+            allSoft.push(...soft);
+          }
+
+          setSoftDeals(allSoft);
+        }
+      } else {
+        setSoftDeals([]);
+      }
       saveCurrentFilter();
     } catch (error) {
       console.error('Ошибка поиска:', error);
@@ -388,8 +496,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     setFloorMax('');
     setYearBuildMin('');
     setYearBuildMax('');
-    setSearchCity('');
-    setSearchStreet('');
+    setSelectedCities([]);
+    setSelectedStreets([]);
+    setSelectedDistricts([]);
     setSelectedCadNumbers([]);
     setPolygonsCoords(null);
     localStorage.removeItem('ret_polygon_coords');
@@ -534,8 +643,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       year_build_min: yearBuildMin ? parseInt(yearBuildMin) : undefined,
       year_build_max: yearBuildMax ? parseInt(yearBuildMax) : undefined,
       wall_material_codes: selectedWallMaterials.length > 0 ? selectedWallMaterials : undefined,
-      search_city: searchCity || undefined,
-      search_street: searchStreet || undefined,
+      search_city: undefined,
+      search_street: undefined,
+      search_district: undefined,
+      cities: selectedCities.length > 0 ? selectedCities : undefined,
+      districts: selectedDistricts.length > 0 ? selectedDistricts : undefined,
+      streets: selectedStreets.length > 0 ? selectedStreets : undefined,
       quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
     };
     const deals = await dealsRepository.searchAll(searchFilters);
@@ -561,8 +674,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     if (areaMin || areaMax) filterDescriptions.push(`Площадь: ${areaMin || '0'} - ${areaMax || '∞'} м²`);
     if (floorMin || floorMax) filterDescriptions.push(`Этаж: ${floorMin || '0'} - ${floorMax || '∞'}`);
     if (yearBuildMin || yearBuildMax) filterDescriptions.push(`Год постройки: ${yearBuildMin || '0'} - ${yearBuildMax || '∞'}`);
-    if (searchCity) filterDescriptions.push(`Город: ${searchCity}`);
-    if (searchStreet) filterDescriptions.push(`Улица: ${searchStreet}`);
+    if (selectedCities.length > 0) filterDescriptions.push(`Города: ${selectedCities.join(', ')}`);
+    if (selectedStreets.length > 0) filterDescriptions.push(`Улицы: ${selectedStreets.join(', ')}`);
+    if (selectedDistricts.length > 0) filterDescriptions.push(`Районы: ${selectedDistricts.join(', ')}`);
 
     const dealCadNumbers = new Set(deals.map(d => d.quarter_cad_number).filter(Boolean));
     const hasMapData = polygonsCoords || dealCadNumbers.size > 0;
@@ -1248,8 +1362,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       year_build_min: yearBuildMin ? parseInt(yearBuildMin) : undefined,
       year_build_max: yearBuildMax ? parseInt(yearBuildMax) : undefined,
       wall_material_codes: selectedWallMaterials.length > 0 ? selectedWallMaterials : undefined,
-      search_city: searchCity || undefined,
-      search_street: searchStreet || undefined,
+      search_city: undefined,
+      search_street: undefined,
+      search_district: undefined,
+      cities: selectedCities.length > 0 ? selectedCities : undefined,
+      districts: selectedDistricts.length > 0 ? selectedDistricts : undefined,
+      streets: selectedStreets.length > 0 ? selectedStreets : undefined,
       quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
     };
     const deals = await dealsRepository.searchAll(searchFilters);
@@ -1348,6 +1466,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const totalFiltered = result?.total || 0;
   const totalPages = result?.totalPages || 0;
   const currentPage = Math.min(page, totalPages || 1);
+
+  // Мягкие сделки — IDs для быстрой проверки
+  const softIds = useMemo(() => new Set(softDeals.map(d => d.id!)), [softDeals]);
+  // Объединённый список: точные + мягкие, отсортированные по дате
+  const allDeals = useMemo(() => {
+    if (softDeals.length === 0) return pagedDeals;
+    return [...pagedDeals, ...softDeals].sort((a, b) => b.period_start_date.localeCompare(a.period_start_date));
+  }, [pagedDeals, softDeals]);
 
   if (stats && stats.totalDeals === 0) {
     return (
@@ -1461,26 +1587,49 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         {/* Filters */}
         {showFilters && (
           <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900">
-            {/* City / Street */}
-            <div className="mb-4 flex flex-wrap gap-3">
-              <div className="min-w-[180px] flex-1">
-                <Input
-                  type="text"
-                  placeholder="Город (через запятую для нескольких)..."
-                  value={searchCity}
-                  onChange={(e) => setSearchCity(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
+            {/* Regions (сверху) */}
+            {stats && stats.regions.length > 0 && stats.regions.length <= 20 && (
+              <div className="mb-4">
+                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Регион</h4>
+                <div className="flex max-h-[150px] flex-wrap gap-2 overflow-y-auto">
+                  {stats.regions.map((region) => (
+                    <label key={region} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
+                      <input
+                        type="checkbox"
+                        className="size-3.5"
+                        checked={selectedRegions.includes(region)}
+                        onChange={() => toggleRegion(region)}
+                      />
+                      <span className="text-zinc-700 dark:text-zinc-300">{region}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div className="min-w-[180px] flex-1">
-                <Input
-                  type="text"
-                  placeholder="Улица (через запятую для нескольких)..."
-                  value={searchStreet}
-                  onChange={(e) => setSearchStreet(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                />
-              </div>
+            )}
+
+            {/* District / City / Street — MultiSelect */}
+            <div className="mb-4 relative flex flex-wrap gap-3">
+              <MultiSelectDropdown
+                label="Район"
+                options={availableDistricts}
+                selected={selectedDistricts}
+                onChange={setSelectedDistricts}
+                searchPlaceholder="Поиск района..."
+              />
+              <MultiSelectDropdown
+                label="Город"
+                options={availableCities}
+                selected={selectedCities}
+                onChange={setSelectedCities}
+                searchPlaceholder="Поиск города..."
+              />
+              <MultiSelectDropdown
+                label="Улица"
+                options={availableStreets}
+                selected={selectedStreets}
+                onChange={setSelectedStreets}
+                searchPlaceholder="Поиск улицы..."
+              />
             </div>
 
             {/* Real Estate Type */}
@@ -1617,26 +1766,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
               </div>
             </div>
 
-            {/* Regions */}
-            {stats && stats.regions.length > 0 && stats.regions.length <= 20 && (
-              <div className="mb-4">
-                <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Регион</h4>
-                <div className="flex max-h-[150px] flex-wrap gap-2 overflow-y-auto">
-                  {stats.regions.map((region) => (
-                    <label key={region} className="flex cursor-pointer items-center gap-1.5 rounded-md bg-zinc-50 px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700">
-                      <input
-                        type="checkbox"
-                        className="size-3.5"
-                        checked={selectedRegions.includes(region)}
-                        onChange={() => toggleRegion(region)}
-                      />
-                      <span className="text-zinc-700 dark:text-zinc-300">{region}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Map filter */}
             <div className="mb-4 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
               <button
@@ -1721,7 +1850,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
             <>
               <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
                 <div className="flex items-center gap-3">
-                  <span>Найдено: {formatNumber(totalFiltered)} сделок</span>
+                  <span>
+                    Найдено: {formatNumber(totalFiltered)} сделок
+                    {softDeals.length > 0 && (
+                      <span className="text-amber-500 ml-2">+ {softDeals.length} по району</span>
+                    )}
+                  </span>
                   <select
                     value={pageSize}
                     disabled={loading}
@@ -1785,11 +1919,19 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                         </tr>
                       </thead>
                       <tbody>
-                        {pagedDeals.map((deal) => (
+                        {allDeals.map((deal) => {
+                          const isSoft = softIds.has(deal.id!);
+                          return (
                           <tr
                             key={deal.id}
                             onClick={() => setSelectedDealForMap(deal)}
-                            className={`cursor-pointer border-b border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800 ${selectedDealForMap?.id === deal.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                            className={`cursor-pointer border-b border-zinc-100 transition-colors ${
+                              selectedDealForMap?.id === deal.id
+                                ? 'bg-blue-50 dark:bg-blue-900/20'
+                                : isSoft
+                                  ? 'bg-amber-50/60 hover:bg-amber-100/80 dark:bg-amber-900/10 dark:hover:bg-amber-900/20'
+                                  : 'hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800'
+                            }`}
                           >
                             <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-zinc-950 dark:text-white">{formatPeriod(deal.year_quarter)}</td>
                             <td className="px-3 py-2">
@@ -1801,8 +1943,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                                 {deal.street && <span className="truncate text-xs text-zinc-500 dark:text-zinc-400">{deal.street}</span>}
                                 {deal.district && <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{deal.district}</span>}
                                 {deal.quarter_cad_number && (
-                                  <span className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
-                                    {deal.quarter_cad_number}
+                                  <span className={`mt-1 text-[11px] ${isSoft ? 'text-amber-500' : 'text-zinc-400 dark:text-zinc-500'}`}>
+                                    {isSoft ? '⚠ Район' : deal.quarter_cad_number}
                                   </span>
                                 )}
                               </div>
@@ -1815,11 +1957,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                             <td className="whitespace-nowrap px-3 py-2 text-center text-xs text-zinc-500 dark:text-zinc-400">{(deal.year_build != null && !isNaN(deal.year_build)) ? deal.year_build : '—'}</td>
                             <td className="max-w-[140px] px-3 py-2 text-xs leading-tight text-zinc-500 dark:text-zinc-400">{getWallMaterialName(deal.wall_material_code)}</td>
                             <td className="whitespace-nowrap px-3 py-2">
-                              <div className="text-sm font-semibold text-green-600 dark:text-green-400">
+                              <div className={`text-sm font-semibold ${isSoft ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
                                 {formatPrice(deal.deal_price)} ₽
                               </div>
                               {formatPricePerMeter(deal.deal_price, deal.area) && (
-                                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{formatPricePerMeter(deal.deal_price, deal.area)}</div>
+                                <div className={`text-[11px] ${isSoft ? 'text-amber-400' : 'text-zinc-500 dark:text-zinc-400'}`}>{formatPricePerMeter(deal.deal_price, deal.area)}</div>
                               )}
                             </td>
                             <td className="px-3 py-2">
@@ -1828,7 +1970,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                               </Badge>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                     {loading && (

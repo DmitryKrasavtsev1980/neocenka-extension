@@ -133,6 +133,10 @@ export interface SearchFilters {
   search_city?: string;
   /** Поиск по улице */
   search_street?: string;
+  /** Поиск по району */
+  search_district?: string;
+  /** Улицы (точное совпадение) */
+  streets?: string[];
   /** Фильтр по кадастровым кварталам (выбор на карте) */
   quarter_cad_numbers?: string[];
 }

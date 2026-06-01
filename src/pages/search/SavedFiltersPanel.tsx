@@ -42,8 +42,12 @@ export interface SavedFilterState {
   floorMax: string;
   yearBuildMin: string;
   yearBuildMax: string;
-  searchCity: string;
-  searchStreet: string;
+  searchCity?: string;
+  searchStreet?: string;
+  searchDistrict?: string;
+  selectedCities: string[];
+  selectedStreets: string[];
+  selectedDistricts: string[];
   selectedCadNumbers: string[];
   polygonCoords: [number, number][][] | null;
 }

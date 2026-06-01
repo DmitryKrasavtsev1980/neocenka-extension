@@ -30,6 +30,7 @@ function applyFilters(filters: SearchFilters): Promise<Deal[]> {
   const yearQuartersSet = filters.year_quarters?.length ? new Set(filters.year_quarters) : null;
   const wallCodesSet = filters.wall_material_codes?.length ? new Set(filters.wall_material_codes) : null;
   const cadNumbersSet = filters.quarter_cad_numbers?.length ? new Set(filters.quarter_cad_numbers) : null;
+  const streetsSet = filters.streets?.length ? new Set(filters.streets) : null;
 
   // Предвычисляем термины поиска
   let cityTerms: string[] | null = null;
@@ -41,6 +42,11 @@ function applyFilters(filters: SearchFilters): Promise<Deal[]> {
   if (filters.search_street) {
     streetTerms = filters.search_street.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
     if (streetTerms.length === 0) streetTerms = null;
+  }
+  let districtTerms: string[] | null = null;
+  if (filters.search_district) {
+    districtTerms = filters.search_district.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
+    if (districtTerms.length === 0) districtTerms = null;
   }
 
   const priceMin = filters.price_min;
@@ -97,8 +103,13 @@ function applyFilters(filters: SearchFilters): Promise<Deal[]> {
         const streetLower = d.street.toLowerCase();
         if (!streetTerms.some(term => streetLower.includes(term))) return false;
       }
+      if (districtTerms) {
+        const districtLower = d.district.toLowerCase();
+        if (!districtTerms.some(term => districtLower.includes(term))) return false;
+      }
 
       if (cadNumbersSet && !cadNumbersSet.has(d.quarter_cad_number)) return false;
+      if (streetsSet && !streetsSet.has(d.street)) return false;
 
       return true;
     });
@@ -122,6 +133,7 @@ export const dealsRepository = {
     const yearQuartersSet = filters.year_quarters?.length ? new Set(filters.year_quarters) : null;
     const wallCodesSet = filters.wall_material_codes?.length ? new Set(filters.wall_material_codes) : null;
     const cadNumbersSet = filters.quarter_cad_numbers?.length ? new Set(filters.quarter_cad_numbers) : null;
+    const streetsSet = filters.streets?.length ? new Set(filters.streets) : null;
 
     let cityTerms: string[] | null = null;
     if (filters.search_city) {
@@ -132,6 +144,11 @@ export const dealsRepository = {
     if (filters.search_street) {
       streetTerms = filters.search_street.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
       if (streetTerms.length === 0) streetTerms = null;
+    }
+    let districtTerms: string[] | null = null;
+    if (filters.search_district) {
+      districtTerms = filters.search_district.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
+      if (districtTerms.length === 0) districtTerms = null;
     }
 
     const priceMin = filters.price_min;
@@ -185,7 +202,12 @@ export const dealsRepository = {
         const streetLower = d.street.toLowerCase();
         if (!streetTerms.some(term => streetLower.includes(term))) return false;
       }
+      if (districtTerms) {
+        const districtLower = d.district.toLowerCase();
+        if (!districtTerms.some(term => districtLower.includes(term))) return false;
+      }
       if (cadNumbersSet && !cadNumbersSet.has(d.quarter_cad_number)) return false;
+      if (streetsSet && !streetsSet.has(d.street)) return false;
 
       return true;
     }
@@ -405,8 +427,10 @@ export const dealsRepository = {
     const regions = new Set<string>();
     const districts = new Set<string>();
     const cities = new Set<string>();
+    const streets = new Set<string>();
     const districtsByRegion: Record<string, Set<string>> = {};
     const citiesByRegion: Record<string, Set<string>> = {};
+    const streetsByRegion: Record<string, Set<string>> = {};
 
     await db.deals.each(d => {
       regions.add(d.region_code);
@@ -426,15 +450,25 @@ export const dealsRepository = {
         citiesByRegion[d.region_code].add(d.city);
         cities.add(d.city);
       }
+
+      if (d.street) {
+        if (!streetsByRegion[d.region_code]) {
+          streetsByRegion[d.region_code] = new Set();
+        }
+        streetsByRegion[d.region_code].add(d.street);
+        streets.add(d.street);
+      }
     });
 
     // Конвертируем Set'ы в отсортированные массивы
     const sortedRegions = [...regions].sort();
     const sortedDistricts = [...districts].sort();
     const sortedCities = [...cities].sort();
+    const sortedStreets = [...streets].sort();
 
     const resultDistrictsByRegion: Record<string, string[]> = {};
     const resultCitiesByRegion: Record<string, string[]> = {};
+    const resultStreetsByRegion: Record<string, string[]> = {};
 
     for (const key of Object.keys(districtsByRegion)) {
       resultDistrictsByRegion[key] = [...districtsByRegion[key]].sort();
@@ -442,13 +476,18 @@ export const dealsRepository = {
     for (const key of Object.keys(citiesByRegion)) {
       resultCitiesByRegion[key] = [...citiesByRegion[key]].sort();
     }
+    for (const key of Object.keys(streetsByRegion)) {
+      resultStreetsByRegion[key] = [...streetsByRegion[key]].sort();
+    }
 
     return {
       regions: sortedRegions,
       districts: sortedDistricts,
       cities: sortedCities,
+      streets: sortedStreets,
       districtsByRegion: resultDistrictsByRegion,
       citiesByRegion: resultCitiesByRegion,
+      streetsByRegion: resultStreetsByRegion,
     };
   },
 
@@ -469,15 +508,15 @@ export const dealsRepository = {
 
   /**
    * «Мягкий» поиск: сделки в том же регионе, но с мусорным кадастровым номером (XX:YY:000000),
-   * подходящие по городу/улице/типу/площади/этажу.
-   * Возвращает сделки, которые не попали в точный поиск по кадастровому кварталу.
+   * у которых район ИЛИ улица совпадает с районом/улицами из точных сделок.
    */
   async searchSoftByRegion(params: {
     regionCode: string;
     garbageCadNumbers: string[];
-    city?: string;
-    street?: string;
-    realestateTypeCode?: string;
+    /** Районы из точных сделок — soft-сделка должна совпадать хотя бы по одному */
+    districts: string[];
+    /** Улицы из точных сделок (lowercase) — soft-сделка должна совпадать хотя бы по одной */
+    streets: string[];
     floorMin?: number;
     floorMax?: number;
     areaMin?: number;
@@ -488,27 +527,26 @@ export const dealsRepository = {
     if (params.garbageCadNumbers.length === 0) return [];
 
     const garbageSet = new Set(params.garbageCadNumbers);
+    const districtSet = new Set(params.districts.map(d => d.toLowerCase()));
+    const streetSet = new Set(params.streets);
     const matched: Deal[] = [];
+    let limitReached = false;
 
     // Ищем по region_code — индексный запрос
     const collection = db.deals.where('region_code').equals(params.regionCode);
 
     await collection.each(d => {
-      // Только сделки с мусорным кадастровым номером, подходящим по формату района
+      if (limitReached) return;
+
+      // Только сделки с мусорным кадастровым номером
       if (!garbageSet.has(d.quarter_cad_number)) return;
 
-      // Фильтр по городу
-      if (params.city && d.city.toLowerCase() !== params.city.toLowerCase()) return;
-
-      // Фильтр по улице (частичное совпадение)
-      if (params.street) {
-        const streetLower = d.street.toLowerCase();
-        const terms = params.street.split(/[,;]/).map(s => s.trim().toLowerCase()).filter(Boolean);
-        if (terms.length > 0 && !terms.some(t => streetLower.includes(t))) return;
-      }
-
-      // Фильтр по типу недвижимости
-      if (params.realestateTypeCode && d.realestate_type_code !== params.realestateTypeCode) return;
+      // Должно быть совпадение по району ИЛИ по улице
+      const dealDistrict = (d.district || '').toLowerCase();
+      const dealStreet = (d.street || '').toLowerCase();
+      const matchByDistrict = dealDistrict && districtSet.has(dealDistrict);
+      const matchByStreet = dealStreet && streetSet.has(dealStreet);
+      if (!matchByDistrict && !matchByStreet) return;
 
       // Фильтр по площади
       if (params.areaMin !== undefined && d.area < params.areaMin) return;
@@ -528,7 +566,7 @@ export const dealsRepository = {
       if (params.excludeIds?.has(d.id!)) return;
 
       matched.push(d);
-      if (matched.length >= limit) return; // early exit ( Dexie each не поддерживает break, но limit проверится )
+      if (matched.length >= limit) limitReached = true;
     });
 
     // Сортировка по дате (новые первые)

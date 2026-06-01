@@ -139,6 +139,12 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
   const [useFloorFilter, setUseFloorFilter] = useState(true);
   const [useAreaFilter, setUseAreaFilter] = useState(true);
 
+  // Объединённый список: точные + мягкие, с пометкой soft
+  const softIds = useMemo(() => new Set(softDeals.map(d => d.id!)), [softDeals]);
+  const allDeals = useMemo(() => {
+    return [...deals, ...softDeals].sort((a, b) => b.period_start_date.localeCompare(a.period_start_date));
+  }, [deals, softDeals]);
+
   const sortedListings = useMemo(() => {
     return [...listings].sort((a, b) => {
       const ta = new Date(a.updated || a.created || 0).getTime();
@@ -277,21 +283,17 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
         `${regionCode}:${districtPart}:0000000`,
       ];
 
-      // Извлекаем город и улицу из адреса
-      const addressText = objAddress?.address || '';
-      const cityMatch = addressText.match(/,\s*г\s*\.?\s*([^(,]+)/i);
-      const cityName = cityMatch ? cityMatch[1].trim() : undefined;
-      const streetMatch = addressText.match(/,\s*(ул|улица|пр-т|проспект|пер|переулок|б-р|бульвар)\.?\s*([^(,]+)/i);
-      const streetName = streetMatch ? streetMatch[0].replace(/^,\s*/, '').trim() : undefined;
-
       const excludeIds = new Set(result.pageDeals.map(d => d.id!));
+
+      // Извлекаем районы и улицы из точных сделок
+      const districts = [...new Set(result.pageDeals.map(d => d.district).filter(Boolean))];
+      const streets = [...new Set(result.pageDeals.map(d => d.street?.toLowerCase()).filter(Boolean))];
 
       const softResults = await dealsRepository.searchSoftByRegion({
         regionCode,
         garbageCadNumbers,
-        city: cityName,
-        street: streetName,
-        realestateTypeCode: obj.property_type ? undefined : undefined, // типы не совпадают (flat/1k vs код Росреестра)
+        districts,
+        streets,
         floorMin,
         floorMax,
         areaMin,
@@ -449,8 +451,13 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                  Подходящие сделки {deals.length > 0 ? `(${deals.length})` : ''}
+                  Подходящие сделки {allDeals.length > 0 ? `(${allDeals.length})` : ''}
                   {cadQuarter && <span className="text-zinc-400 font-normal ml-1">Квартал: {cadQuarter}</span>}
+                  {softDeals.length > 0 && (
+                    <span className="text-amber-500 font-normal ml-2">
+                      из них {softDeals.length} — по району
+                    </span>
+                  )}
                 </h4>
               </div>
 
@@ -479,12 +486,12 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
                 <div className="text-xs text-zinc-400 text-center py-6">
                   {!objAddress?.coordinates?.lat ? 'Нет координат адреса' : 'Кадастровый квартал не найден'}
                 </div>
-              ) : deals.length === 0 ? (
+              ) : allDeals.length === 0 ? (
                 <div className="text-xs text-zinc-400 text-center py-6">Сделки не найдены</div>
               ) : (
                 <>
                   <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-                    <table className="w-full text-xs min-w-[700px]">
+                    <table className="w-full text-xs min-w-[750px]">
                       <thead className="bg-zinc-50 dark:bg-zinc-800">
                         <tr className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">
                           <th className="px-2 py-1.5 text-left">Период</th>
@@ -495,47 +502,76 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
                           <th className="px-2 py-1.5 text-left">Материал</th>
                           <th className="px-2 py-1.5 text-right">Цена</th>
                           <th className="px-2 py-1.5 text-center">Док.</th>
+                          <th className="px-2 py-1.5 text-left">Кад. номер</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                        {deals.map(deal => (
-                          <tr
-                            key={deal.id}
-                            className={`cursor-pointer transition-colors ${
-                              selectedDealId === deal.id
-                                ? 'bg-emerald-50 dark:bg-emerald-900/10 hover:bg-emerald-100 dark:hover:bg-emerald-900/20'
-                                : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
-                            }`}
-                            onClick={() => setSelectedDealId(selectedDealId === deal.id ? null : deal.id!)}
-                          >
-                            <td className="px-2 py-1.5 whitespace-nowrap">{formatPeriod(deal.year_quarter)}</td>
-                            <td className="px-2 py-1.5">
-                              <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                                {(REAL_ESTATE_TYPES[deal.realestate_type_code] || deal.realestate_type_code).substring(0, 3)}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                              {deal.area > 0 ? deal.area.toLocaleString('ru-RU') : '—'}
-                              {deal.number > 1 && <span className="text-zinc-400 ml-1">×{deal.number}</span>}
-                            </td>
-                            <td className="px-2 py-1.5 text-center">{deal.floor ?? '—'}</td>
-                            <td className="px-2 py-1.5 text-center">{deal.year_build ?? '—'}</td>
-                            <td className="px-2 py-1.5 text-zinc-600 dark:text-zinc-400">{getWallMaterialName(deal.wall_material_code)}</td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                              <div className="font-semibold text-green-600 dark:text-green-400">{formatDealPrice(deal.deal_price)} ₽</div>
-                              {formatPricePerMeter(deal.deal_price, deal.area) && (
-                                <div className="text-[10px] text-zinc-400">{formatPricePerMeter(deal.deal_price, deal.area)}</div>
-                              )}
-                            </td>
-                            <td className="px-2 py-1.5 text-center">
-                              <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
-                                deal.doc_type === 'ДКП' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                : deal.doc_type === 'ДДУ' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300'
-                              }`}>{deal.doc_type}</span>
-                            </td>
-                          </tr>
-                        ))}
+                        {allDeals.map(deal => {
+                          const isSoft = softIds.has(deal.id!);
+                          return (
+                            <tr
+                              key={deal.id}
+                              className={`cursor-pointer transition-colors ${
+                                selectedDealId === deal.id
+                                  ? 'bg-emerald-50 dark:bg-emerald-900/10 hover:bg-emerald-100 dark:hover:bg-emerald-900/20'
+                                  : isSoft
+                                    ? 'bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/80 dark:hover:bg-amber-900/20'
+                                    : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                              }`}
+                              onClick={() => setSelectedDealId(selectedDealId === deal.id ? null : deal.id!)}
+                            >
+                              <td className="px-2 py-1.5 whitespace-nowrap">{formatPeriod(deal.year_quarter)}</td>
+                              <td className="px-2 py-1.5">
+                                <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
+                                  isSoft
+                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                    : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300'
+                                }`}>
+                                  {(REAL_ESTATE_TYPES[deal.realestate_type_code] || deal.realestate_type_code).substring(0, 3)}
+                                </span>
+                              </td>
+                              <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                {deal.area > 0 ? deal.area.toLocaleString('ru-RU') : '—'}
+                                {deal.number > 1 && <span className={isSoft ? 'text-amber-400' : 'text-zinc-400'}> ×{deal.number}</span>}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">{deal.floor ?? '—'}</td>
+                              <td className="px-2 py-1.5 text-center">{deal.year_build ?? '—'}</td>
+                              <td className={`px-2 py-1.5 ${isSoft ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-600 dark:text-zinc-400'}`}>
+                                {getWallMaterialName(deal.wall_material_code)}
+                              </td>
+                              <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                                <div className={`font-semibold ${isSoft ? 'text-amber-700 dark:text-amber-300' : 'text-green-600 dark:text-green-400'}`}>
+                                  {formatDealPrice(deal.deal_price)} ₽
+                                </div>
+                                {formatPricePerMeter(deal.deal_price, deal.area) && (
+                                  <div className={`text-[10px] ${isSoft ? 'text-amber-400' : 'text-zinc-400'}`}>
+                                    {formatPricePerMeter(deal.deal_price, deal.area)}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
+                                  deal.doc_type === 'ДКП' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                  : deal.doc_type === 'ДДУ' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                  : isSoft ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300'
+                                  : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300'
+                                }`}>{deal.doc_type}</span>
+                              </td>
+                              <td className={`px-2 py-1.5 ${isSoft ? 'text-amber-500' : 'text-zinc-400'}`}>
+                                {isSoft ? (
+                                  <span className="flex items-center gap-1">
+                                    <span title="Точный кадастровый квартал не указан, подобрано по району">⚠</span>
+                                    <span className="text-[9px] truncate max-w-[90px]" title={deal.quarter_cad_number}>Район</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] truncate max-w-[90px]" title={deal.quarter_cad_number}>
+                                    {deal.quarter_cad_number?.split(':').slice(-1)[0] || '—'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -551,76 +587,6 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
                       </button>
                     )}
                   </div>
-
-                  {/* «Мягкие» сделки — без точного кадастрового квартала */}
-                  {softDeals.length > 0 && (
-                    <div className="mt-3">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h5 className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                          Возможные совпадения ({softDeals.length})
-                        </h5>
-                        <span className="text-[9px] text-amber-500 dark:text-amber-500">
-                          — без точного кадастрового квартала, подобраны по городу/улице
-                        </span>
-                      </div>
-                      <div className="overflow-x-auto rounded-lg border border-amber-200 dark:border-amber-800">
-                        <table className="w-full text-xs min-w-[700px]">
-                          <thead className="bg-amber-50 dark:bg-amber-900/20">
-                            <tr className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase">
-                              <th className="px-2 py-1.5 text-left">Период</th>
-                              <th className="px-2 py-1.5 text-left">Тип</th>
-                              <th className="px-2 py-1.5 text-right">Пл.</th>
-                              <th className="px-2 py-1.5 text-center">Этаж</th>
-                              <th className="px-2 py-1.5 text-center">Год</th>
-                              <th className="px-2 py-1.5 text-left">Материал</th>
-                              <th className="px-2 py-1.5 text-right">Цена</th>
-                              <th className="px-2 py-1.5 text-center">Док.</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-amber-100 dark:divide-amber-900/20">
-                            {softDeals.map(deal => (
-                              <tr
-                                key={`soft-${deal.id}`}
-                                className={`cursor-pointer transition-colors bg-amber-50/50 dark:bg-amber-900/10 ${
-                                  selectedDealId === deal.id
-                                    ? 'bg-emerald-50 dark:bg-emerald-900/10'
-                                    : 'hover:bg-amber-100 dark:hover:bg-amber-900/20'
-                                }`}
-                                onClick={() => setSelectedDealId(selectedDealId === deal.id ? null : deal.id!)}
-                              >
-                                <td className="px-2 py-1.5 whitespace-nowrap">{formatPeriod(deal.year_quarter)}</td>
-                                <td className="px-2 py-1.5">
-                                  <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                                    {(REAL_ESTATE_TYPES[deal.realestate_type_code] || deal.realestate_type_code).substring(0, 3)}
-                                  </span>
-                                </td>
-                                <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                                  {deal.area > 0 ? deal.area.toLocaleString('ru-RU') : '—'}
-                                  {deal.number > 1 && <span className="text-amber-400 ml-1">×{deal.number}</span>}
-                                </td>
-                                <td className="px-2 py-1.5 text-center">{deal.floor ?? '—'}</td>
-                                <td className="px-2 py-1.5 text-center">{deal.year_build ?? '—'}</td>
-                                <td className="px-2 py-1.5 text-amber-600 dark:text-amber-400">{getWallMaterialName(deal.wall_material_code)}</td>
-                                <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                                  <div className="font-semibold text-amber-700 dark:text-amber-300">{formatDealPrice(deal.deal_price)} ₽</div>
-                                  {formatPricePerMeter(deal.deal_price, deal.area) && (
-                                    <div className="text-[10px] text-amber-400">{formatPricePerMeter(deal.deal_price, deal.area)}</div>
-                                  )}
-                                </td>
-                                <td className="px-2 py-1.5 text-center">
-                                  <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
-                                    deal.doc_type === 'ДКП' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                    : deal.doc_type === 'ДДУ' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                    : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300'
-                                  }`}>{deal.doc_type}</span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </div>
