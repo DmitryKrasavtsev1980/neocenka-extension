@@ -114,8 +114,27 @@ async function inparsRequest<T>(
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`Inpars API ${response.status}: ${text || response.statusText}`);
+      let userMessage: string;
+      try {
+        const text = await response.text();
+        const json = JSON.parse(text);
+        // Извлекаем человекочитаемое сообщение из ответа API
+        const apiMsg = json?.message || json?.name || '';
+        if (response.status === 402) {
+          userMessage = 'Подписка на Inpars неактивна. Необходима оплата.';
+        } else if (response.status === 401) {
+          userMessage = 'Неверный API ключ Inpars.';
+        } else if (response.status === 429) {
+          userMessage = 'Превышен лимит запросов Inpars. Попробуйте позже.';
+        } else if (apiMsg) {
+          userMessage = `Inpars: ${apiMsg}`;
+        } else {
+          userMessage = `Inpars: ошибка ${response.status}`;
+        }
+      } catch {
+        userMessage = `Inpars: ошибка ${response.status} (${response.statusText})`;
+      }
+      throw new Error(userMessage);
     }
 
     return await response.json();
@@ -466,7 +485,22 @@ export function transformInparsListing(raw: InparsListingRaw): Ad {
 
     price: raw.cost || null,
     price_per_meter: pricePerMeter,
-    price_history: normalizePriceHistory(raw.history),
+    price_history: (() => {
+      const hist = normalizePriceHistory(raw.history);
+      const createdDate = normalizeDate(raw.created);
+      // Гарантируем запись на дату создания с начальной ценой
+      if (raw.cost && createdDate) {
+        const earliestDate = hist.length > 0
+          ? hist.reduce((min, h) => new Date(h.date) < new Date(min) ? h.date : min, hist[0].date)
+          : null;
+        if (!earliestDate || new Date(createdDate) < new Date(earliestDate)) {
+          hist.push({ date: createdDate, price: raw.cost });
+        }
+      } else if (hist.length === 0 && raw.cost) {
+        hist.push({ date: new Date().toISOString(), price: raw.cost });
+      }
+      return hist;
+    })(),
 
     photos: raw.images || [],
     photos_count: raw.images?.length || 0,

@@ -164,8 +164,11 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const [quartersLoaded, setQuartersLoaded] = useState(false);
   const [addressEnabled, setAddressEnabled] = useState(false);
   const [addressQuery, setAddressQuery] = useState('');
-  const [geocoding, setGeocoding] = useState(false);
+  const [addressSuggestions, setAddressSuggestions] = useState<AdAddress[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightedSuggestionIdx, setHighlightedSuggestionIdx] = useState(-1);
   const addressMarkerRef = useRef<L.Marker | null>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   // Маркеры адресов
   const [activeMapFilter, setActiveMapFilter] = useState<MapFilterType>('year');
@@ -197,6 +200,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   // Рефы для доступа к функциям из замыканий карты
   const setAddressMarkerRef = useRef<(lat: number, lng: number) => void>(() => {});
   const reverseGeocodeRef = useRef<(lat: number, lng: number) => void>(() => {});
+  const findNearestAddressRef = useRef<(lat: number, lng: number) => void>(() => {});
   const addressEnabledRef = useRef(addressEnabled);
   addressEnabledRef.current = addressEnabled;
 
@@ -237,6 +241,41 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     addressesRef.current = addresses;
     addressStatsRef.current = addressStats;
   }, [addresses, addressStats]);
+
+  // Автодополнение: фильтрация адресов при вводе
+  useEffect(() => {
+    const raw = addressQuery.trim().toLowerCase();
+    if (!addressEnabled || raw.length < 2) {
+      setAddressSuggestions([]);
+      setShowSuggestions(false);
+      setHighlightedSuggestionIdx(-1);
+      return;
+    }
+    // Нормализация: убираем punctuation и служебные слова
+    const normalize = (s: string) =>
+      s.replace(/[,.\s]+/g, ' ')
+        .replace(/\b(д|дом|корп|к|стр|вл|влад)\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    // Токены запроса: "иванова 45" → ["иванова", "45"]
+    const tokens = normalize(raw).split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      setAddressSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    const addrs = addresses || [];
+    // Каждый токен должен присутствовать в нормализованном адресе
+    const filtered = addrs.filter(a => {
+      const na = normalize(a.address.toLowerCase());
+      return tokens.every(t => na.includes(t));
+    });
+    // Сортировка: приоритет — более короткие адреса (точнее совпадение)
+    filtered.sort((a, b) => a.address.length - b.address.length);
+    setAddressSuggestions(filtered.slice(0, 30));
+    setShowSuggestions(filtered.length > 0);
+    setHighlightedSuggestionIdx(-1);
+  }, [addressQuery, addressEnabled, addresses]);
 
   useEffect(() => {
     activeMapFilterRef.current = activeMapFilter;
@@ -599,61 +638,46 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
 
       marker.on('dragend', () => {
         const pos = marker.getLatLng();
-        reverseGeocode(pos.lat, pos.lng);
+        findNearestAddressRef.current(pos.lat, pos.lng);
       });
 
       addressMarkerRef.current = marker;
     }
   }, [createMarkerIcon]);
 
-  // Nominatim обратное геокодирование
-  const reverseGeocode = useCallback(async (lat: number, lng: number) => {
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ru`,
-        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
-      );
-      const data = await res.json();
-      if (data.display_name) {
-        setAddressQuery(data.display_name);
-      }
-    } catch { /* ignore */ }
+  // Поиск ближайшего адреса из локальной базы
+  const findNearestAddress = useCallback((lat: number, lng: number) => {
+    const addrs = addressesRef.current || [];
+    let best: AdAddress | null = null;
+    let bestDist = Infinity;
+    for (const a of addrs) {
+      if (a.coordinates?.lat == null || a.coordinates?.lng == null) continue;
+      const d = Math.sqrt((a.coordinates.lat - lat) ** 2 + (a.coordinates.lng - lng) ** 2);
+      if (d < bestDist) { bestDist = d; best = a; }
+    }
+    if (best) {
+      setAddressQuery(best.address);
+    }
   }, []);
 
-  // Nominatim прямое геокодирование
-  const geocodeAddress = useCallback(async () => {
-    const query = addressQuery.trim();
-    if (!query) return;
-
-    setGeocoding(true);
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&accept-language=ru`,
-        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
-      );
-      const data = await res.json();
-
-      if (data && data.length > 0) {
-        const { lat, lon, display_name } = data[0];
-        const latNum = parseFloat(lat);
-        const lonNum = parseFloat(lon);
-
-        const map = mapInstanceRef.current;
-        if (map) {
-          map.flyTo([latNum, lonNum], 16, { duration: 1.5 });
-        }
-        setAddressMarker(latNum, lonNum);
-        if (display_name) {
-          setAddressQuery(display_name);
-        }
+  // Выбор адреса из автодополнения
+  const selectSuggestion = useCallback((addr: AdAddress) => {
+    setAddressQuery(addr.address);
+    setShowSuggestions(false);
+    setHighlightedSuggestionIdx(-1);
+    if (addr.coordinates?.lat != null && addr.coordinates?.lng != null) {
+      const map = mapInstanceRef.current;
+      if (map) {
+        map.flyTo([addr.coordinates.lat, addr.coordinates.lng], 17, { duration: 1 });
       }
-    } catch { /* ignore */ }
-    setGeocoding(false);
-  }, [addressQuery, setAddressMarker]);
+      setAddressMarker(addr.coordinates.lat, addr.coordinates.lng);
+    }
+  }, [setAddressMarker]);
 
   // Обновляем рефы для доступа из замыканий карты
   setAddressMarkerRef.current = setAddressMarker;
-  reverseGeocodeRef.current = reverseGeocode;
+  reverseGeocodeRef.current = findNearestAddress;
+  findNearestAddressRef.current = findNearestAddress;
 
   // Полный пересчёт + уведомление родителя
   const recalcAndNotify = useCallback(() => {
@@ -895,6 +919,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
 
   const clearAddress = () => {
     setAddressQuery('');
+    setShowSuggestions(false);
+    setHighlightedSuggestionIdx(-1);
     if (addressMarkerRef.current && mapInstanceRef.current) {
       mapInstanceRef.current.removeLayer(addressMarkerRef.current);
       addressMarkerRef.current = null;
@@ -966,40 +992,60 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
           />
           <span className="address-toggle-label">Адрес</span>
         </label>
-        <div className="address-search">
+        <div className="address-search address-search-autocomplete">
           <input
             type="text"
             className="address-input"
             placeholder={addressEnabled ? 'Введите адрес или кликните на карту...' : ''}
             value={addressQuery}
             onChange={(e) => setAddressQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && addressEnabled) geocodeAddress(); }}
-            disabled={!addressEnabled || geocoding}
+            onFocus={() => { if (addressSuggestions.length > 0) setShowSuggestions(true); }}
+            onBlur={() => { setTimeout(() => setShowSuggestions(false), 200); }}
+            onKeyDown={(e) => {
+              if (!addressEnabled) return;
+              if (e.key === 'Escape') { setShowSuggestions(false); return; }
+              if (showSuggestions && addressSuggestions.length > 0) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlightedSuggestionIdx(prev => Math.min(prev + 1, addressSuggestions.length - 1));
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlightedSuggestionIdx(prev => Math.max(prev - 1, 0));
+                  return;
+                }
+                if (e.key === 'Enter' && highlightedSuggestionIdx >= 0) {
+                  e.preventDefault();
+                  selectSuggestion(addressSuggestions[highlightedSuggestionIdx]);
+                  return;
+                }
+              }
+            }}
+            disabled={!addressEnabled}
           />
-          <button
-            className={`address-search-btn${!(addressQuery && addressEnabled) ? ' rounded-right' : ''}`}
-            onClick={geocodeAddress}
-            disabled={!addressEnabled || geocoding || !addressQuery.trim()}
-            title="Найти адрес"
-          >
-            {geocoding ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
-                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.7s" repeatCount="indefinite"/>
-                </path>
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-            )}
-          </button>
           {addressQuery && addressEnabled && (
             <button className="address-clear-btn" onClick={clearAddress} title="Очистить">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
             </button>
+          )}
+          {showSuggestions && addressSuggestions.length > 0 && (
+            <div ref={suggestionsRef} className="address-suggestions">
+              {addressSuggestions.map((addr, i) => (
+                <div
+                  key={addr.id ?? i}
+                  className={`address-suggestion-item${i === highlightedSuggestionIdx ? ' highlighted' : ''}`}
+                  onMouseDown={() => selectSuggestion(addr)}
+                  onMouseEnter={() => setHighlightedSuggestionIdx(i)}
+                >
+                  <span className="address-suggestion-text">{addr.address}</span>
+                  {addr.floors_count != null && <span className="address-suggestion-meta">{addr.floors_count} эт.</span>}
+                  {addr.build_year != null && <span className="address-suggestion-meta">{addr.build_year} г.</span>}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

@@ -6,7 +6,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
-import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem } from '@/types';
+import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem } from '@/types';
+import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
+import { getModules } from '@/services/api-service';
+import AdsReportsPanel from './reports/AdsReportsPanel';
 import { REGION_CENTERS } from '@/constants/regions';
 import {
   getInparsToken,
@@ -34,6 +37,7 @@ import {
   ArrowPathIcon,
   MapPinIcon,
   TrashIcon,
+  ChartBarIcon,
 } from '@heroicons/react/16/solid';
 
 // ─── Константы ───
@@ -72,12 +76,12 @@ const SELLER_TYPE_LABELS: Record<string, string> = { owner: 'Собственн�
 /** sellerType для API Inpars: 1=собственник, 2=агент, 3=застройщик */
 const SELLER_TYPE_API_MAP: Record<string, number> = { owner: 1, agent: 2, developer: 3 };
 const PROCESSING_STATUS_LABELS: Record<string, string> = {
-  address_needed: 'Определить адрес', duplicate_check_needed: 'Обработать на дубли', needs_update: 'Актуализировать', processed: 'Обработано',
+  address_needed: 'Определить адрес', duplicate_check_needed: 'Обработать на дубли', needs_update: 'Актуализировать',
 };
 const CONFIDENCE_LABELS: Record<string, string> = {
   high: '(Подтвержден)', medium: '(Средняя)', low: '(Низкая)', very_low: '(Очень низкая)', manual: '(Ручной)',
 };
-const PAGE_SIZE = 25;
+const PAGE_SIZES = [10, 25, 50, 100];
 
 function toDateString(d: Date): string { return d.toISOString().slice(0, 10); }
 
@@ -109,6 +113,80 @@ type TableRow =
 
 interface AdsPageProps { onNavigate?: (page: string) => void; }
 
+/** Компонент пагинации с номерами страниц и выбором размера */
+const PaginationBar: React.FC<{
+  page: number; totalPages: number; pageSize: number; totalItems: number;
+  position?: 'top' | 'bottom';
+  onPageChange: (p: number) => void;
+  onPageSizeChange: (s: number) => void;
+}> = ({ page, totalPages, pageSize, totalItems, position = 'top', onPageChange, onPageSizeChange }) => {
+  // Формируем массив номеров страниц для отображения
+  const getPageNumbers = (): (number | '...')[] => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const pages: (number | '...')[] = [1];
+    if (page > 3) pages.push('...');
+    const start = Math.max(2, page - 1);
+    const end = Math.min(totalPages - 1, page + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+    return pages;
+  };
+
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalItems);
+
+  return (
+    <div className={`flex items-center justify-between px-4 py-2 ${position === 'top' ? 'border-b' : 'border-t'} border-zinc-200 dark:border-zinc-700`}>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{from}–{to} из {totalItems}</span>
+        <select
+          value={pageSize}
+          onChange={e => onPageSizeChange(Number(e.target.value))}
+          className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1 py-0.5 text-[11px] text-zinc-700 dark:text-zinc-300"
+        >
+          {PAGE_SIZES.map(s => <option key={s} value={s}>{s} на стр.</option>)}
+        </select>
+      </div>
+      <div className="flex items-center gap-0.5">
+        <button
+          onClick={() => onPageChange(1)} disabled={page <= 1}
+          className="px-1.5 py-1 rounded text-[11px] border border-zinc-300 dark:border-zinc-600 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+          title="Первая"
+        >{'«'}</button>
+        <button
+          onClick={() => onPageChange(page - 1)} disabled={page <= 1}
+          className="px-1.5 py-1 rounded text-[11px] border border-zinc-300 dark:border-zinc-600 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+        >{'‹'}</button>
+        {getPageNumbers().map((p, i) =>
+          p === '...' ? (
+            <span key={`dots-${i}`} className="px-1 text-[11px] text-zinc-400">...</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onPageChange(p)}
+              className={`px-2 py-1 rounded text-[11px] border ${
+                p === page
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+              }`}
+            >{p}</button>
+          )
+        )}
+        <button
+          onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}
+          className="px-1.5 py-1 rounded text-[11px] border border-zinc-300 dark:border-zinc-600 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+        >{'›'}</button>
+        <button
+          onClick={() => onPageChange(totalPages)} disabled={page >= totalPages}
+          className="px-1.5 py-1 rounded text-[11px] border border-zinc-300 dark:border-zinc-600 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+          title="Последняя"
+        >{'»'}</button>
+      </div>
+    </div>
+  );
+};
+
 const AdsPage: React.FC<AdsPageProps> = () => {
   const { startAdsImport, tasks: importTasks } = useImportTasks();
   const adsImportRunning = importTasks.some(t => t.type === 'ads-import' && t.status === 'running');
@@ -119,6 +197,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [stats, setStats] = useState<AdStats | null>(null);
   const [totalAds, setTotalAds] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // ─── Выбор ───
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -200,6 +279,10 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [runImport, setRunImport] = useState(false);
   const [runAddress, setRunAddress] = useState(false);
   const [runUpdate, setRunUpdate] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
+  const [archiveDays, setArchiveDays] = useState(7);
+  const [showReports, setShowReports] = useState(false);
+  const [dealsModuleActive, setDealsModuleActive] = useState(false);
 
   // ─── Matching адресов ───
   const [matchRunning, setMatchRunning] = useState(false);
@@ -216,6 +299,22 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [detailAddress, setDetailAddress] = useState<AdAddress | null>(null);
   const [assignAd, setAssignAd] = useState<Ad | null>(null);
   const [createAddressForAd, setCreateAddressForAd] = useState<Ad | null>(null);
+
+  /** Открыть модалку объекта — гарантирует загрузку его объявлений */
+  const openObjectDetail = useCallback((o: AdObject) => {
+    const objId = o.id!;
+    if (!objectAds.has(objId)) {
+      const ads = allAds
+        .filter(a => a.object_id === objId)
+        .sort((a, b) => {
+          const ta = new Date(a.updated || a.created || 0).getTime();
+          const tb = new Date(b.updated || b.created || 0).getTime();
+          return tb - ta;
+        });
+      setObjectAds(prev => new Map(prev).set(objId, ads));
+    }
+    setDetailObject(o);
+  }, [objectAds, allAds]);
   const [addressModalMode, setAddressModalMode] = useState<'edit' | 'create'>('edit');
 
   // ─── Карта ───
@@ -269,6 +368,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { ensureInparsData(); }, []);
+  useEffect(() => {
+    getModules().then(data => {
+      const active = data.modules.some(m => m.code === 'dealsrosreestr' && m.access?.status === 'active');
+      setDealsModuleActive(active);
+    }).catch(() => {});
+  }, []);
 
   // Отслеживание завершения импорта — обновление таблицы + toast
   const lastSeenImportStatus = useRef<Record<string, string>>({});
@@ -526,11 +631,23 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     setActiveFilterStateJson(null); // временно null, чтобы не мигало
   };
 
-  // Проверяем, изменился ли активный фильтр
+  // Поля фильтра обработки — не участвуют в отслеживании изменений сохранённого фильтра
+  const PROCESSING_FILTER_KEYS = ['processingStatus', 'addressId', 'contactType', 'processingCategoryId', 'processingFloor'];
+
+  // Убираем из состояния поля фильтра обработки для сравнения
+  const stripProcessingFields = (state: Record<string, unknown>) => {
+    const copy = { ...state };
+    for (const key of PROCESSING_FILTER_KEYS) delete copy[key];
+    return copy;
+  };
+
+  // Проверяем, изменился ли активный фильтр (без учёта полей фильтра обработки)
   const filterChanged = useMemo(() => {
     if (!activeFilterId || !activeFilterStateJson) return false;
     const current = getFilterState();
-    return JSON.stringify(current) !== activeFilterStateJson;
+    const currentStripped = stripProcessingFields(current);
+    const savedStripped = stripProcessingFields(JSON.parse(activeFilterStateJson));
+    return JSON.stringify(currentStripped) !== JSON.stringify(savedStripped);
   }, [activeFilterId, activeFilterStateJson, getFilterState]);
 
   const handleSaveToActiveFilter = () => {
@@ -561,8 +678,20 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   const handleCancelFilterChanges = () => {
     if (!activeFilterStateJson) return;
+    // Сохраняем текущие значения полей фильтра обработки (они не сбрасываются)
+    const currentProcessingStatus = filterProcessingStatus;
+    const currentAddressId = filterAddressId;
+    const currentContactType = filterContactType;
+    const currentProcessingCategoryId = filterProcessingCategoryId;
+    const currentProcessingFloor = filterProcessingFloor;
     const savedState = JSON.parse(activeFilterStateJson);
     applyFilterState(savedState);
+    // Восстанавливаем поля фильтра обработки, т.к. они не являются частью сохранённого фильтра
+    setFilterProcessingStatus(currentProcessingStatus);
+    setFilterAddressId(currentAddressId);
+    setFilterContactType(currentContactType);
+    setFilterProcessingCategoryId(currentProcessingCategoryId);
+    setFilterProcessingFloor(currentProcessingFloor);
   };
 
   // ─── Доступные серии домов (только из релевантных адресов) ───
@@ -638,6 +767,18 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         a.processing_status === 'address_needed' ||
         (a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low'))
       );
+    } else if (filterProcessingStatus === 'needs_update') {
+      // «Актуализировать» — все объявления прошедшие этап адреса с устаревшими данными
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
+      result = result.filter(a => {
+        if (a.processing_status === 'address_needed') return false;
+        // Архивные старше N дней — пропускаем
+        if (a.status === 'archived' && a.updated && new Date(a.updated) < archiveCutoff) return false;
+        return !a.updated || new Date(a.updated) < oneDayAgo;
+      });
+    } else if (filterProcessingStatus === 'duplicate_check_needed') {
+      result = result.filter(a => a.processing_status === 'duplicate_check_needed' && !a.object_id);
     } else if (filterProcessingStatus) {
       result = result.filter(a => a.processing_status === filterProcessingStatus);
     }
@@ -670,7 +811,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax, filterYearMin, filterYearMax,
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
     filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor,
-    filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
+    filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, archiveDays]);
 
   const filteredObjects = useMemo(() => {
     let result = allObjects;
@@ -710,20 +851,23 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
     const rows: TableRow[] = [];
-    // Сначала объекты
-    for (const obj of filteredObjects) {
-      rows.push({ kind: 'object', data: obj });
-      if (expandedObjects.has(obj.id!)) {
-        const objAds = objectAds.get(obj.id!) || [];
-        for (const ad of objAds) {
-          rows.push({ kind: 'expanded_ad', data: ad, parentObjectId: obj.id! });
+    const isUpdateFilter = filterProcessingStatus === 'needs_update';
+    // Сначала объекты (не показываем при фильтре "Актуализировать")
+    if (!isUpdateFilter) {
+      for (const obj of filteredObjects) {
+        rows.push({ kind: 'object', data: obj });
+        if (expandedObjects.has(obj.id!)) {
+          const objAds = objectAds.get(obj.id!) || [];
+          for (const ad of objAds) {
+            rows.push({ kind: 'expanded_ad', data: ad, parentObjectId: obj.id! });
+          }
         }
       }
     }
-    // Потом объявления без объекта
+    // Потом объявления без объекта (при "Актуализировать" — все объявления)
     const objectAdIds = new Set(allAds.filter(a => a.object_id).map(a => a.id));
     for (const ad of filteredAds) {
-      if (!objectAdIds.has(ad.id)) {
+      if (!objectAdIds.has(ad.id) || isUpdateFilter) {
         rows.push({ kind: 'ad', data: ad });
       }
     }
@@ -752,13 +896,13 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
 
     return rows;
-  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir]);
+  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir, filterProcessingStatus]);
 
-  const totalPages = Math.ceil(tableRows.length / PAGE_SIZE);
+  const totalPages = Math.ceil(tableRows.length / pageSize);
   const pagedRows = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return tableRows.slice(start, start + PAGE_SIZE);
-  }, [tableRows, page]);
+    const start = (page - 1) * pageSize;
+    return tableRows.slice(start, start + pageSize);
+  }, [tableRows, page, pageSize]);
 
   // ─── Активные фильтры ───
   const activeFilterTags = useMemo(() => {
@@ -848,7 +992,13 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     } else {
       next.add(objectId);
       if (!objectAds.has(objectId)) {
-        const ads = allAds.filter(a => a.object_id === objectId);
+        const ads = allAds
+          .filter(a => a.object_id === objectId)
+          .sort((a, b) => {
+            const ta = new Date(a.updated || a.created || 0).getTime();
+            const tb = new Date(b.updated || b.created || 0).getTime();
+            return tb - ta; // по убыванию даты обновления
+          });
         setObjectAds(prev => new Map(prev).set(objectId, ads));
       }
     }
@@ -879,6 +1029,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const quickFilter = (row: TableRow) => {
     // Показать панель фильтра обработки, если скрыта
     if (!showProcessingFilter) setShowProcessingFilter(true);
+    // Сбрасываем статус обработки и страницу
+    setFilterProcessingStatus('');
+    setPage(1);
 
     if (row.kind === 'object') {
       const o = row.data;
@@ -889,7 +1042,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       if (a.address_id) setFilterAddressId(a.address_id);
       if (a.category_id) setFilterProcessingCategoryId(a.category_id);
       if (a.floor != null) setFilterProcessingFloor(String(a.floor));
-      // Статус обработки и контакт НЕ заполняются — как в neocenka-extension
     }
   };
 
@@ -1062,6 +1214,261 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
   };
 
+  // ─── Объединение / разбиение объектов ───
+
+  /** Объединение историй цен из нескольких объявлений */
+  const mergePriceHistory = useCallback((ads: Ad[]): PriceHistoryItem[] => {
+    type Entry = { date: string; price: number; adId: number };
+    const entries: Entry[] = [];
+
+    for (const ad of ads) {
+      // Записи из price_history
+      if (ad.price_history && ad.price_history.length > 0) {
+        for (const h of ad.price_history) {
+          const price = h.new_price ?? h.price;
+          if (price != null && h.date) {
+            entries.push({ date: h.date, price, adId: ad.id ?? 0 });
+          }
+        }
+      }
+      // Текущая цена как финальная точка
+      if (ad.price != null) {
+        const date = ad.updated || ad.created || new Date().toISOString();
+        entries.push({ date, price: ad.price, adId: ad.id ?? 0 });
+      }
+    }
+
+    // Сортировка по дате
+    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Удаление дубликатов: ключ = (дата_без_времени, цена, adId)
+    const seen = new Set<string>();
+    const unique: PriceHistoryItem[] = [];
+    for (const e of entries) {
+      const day = e.date.slice(0, 10);
+      const key = `${day}|${e.price}|${e.adId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push({ date: e.date, new_price: e.price, price: e.price });
+    }
+
+    return unique;
+  }, []);
+
+  /** Пересчёт объекта из массива объявлений */
+  const recalculateObjectFromAds = useCallback((ads: Ad[]): Omit<AdObject, 'id' | 'created_at' | 'updated_at'> => {
+    if (ads.length === 0) {
+      return {
+        address_id: null, property_type: null, area_total: null, area_living: null,
+        area_kitchen: null, floor: null, floors_total: null, rooms: null,
+        status: 'archive', current_price: null, price_per_meter: null,
+        price_history: [], listings_count: 0, active_listings_count: 0,
+        owner_status: '', sale_deal: null, created: null, updated: null, last_recalculated_at: new Date().toISOString(),
+      };
+    }
+
+    // Преобладающий тип (наиболее частый)
+    const typeCounts: Record<string, number> = {};
+    for (const ad of ads) {
+      if (ad.property_type) typeCounts[ad.property_type] = (typeCounts[ad.property_type] || 0) + 1;
+    }
+    const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    // Преобладающий этаж
+    const floorCounts: Record<number, number> = {};
+    for (const ad of ads) {
+      if (ad.floor != null) floorCounts[ad.floor] = (floorCounts[ad.floor] || 0) + 1;
+    }
+    const dominantFloor = Object.entries(floorCounts)
+      .sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0]
+      ? [Number(Object.entries(floorCounts).sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0]?.[0])]
+      : null;
+
+    // Минимальные площади
+    const areas = ads.map(a => a.area_total).filter((v): v is number => v != null);
+    const areasLiving = ads.map(a => a.area_living).filter((v): v is number => v != null);
+    const areasKitchen = ads.map(a => a.area_kitchen).filter((v): v is number => v != null);
+
+    // Комнаты из property_type
+    const roomsMap: Record<string, number> = { studio: 0, '1k': 1, '2k': 2, '3k': 3, '4k+': 4 };
+    const rooms = dominantType ? (roomsMap[dominantType] ?? null) : null;
+
+    // Общий address_id
+    const addressIds = [...new Set(ads.map(a => a.address_id).filter((v): v is number => v != null))];
+    const commonAddressId = addressIds.length === 1 ? addressIds[0] : (addressIds.length > 0 ? addressIds[0] : null);
+
+    // Статус
+    const hasActive = ads.some(a => a.status === 'active');
+    const status = hasActive ? 'active' : 'archive';
+
+    // Даты
+    const dates = ads.map(a => a.created).filter((v): v is string => !!v);
+    const updatedDates = ads.map(a => a.updated || a.created).filter((v): v is string => !!v);
+    const earliest = dates.length > 0 ? dates.sort()[0] : null;
+    const latest = updatedDates.length > 0 ? updatedDates.sort().reverse()[0] : null;
+
+    // История цен
+    const priceHistory = mergePriceHistory(ads);
+    const currentPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].new_price ?? priceHistory[priceHistory.length - 1].price ?? null : null;
+    const areaTotal = areas.length > 0 ? Math.min(...areas) : null;
+    const pricePerMeter = (currentPrice != null && areaTotal != null && areaTotal > 0)
+      ? Math.round(currentPrice / areaTotal)
+      : null;
+
+    // Статус собственника
+    const hasOwner = ads.some(a =>
+      a.seller_type === 'owner' || a.seller_info?.type === 'owner'
+    );
+    const ownerStatus = hasOwner ? 'есть от собственника' : 'только от агентов';
+
+    // Подсчёт объявлений
+    const listingsCount = ads.length;
+    const activeListingsCount = ads.filter(a => a.status === 'active').length;
+
+    return {
+      address_id: commonAddressId,
+      property_type: dominantType,
+      area_total: areaTotal,
+      area_living: areasLiving.length > 0 ? Math.min(...areasLiving) : null,
+      area_kitchen: areasKitchen.length > 0 ? Math.min(...areasKitchen) : null,
+      floor: dominantFloor?.[0] ?? null,
+      floors_total: ads[0]?.floors_total ?? null,
+      rooms,
+      status,
+      current_price: currentPrice,
+      price_per_meter: pricePerMeter,
+      price_history: priceHistory,
+      listings_count: listingsCount,
+      active_listings_count: activeListingsCount,
+      owner_status: ownerStatus,
+      sale_deal: null, // сохраняется отдельно через onLinkDeal
+      created: earliest,
+      updated: latest,
+      last_recalculated_at: new Date().toISOString(),
+    };
+  }, [mergePriceHistory]);
+
+  /** Пересчёт и сохранение объекта при изменении одного объявления */
+  const recalculateAndSaveObject = useCallback(async (objectId: number) => {
+    const objectAds = await db.ads.where('object_id').equals(objectId).toArray();
+    if (objectAds.length === 0) return;
+
+    const existing = await db.table<AdObject>('ad_objects').get(objectId);
+    const updates = recalculateObjectFromAds(objectAds);
+    await db.table('ad_objects').update(objectId, {
+      ...updates,
+      sale_deal: existing?.sale_deal ?? null,
+      updated_at: new Date().toISOString(),
+    });
+  }, [recalculateObjectFromAds]);
+
+  /** Объединить выбранные объявления/объекты в один объект */
+  const handleMergeSelected = async () => {
+    if (selectedIds.size === 0) return;
+
+    const adIds: number[] = [];
+    const objectIds: number[] = [];
+    selectedIds.forEach(id => {
+      const type = selectedTypes.get(id);
+      if (type === 'object') objectIds.push(id);
+      else adIds.push(id);
+    });
+
+    // Собираем все объявления
+    const allMergeAds: Ad[] = [];
+
+    // Обычные объявления
+    for (const adId of adIds) {
+      const ad = allAds.find(a => a.id === adId);
+      if (ad) allMergeAds.push(ad);
+    }
+
+    // Объявления из выбранных объектов
+    for (const objId of objectIds) {
+      const objAds = await db.ads.where('object_id').equals(objId).toArray();
+      allMergeAds.push(...objAds);
+    }
+
+    if (allMergeAds.length === 0) return;
+
+    // Проверка address_id — предупреждение если разные
+    const addressIds = [...new Set(allMergeAds.map(a => a.address_id).filter(Boolean))];
+    if (addressIds.length > 1) {
+      setToast({ message: 'Нельзя объединить: объявления привязаны к разным адресам', type: 'error' });
+      return;
+    }
+
+    try {
+      // Создаём новый объект
+      const newObj = recalculateObjectFromAds(allMergeAds);
+      const newObjectId = await db.table('ad_objects').add({
+        ...newObj,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      // Привязываем все объявления к новому объекту
+      const allAdIds = allMergeAds.map(a => a.id).filter((id): id is number => id != null);
+      for (const adId of allAdIds) {
+        const ad = allMergeAds.find(a => a.id === adId);
+        const updates: Record<string, unknown> = { object_id: newObjectId as number };
+        // Если дубли обработаны — переводим в processed
+        if (ad && ad.processing_status === 'duplicate_check_needed') {
+          updates.processing_status = 'processed';
+        }
+        await db.ads.update(adId, updates);
+      }
+
+      // Удаляем старые объекты
+      if (objectIds.length > 0) {
+        await db.table('ad_objects').bulkDelete(objectIds);
+      }
+
+      // Сброс выбора, обновление UI
+      setSelectedIds(new Set());
+      setSelectedTypes(new Map());
+      await loadData();
+      setToast({ message: `Объединено ${allMergeAds.length} объявлений в объект`, type: 'success' });
+    } catch {
+      setToast({ message: 'Ошибка при объединении', type: 'error' });
+    }
+  };
+
+  /** Разбить выбранные объекты — отвязать все объявления и удалить объекты */
+  const handleSplitSelected = async () => {
+    const objectIds: number[] = [];
+    selectedIds.forEach(id => {
+      if (selectedTypes.get(id) === 'object') objectIds.push(id);
+    });
+
+    if (objectIds.length === 0) {
+      setToast({ message: 'Выберите хотя бы один объект для разбиения', type: 'error' });
+      return;
+    }
+
+    try {
+      for (const objId of objectIds) {
+        // Отвязываем все объявления
+        const objAds = await db.ads.where('object_id').equals(objId).toArray();
+        for (const ad of objAds) {
+          if (ad.id != null) {
+            await db.ads.update(ad.id, { object_id: null });
+          }
+        }
+      }
+
+      // Удаляем объекты
+      await db.table('ad_objects').bulkDelete(objectIds);
+
+      setSelectedIds(new Set());
+      setSelectedTypes(new Map());
+      await loadData();
+      setToast({ message: `Разбито ${objectIds.length} объектов`, type: 'success' });
+    } catch {
+      setToast({ message: 'Ошибка при разбиении', type: 'error' });
+    }
+  };
+
   // ─── Привязка адресов ───
   const handleLinkAd = async (adId: number, addressId: number) => {
     await adsAddressService.linkAdToAddress(adId, addressId);
@@ -1136,10 +1543,48 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
   };
 
+  /** Собрать CIAN-объявления из текущего фильтра и запустить batch-обновление */
+  const handleBatchUpdate = () => {
+    // Собираем все CIAN-объявления, попадающие под текущий фильтр
+    const cianAdsSet = new Set<number>();
+    const cianAds: Ad[] = [];
+    const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
+    const addIfCian = (ad: Ad) => {
+      if (ad.url?.includes('cian.ru') && ad.id && !cianAdsSet.has(ad.id)) {
+        cianAdsSet.add(ad.id);
+        cianAds.push(ad);
+      }
+    };
+    // Объявления без объекта (уже отфильтрованные)
+    for (const ad of filteredAds) addIfCian(ad);
+    // Объявления внутри отфильтрованных объектов (из allAds)
+    for (const ad of allAds) {
+      if (ad.object_id && filteredObjectIds.has(ad.object_id)) addIfCian(ad);
+    }
+    if (cianAds.length === 0) {
+      setToast({ message: 'Нет CIAN объявлений для обновления', type: 'info' });
+      return;
+    }
+    setBatchProgress({ phase: 'check', total: cianAds.length, current: 0, changed: 0, updated: 0, errors: [] });
+    batchUpdateCianAds(cianAds, setBatchProgress, archiveDays)
+      .then(result => {
+        setBatchProgress(null);
+        setToast({
+          message: `Обновление завершено: проверено ${result.checked}, изменено ${result.changed}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок: ${result.errors.length}` : ''}`,
+          type: result.errors.length > 0 ? 'error' : 'success',
+        });
+        loadData();
+      })
+      .catch(err => {
+        setBatchProgress(null);
+        setToast({ message: `Ошибка: ${err instanceof Error ? err.message : String(err)}`, type: 'error' });
+      });
+  };
+
   const handleRunAll = () => {
     if (runImport) handleImport();
     if (runAddress) handleMatchAddresses();
-    if (runUpdate) { alert('Обновление объявлений — в разработке'); }
+    if (runUpdate) handleBatchUpdate();
   };
 
   const toggleNumFilter = (arr: number[], item: number, setter: (v: number[]) => void) => {
@@ -1242,26 +1687,41 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const isExpanded = expandedObjects.has(id);
       const createdDays = daysAgo(o.created);
       const updatedDays = daysAgo(o.updated);
+      const objAddress = o.address_id ? addresses.find(x => x.id === o.address_id)?.address : null;
+      const exposureDays = o.created && o.updated
+        ? Math.floor((new Date(o.updated).getTime() - new Date(o.created).getTime()) / 86400000)
+        : createdDays;
       return (
         <tr key={`obj-${id}`} className={`cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
-          onClick={() => setDetailObject(o)}>
+          onClick={() => openObjectDetail(o)}>
           <td className="px-2 py-1.5"><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(id, 'object')} onClick={e => e.stopPropagation()} className="h-3 w-3 rounded border-zinc-300 text-blue-600" /></td>
           <td className="px-1 py-1.5"><button onClick={e => { e.stopPropagation(); quickFilter(row); }} className="text-zinc-400 hover:text-blue-600" title="Быстрый фильтр"><FunnelIcon className="size-3.5" /></button></td>
           <td className="px-2 py-1.5 text-xs">
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${o.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'}`}>{o.status === 'active' ? 'Активен' : 'Архив'}</span>
-            <button onClick={e => { e.stopPropagation(); toggleExpand(id); }} className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-zinc-600 dark:text-zinc-400 hover:text-blue-600">
-              <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-              Объявления: {o.listings_count} ({o.active_listings_count} акт.)
-            </button>
+            <div className="flex items-center gap-1 flex-nowrap">
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${o.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'}`}>{o.status === 'active' ? 'Активен' : 'Архив'}</span>
+              {o.sale_deal && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 shrink-0">Продажа</span>}
+              <button onClick={e => { e.stopPropagation(); toggleExpand(id); }} className="inline-flex items-center gap-0.5 text-[10px] text-zinc-600 dark:text-zinc-400 hover:text-blue-600 whitespace-nowrap">
+                <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                {o.listings_count} ({o.active_listings_count} акт.)
+              </button>
+            </div>
           </td>
-          <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{fmtDate(o.created)}</td>
-          <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{fmtDate(o.updated)}</td>
-          <td className="px-2 py-1.5 text-[11px] text-zinc-700 dark:text-zinc-300">
-            {o.property_type ? PROPERTY_TYPE_LABELS[o.property_type] || o.property_type : '—'}
-            {o.area_total != null ? `, ${o.area_total}м²` : ''}
+          <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+            <div>{fmtDate(o.created)}</div>
+            {exposureDays != null && <div className="text-[9px] text-zinc-400">эксп. {exposureDays} дн.</div>}
           </td>
-          <td className="px-2 py-1.5 text-[11px] max-w-[200px]">
-            <span className="cursor-pointer text-blue-600 dark:text-blue-400 hover:underline truncate block" onClick={e => { e.stopPropagation(); if (o.address_id) { const a = addresses.find(x => x.id === o.address_id); if (a) setDetailAddress(a); } else setDetailObject(o); }}>{o.address_id ? 'Адрес #' + o.address_id : 'Адрес не определен'}</span>
+          <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+            <div>{fmtDate(o.updated)}</div>
+            {updatedDays != null && <div className={`text-[9px] ${updatedDays > 7 ? 'text-red-500' : 'text-green-600'}`}>{updatedDays} дн. назад</div>}
+          </td>
+          <td className="px-2 py-1.5 text-[11px] text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
+            {o.property_type ? PROPERTY_TYPE_FULL[o.property_type] || o.property_type : '—'}
+            {o.property_type && ' кв.'}
+            {o.area_total != null ? `, ${o.area_total}${o.area_living ? '/' + o.area_living : ''}${o.area_kitchen ? '/' + o.area_kitchen : ''}м²` : ''}
+            {o.floor != null ? `, ${o.floor}/${o.floors_total ?? '?'} эт.` : ''}
+          </td>
+          <td className="px-2 py-1.5 text-[11px] max-w-[320px]">
+            <span className="text-blue-600 dark:text-blue-400 truncate block">{objAddress || 'Адрес не определен'}</span>
           </td>
           <td className="px-2 py-1.5 text-[11px] text-right whitespace-nowrap">
             <div className="text-green-600 dark:text-green-400 font-medium">{fmtPrice(o.current_price)}</div>
@@ -1284,20 +1744,39 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
     return (
       <tr key={`ad-${id}${isChild ? '-child' : ''}`}
-        className={`${isChild ? 'bg-zinc-50/50 dark:bg-zinc-800/30' : ''} cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
-        style={isChild ? { paddingLeft: '2rem' } : undefined}
+        className={`${isChild ? 'bg-orange-50/40 dark:bg-orange-900/5' : ''} cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
         onClick={() => setDetailAd(a)}>
-        <td className="px-2 py-1.5"><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(id, 'ad')} onClick={e => e.stopPropagation()} className="h-3 w-3 rounded border-zinc-300 text-blue-600" /></td>
-        <td className="px-1 py-1.5"><button onClick={e => { e.stopPropagation(); quickFilter(row); }} className="text-zinc-400 hover:text-blue-600" title="Быстрый фильтр"><FunnelIcon className="size-3.5" /></button></td>
+        {isChild && (
+          <td className="px-2 py-1.5" colSpan={2}>
+            <div className="border-l-2 border-orange-300 dark:border-orange-700 pl-3 ml-1">&nbsp;</div>
+          </td>
+        )}
+        {!isChild && (
+          <>
+            <td className="px-2 py-1.5"><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(id, 'ad')} onClick={e => e.stopPropagation()} className="h-3 w-3 rounded border-zinc-300 text-blue-600" /></td>
+            <td className="px-1 py-1.5"><button onClick={e => { e.stopPropagation(); quickFilter(row); }} className="text-zinc-400 hover:text-blue-600" title="Быстрый фильтр"><FunnelIcon className="size-3.5" /></button></td>
+          </>
+        )}
         <td className="px-2 py-1.5 text-xs space-y-0.5">
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${a.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'}`}>{a.status === 'active' ? 'Активен' : 'Архив'}</span>
-          {a.processing_status && a.processing_status !== 'processed' && (
-            <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
-              a.processing_status === 'address_needed' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
-              a.processing_status === 'duplicate_check_needed' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-              'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-            }`}>{PROCESSING_STATUS_LABELS[a.processing_status]}</span>
-          )}
+          {(() => {
+            // Вычисляемый статус обработки для бейджа
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            let badgeStatus = a.processing_status;
+            if (a.processing_status === 'processed') {
+              if (!a.updated || new Date(a.updated) < oneDayAgo) {
+                badgeStatus = 'needs_update';
+              }
+            }
+            if (!badgeStatus || badgeStatus === 'processed') return null;
+            return (
+              <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
+                badgeStatus === 'address_needed' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+                badgeStatus === 'duplicate_check_needed' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+              }`}>{PROCESSING_STATUS_LABELS[badgeStatus]}</span>
+            );
+          })()}
         </td>
         <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
           <div>{fmtDate(a.created)}</div>
@@ -1313,9 +1792,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         <td className="px-2 py-1.5 text-[11px] max-w-[320px]">
           {/* Исходный адрес объявления */}
           <div
-            className={`truncate-left cursor-pointer ${a.address ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400' : 'text-red-600 hover:text-red-800 dark:text-red-400'}`}
+            className={`truncate-left ${a.address ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'}`}
             title={a.address || 'Адрес не указан'}
-            onClick={e => { e.stopPropagation(); setDetailAd(a); }}
           >{a.address || 'Адрес не указан'}</div>
           {/* Адрес из БД (результат матчинга) */}
           <div
@@ -1323,7 +1801,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             title={addrFromDb ? (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low' ? `${addrFromDb} (${CONFIDENCE_LABELS[a.address_match_confidence] || ''})` : addrFromDb) : 'Адрес не определен'}
           >
             {addrFromDb ? (
-              <span className="cursor-pointer hover:text-blue-500" onClick={e => { e.stopPropagation(); const addrObj = a.address_id ? addresses.find(x => x.id === a.address_id) : null; if (addrObj) setDetailAddress(addrObj); }}>
+              <span>
                 {addrFromDb}
                 {a.address_match_confidence && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low') && (
                   <span className="text-red-400"> ({CONFIDENCE_LABELS[a.address_match_confidence]})</span>
@@ -1410,6 +1888,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               Сохранённые
             </Button>
             <Button onClick={handleOpenImport} color={showImportPanel ? 'dark' : 'white'}><ArrowDownTrayIcon className="size-4" />Загрузка</Button>
+            <Button onClick={() => setShowReports(!showReports)} color={showReports ? 'dark' : 'white'}><ChartBarIcon className="size-4" />Отчёты</Button>
             <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureInparsData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтры</Button>
           </div>
         </div>
@@ -1548,11 +2027,81 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
 
-            {/* Раздел 3: Обновление объявлений (ЗАГЛУШКА) */}
+            {/* Раздел 3: Обновление объявлений */}
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><ArrowPathIcon className="size-4" /> Обновление объявлений</h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Обновление данных по существующим объявлениям. <span className="text-amber-600">В разработке</span></p>
-              <p className="text-xs text-zinc-400">Активных объявлений: {allAds.filter(a => a.status === 'active').length}</p>
+              {batchProgress ? (
+                <div className="space-y-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                      {batchProgress.phase === 'check' && 'Проверка объявлений...'}
+                      {batchProgress.phase === 'parse' && 'Полный парсинг изменившихся...'}
+                      {batchProgress.phase === 'done' && 'Завершено'}
+                    </span>
+                    <span className="text-xs text-blue-600 dark:text-blue-400">
+                      {batchProgress.current}/{batchProgress.total}
+                    </span>
+                  </div>
+                  {/* Прогресс-бар */}
+                  <div className="w-full bg-blue-200 dark:bg-blue-900 rounded-full h-1.5">
+                    <div
+                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                      style={{ width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                  {batchProgress.phase === 'check' && batchProgress.changed > 0 && (
+                    <p className="text-[10px] text-blue-600 dark:text-blue-400">Изменилось: {batchProgress.changed}</p>
+                  )}
+                  {batchProgress.phase === 'parse' && (
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{batchProgress.currentUrl}</p>
+                  )}
+                  {batchProgress.errors.length > 0 && (
+                    <div className="text-[10px] text-red-600 dark:text-red-400 space-y-0.5">
+                      {batchProgress.errors.slice(0, 3).map((e, i) => (
+                        <p key={i} className="truncate">{e.error}</p>
+                      ))}
+                      {batchProgress.errors.length > 3 && <p>...и ещё {batchProgress.errors.length - 3} ошибок</p>}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    В фильтре: {(() => {
+                      const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
+                      const cianFiltered = allAds.filter(a =>
+                        a.url?.includes('cian.ru') && (
+                          filteredAds.some(fa => fa.id === a.id) ||
+                          (a.object_id && filteredObjectIds.has(a.object_id))
+                        )
+                      );
+                      const active = cianFiltered.filter(a => a.status === 'active').length;
+                      const archived = cianFiltered.length - active;
+                      return `${cianFiltered.length} CIAN (активных: ${active}, архив: ${archived})`;
+                    })()}
+                  </p>
+                  <p className="text-xs text-zinc-400">Быстрая проверка цены и статуса, полный парсинг только для изменившихся.</p>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap">Архивные не старше</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={archiveDays}
+                      onChange={e => setArchiveDays(Math.max(1, Number(e.target.value) || 7))}
+                      className="w-14 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-xs text-zinc-900 dark:text-white text-center"
+                    />
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">дней</span>
+                  </div>
+                  <button
+                    onClick={handleBatchUpdate}
+                    className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 flex items-center gap-1.5"
+                  >
+                    <ArrowPathIcon className="size-3.5" />
+                    Обновить CIAN объявления
+                  </button>
+                </>
+              )}
             </div>
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
@@ -1809,6 +2358,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           </div>
         )}
 
+        {/* Reports panel */}
+        {showReports && (
+          <AdsReportsPanel
+            objects={filteredObjects}
+            addresses={addresses.map(a => ({ id: a.id!, address: a.address }))}
+          />
+        )}
+
         {/* Active filters — всегда видны */}
         {activeFilterTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 mb-4">
@@ -1837,7 +2394,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                   <option value="address_needed">Определить адрес</option>
                   <option value="duplicate_check_needed">Обработать на дубли</option>
                   <option value="needs_update">Актуализировать</option>
-                  <option value="processed">Обработано</option>
                 </select>
               </div>
               <div>
@@ -1874,8 +2430,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           {/* Toolbar */}
           <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700 px-4 py-2">
             <input type="checkbox" checked={pagedRows.length > 0 && selectedIds.size > 0} onChange={toggleSelectAll} className="h-3 w-3 rounded border-zinc-300 text-blue-600" title="Выбрать все на странице" />
-            <button disabled={selectedIds.size === 0} className="px-2 py-1 rounded text-[11px] font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 disabled:opacity-30 disabled:cursor-not-allowed">Объединить</button>
-            <button disabled={selectedIds.size === 0} className="px-2 py-1 rounded text-[11px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed">Разбить</button>
+            <button disabled={selectedIds.size === 0} onClick={handleMergeSelected} className="px-2 py-1 rounded text-[11px] font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 disabled:opacity-30 disabled:cursor-not-allowed">Объединить</button>
+            <button disabled={selectedIds.size === 0 || ![...selectedTypes.values()].some(t => t === 'object')} onClick={handleSplitSelected} className="px-2 py-1 rounded text-[11px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed">Разбить</button>
             {!deleteSelectedConfirm ? (
               <button disabled={selectedIds.size === 0} onClick={() => setDeleteSelectedConfirm(true)} className="px-2 py-1 rounded text-[11px] font-medium bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 hover:bg-red-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"><TrashIcon className="size-3" />Удалить</button>
             ) : (
@@ -1893,6 +2449,16 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             </label>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">{loading ? 'Загрузка...' : `Всего: ${tableRows.length}`}</span>
           </div>
+
+          {/* Pagination top */}
+          {totalPages > 1 && (
+            <PaginationBar
+              page={page} totalPages={totalPages} pageSize={pageSize}
+              totalItems={tableRows.length}
+              onPageChange={setPage}
+              onPageSizeChange={s => { setPageSize(s); setPage(1); }}
+            />
+          )}
 
           {/* Table */}
           <div className="overflow-x-auto">
@@ -1918,16 +2484,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             </table>
           </div>
 
-          {/* Pagination */}
+          {/* Pagination bottom */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-2 border-t border-zinc-200 dark:border-zinc-700">
-              <span className="text-[11px] text-zinc-500">{((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, tableRows.length)} из {tableRows.length}</span>
-              <div className="flex gap-1">
-                <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1} className="px-2 py-1 rounded text-[11px] border border-zinc-300 dark:border-zinc-600 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300">Назад</button>
-                <span className="px-2 py-1 text-[11px] text-zinc-600 dark:text-zinc-400">{page}/{totalPages}</span>
-                <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages} className="px-2 py-1 rounded text-[11px] border border-zinc-300 dark:border-zinc-600 disabled:opacity-30 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300">Далее</button>
-              </div>
-            </div>
+            <PaginationBar
+              page={page} totalPages={totalPages} pageSize={pageSize}
+              totalItems={tableRows.length} position="bottom"
+              onPageChange={setPage}
+              onPageSizeChange={s => { setPageSize(s); setPage(1); }}
+            />
           )}
         </div>
       </div>
@@ -1945,8 +2509,24 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             houseProblems: refHouseProblems,
           }}
           onClose={() => setDetailAd(null)}
-          onSave={(updated) => {
+          onSave={async (updated) => {
+            // Сохраняем в БД
+            if (updated.id) {
+              await adsRepository.update(updated.id, updated);
+            }
             setAllAds(prev => prev.map(a => a.id === updated.id ? updated : a));
+            // Если объявление привязано к объекту — пересчитать объект
+            if (updated.object_id) {
+              await recalculateAndSaveObject(updated.object_id);
+              await loadData();
+            }
+          }}
+          onDelete={async (deleted) => {
+            if (deleted.id) {
+              await db.table('ads').delete(deleted.id);
+            }
+            setAllAds(prev => prev.filter(a => a.id !== deleted.id));
+            setDetailAd(null);
           }}
           onAddressChange={async () => {
             await loadData();
@@ -1964,8 +2544,20 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         <AdObjectDetailModal
           obj={detailObject}
           listings={objectAds.get(detailObject.id!) || []}
+          addresses={addresses}
+          dealsModuleActive={dealsModuleActive}
           onClose={() => setDetailObject(null)}
           onAdClick={(ad) => { setDetailObject(null); setDetailAd(ad); }}
+          onLinkDeal={async (objectId, saleDeal) => {
+            await db.table('ad_objects').update(objectId, { sale_deal: saleDeal });
+            setDetailObject(prev => prev ? { ...prev, sale_deal: saleDeal } : prev);
+            await loadData();
+          }}
+          onUnlinkDeal={async (objectId) => {
+            await db.table('ad_objects').update(objectId, { sale_deal: null });
+            setDetailObject(prev => prev ? { ...prev, sale_deal: null } : prev);
+            await loadData();
+          }}
         />
       )}
 

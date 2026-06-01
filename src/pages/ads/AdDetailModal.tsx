@@ -7,12 +7,16 @@
  * — Ссылка на источник
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import type { Ad, AdAddress, PriceHistoryItem, ReferenceItem } from '@/types';
 import { adsAddressService } from '@/services/ads-address-service';
+import { getMapConfig, createTileLayer } from '@/services/map-config';
+import { actualizeCianAd } from '@/services/cian-update-service';
 
 const SELLER_TYPE_LABELS: Record<string, string> = {
   owner: 'Собственник', agent: 'Агент', developer: 'Застройщик',
@@ -75,6 +79,7 @@ interface AdDetailModalProps {
   };
   onClose: () => void;
   onSave?: (updated: Ad) => void;
+  onDelete?: (ad: Ad) => void;
   onAddressChange?: () => void;
   onOpenCreateAddress?: (ad: Ad) => void;
   onOpenEditAddress?: (address: AdAddress) => void;
@@ -86,13 +91,25 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
   referenceData,
   onClose,
   onSave,
+  onDelete,
   onAddressChange,
   onOpenCreateAddress,
   onOpenEditAddress,
 }) => {
-  const [ad, setAd] = useState<Ad>(initialAd);
-  const [editPrice, setEditPrice] = useState('');
-  const [showPriceInput, setShowPriceInput] = useState(false);
+  const [ad, setAd] = useState<Ad>(() => {
+    const history = [...(initialAd.price_history || [])];
+    const createdDate = initialAd.created;
+
+    if (initialAd.price != null && createdDate) {
+      // Гарантируем запись на дату создания или раньше
+      const hasEntryAtCreation = history.some(h => new Date(h.date) <= new Date(createdDate));
+      if (!hasEntryAtCreation) {
+        history.push({ date: createdDate, price: initialAd.price });
+      }
+    }
+
+    return { ...initialAd, price_history: history };
+  });
   const [locationExpanded, setLocationExpanded] = useState(true);
   const [selectedAddressId, setSelectedAddressId] = useState<string>(String(ad.address_id || ''));
   const [saving, setSaving] = useState(false);
@@ -103,13 +120,85 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
   const [editHistoryPrice, setEditHistoryPrice] = useState('');
   const [showAddHistory, setShowAddHistory] = useState(false);
   const [newHistDate, setNewHistDate] = useState('');
-  const [newHistOldPrice, setNewHistOldPrice] = useState('');
   const [newHistNewPrice, setNewHistNewPrice] = useState('');
+  const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number | null>(null);
+  const [deleteAdConfirm, setDeleteAdConfirm] = useState(false);
+  const [actualizing, setActualizing] = useState(false);
+  const [actualizeResult, setActualizeResult] = useState<{ changes: string[] } | null>(null);
+  const [editUpdatedDate, setEditUpdatedDate] = useState('');
+  const [showEditUpdated, setShowEditUpdated] = useState(false);
+  const [editCreatedDate, setEditCreatedDate] = useState('');
+  const [showEditCreated, setShowEditCreated] = useState(false);
+  const [locationTab, setLocationTab] = useState<'map' | 'info'>('map');
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
 
   // Текущий привязанный адрес
   const currentAddress = ad.address_id
     ? addresses.find(a => a.id === ad.address_id)
     : null;
+
+  // Координаты для отображения на карте
+  const mapLat = currentAddress?.coordinates?.lat ?? ad.coordinates?.lat;
+  const mapLng = currentAddress?.coordinates?.lng ?? ad.coordinates?.lng;
+
+  // Инициализация мини-карты
+  useEffect(() => {
+    if (locationTab !== 'map' || !locationExpanded || !mapContainerRef.current) return;
+
+    // Уничтожаем предыдущую карту
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    const map = L.map(mapContainerRef.current, {
+      attributionControl: false,
+      zoomControl: true,
+      dragging: true,
+      scrollWheelZoom: false,
+      doubleClickZoom: true,
+    });
+
+    const mapConfig = getMapConfig();
+    createTileLayer(mapConfig).addTo(map);
+
+    if (mapLat != null && mapLng != null) {
+      map.setView([mapLat, mapLng], 17);
+      L.marker([mapLat, mapLng], {
+        icon: L.divIcon({
+          html: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24s12-15 12-24C24 5.37 18.63 0 12 0z" fill="#ea4335"/>
+            <circle cx="12" cy="12" r="5" fill="#fff"/>
+          </svg>`,
+          iconSize: [24, 36],
+          iconAnchor: [12, 36],
+          className: '',
+        }),
+      }).addTo(map);
+      // Popup с адресом
+      const popupAddr = currentAddress?.address || ad.address || '';
+      if (popupAddr) {
+        L.popup({ closeButton: false, offset: [0, -36] })
+          .setLatLng([mapLat, mapLng])
+          .setContent(`<div style="font-size:12px;max-width:250px;">${popupAddr}</div>`)
+          .openOn(map);
+      }
+    } else {
+      map.setView([55.7558, 37.6173], 10);
+    }
+
+    // Небольшая задержка для корректного рендера
+    setTimeout(() => map.invalidateSize(), 100);
+    mapInstanceRef.current = map;
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [locationTab, locationExpanded, mapLat, mapLng]);
 
   // Фильтрация адресов для селектора
   const filteredAddresses = useMemo(() => {
@@ -132,18 +221,46 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     return { text: label, cls };
   }, [ad]);
 
-  // Данные для графика цены
+  // Данные для графика цены — из price_history + текущая цена на дату обновления
   const priceChartData = useMemo(() => {
-    const history = ad.price_history || [];
-    if (history.length === 0 && ad.price != null) {
-      return [{ date: fmtDate(ad.created), price: ad.price, shortDate: fmtDate(ad.created) }];
+    const points: { date: string; price: number; shortDate: string }[] = [];
+
+    for (const h of ad.price_history || []) {
+      const p = h.new_price ?? h.price;
+      if (p != null) {
+        points.push({
+          date: h.date,
+          price: p,
+          shortDate: fmtDate(h.date),
+        });
+      }
     }
-    return history.map(h => ({
-      date: fmtDate(h.date),
-      price: h.new_price ?? h.price ?? 0,
-      shortDate: fmtDate(h.date),
-    }));
-  }, [ad.price_history, ad.price, ad.created]);
+
+    points.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Добавляем текущую цену на дату обновления (или сейчас для активных)
+    if (ad.price != null && points.length > 0) {
+      const lastPoint = points[points.length - 1];
+      const lastPrice = lastPoint.price;
+      const lastDate = lastPoint.date;
+
+      // Дата для последней точки: updated для архивных, сейчас для активных
+      const endDate = ad.status === 'archived' && ad.updated
+        ? ad.updated
+        : new Date().toISOString();
+
+      // Добавляем только если дата или цена отличаются от последней точки
+      if (ad.price !== lastPrice || endDate !== lastDate) {
+        points.push({
+          date: endDate,
+          price: ad.price,
+          shortDate: fmtDate(endDate),
+        });
+      }
+    }
+
+    return points;
+  }, [ad.price_history, ad.price, ad.updated, ad.status]);
 
   // Lightbox: навигация клавиатурой
   const photos = ad.photos || [];
@@ -158,14 +275,42 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     return () => window.removeEventListener('keydown', handler);
   }, [lightboxIndex, photos.length]);
 
+  // Пересчёт цены из истории: price = последняя (по дате) цена из price_history
+  const recalcPriceFromHistory = useCallback((adWithHistory: Ad): Ad => {
+    const history = adWithHistory.price_history || [];
+    if (history.length === 0) return adWithHistory;
+
+    // Находим запись с максимальной датой
+    let latest = history[0];
+    for (const h of history) {
+      if (new Date(h.date).getTime() > new Date(latest.date).getTime()) {
+        latest = h;
+      }
+    }
+
+    const price = latest.new_price ?? latest.price ?? adWithHistory.price;
+    if (price == null) return adWithHistory;
+
+    const latestDate = new Date(latest.date).getTime();
+    const currentUpdated = adWithHistory.updated ? new Date(adWithHistory.updated).getTime() : 0;
+    const updated = latestDate > currentUpdated ? latest.date : adWithHistory.updated;
+
+    return {
+      ...adWithHistory,
+      price,
+      price_per_meter: adWithHistory.area_total ? Math.round(price / adWithHistory.area_total) : null,
+      updated,
+    };
+  }, []);
+
   // История цен: обработчики
   const handleDeleteHistoryEntry = useCallback((idx: number) => {
     const history = [...(ad.price_history || [])];
     history.splice(idx, 1);
-    const updated = { ...ad, price_history: history };
+    const updated = recalcPriceFromHistory({ ...ad, price_history: history });
     setAd(updated);
     onSave?.(updated);
-  }, [ad, onSave]);
+  }, [ad, onSave, recalcPriceFromHistory]);
 
   const handleSaveHistoryEdit = useCallback(() => {
     if (editHistoryIdx == null) return;
@@ -175,51 +320,25 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     const newP = Number(editHistoryPrice.replace(/\s/g, '').replace(',', '.'));
     if (!isNaN(newP) && newP > 0) entry.new_price = newP;
     history[editHistoryIdx] = entry;
-    const updated = { ...ad, price_history: history };
+    const updated = recalcPriceFromHistory({ ...ad, price_history: history });
     setAd(updated);
     onSave?.(updated);
     setEditHistoryIdx(null);
-  }, [editHistoryIdx, editHistoryDate, editHistoryPrice, ad, onSave]);
+  }, [editHistoryIdx, editHistoryDate, editHistoryPrice, ad, onSave, recalcPriceFromHistory]);
 
   const handleAddHistoryEntry = useCallback(() => {
     const newP = Number(newHistNewPrice.replace(/\s/g, '').replace(',', '.'));
     if (isNaN(newP) || newP <= 0) return;
-    const oldP = newHistOldPrice ? Number(newHistOldPrice.replace(/\s/g, '').replace(',', '.')) : undefined;
     const date = newHistDate ? new Date(newHistDate).toISOString() : new Date().toISOString();
-    const entry: PriceHistoryItem = { date, new_price: newP, old_price: oldP };
+    const entry: PriceHistoryItem = { date, new_price: newP };
     const history = [...(ad.price_history || []), entry];
-    const updated = { ...ad, price_history: history };
+    const updated = recalcPriceFromHistory({ ...ad, price_history: history });
     setAd(updated);
     onSave?.(updated);
     setShowAddHistory(false);
     setNewHistDate('');
-    setNewHistOldPrice('');
     setNewHistNewPrice('');
-  }, [newHistDate, newHistOldPrice, newHistNewPrice, ad, onSave]);
-
-  const handleSavePrice = () => {
-    const newPrice = Number(editPrice.replace(/\s/g, '').replace(',', '.'));
-    if (isNaN(newPrice) || newPrice <= 0) return;
-
-    const now = new Date().toISOString();
-    const historyEntry: PriceHistoryItem = {
-      date: now,
-      old_price: ad.price ?? undefined,
-      new_price: newPrice,
-    };
-
-    const updated: Ad = {
-      ...ad,
-      price: newPrice,
-      price_per_meter: ad.area_total ? Math.round(newPrice / ad.area_total) : null,
-      price_history: [...(ad.price_history || []), historyEntry],
-      updated: now,
-    };
-    setAd(updated);
-    setShowPriceInput(false);
-    setEditPrice('');
-    onSave?.(updated);
-  };
+  }, [newHistDate, newHistNewPrice, ad, onSave, recalcPriceFromHistory]);
 
   /** Сохранить выбранный адрес из селектора */
   const handleSaveAddress = async () => {
@@ -298,20 +417,48 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto mx-4 relative" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 dark:border-zinc-700 sticky top-0 bg-white dark:bg-zinc-900 z-10">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-white truncate max-w-md">{ad.title || ad.address}</h2>
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-              ad.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'
-            }`}>{ad.status === 'active' ? 'Активно' : 'Архив'}</span>
+      <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col mx-4" onClick={e => e.stopPropagation()}>
+        {/* Header — вне прокручиваемой области */}
+        <div className="flex-shrink-0 px-5 py-3 border-b border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 rounded-t-xl z-20">
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-white truncate">
+                  {[
+                    ad.property_type || '',
+                    ad.area_total != null ? `${ad.area_total} м²` : '',
+                    ad.floor != null ? `эт. ${ad.floor}/${ad.floors_total ?? '?'}` : '',
+                    ad.price != null ? `${fmtPrice(ad.price)} ₽` : '',
+                  ].filter(Boolean).join(', ')}
+                </h2>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${
+                  ad.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'
+                }`}>{ad.status === 'active' ? 'Активно' : 'Архив'}</span>
+              </div>
+              {(ad.address || ad.title) && (
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">{ad.address || ad.title}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {ad.url && (
+                <a
+                  href={ad.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  {ad.source === 'cian' ? 'CIAN' : ad.source === 'avito' ? 'Avito' : ad.source || 'Источник'}
+                </a>
+              )}
+              <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none">&times;</button>
+            </div>
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none">&times;</button>
         </div>
 
-        <div className="p-5 space-y-4">
-          {/* ─── Секция «Местоположение» (как в neocenka-extension) ─── */}
+        {/* Прокручиваемый контент */}
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+          {/* ─── Секция «Местоположение» с табами ─── */}
           <div className="bg-white dark:bg-zinc-800 shadow overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-700">
             {/* Шапка секции */}
             <div
@@ -329,121 +476,150 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
 
             {/* Содержимое */}
             {locationExpanded && (
-              <div className="px-4 pb-4 space-y-3 border-t border-zinc-100 dark:border-zinc-700">
-                {/* Адрес из объявления */}
-                <div className="pt-3">
-                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Адрес из объявления:</span>
-                  <span className="text-sm text-zinc-600 dark:text-zinc-300 ml-2">{ad.address || 'Не указан'}</span>
+              <div className="border-t border-zinc-100 dark:border-zinc-700">
+                {/* Табы */}
+                <div className="flex border-b border-zinc-200 dark:border-zinc-700">
+                  <button
+                    onClick={() => setLocationTab('map')}
+                    className={`px-4 py-2 text-xs font-medium transition-colors ${
+                      locationTab === 'map'
+                        ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/10'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
+                    }`}
+                  >Карта</button>
+                  <button
+                    onClick={() => setLocationTab('info')}
+                    className={`px-4 py-2 text-xs font-medium transition-colors ${
+                      locationTab === 'info'
+                        ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/10'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
+                    }`}
+                  >Данные</button>
                 </div>
 
-                {/* Селектор адреса */}
-                <div>
-                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                    {ad.address_id ? 'Определённый адрес:' : 'Определить адрес:'}
-                  </span>
-                  <div className="flex items-center gap-2 mt-1">
-                    <input
-                      list={`address-datalist-${ad.id}`}
-                      value={selectedAddressId ? (addresses.find(a => a.id === Number(selectedAddressId))?.address || addressSearch) : addressSearch}
-                      onChange={e => {
-                        const val = e.target.value;
-                        // Проверяем, выбран ли существующий адрес
-                        const found = addresses.find(a => a.address === val);
-                        if (found) {
-                          setSelectedAddressId(String(found.id));
-                          setAddressSearch('');
-                        } else {
-                          setSelectedAddressId('');
-                          setAddressSearch(val);
-                        }
-                      }}
-                      placeholder="Поиск адреса..."
-                      className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                    <datalist id={`address-datalist-${ad.id}`}>
-                      {filteredAddresses.slice(0, 100).map(a => (
-                        <option key={a.id} value={a.address} />
-                      ))}
-                    </datalist>
-                    <button
-                      onClick={handleSaveAddress}
-                      disabled={saving}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-                        ad.address_id ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
-                      }`}
-                    >{saving ? '...' : 'Сохранить'}</button>
-                  </div>
-                </div>
+                {/* Таб: Карта */}
+                {locationTab === 'map' && (
+                  <div ref={mapContainerRef} style={{ height: 260, width: '100%' }} />
+                )}
 
-                {/* Точность / Статус */}
-                <div>
-                  {ad.address_id && ad.address_match_confidence ? (
-                    <>
-                      <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Точность:</span>
-                      <span className={`text-sm ml-2 ${CONFIDENCE_COLORS[ad.address_match_confidence] || 'text-zinc-600'}`}>
-                        {CONFIDENCE_TEXTS[ad.address_match_confidence] || ad.address_match_confidence}
-                        {ad.address_distance != null ? ` (${ad.address_distance}м)` : ''}
+                {/* Таб: Данные */}
+                {locationTab === 'info' && (
+                  <div className="px-4 pb-4 space-y-3">
+                    {/* Адрес из объявления */}
+                    <div className="pt-3">
+                      <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Адрес из объявления:</span>
+                      <span className="text-sm text-zinc-600 dark:text-zinc-300 ml-2">{ad.address || 'Не указан'}</span>
+                    </div>
+
+                    {/* Селектор адреса */}
+                    <div>
+                      <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                        {ad.address_id ? 'Определённый адрес:' : 'Определить адрес:'}
                       </span>
-                      <div className="flex items-center gap-2 mt-1.5 ml-2">
-                        {ad.address_match_confidence !== 'manual' && (
-                          <>
-                            <button
-                              onClick={handleConfirmAddress}
-                              disabled={saving}
-                              className="rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700 disabled:opacity-50"
-                            >✅ Верный адрес</button>
-                            <button
-                              onClick={handleRejectAddress}
-                              disabled={saving}
-                              className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                            >❌ Неверный адрес</button>
-                          </>
-                        )}
-                        {currentAddress && onOpenEditAddress && (
-                          <button
-                            onClick={() => onOpenEditAddress(currentAddress)}
-                            className="rounded-md bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300 px-2.5 py-1 text-[11px] font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600"
-                          >Редактировать</button>
-                        )}
+                      <div className="flex items-center gap-2 mt-1">
+                        <input
+                          list={`address-datalist-${ad.id}`}
+                          value={selectedAddressId ? (addresses.find(a => a.id === Number(selectedAddressId))?.address || addressSearch) : addressSearch}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const found = addresses.find(a => a.address === val);
+                            if (found) {
+                              setSelectedAddressId(String(found.id));
+                              setAddressSearch('');
+                            } else {
+                              setSelectedAddressId('');
+                              setAddressSearch(val);
+                            }
+                          }}
+                          placeholder="Поиск адреса..."
+                          className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <datalist id={`address-datalist-${ad.id}`}>
+                          {filteredAddresses.slice(0, 100).map(a => (
+                            <option key={a.id} value={a.address} />
+                          ))}
+                        </datalist>
+                        <button
+                          onClick={handleSaveAddress}
+                          disabled={saving}
+                          className={`rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
+                            ad.address_id ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'
+                          }`}
+                        >{saving ? '...' : 'Сохранить'}</button>
                       </div>
-                      {(ad.address_match_method || ad.address_match_score != null) && (
-                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 ml-2">
-                          Метод: {METHOD_TEXTS[ad.address_match_method || ''] || ad.address_match_method}
-                          {ad.address_match_score != null && ` • Оценка: ${Math.round(ad.address_match_score * 100)}%`}
+                    </div>
+
+                    {/* Точность / Статус */}
+                    <div>
+                      {ad.address_id && ad.address_match_confidence ? (
+                        <>
+                          <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Точность:</span>
+                          <span className={`text-sm ml-2 ${CONFIDENCE_COLORS[ad.address_match_confidence] || 'text-zinc-600'}`}>
+                            {CONFIDENCE_TEXTS[ad.address_match_confidence] || ad.address_match_confidence}
+                            {ad.address_distance != null ? ` (${ad.address_distance}м)` : ''}
+                          </span>
+                          <div className="flex items-center gap-2 mt-1.5 ml-2">
+                            {ad.address_match_confidence !== 'manual' && (
+                              <>
+                                <button
+                                  onClick={handleConfirmAddress}
+                                  disabled={saving}
+                                  className="rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                                >✅ Верный адрес</button>
+                                <button
+                                  onClick={handleRejectAddress}
+                                  disabled={saving}
+                                  className="rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                                >❌ Неверный адрес</button>
+                              </>
+                            )}
+                            {currentAddress && onOpenEditAddress && (
+                              <button
+                                onClick={() => onOpenEditAddress(currentAddress)}
+                                className="rounded-md bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300 px-2.5 py-1 text-[11px] font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                              >Редактировать</button>
+                            )}
+                          </div>
+                          {(ad.address_match_method || ad.address_match_score != null) && (
+                            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 ml-2">
+                              Метод: {METHOD_TEXTS[ad.address_match_method || ''] || ad.address_match_method}
+                              {ad.address_match_score != null && ` • Оценка: ${Math.round(ad.address_match_score * 100)}%`}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Статус:</span>
+                          <span className="text-sm text-orange-600 dark:text-orange-400 ml-2">Адрес не определён</span>
+                          <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 ml-2">Требуется обработка для определения адреса</div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Координаты */}
+                    <div>
+                      <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Координаты:</span>
+                      <span className="text-sm text-zinc-700 dark:text-zinc-300 ml-2">
+                        {ad.coordinates.lat != null && ad.coordinates.lng != null
+                          ? `${ad.coordinates.lat}, ${ad.coordinates.lng}`
+                          : 'Не указаны'}
+                      </span>
+                      {(ad.coordinates.lat != null && ad.coordinates.lng != null) && (
+                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 ml-2">
+                          {currentAddress ? 'Используются координаты определённого адреса' : 'Используются координаты из объявления'}
                         </div>
                       )}
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Статус:</span>
-                      <span className="text-sm text-orange-600 dark:text-orange-400 ml-2">Адрес не определён</span>
-                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 ml-2">Требуется обработка для определения адреса</div>
-                    </>
-                  )}
-                </div>
-
-                {/* Координаты */}
-                <div>
-                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Координаты:</span>
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300 ml-2">
-                    {ad.coordinates.lat != null && ad.coordinates.lng != null
-                      ? `${ad.coordinates.lat}, ${ad.coordinates.lng}`
-                      : 'Не указаны'}
-                  </span>
-                  {(ad.coordinates.lat != null && ad.coordinates.lng != null) && (
-                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 ml-2">
-                      {currentAddress ? 'Используются координаты определённого адреса' : 'Используются координаты из объявления'}
                     </div>
-                  )}
-                </div>
 
-                {/* Кнопка «Новый адрес» */}
-                {onOpenCreateAddress && (
-                  <div className="pt-1">
-                    <button
-                      onClick={() => onOpenCreateAddress(ad)}
-                      className="rounded-md bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600"
-                    >+ Новый адрес</button>
+                    {/* Кнопка «Новый адрес» */}
+                    {onOpenCreateAddress && (
+                      <div className="pt-1">
+                        <button
+                          onClick={() => onOpenCreateAddress(ad)}
+                          className="rounded-md bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                        >+ Новый адрес</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -463,29 +639,9 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
           </div>
 
           {/* Цена */}
-          <div className="bg-green-50 dark:bg-green-900/10 rounded-lg p-3 space-y-1">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-lg font-semibold text-green-700 dark:text-green-400">{fmtPrice(ad.price)} ₽</div>
-                {ad.price_per_meter != null && <div className="text-xs text-green-600 dark:text-green-500">{ad.price_per_meter.toLocaleString('ru-RU')} ₽/м²</div>}
-              </div>
-              <button onClick={() => { setShowPriceInput(!showPriceInput); setEditPrice(''); }} className="text-[10px] text-blue-600 hover:underline">
-                {showPriceInput ? 'Отмена' : 'Изменить цену'}
-              </button>
-            </div>
-            {showPriceInput && (
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="text"
-                  value={editPrice}
-                  onChange={e => setEditPrice(e.target.value)}
-                  placeholder="Новая цена"
-                  className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-sm text-zinc-900 dark:text-white w-32 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  onKeyDown={e => { if (e.key === 'Enter') handleSavePrice(); }}
-                />
-                <button onClick={handleSavePrice} className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700">Сохранить</button>
-              </div>
-            )}
+          <div className="bg-green-50 dark:bg-green-900/10 rounded-lg p-3">
+            <div className="text-lg font-semibold text-green-700 dark:text-green-400">{fmtPrice(ad.price)} ₽</div>
+            {ad.price_per_meter != null && <div className="text-xs text-green-600 dark:text-green-500">{ad.price_per_meter.toLocaleString('ru-RU')} ₽/м²</div>}
           </div>
 
           {/* График цены */}
@@ -493,11 +649,6 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
             <div>
               <h4 className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">Динамика цены</h4>
               <div className="bg-white dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700 p-2">
-                {priceChartData.length === 1 ? (
-                  <div className="flex items-center justify-center h-[160px] text-sm text-zinc-500">
-                    {fmtPrice(priceChartData[0].price)} ₽ — единственная запись
-                  </div>
-                ) : (
                 <ResponsiveContainer width="100%" height={160}>
                   <LineChart data={priceChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -510,7 +661,6 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
                     <Line type="stepAfter" dataKey="price" stroke="#16a34a" strokeWidth={2} dot={{ r: 3, fill: '#16a34a' }} />
                   </LineChart>
                 </ResponsiveContainer>
-                )}
               </div>
             </div>
           )}
@@ -528,52 +678,60 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
               {showAddHistory && (
                 <div className="flex items-center gap-2 mb-2 p-2 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
                   <input type="date" value={newHistDate} onChange={e => setNewHistDate(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-[11px] text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                  <input type="text" value={newHistOldPrice} onChange={e => setNewHistOldPrice(e.target.value)} placeholder="Старая цена" className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-[11px] text-zinc-900 dark:text-white w-24 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                  <input type="text" value={newHistNewPrice} onChange={e => setNewHistNewPrice(e.target.value)} placeholder="Новая цена" className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-[11px] text-zinc-900 dark:text-white w-24 focus:outline-none focus:ring-1 focus:ring-blue-500" onKeyDown={e => { if (e.key === 'Enter') handleAddHistoryEntry(); }} />
+                  <input type="text" value={newHistNewPrice} onChange={e => setNewHistNewPrice(e.target.value)} placeholder="Цена" className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-[11px] text-zinc-900 dark:text-white w-28 focus:outline-none focus:ring-1 focus:ring-blue-500" onKeyDown={e => { if (e.key === 'Enter') handleAddHistoryEntry(); }} />
                   <button onClick={handleAddHistoryEntry} className="rounded bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700">OK</button>
                 </div>
               )}
 
               <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-                <table className="w-full text-[11px]">
+                <table className="w-full text-[11px] table-fixed">
                   <thead className="bg-zinc-50 dark:bg-zinc-800">
                     <tr className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">
-                      <th className="px-2 py-1.5 text-left">Дата</th>
-                      <th className="px-2 py-1.5 text-left">Старая</th>
-                      <th className="px-2 py-1.5 text-left">Новая</th>
-                      <th className="px-2 py-1.5 text-center w-16">Действия</th>
+                      <th className="px-2 py-1.5 text-left w-[35%]">Дата</th>
+                      <th className="px-2 py-1.5 text-right w-[35%]">Цена</th>
+                      <th className="px-2 py-1.5 text-center w-[30%]">Действия</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                    {[...(ad.price_history || [])].reverse().map((h: PriceHistoryItem, ri: number) => {
-                      const idx = (ad.price_history?.length ?? 0) - 1 - ri;
-                      const isEditing = editHistoryIdx === idx;
-                      return (
-                        <tr key={idx} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                          {isEditing ? (
-                            <>
-                              <td className="px-2 py-1"><input type="date" value={editHistoryDate} onChange={e => setEditHistoryDate(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1 py-0.5 text-[11px] text-zinc-900 dark:text-white w-full focus:outline-none focus:ring-1 focus:ring-blue-500" /></td>
-                              <td className="px-2 py-1 text-zinc-400">{h.old_price != null ? fmtPrice(h.old_price) : '—'}</td>
-                              <td className="px-2 py-1"><input type="text" value={editHistoryPrice} onChange={e => setEditHistoryPrice(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1 py-0.5 text-[11px] text-zinc-900 dark:text-white w-20 focus:outline-none focus:ring-1 focus:ring-blue-500" onKeyDown={e => { if (e.key === 'Enter') handleSaveHistoryEdit(); if (e.key === 'Escape') setEditHistoryIdx(null); }} /></td>
-                              <td className="px-2 py-1 text-center">
-                                <button onClick={handleSaveHistoryEdit} className="text-green-600 hover:text-green-700 text-[10px] mr-1">OK</button>
-                                <button onClick={() => setEditHistoryIdx(null)} className="text-zinc-400 hover:text-zinc-600 text-[10px]">&times;</button>
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="px-2 py-1 text-zinc-500">{fmtDate(h.date)}</td>
-                              <td className="px-2 py-1 text-zinc-400">{h.old_price != null ? <span className="line-through">{fmtPrice(h.old_price)}</span> : '—'}</td>
-                              <td className="px-2 py-1 font-medium text-green-600 dark:text-green-400">{fmtPrice(h.new_price || h.price)}</td>
-                              <td className="px-2 py-1 text-center">
-                                <button onClick={() => { setEditHistoryIdx(idx); setEditHistoryDate(h.date ? h.date.slice(0, 10) : ''); setEditHistoryPrice(String(h.new_price || h.price || '')); }} className="text-blue-500 hover:text-blue-700 text-[10px] mr-1">изм.</button>
-                                <button onClick={() => handleDeleteHistoryEntry(idx)} className="text-red-400 hover:text-red-600 text-[10px]">уд.</button>
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      );
-                    })}
+                    {[...(ad.price_history || [])]
+                      .map((h: PriceHistoryItem, idx: number) => ({ h, idx }))
+                      .sort((a, b) => new Date(a.h.date).getTime() - new Date(b.h.date).getTime())
+                      .map(({ h, idx }) => {
+                        const isEditing = editHistoryIdx === idx;
+                        const isDeleting = deleteConfirmIdx === idx;
+                        return (
+                          <tr key={idx} className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/50 ${isDeleting ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
+                            {isEditing ? (
+                              <>
+                                <td className="px-2 py-1"><input type="date" value={editHistoryDate} onChange={e => setEditHistoryDate(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1 py-0.5 text-[11px] text-zinc-900 dark:text-white w-full focus:outline-none focus:ring-1 focus:ring-blue-500" /></td>
+                                <td className="px-2 py-1"><input type="text" value={editHistoryPrice} onChange={e => setEditHistoryPrice(e.target.value)} className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1 py-0.5 text-[11px] text-zinc-900 dark:text-white w-full text-right focus:outline-none focus:ring-1 focus:ring-blue-500" onKeyDown={e => { if (e.key === 'Enter') handleSaveHistoryEdit(); if (e.key === 'Escape') setEditHistoryIdx(null); }} /></td>
+                                <td className="px-2 py-1 text-center">
+                                  <button onClick={handleSaveHistoryEdit} className="text-green-600 hover:text-green-700 text-[10px] mr-1">OK</button>
+                                  <button onClick={() => setEditHistoryIdx(null)} className="text-zinc-400 hover:text-zinc-600 text-[10px]">&times;</button>
+                                </td>
+                              </>
+                            ) : isDeleting ? (
+                              <>
+                                <td className="px-2 py-1 text-zinc-500">{fmtDate(h.date)}</td>
+                                <td className="px-2 py-1 text-right font-medium text-red-600 dark:text-red-400">{fmtPrice(h.new_price || h.price)}</td>
+                                <td className="px-2 py-1 text-center">
+                                  <button onClick={() => { handleDeleteHistoryEntry(idx); setDeleteConfirmIdx(null); }} className="text-red-600 hover:text-red-700 text-[10px] mr-1 font-medium">Удалить?</button>
+                                  <button onClick={() => setDeleteConfirmIdx(null)} className="text-zinc-500 hover:text-zinc-700 text-[10px]">Отмена</button>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="px-2 py-1 text-zinc-500">{fmtDate(h.date)}</td>
+                                <td className="px-2 py-1 text-right font-medium text-green-600 dark:text-green-400">{fmtPrice(h.new_price || h.price)}</td>
+                                <td className="px-2 py-1 text-center">
+                                  <button onClick={() => { setEditHistoryIdx(idx); setEditHistoryDate(h.date ? h.date.slice(0, 10) : ''); setEditHistoryPrice(String(h.new_price || h.price || '')); }} className="text-blue-500 hover:text-blue-700 text-[10px] mr-1">изм.</button>
+                                  <button onClick={() => setDeleteConfirmIdx(idx)} className="text-red-400 hover:text-red-600 text-[10px]">уд.</button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -644,6 +802,196 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
             <span>Обновлено: {fmtDate(ad.updated)}</span>
             {ad.parsed_at && <span>Спарсено: {fmtDate(ad.parsed_at)}</span>}
           </div>
+        </div>
+
+        {/* Подвал с действиями */}
+        <div className="flex-shrink-0 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-5 py-3 rounded-b-xl">
+          <div className="flex items-center justify-between gap-3">
+            {/* Слева — Удалить */}
+            {deleteAdConfirm ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-red-600 dark:text-red-400 font-medium">Удалить объявление?</span>
+                <button
+                  onClick={() => { onDelete?.(ad); }}
+                  className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-red-700 transition-colors"
+                >Да, удалить</button>
+                <button
+                  onClick={() => setDeleteAdConfirm(false)}
+                  className="inline-flex items-center gap-1 rounded-md bg-zinc-100 dark:bg-zinc-700 px-3 py-1.5 text-[11px] font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
+                >Отмена</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setDeleteAdConfirm(true)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-red-50 dark:bg-red-900/20 px-3 py-1.5 text-[11px] font-medium text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                Удалить
+              </button>
+            )}
+
+            {/* Справа — Актуализировать, Статус, Дата */}
+            <div className="flex items-center gap-3 flex-wrap justify-end">
+              <button
+                onClick={async () => {
+                  if (actualizing) return;
+                  setActualizing(true);
+                  setActualizeResult(null);
+                  try {
+                    const result = await actualizeCianAd(ad);
+                    if (result.success && result.ad) {
+                      setAd(result.ad);
+                      onSave?.(result.ad);
+                      setActualizeResult({ changes: result.changes || ['Обновлено'] });
+                    } else {
+                      setActualizeResult({ changes: [`Ошибка: ${result.error || 'Неизвестная ошибка'}`] });
+                    }
+                  } catch (err) {
+                    setActualizeResult({ changes: [`Ошибка: ${err instanceof Error ? err.message : String(err)}`] });
+                  } finally {
+                    setActualizing(false);
+                  }
+                }}
+                disabled={actualizing || !ad.url?.includes('cian.ru')}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                  actualizing
+                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 cursor-wait'
+                    : !ad.url?.includes('cian.ru')
+                      ? 'bg-zinc-50 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                      : 'bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600'
+                }`}
+              >
+                {actualizing ? (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                )}
+                {actualizing ? 'Актуализация...' : 'Актуализировать'}
+              </button>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">Статус:</span>
+                <select
+                  value={ad.status}
+                  onChange={e => {
+                    const newStatus = e.target.value as 'active' | 'archived';
+                    const updatedAd = { ...ad, status: newStatus };
+                    setAd(updatedAd);
+                    onSave?.(updatedAd);
+                  }}
+                  className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-[11px] text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="active">Активное</option>
+                  <option value="archived">Архив</option>
+                </select>
+              </div>
+
+              {/* Дата создания — редактируемая */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">Создано:</span>
+                {showEditCreated ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="date"
+                      value={editCreatedDate}
+                      onChange={e => setEditCreatedDate(e.target.value)}
+                      className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-0.5 text-[11px] text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={() => {
+                        if (!editCreatedDate) { setShowEditCreated(false); return; }
+                        const newCreated = new Date(editCreatedDate).toISOString();
+                        const history = [...(ad.price_history || [])];
+                        // Добавляем запись в историю с ценой и новой датой создания
+                        if (ad.price != null) {
+                          history.push({ date: newCreated, price: ad.price });
+                        }
+                        const updatedAd = recalcPriceFromHistory({ ...ad, created: newCreated, price_history: history });
+                        setAd(updatedAd);
+                        onSave?.(updatedAd);
+                        setShowEditCreated(false);
+                      }}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-400 font-medium"
+                    >ОК</button>
+                    <button
+                      onClick={() => setShowEditCreated(false)}
+                      className="text-[10px] text-zinc-400 hover:text-zinc-600"
+                    >Отмена</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const d = ad.created ? new Date(ad.created) : new Date();
+                      setEditCreatedDate(d.toISOString().slice(0, 10));
+                      setShowEditCreated(true);
+                    }}
+                    className="text-[11px] text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors"
+                  >
+                    {fmtDate(ad.created)}
+                  </button>
+                )}
+              </div>
+
+              {/* Дата обновления — редактируемая */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">Обновлено:</span>
+                {showEditUpdated ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="date"
+                      value={editUpdatedDate}
+                      onChange={e => setEditUpdatedDate(e.target.value)}
+                      className="rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-0.5 text-[11px] text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={() => {
+                        if (!editUpdatedDate) { setShowEditUpdated(false); return; }
+                        const updatedAd = { ...ad, updated: new Date(editUpdatedDate).toISOString() };
+                        setAd(updatedAd);
+                        onSave?.(updatedAd);
+                        setShowEditUpdated(false);
+                      }}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-400 font-medium"
+                    >ОК</button>
+                    <button
+                      onClick={() => setShowEditUpdated(false)}
+                      className="text-[10px] text-zinc-400 hover:text-zinc-600"
+                    >Отмена</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const d = ad.updated ? new Date(ad.updated) : new Date();
+                      setEditUpdatedDate(d.toISOString().slice(0, 10));
+                      setShowEditUpdated(true);
+                    }}
+                    className="text-[11px] text-zinc-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors"
+                  >
+                    {fmtDate(ad.updated)}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Результат актуализации */}
+          {actualizeResult && (
+            <div className="border-t border-zinc-200 dark:border-zinc-700 bg-blue-50 dark:bg-blue-900/20 px-5 py-2 rounded-b-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {actualizeResult.changes.map((c, i) => (
+                    <span key={i} className="text-[10px] text-blue-700 dark:text-blue-300">{c}</span>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setActualizeResult(null)}
+                  className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 ml-2"
+                >
+                  Скрыть
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

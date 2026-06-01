@@ -472,6 +472,28 @@ export class DealsDatabase extends Dexie {
         name
       `,
     });
+
+    // Version 16: добавляем индекс quarter_cad_number для быстрого поиска сделок по кадастровому кварталу
+    this.version(16).stores({
+      deals: `
+        ++id,
+        region_code,
+        district,
+        city,
+        realestate_type_code,
+        doc_type,
+        year_quarter,
+        period_start_date,
+        deal_price,
+        area,
+        year_build,
+        wall_material_code,
+        import_id,
+        quarter_cad_number,
+        [region_code+year_quarter],
+        [region_code+realestate_type_code]
+      `,
+    });
   }
 }
 

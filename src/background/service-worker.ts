@@ -392,6 +392,287 @@ async function scrollAvitoList(maxCards?: number): Promise<number> {
 }
 
 // ============================================================
+// Актуализация объявления ЦИАН — парсинг карточки
+// ============================================================
+
+interface CianDetailParsed {
+  status: 'active' | 'archived';
+  price: number | null;
+  photos: string[];
+  updatedDate: string | null;     // ISO дата последнего обновления
+  priceHistory: Array<{ date: string; price: number }>;
+}
+
+/** Парсинг русской даты: "25 мая 2026", "27 апр, 10:55", "вчера, 13:30" и т.д. */
+function parseRussianDate(dateStr: string): Date | null {
+  const now = new Date();
+  const months: Record<string, number> = {
+    'января': 0, 'янв': 0,
+    'февраля': 1, 'фев': 1,
+    'марта': 2, 'мар': 2,
+    'апреля': 3, 'апр': 3,
+    'мая': 4, 'май': 4,
+    'июня': 5, 'июн': 5,
+    'июля': 6, 'июл': 6,
+    'августа': 7, 'авг': 7,
+    'сентября': 8, 'сен': 8,
+    'октября': 9, 'окт': 9,
+    'ноября': 10, 'ноя': 10,
+    'декабря': 11, 'дек': 11,
+  };
+
+  if (dateStr.startsWith('вчера')) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 1);
+    const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
+    if (timeMatch) d.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
+    return d;
+  }
+
+  if (dateStr.startsWith('сегодня')) {
+    const d = new Date(now);
+    const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
+    if (timeMatch) d.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
+    return d;
+  }
+
+  // "27 апр, 10:55" или "25 мая 2026" или "25 мая"
+  const parts = dateStr.match(/(\d{1,2})\s+([a-zA-Zа-яА-ЯёЁ]+)\s*(\d{4})?/);
+  if (!parts) return null;
+
+  const day = parseInt(parts[1]);
+  const monthStr = parts[2].toLowerCase();
+  const month = months[monthStr];
+  if (month === undefined) return null;
+
+  let year: number;
+  if (parts[3]) {
+    year = parseInt(parts[3]);
+  } else {
+    year = now.getFullYear();
+    if (new Date(year, month, day) > now) year--;
+  }
+
+  const d = new Date(year, month, day);
+  const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
+  if (timeMatch) d.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
+  return d;
+}
+
+/** Парсинг страницы объявления ЦИАН (инъекция через executeScript — ВСЁ внутри одной функции!) */
+function parseCianDetailPage(): CianDetailParsed {
+  // Вспомогательная функция парсинга русских дат — встроена внутрь,
+  // потому что executeScript инъектирует только тело этой функции
+  function parseRuDate(dateStr: string): Date | null {
+    const now = new Date();
+    const months: Record<string, number> = {
+      'января': 0, 'янв': 0,
+      'февраля': 1, 'фев': 1,
+      'марта': 2, 'мар': 2,
+      'апреля': 3, 'апр': 3,
+      'мая': 4, 'май': 4,
+      'июня': 5, 'июн': 5,
+      'июля': 6, 'июл': 6,
+      'августа': 7, 'авг': 7,
+      'сентября': 8, 'сен': 8,
+      'октября': 9, 'окт': 9,
+      'ноября': 10, 'ноя': 10,
+      'декабря': 11, 'дек': 11,
+    };
+    if (dateStr.startsWith('вчера')) {
+      const d = new Date(now); d.setDate(d.getDate() - 1);
+      const m = dateStr.match(/(\d{1,2}):(\d{2})/);
+      if (m) d.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+      return d;
+    }
+    if (dateStr.startsWith('сегодня')) {
+      const d = new Date(now);
+      const m = dateStr.match(/(\d{1,2}):(\d{2})/);
+      if (m) d.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+      return d;
+    }
+    // "27 апр, 10:55" или "25 мая 2026" или "25 мая"
+    const parts = dateStr.match(/(\d{1,2})\s+([a-zA-Zа-яА-ЯёЁ]+)\s*(\d{4})?/);
+    if (!parts) return null;
+    const day = parseInt(parts[1]);
+    const monthStr = parts[2].toLowerCase();
+    const month = months[monthStr];
+    if (month === undefined) return null;
+    let year: number;
+    if (parts[3]) {
+      year = parseInt(parts[3]);
+    } else {
+      year = now.getFullYear();
+      if (new Date(year, month, day) > now) year--;
+    }
+    const d = new Date(year, month, day);
+    const tm = dateStr.match(/(\d{1,2}):(\d{2})/);
+    if (tm) d.setHours(parseInt(tm[1]), parseInt(tm[2]), 0, 0);
+    return d;
+  }
+
+  // Проверка что мы на странице объявления ЦИАН
+  const offerCard = document.querySelector('[data-testid="price-amount"]')
+    || document.querySelector('#photos')
+    || document.querySelector('[data-name="OfferUnpublished"]');
+  if (!offerCard) {
+    // Не страница объявления — капча, 404, ошибка сервера
+    const pageTitle = document.title || '';
+    const bodyText = document.body?.innerText?.slice(0, 500) || '';
+    if (bodyText.includes('капч') || bodyText.toLowerCase().includes('captcha')) {
+      throw new Error('Страница требует прохождения капчи');
+    }
+    if (pageTitle.includes('404') || bodyText.includes('не найдено') || bodyText.includes('удалено')) {
+      throw new Error('Объявление не найдено (404). Возможно, оно было удалено.');
+    }
+    throw new Error('Не удалось найти карточку объявления. Страница: ' + pageTitle);
+  }
+
+  const result: CianDetailParsed = {
+    status: 'active',
+    price: null,
+    photos: [],
+    updatedDate: null,
+    priceHistory: [],
+  };
+
+  // 1. Статус: архивное или активное
+  const unpublished = document.querySelector('[data-name="OfferUnpublished"]');
+  if (unpublished) result.status = 'archived';
+
+  // 2. Цена
+  const priceEl = document.querySelector('[data-testid="price-amount"]');
+  if (priceEl) {
+    const priceText = priceEl.textContent?.replace(/\s/g, '').replace(/[^\d]/g, '') || '';
+    if (priceText) result.price = parseInt(priceText, 10);
+  }
+
+  // 3. Фото — только из галереи объявления (#photos), не из "похожих объявлений"
+  // Дедупликация по ID фото: /images/{ID}-{suffix}.jpg — суффиксы -1 (основное), -2 (превью)
+  const galleryContainer = document.querySelector('#photos') || document.querySelector('[class*="photo_gallery_container"]');
+  const imgEls = galleryContainer
+    ? galleryContainer.querySelectorAll('img[src*="images.cdn-cian.ru/images/"]')
+    : [];
+  const seenIds = new Set<string>();
+  imgEls.forEach(img => {
+    const src = (img as HTMLImageElement).src;
+    if (!src) return;
+    const idMatch = src.match(/\/images\/(\d+)-/);
+    const photoId = idMatch ? idMatch[1] : src.split('?')[0];
+    if (seenIds.has(photoId)) return;
+    seenIds.add(photoId);
+    result.photos.push(src);
+  });
+
+  // 4. Дата обновления
+  const updatedEl = document.querySelector('[data-testid="metadata-updated-date"]');
+  if (updatedEl) {
+    const text = updatedEl.textContent?.trim() || '';
+    const dateMatch = text.match(/Обновлено:\s*(.+)/);
+    if (dateMatch) {
+      const d = parseRuDate(dateMatch[1].trim());
+      if (d) result.updatedDate = d.toISOString();
+    }
+  }
+
+  // 5. История цены из DOM
+  const historyRows = document.querySelectorAll('tr[class*="history-event"]');
+  historyRows.forEach(row => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length >= 2) {
+      const dateText = cells[0]?.textContent?.trim() || '';
+      const priceText = cells[1]?.textContent?.replace(/\s/g, '').replace(/[^\d]/g, '') || '';
+      if (dateText && priceText) {
+        const price = parseInt(priceText, 10);
+        if (!isNaN(price)) {
+          const d = parseRuDate(dateText);
+          if (d) result.priceHistory.push({ date: d.toISOString(), price });
+        }
+      }
+    }
+  });
+
+  return result;
+}
+
+/** Получить историю цены через скрытое API ЦИАН (инъекция через executeScript) */
+function fetchCianPriceHistoryApi(offerId: number): Promise<Array<{ date: string; price: number }>> {
+  return fetch(
+    `/price-estimator/v1/get-estimation-and-trend-web/?cianOfferId=${offerId}`,
+    { credentials: 'include' }
+  )
+    .then(r => r.json())
+    .then((data: any) => {
+      const history: Array<{ date: string; price: number }> = [];
+      // API возвращает priceHistory с timestamp (ms) и price
+      if (data?.priceHistory && Array.isArray(data.priceHistory)) {
+        for (const item of data.priceHistory) {
+          if (item.date && item.price) {
+            history.push({
+              date: new Date(item.date).toISOString(),
+              price: item.price,
+            });
+          }
+        }
+      }
+      return history;
+    })
+    .catch(() => [] as Array<{ date: string; price: number }>);
+}
+
+/** Кликнуть кнопку раскрытия виджета истории цены */
+function clickCianPriceHistoryButton(): boolean {
+  // Кнопка «История цены»
+  const btn = document.querySelector('[data-testid="price-history-widget"]') as HTMLElement;
+  if (btn) {
+    btn.click();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Быстрая проверка объявления CIAN через HTML-fetch (без навигации).
+ * Вызывается через executeScript в контексте вкладки cian.ru.
+ * Возвращает цену и статус из JSON-LD.
+ */
+function checkCianAdHtml(url: string): Promise<{ price: number | null; status: 'active' | 'archived'; error?: string }> {
+  return fetch(url, { credentials: 'include' })
+    .then(r => {
+      if (!r.ok) return { price: null, status: 'archived' as const, error: `HTTP ${r.status}` };
+      return r.text().then(html => {
+        // JSON-LD — цена и базовые данные
+        let price: number | null = null;
+        let status: 'active' | 'archived' = 'active';
+
+        const ldMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/);
+        if (ldMatch) {
+          try {
+            const ld = JSON.parse(ldMatch[1]);
+            if (ld?.offers?.price) price = ld.offers.price;
+            if (ld?.description?.includes('снято с публикации')) status = 'archived';
+          } catch { /* не удалось распарсить JSON-LD */ }
+        }
+
+        // Дополнительно проверяем по HTML-маркерам
+        if (html.includes('OfferUnpublished')) status = 'archived';
+        // Если нет цены из JSON-LD — пробуем найти в HTML
+        if (price === null) {
+          const priceMatch = html.match(/"price"\s*:\s*(\d{5,})/);
+          if (priceMatch) price = parseInt(priceMatch[1], 10);
+        }
+
+        return { price, status };
+      });
+    })
+    .catch(err => ({
+      price: null as null,
+      status: 'archived' as const,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+}
+
+// ============================================================
 // Обработка сообщений от UI-страниц
 // ============================================================
 
@@ -702,6 +983,112 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse(results2?.[0]?.result || { success: false, error: 'No result' });
       }).catch(err => sendResponse({ success: false, error: err.message }));
     }).catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  // ─── Актуализация объявления ЦИАН ────────────────────────
+
+  if (message.type === 'ACTUALIZE_CIAN_AD') {
+    const tabId = message.tabId as number;
+    const offerId = message.offerId as number | undefined;
+
+    // Шаг 1: парсим основные данные со страницы
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: parseCianDetailPage,
+    }).then(async (results) => {
+      if (!results || results.length === 0) {
+        sendResponse({ success: false, error: 'executeScript вернул пустой результат. Возможно вкладка ещё загружается.' });
+        return;
+      }
+      const parsed: CianDetailParsed | null = results[0].result;
+      if (!parsed) {
+        // Функция либо бросила ошибку (results[0].error), либо вернула undefined
+        const errObj = results[0].error;
+        const errMsg = errObj
+          ? (errObj.message || errObj.description || JSON.stringify(errObj))
+          : 'Результат пуст. Возможно страница ещё загружается.';
+        sendResponse({ success: false, error: errMsg });
+        return;
+      }
+
+      // Шаг 2: пробуем получить историю цены через API (без DOM-взаимодействия)
+      let apiHistory: Array<{ date: string; price: number }> = [];
+      if (offerId) {
+        try {
+          const apiResults = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: fetchCianPriceHistoryApi,
+            args: [offerId],
+          });
+          apiHistory = (apiResults && apiResults.length > 0) ? apiResults[0].result || [] : [];
+        } catch { /* API может быть недоступно */ }
+      }
+
+      // Если API не дал историю — пробуем кликнуть кнопку и прочитать из DOM
+      let domHistory: Array<{ date: string; price: number }> = [];
+      if (apiHistory.length === 0 && parsed.priceHistory.length === 0) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            func: clickCianPriceHistoryButton,
+          });
+          // Ждём раскрытия виджета
+          await new Promise(r => setTimeout(r, 1500));
+          // Повторно парсим страницу — теперь таблица истории видна
+          const histResults = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: parseCianDetailPage,
+          });
+          const reparsed: CianDetailParsed | null = (histResults && histResults.length > 0) ? histResults[0].result : null;
+          domHistory = reparsed?.priceHistory || [];
+        } catch { /* не удалось */ }
+      }
+
+      // Объединяем историю: приоритет API > DOM после клика > DOM без клика
+      const finalHistory = apiHistory.length > 0 ? apiHistory
+        : domHistory.length > 0 ? domHistory
+        : parsed.priceHistory;
+
+      sendResponse({
+        success: true,
+        data: {
+          status: parsed.status,
+          price: parsed.price,
+          photos: parsed.photos,
+          updatedDate: parsed.updatedDate,
+          priceHistory: finalHistory,
+        },
+      });
+    }).catch(err => {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+  // Быстрая проверка CIAN объявления через HTML-fetch (без навигации)
+  if (message.type === 'CHECK_CIAN_AD_HTML') {
+    const tabId = message.tabId as number;
+    const url = message.url as string;
+
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: checkCianAdHtml,
+      args: [url],
+    }).then(results => {
+      if (!results || results.length === 0) {
+        sendResponse({ success: false, error: 'executeScript вернул пустой результат' });
+        return;
+      }
+      const data = results[0].result;
+      if (results[0].error) {
+        sendResponse({ success: false, error: results[0].error.message || String(results[0].error) });
+        return;
+      }
+      sendResponse({ success: true, data });
+    }).catch(err => {
+      sendResponse({ success: false, error: err.message });
+    });
     return true;
   }
 

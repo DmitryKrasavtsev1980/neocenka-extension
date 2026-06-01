@@ -53,12 +53,15 @@
   width: 100%;
 }
 
+.address-search-autocomplete {
+  position: relative;
+}
+
 .address-input {
   flex: 1;
   height: 32px;
   padding: 0 10px;
   border: 1px solid #d0d0d0;
-  border-right: none;
   border-radius: 6px 0 0 6px;
   font-size: 13px;
   font-family: Inter, system-ui, sans-serif;
@@ -66,6 +69,10 @@
   background: #fff;
   color: #333;
   transition: border-color 0.15s;
+}
+
+.address-search-autocomplete .address-input {
+  border-radius: 6px 0 0 6px;
 }
 
 .address-input:focus {
@@ -340,4 +347,193 @@
 
 .addr-remove-btn:hover svg {
   stroke: #dc2626;
+}
+
+/* ─── Dark theme ─── */
+.dark .polygon-toolbar,
+.dark .address-toolbar {
+  background: #1e293b;
+  border-bottom-color: #334155;
+}
+
+.dark .address-toggle-label {
+  color: #cbd5e1;
+}
+
+.dark .address-input {
+  background: #1e293b;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+.dark .address-input:focus {
+  border-color: #3b82f6;
+}
+
+.dark .address-input:disabled {
+  background: #0f172a;
+}
+
+.dark .address-input::placeholder {
+  color: #64748b;
+}
+
+.dark .address-clear-btn {
+  background: #1e293b;
+  border-color: #475569;
+}
+
+.dark .address-clear-btn:hover {
+  background: #451a1a;
+}
+
+.dark .address-clear-btn svg {
+  stroke: #64748b;
+}
+
+.dark .polygon-hint {
+  color: #94a3b8;
+}
+
+.dark .polygon-selected {
+  color: #60a5fa;
+}
+
+.dark .marker-filter-toolbar {
+  background: #1e293b;
+  border-bottom-color: #334155;
+}
+
+.dark .marker-filter-btn {
+  color: #94a3b8;
+  background: #1e293b;
+  border-color: #475569;
+}
+
+.dark .marker-filter-btn:hover {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+}
+
+.dark .marker-filter-btn.active {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+  color: #60a5fa;
+}
+
+.dark .marker-filter-count {
+  color: #64748b;
+}
+
+.dark .selected-addresses-panel {
+  border-top-color: #334155;
+  background: #1e293b;
+}
+
+.dark .selected-addresses-title {
+  color: #60a5fa;
+}
+
+.dark .selected-addresses-clear {
+  color: #64748b;
+}
+
+.dark .selected-addresses-clear:hover {
+  color: #f87171;
+  background: #451a1a;
+}
+
+.dark .selected-addresses-list {
+  border-top-color: #334155;
+}
+
+.dark .selected-addresses-table th {
+  color: #94a3b8;
+  background: #0f172a;
+  border-bottom-color: #334155;
+}
+
+.dark .selected-addresses-table td {
+  border-bottom-color: #1e293b;
+}
+
+.dark .selected-addresses-table tr:hover td {
+  background: #1e3a5f;
+}
+
+.dark .selected-addresses-table .addr-cell {
+  color: #e2e8f0;
+}
+
+.dark .selected-addresses-table .meta-cell {
+  color: #94a3b8;
+}
+
+.dark .address-suggestions {
+  background: #1e293b;
+  border-color: #475569;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.dark .address-suggestion-item {
+  color: #e2e8f0;
+}
+
+.dark .address-suggestion-item:hover,
+.dark .address-suggestion-item.highlighted {
+  background: #1e3a5f;
+}
+
+.dark .address-suggestion-meta {
+  color: #94a3b8;
+  background: #0f172a;
+}
+
+/* ─── Autocomplete dropdown ─── */
+.address-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 32px;
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 2000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.address-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: Inter, system-ui, sans-serif;
+  color: #333;
+  transition: background 0.1s;
+}
+
+.address-suggestion-item:hover,
+.address-suggestion-item.highlighted {
+  background: #e8f0fe;
+}
+
+.address-suggestion-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.address-suggestion-meta {
+  font-size: 10px;
+  color: #888;
+  white-space: nowrap;
+  background: #f3f4f6;
+  padding: 1px 5px;
+  border-radius: 3px;
 }

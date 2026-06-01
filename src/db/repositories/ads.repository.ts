@@ -23,20 +23,41 @@ export const adsRepository = {
             .first();
 
           if (existing) {
-            // Обновляем если есть изменения цены
-            if (ad.price !== existing.price) {
-              const priceHistory = [...(existing.price_history || [])];
-              if (existing.price != null) {
-                priceHistory.push({
-                  date: new Date().toISOString(),
+            // Пропускаем если данные из импорта не новее существующих
+            if (ad.updated && existing.updated) {
+              if (new Date(ad.updated) <= new Date(existing.updated)) {
+                duplicates++;
+                continue;
+              }
+            }
+
+            // Обновляем если есть изменения
+            const priceChanged = ad.price !== existing.price;
+            const statusChanged = ad.status !== existing.status;
+
+            if (priceChanged || statusChanged) {
+              // Слияние price_history: существующая + новые записи из импорта (по уникальным датам)
+              const existingDates = new Set((existing.price_history || []).map(h => h.date));
+              const mergedHistory = [...(existing.price_history || [])];
+              for (const entry of (ad.price_history || [])) {
+                if (!existingDates.has(entry.date)) {
+                  mergedHistory.push(entry);
+                }
+              }
+
+              // Если цена изменилась — добавляем запись об изменении
+              if (priceChanged && existing.price != null) {
+                mergedHistory.push({
+                  date: ad.updated || new Date().toISOString(),
                   old_price: existing.price,
                   new_price: ad.price!,
                 });
               }
+
               await db.ads.update(existing.id!, {
                 price: ad.price,
                 price_per_meter: ad.price_per_meter,
-                price_history: priceHistory,
+                price_history: mergedHistory,
                 updated_at: new Date().toISOString(),
                 updated: ad.updated,
                 status: ad.status,

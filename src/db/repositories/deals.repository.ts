@@ -184,9 +184,12 @@ export const dealsRepository = {
       return true;
     }
 
-    // Выбираем начальную коллекцию по индексу region_code (если есть)
+    // Выбираем начальную коллекцию по наиболее селективному индексу
     let collection: Dexie.Collection<Deal, number>;
-    if (filters.region_codes?.length) {
+    if (filters.quarter_cad_numbers?.length) {
+      // По кадастровому кварталу — самый точный фильтр для поиска в модалке объекта
+      collection = db.deals.where('quarter_cad_number').anyOf(filters.quarter_cad_numbers);
+    } else if (filters.region_codes?.length) {
       collection = db.deals.where('region_code').anyOf(filters.region_codes);
     } else {
       collection = db.deals.toCollection();

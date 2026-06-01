@@ -11,6 +11,17 @@ export interface PriceHistoryItem {
   new_price?: number;
 }
 
+/** Привязанная сделка Росреестра к объекту */
+export interface SaleDeal {
+  deal_price: number;
+  deal_area: number;
+  deal_floor: number | null;
+  deal_year_quarter: string;
+  deal_doc_type: string;
+  deal_price_per_meter: number;
+  deal_linked_at: string;
+}
+
 /** Информация о продавце */
 export interface SellerInfo {
   name: string | null;
@@ -89,7 +100,7 @@ export interface Ad {
 
   // Статусы
   status: 'active' | 'archived' | 'needs_processing';
-  processing_status: 'address_needed' | 'duplicate_check_needed' | 'processed' | 'needs_update';
+  processing_status: 'address_needed' | 'duplicate_check_needed' | 'processed';
 
   // Адресная привязка
   address_id: number | null;
@@ -147,6 +158,7 @@ export interface AdObject {
   listings_count: number;
   active_listings_count: number;
   owner_status: string;
+  sale_deal: SaleDeal | null;
   created: string | null;
   updated: string | null;
   last_recalculated_at: string | null;
