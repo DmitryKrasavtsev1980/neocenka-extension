@@ -508,10 +508,10 @@ export async function clearDatabase(): Promise<void> {
   await db.imports.clear();
 }
 
-/**
- * Получение статистики по базе данных
- */
-export async function getDatabaseStats() {
+// Кэш статистики — years и регионы меняются только при импорте
+let statsCache: Promise<ReturnType<typeof computeDatabaseStats>> | null = null;
+
+async function computeDatabaseStats() {
   const [totalDeals, totalImports, lastImport] = await Promise.all([
     db.deals.count(),
     db.imports.count(),
@@ -535,6 +535,23 @@ export async function getDatabaseStats() {
     years,
     regions,
   };
+}
+
+/**
+ * Получение статистики по базе данных (кэшируется, сбрасывается при импорте)
+ */
+export async function getDatabaseStats() {
+  if (!statsCache) {
+    statsCache = computeDatabaseStats();
+  }
+  return statsCache;
+}
+
+/**
+ * Сброс кэша статистики — вызывать после импорта/удаления данных
+ */
+export function invalidateDatabaseStatsCache() {
+  statsCache = null;
 }
 
 /**

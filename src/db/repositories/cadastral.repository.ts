@@ -1,8 +1,12 @@
 import { db } from '../database';
 import { CadastralQuarter } from '@/types';
 
+// Кэш кварталов с GeoJSON — данные статичны, загружаются один раз
+let geojsonCache: Promise<CadastralQuarter[]> | null = null;
+
 export const cadastralRepository = {
   async bulkUpsert(quarters: CadastralQuarter[]): Promise<void> {
+    geojsonCache = null; // сброс кэша при изменении данных
     for (const quarter of quarters) {
       const existing = await db.cadastral_quarters
         .where('cad_number')
@@ -22,9 +26,12 @@ export const cadastralRepository = {
   },
 
   async getAllWithGeojson(): Promise<CadastralQuarter[]> {
-    return db.cadastral_quarters
-      .filter((q) => q.geojson != null)
-      .toArray();
+    if (!geojsonCache) {
+      geojsonCache = db.cadastral_quarters
+        .filter((q) => q.geojson != null)
+        .toArray();
+    }
+    return geojsonCache;
   },
 
   async getAllCadNumbers(): Promise<string[]> {
@@ -66,6 +73,7 @@ export const cadastralRepository = {
   },
 
   async deleteByRegion(regionCode: string): Promise<number> {
+    geojsonCache = null;
     const prefix = regionCode + ':';
     const keysToDelete: number[] = [];
     await db.cadastral_quarters.each((q) => {
@@ -78,6 +86,7 @@ export const cadastralRepository = {
   },
 
   async clear(): Promise<void> {
+    geojsonCache = null;
     return db.cadastral_quarters.clear();
   },
 };

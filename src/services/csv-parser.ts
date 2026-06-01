@@ -1,6 +1,6 @@
 import Papa from 'papaparse';
 import { Deal, RawCsvRow, ImportStatus, S3ManifestFile } from '@/types';
-import { dealsRepository, importsRepository, db } from '@/db';
+import { dealsRepository, importsRepository, db, invalidateDatabaseStatsCache } from '@/db';
 import { getDownloadUrl, getAuthHeader } from '@/services/api-service';
 
 /**
@@ -277,6 +277,9 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
   // Обновляем запись об импорте
   await db.imports.update(importId, { records_count: processed });
 
+  // Сброс кэша статистики (years/regions изменились)
+  invalidateDatabaseStatsCache();
+
   onProgress?.({
     isImporting: false,
     progress: 100,
@@ -422,6 +425,9 @@ export async function importFromUrl(params: S3ImportParams): Promise<{ importId:
 
   // Обновляем запись об импорте
   await db.imports.update(importId, { records_count: processed });
+
+  // Сброс кэша статистики (years/regions изменились)
+  invalidateDatabaseStatsCache();
 
   onProgress?.({
     isImporting: false,

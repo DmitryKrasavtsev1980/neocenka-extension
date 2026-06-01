@@ -93,6 +93,44 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const pendingFilterSyncRef = useRef(false);
   const getCurrentFilterStateRef = useRef<(() => SavedFilterState) | null>(null);
 
+  // Refs для doSearch — чтобы callback был стабильным и не пересоздавался
+  const filterValuesRef = useRef<{
+    selectedRegions: string[];
+    selectedTypes: string[];
+    selectedDocTypes: string[];
+    selectedPeriods: string[];
+    selectedWallMaterials: string[];
+    priceMin: string;
+    priceMax: string;
+    areaMin: string;
+    areaMax: string;
+    floorMin: string;
+    floorMax: string;
+    yearBuildMin: string;
+    yearBuildMax: string;
+    searchCity: string;
+    searchStreet: string;
+    selectedCadNumbers: string[];
+    page: number;
+    pageSize: number;
+    sortField: SortField;
+    sortOrder: SortOrder;
+  }>({
+    selectedRegions: [], selectedTypes: [], selectedDocTypes: [], selectedPeriods: [],
+    selectedWallMaterials: [], priceMin: '', priceMax: '', areaMin: '', areaMax: '',
+    floorMin: '', floorMax: '', yearBuildMin: '', yearBuildMax: '',
+    searchCity: '', searchStreet: '', selectedCadNumbers: [],
+    page: 1, pageSize: 25, sortField: 'period', sortOrder: 'desc',
+  });
+
+  // Обновляем ref при каждом рендере
+  filterValuesRef.current = {
+    selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials,
+    priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax,
+    searchCity, searchStreet, selectedCadNumbers,
+    page, pageSize, sortField, sortOrder,
+  };
+
   // Регионы с данными из справочника для навигации по карте
   const loadedRegions = useMemo(() => {
     if (!stats) return [];
@@ -236,36 +274,33 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const doSearch = useCallback(async () => {
     setLoading(true);
     try {
-      let yearQuartersFilter: string[] | undefined;
-      if (selectedPeriods.length > 0) {
-        yearQuartersFilter = selectedPeriods;
-      }
+      const v = filterValuesRef.current;
 
       const searchFilters: SearchFilters = {
-        region_codes: selectedRegions.length > 0 ? selectedRegions : undefined,
-        realestate_type_codes: selectedTypes.length > 0 ? selectedTypes : undefined,
-        doc_types: selectedDocTypes.length > 0 ? selectedDocTypes : undefined,
-        year_quarters: yearQuartersFilter,
-        price_min: priceMin ? parseFloat(priceMin) : undefined,
-        price_max: priceMax ? parseFloat(priceMax) : undefined,
-        area_min: areaMin ? parseFloat(areaMin) : undefined,
-        area_max: areaMax ? parseFloat(areaMax) : undefined,
-        floor_min: floorMin ? parseInt(floorMin) : undefined,
-        floor_max: floorMax ? parseInt(floorMax) : undefined,
-        year_build_min: yearBuildMin ? parseInt(yearBuildMin) : undefined,
-        year_build_max: yearBuildMax ? parseInt(yearBuildMax) : undefined,
-        wall_material_codes: selectedWallMaterials.length > 0 ? selectedWallMaterials : undefined,
-        search_city: searchCity || undefined,
-        search_street: searchStreet || undefined,
-        quarter_cad_numbers: selectedCadNumbers.length > 0 ? selectedCadNumbers : undefined,
+        region_codes: v.selectedRegions.length > 0 ? v.selectedRegions : undefined,
+        realestate_type_codes: v.selectedTypes.length > 0 ? v.selectedTypes : undefined,
+        doc_types: v.selectedDocTypes.length > 0 ? v.selectedDocTypes : undefined,
+        year_quarters: v.selectedPeriods.length > 0 ? v.selectedPeriods : undefined,
+        price_min: v.priceMin ? parseFloat(v.priceMin) : undefined,
+        price_max: v.priceMax ? parseFloat(v.priceMax) : undefined,
+        area_min: v.areaMin ? parseFloat(v.areaMin) : undefined,
+        area_max: v.areaMax ? parseFloat(v.areaMax) : undefined,
+        floor_min: v.floorMin ? parseInt(v.floorMin) : undefined,
+        floor_max: v.floorMax ? parseInt(v.floorMax) : undefined,
+        year_build_min: v.yearBuildMin ? parseInt(v.yearBuildMin) : undefined,
+        year_build_max: v.yearBuildMax ? parseInt(v.yearBuildMax) : undefined,
+        wall_material_codes: v.selectedWallMaterials.length > 0 ? v.selectedWallMaterials : undefined,
+        search_city: v.searchCity || undefined,
+        search_street: v.searchStreet || undefined,
+        quarter_cad_numbers: v.selectedCadNumbers.length > 0 ? v.selectedCadNumbers : undefined,
       };
 
-      const lightResult = await dealsRepository.searchLight(searchFilters, page, pageSize, sortField, sortOrder);
+      const lightResult = await dealsRepository.searchLight(searchFilters, v.page, v.pageSize, v.sortField, v.sortOrder);
       setResult({
         deals: lightResult.pageDeals,
         total: lightResult.totalCount,
-        page,
-        pageSize,
+        page: v.page,
+        pageSize: v.pageSize,
         totalPages: lightResult.totalPages,
       });
       setAggregates(lightResult.aggregates);
@@ -275,12 +310,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedRegions, selectedTypes, selectedDocTypes, selectedPeriods, selectedWallMaterials, priceMin, priceMax, areaMin, areaMax, floorMin, floorMax, yearBuildMin, yearBuildMax, searchCity, searchStreet, selectedCadNumbers, page, pageSize, sortField, sortOrder, saveCurrentFilter]);
+  }, [saveCurrentFilter]);
 
   // Trigger doSearch after state has been committed (avoids stale closure)
   useEffect(() => {
     if (searchTrigger > 0) doSearch();
-  }, [searchTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchTrigger, doSearch]);
 
   // Initial load: restore saved filter and search
   useEffect(() => {
