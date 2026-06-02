@@ -74,6 +74,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [showMapFilter, setShowMapFilter] = useState(false);
   const [availableWallMaterials, setAvailableWallMaterials] = useState<string[] | null>(null);
   const [softDeals, setSoftDeals] = useState<Deal[]>([]);
+  const [softSearching, setSoftSearching] = useState(false);
   const [wallMaterialsLoading, setWallMaterialsLoading] = useState(false);
   const [filterOptions, setFilterOptions] = useState<{
     districts: string[];
@@ -334,6 +335,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
   const doSearch = useCallback(async () => {
     setLoading(true);
+    setSoftSearching(false);
     try {
       const v = filterValuesRef.current;
 
@@ -366,48 +368,54 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
         totalPages: lightResult.totalPages,
       });
       setAggregates(lightResult.aggregates);
+      // Основные данные загружены — снимаем лоадер, таблица доступна
+      setLoading(false);
 
-      // Мягкий поиск: если выбраны кадастровые кварталы — ищем сделки с мусорными кад. номерами
-      // Берём улицы и районы из ТОЧНЫХ сделок и ищем мусорные с теми же улицами/районами
+      // Мягкий поиск в фоне: не блокирует таблицу
       if (v.selectedCadNumbers.length > 0 && lightResult.pageDeals.length > 0) {
-        // Собираем мусорные номера для каждого кадастрового квартала
-        const garbageSet = new Set<string>();
-        const regionsSet = new Set<string>();
-        for (const cn of v.selectedCadNumbers) {
-          const parts = cn.split(':');
-          if (parts.length >= 2) {
-            regionsSet.add(parts[0]);
-            garbageSet.add(`${parts[0]}:${parts[1]}:000000`);
-            garbageSet.add(`${parts[0]}:${parts[1]}:0000000`);
-          }
-        }
-
-        // Извлекаем уникальные районы и улицы из точных сделок
-        const districts = [...new Set(lightResult.pageDeals.map(d => d.district).filter(Boolean))];
-        const streets = [...new Set(lightResult.pageDeals.map(d => d.street?.toLowerCase()).filter(Boolean))];
-
-        if (garbageSet.size > 0 && (districts.length > 0 || streets.length > 0)) {
-          const excludeIds = new Set(lightResult.pageDeals.map(d => d.id!));
-          const allSoft: Deal[] = [];
-
-          for (const regionCode of regionsSet) {
-            const regionGarbage = [...garbageSet].filter(g => g.startsWith(regionCode + ':'));
-            const soft = await dealsRepository.searchSoftByRegion({
-              regionCode,
-              garbageCadNumbers: regionGarbage,
-              districts,
-              streets,
-              floorMin: v.floorMin ? parseInt(v.floorMin) : undefined,
-              floorMax: v.floorMax ? parseInt(v.floorMax) : undefined,
-              areaMin: v.areaMin ? parseFloat(v.areaMin) : undefined,
-              areaMax: v.areaMax ? parseFloat(v.areaMax) : undefined,
-              yearQuarters: v.selectedPeriods.length > 0 ? v.selectedPeriods : undefined,
-              excludeIds,
-            }, 50);
-            allSoft.push(...soft);
+        setSoftSearching(true);
+        try {
+          const garbageSet = new Set<string>();
+          const regionsSet = new Set<string>();
+          for (const cn of v.selectedCadNumbers) {
+            const parts = cn.split(':');
+            if (parts.length >= 2) {
+              regionsSet.add(parts[0]);
+              garbageSet.add(`${parts[0]}:${parts[1]}:000000`);
+              garbageSet.add(`${parts[0]}:${parts[1]}:0000000`);
+            }
           }
 
-          setSoftDeals(allSoft);
+          const districts = [...new Set(lightResult.pageDeals.map(d => d.district).filter(Boolean))];
+          const streets = [...new Set(lightResult.pageDeals.map(d => d.street?.toLowerCase()).filter(Boolean))];
+
+          if (garbageSet.size > 0 && (districts.length > 0 || streets.length > 0)) {
+            const excludeIds = new Set(lightResult.pageDeals.map(d => d.id!));
+            const allSoft: Deal[] = [];
+
+            for (const regionCode of regionsSet) {
+              const regionGarbage = [...garbageSet].filter(g => g.startsWith(regionCode + ':'));
+              const soft = await dealsRepository.searchSoftByRegion({
+                regionCode,
+                garbageCadNumbers: regionGarbage,
+                districts,
+                streets,
+                floorMin: v.floorMin ? parseInt(v.floorMin) : undefined,
+                floorMax: v.floorMax ? parseInt(v.floorMax) : undefined,
+                areaMin: v.areaMin ? parseFloat(v.areaMin) : undefined,
+                areaMax: v.areaMax ? parseFloat(v.areaMax) : undefined,
+                yearQuarters: v.selectedPeriods.length > 0 ? v.selectedPeriods : undefined,
+                excludeIds,
+              }, 50);
+              allSoft.push(...soft);
+            }
+
+            setSoftDeals(allSoft);
+          } else {
+            setSoftDeals([]);
+          }
+        } finally {
+          setSoftSearching(false);
         }
       } else {
         setSoftDeals([]);
@@ -415,7 +423,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
       saveCurrentFilter();
     } catch (error) {
       console.error('Ошибка поиска:', error);
-    } finally {
       setLoading(false);
     }
   }, [saveCurrentFilter]);
@@ -440,11 +447,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   }, [stats, initialLoadDone, restoreLastFilter, applyFilterState]);
 
   // Пагинация полностью клиентская — useEffect не нужен
-
-  const handleSearch = () => {
-    setPage(1);
-    doSearch();
-  };
 
   const handleApplySavedFilter = (state: SavedFilterState, filterId?: string, filterName?: string, groupName?: string) => {
     applyFilterState(state);
@@ -1469,11 +1471,29 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
   // Мягкие сделки — IDs для быстрой проверки
   const softIds = useMemo(() => new Set(softDeals.map(d => d.id!)), [softDeals]);
-  // Объединённый список: точные + мягкие, отсортированные по дате
+
+  // Функция сравнения для сортировки — такая же как в searchLight
+  const compareDeals = useCallback((a: Deal, b: Deal): number => {
+    let cmp = 0;
+    switch (sortField) {
+      case 'price': cmp = a.deal_price - b.deal_price; break;
+      case 'area': cmp = a.area - b.area; break;
+      case 'floor': cmp = (a.floor || 0) - (b.floor || 0); break;
+      case 'year_build': cmp = (a.year_build || 0) - (b.year_build || 0); break;
+      case 'year_quarter': cmp = a.year_quarter.localeCompare(b.year_quarter); break;
+      case 'type': cmp = a.realestate_type_code.localeCompare(b.realestate_type_code); break;
+      case 'material': cmp = (a.wall_material_code || '').localeCompare(b.wall_material_code || ''); break;
+      case 'doc': cmp = (a.doc_type || '').localeCompare(b.doc_type || ''); break;
+      default: cmp = b.period_start_date.localeCompare(a.period_start_date); break;
+    }
+    return sortOrder === 'asc' ? cmp : -cmp;
+  }, [sortField, sortOrder]);
+
+  // Объединённый список: точные + мягкие, отсортированные по текущему полю
   const allDeals = useMemo(() => {
     if (softDeals.length === 0) return pagedDeals;
-    return [...pagedDeals, ...softDeals].sort((a, b) => b.period_start_date.localeCompare(a.period_start_date));
-  }, [pagedDeals, softDeals]);
+    return [...pagedDeals, ...softDeals].sort(compareDeals);
+  }, [pagedDeals, softDeals, compareDeals]);
 
   if (stats && stats.totalDeals === 0) {
     return (
@@ -1814,7 +1834,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
 
             {/* Actions */}
             <div className="flex gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
-              <Button color="blue" onClick={handleSearch}>Применить фильтры</Button>
               <div className="flex-1" />
               <Button onClick={exportToExcel} disabled={exportingExcel}>
                 {exportingExcel
@@ -1854,6 +1873,15 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                     Найдено: {formatNumber(totalFiltered)} сделок
                     {softDeals.length > 0 && (
                       <span className="text-amber-500 ml-2">+ {softDeals.length} по району</span>
+                    )}
+                    {softSearching && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-blue-500">
+                        <svg className="inline size-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Ищем примерные сделки...
+                      </span>
                     )}
                   </span>
                   <select
