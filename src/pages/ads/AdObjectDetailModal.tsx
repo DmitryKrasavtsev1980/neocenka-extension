@@ -271,11 +271,10 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
       }, 1, 100);
 
       setDeals(result.pageDeals);
+      setLoadingDeals(false);
 
-      // «Мягкий» поиск: сделки в том же регионе с мусорным кадастровым номером,
-      // но подходящие по городу/улице/типу/площади
+      // «Мягкий» поиск в фоне: не блокирует таблицу
       const regionCode = foundCadNumber.split(':')[0];
-      // Формируем мусорные номера для района: XX:YY:000000 (и 6- и 7-значные нули)
       const parts = foundCadNumber.split(':');
       const districtPart = parts[1] || '';
       const garbageCadNumbers = [
@@ -289,23 +288,24 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
       const districts = [...new Set(result.pageDeals.map(d => d.district).filter(Boolean))];
       const streets = [...new Set(result.pageDeals.map(d => d.street?.toLowerCase()).filter(Boolean))];
 
-      const softResults = await dealsRepository.searchSoftByRegion({
-        regionCode,
-        garbageCadNumbers,
-        districts,
-        streets,
-        floorMin,
-        floorMax,
-        areaMin,
-        areaMax,
-        yearQuarters,
-        excludeIds,
-      }, 50);
+      if (districts.length > 0 || streets.length > 0) {
+        const softResults = await dealsRepository.searchSoftByRegion({
+          regionCode,
+          garbageCadNumbers,
+          districts,
+          streets,
+          floorMin,
+          floorMax,
+          areaMin,
+          areaMax,
+          yearQuarters,
+          excludeIds,
+        }, 50);
 
-      setSoftDeals(softResults);
+        setSoftDeals(softResults);
+      }
     } catch (err) {
       console.error('[Deals] Error loading deals:', err);
-    } finally {
       setLoadingDeals(false);
     }
   }, [dealsModuleActive, objAddress?.coordinates?.lat, objAddress?.coordinates?.lng, obj.floor, obj.area_total, obj.updated, useYearQuarters, useFloorFilter, useAreaFilter]);
@@ -313,7 +313,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
   useEffect(() => { loadDeals(); }, [loadDeals]);
 
   const handleLinkDeal = () => {
-    const deal = deals.find(d => d.id === selectedDealId);
+    const deal = allDeals.find(d => d.id === selectedDealId);
     if (!deal || !obj.id || !onLinkDeal) return;
     const saleDeal: SaleDeal = {
       deal_price: deal.deal_price,

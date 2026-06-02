@@ -182,6 +182,7 @@ const AppLayout: React.FC = () => {
   const [activePage, setActivePage] = useState<ActivePage>('modules');
   const [importModuleCode, setImportModuleCode] = useState<string | undefined>(undefined);
   const [activeModules, setActiveModules] = useState<ModuleInfo[]>([]);
+  const [expiredWarnings, setExpiredWarnings] = useState<{code: string; name: string; graceDate: string}[]>([]);
   const [unreadNews, setUnreadNews] = useState(0);
   const [crmCounts, setCrmCounts] = useState({ deals: 0, clients: 0, leads: 0, tasks: 0 });
   const [sidebarOrder, setSidebarOrder] = useState<SidebarOrder>(defaultSidebarOrder);
@@ -243,14 +244,67 @@ const AppLayout: React.FC = () => {
     } catch { /* ignore */ }
   }, []);
 
+  // Grace period: только если модуль был активен и истёк прямо во время текущей сессии
+  const prevActiveCodesRef = useRef<Set<string>>(new Set());
+  const graceModulesRef = useRef<Map<string, { name: string; date: string }>>(new Map());
+
   useEffect(() => {
-    // Only fetch if user is authenticated
     if (!user) return;
-    getModules()
-      .then((data) => {
-        setActiveModules(data.modules.filter((m) => m.access?.status === 'active'));
-      })
-      .catch(() => {});
+
+    const CHECK_INTERVAL = 5 * 60 * 1000; // 5 мин
+
+    const checkModules = async () => {
+      try {
+        const data = await getModules();
+        const now = new Date().toISOString().slice(0, 10);
+        const warnings: { code: string; name: string; graceDate: string }[] = [];
+        const graceActive: ModuleInfo[] = [];
+        const newActiveCodes = new Set<string>();
+
+        for (const m of data.modules) {
+          const isActive = m.access?.status === 'active';
+
+          if (isActive) {
+            newActiveCodes.add(m.code);
+            graceModulesRef.current.delete(m.code);
+          } else if (prevActiveCodesRef.current.has(m.code)) {
+            // Был активен, стал неактивен — начало grace
+            if (!graceModulesRef.current.has(m.code)) {
+              graceModulesRef.current.set(m.code, { name: m.name, date: now });
+            }
+          }
+        }
+
+        // Модули в grace: доступны если дата = сегодня
+        for (const [code, info] of graceModulesRef.current) {
+          if (info.date === now) {
+            const mod = data.modules.find(m => m.code === code);
+            if (mod) {
+              graceActive.push(mod);
+              warnings.push({ code, name: info.name, graceDate: info.date });
+            }
+          } else {
+            // Grace истёк (наступил следующий день) — убираем
+            graceModulesRef.current.delete(code);
+          }
+        }
+
+        prevActiveCodesRef.current = newActiveCodes;
+        const activeFromServer = data.modules.filter((m) => m.access?.status === 'active');
+        setActiveModules([...activeFromServer, ...graceActive]);
+        setExpiredWarnings(warnings);
+      } catch {
+        // Ошибка сети — не меняем состояние
+      }
+    };
+
+    checkModules();
+    const interval = setInterval(checkModules, CHECK_INTERVAL);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
     getNewsUnreadCount()
       .then((data) => setUnreadNews(data.unread_count))
       .catch(() => {});
@@ -514,6 +568,18 @@ const AppLayout: React.FC = () => {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto">
+        {expiredWarnings.length > 0 && (
+          <div className="border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+            <div className="flex items-center gap-2">
+              <svg className="size-5 shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <span>
+                Подписка на <strong>{expiredWarnings.map(w => w.name).join(', ')}</strong> истекла. Доступ сохранён до конца дня.
+              </span>
+            </div>
+          </div>
+        )}
         {renderContent()}
       </main>
     </div>

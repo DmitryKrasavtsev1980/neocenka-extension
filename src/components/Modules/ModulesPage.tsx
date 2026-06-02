@@ -24,6 +24,7 @@ interface ModulesPageProps {
 }
 
 const periodLabels: Record<string, string> = {
+  '30d': '1 месяц',
   '90d': '90 дней',
   '180d': '180 дней',
   '365d': 'Год',

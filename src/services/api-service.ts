@@ -32,6 +32,7 @@ export interface ModuleInfo {
   name: string;
   description: string | null;
   icon: string | null;
+  price_30d: number | null;
   price_90d: number | null;
   price_180d: number | null;
   price_365d: number | null;
