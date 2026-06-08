@@ -167,8 +167,12 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const [addressSuggestions, setAddressSuggestions] = useState<AdAddress[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedSuggestionIdx, setHighlightedSuggestionIdx] = useState(-1);
+  const [geocoding, setGeocoding] = useState(false);
   const addressMarkerRef = useRef<L.Marker | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Есть ли локальные адреса — если нет, используем Nominatim
+  const hasLocalAddresses = (addresses && addresses.length > 0);
 
   // Маркеры адресов
   const [activeMapFilter, setActiveMapFilter] = useState<MapFilterType>('year');
@@ -645,20 +649,62 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     }
   }, [createMarkerIcon]);
 
-  // Поиск ближайшего адреса из локальной базы
-  const findNearestAddress = useCallback((lat: number, lng: number) => {
+  // Поиск ближайшего адреса: из локальной базы или через Nominatim
+  const findNearestAddress = useCallback(async (lat: number, lng: number) => {
     const addrs = addressesRef.current || [];
-    let best: AdAddress | null = null;
-    let bestDist = Infinity;
-    for (const a of addrs) {
-      if (a.coordinates?.lat == null || a.coordinates?.lng == null) continue;
-      const d = Math.sqrt((a.coordinates.lat - lat) ** 2 + (a.coordinates.lng - lng) ** 2);
-      if (d < bestDist) { bestDist = d; best = a; }
+    if (addrs.length > 0) {
+      let best: AdAddress | null = null;
+      let bestDist = Infinity;
+      for (const a of addrs) {
+        if (a.coordinates?.lat == null || a.coordinates?.lng == null) continue;
+        const d = Math.sqrt((a.coordinates.lat - lat) ** 2 + (a.coordinates.lng - lng) ** 2);
+        if (d < bestDist) { bestDist = d; best = a; }
+      }
+      if (best) {
+        setAddressQuery(best.address);
+        return;
+      }
     }
-    if (best) {
-      setAddressQuery(best.address);
-    }
+    // Fallback: Nominatim обратное геокодирование
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ru`,
+        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
+      );
+      const data = await res.json();
+      if (data.display_name) {
+        setAddressQuery(data.display_name);
+      }
+    } catch { /* ignore */ }
   }, []);
+
+  // Nominatim прямое геокодирование (когда нет локальных адресов)
+  const geocodeAddress = useCallback(async () => {
+    const query = addressQuery.trim();
+    if (!query) return;
+    setGeocoding(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&accept-language=ru`,
+        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
+      );
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const { lat, lon, display_name } = data[0];
+        const latNum = parseFloat(lat);
+        const lonNum = parseFloat(lon);
+        const map = mapInstanceRef.current;
+        if (map) {
+          map.flyTo([latNum, lonNum], 16, { duration: 1.5 });
+        }
+        setAddressMarker(latNum, lonNum);
+        if (display_name) {
+          setAddressQuery(display_name);
+        }
+      }
+    } catch { /* ignore */ }
+    setGeocoding(false);
+  }, [addressQuery, setAddressMarker]);
 
   // Выбор адреса из автодополнения
   const selectSuggestion = useCallback((addr: AdAddress) => {
@@ -1021,9 +1067,34 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
                   return;
                 }
               }
+              // Nominatim геокодирование по Enter (когда нет локальных адресов)
+              if (e.key === 'Enter' && !hasLocalAddresses) {
+                e.preventDefault();
+                geocodeAddress();
+              }
             }}
-            disabled={!addressEnabled}
+            disabled={!addressEnabled || geocoding}
           />
+          {!hasLocalAddresses && (
+            <button
+              className={`address-search-btn${!(addressQuery && addressEnabled) ? ' rounded-right' : ''}`}
+              onClick={geocodeAddress}
+              disabled={!addressEnabled || geocoding || !addressQuery.trim()}
+              title="Найти адрес"
+            >
+              {geocoding ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.7s" repeatCount="indefinite"/>
+                  </path>
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              )}
+            </button>
+          )}
           {addressQuery && addressEnabled && (
             <button className="address-clear-btn" onClick={clearAddress} title="Очистить">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">

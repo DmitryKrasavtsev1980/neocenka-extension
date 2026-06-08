@@ -12,13 +12,12 @@ import { getModules } from '@/services/api-service';
 import AdsReportsPanel from './reports/AdsReportsPanel';
 import { REGION_CENTERS } from '@/constants/regions';
 import {
-  getInparsToken,
-  loadInparsToken,
-  loadCategories,
-  checkSubscription,
-  INPARS_SOURCE_IDS,
-  type InparsCategoryRaw,
-} from '@/services/inpars-service';
+  SOURCE_IDS,
+  type ListingCategoryRaw,
+} from '@/services/listing-transform';
+import {
+  getAvailableCategories,
+} from '@/services/data-request-service';
 import { useImportTasks } from '@/contexts/ImportTaskContext';
 import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
 import { Button } from '@/components/catalyst/button';
@@ -70,10 +69,10 @@ const SOURCE_COLORS: Record<string, string> = {
   unknown: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300',
 };
 const SECTION_LABELS: Record<number, string> = {
-  1: 'Жилая (Продажа)', 4: 'Коммерческая (Продажа)', 5: 'Загородная (Продажа)', 6: 'Жилая (Аренда)', 7: 'Коммерческая (Аренда)', 8: 'Загородная (Аренда)', 9: 'Гараж (Продажа)', 10: 'Гараж (Аренда)', 11: 'Готовый бизнес (Продажа)',
+  1: 'Жилая', 4: 'Коммерческая', 5: 'Загородная', 9: 'Гараж', 11: 'Готовый бизнес',
 };
 const SELLER_TYPE_LABELS: Record<string, string> = { owner: 'Собственник', agent: 'Агент', developer: 'Застройщик' };
-/** sellerType для API Inpars: 1=собственник, 2=агент, 3=застройщик */
+/** sellerType: 0=собственник, 1=агент, 3=застройщик */
 const SELLER_TYPE_API_MAP: Record<string, number> = { owner: 1, agent: 2, developer: 3 };
 const PROCESSING_STATUS_LABELS: Record<string, string> = {
   address_needed: 'Определить адрес', duplicate_check_needed: 'Обработать на дубли', needs_update: 'Актуализировать',
@@ -262,13 +261,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [activeFilterName, setActiveFilterName] = useState<string | null>(null);
   const [activeFilterStateJson, setActiveFilterStateJson] = useState<string | null>(null);
 
-  // ─── Загрузка из Inpars ───
+  // ─── Загрузка данных ───
   const [showImportPanel, setShowImportPanel] = useState(false);
   const categoriesLoadedRef = useRef(false);
-  const [categories, setCategories] = useState<InparsCategoryRaw[]>([]);
+  const [categories, setCategories] = useState<ListingCategoryRaw[]>([]);
   const [importSourceIds, setImportSourceIds] = useState<number[]>([]);
   const [importCategoryIds, setImportCategoryIds] = useState<number[]>([]);
   const [importSellerTypeIds, setImportSellerTypeIds] = useState<number[]>([]);
+  const [importIsNew, setImportIsNew] = useState<number>(0); // 0=вторичка, 1=новостройка
   const [enabledSources, setEnabledSources] = useState<{ id: number; key: string }[]>([]);
   const [importDateFrom, setImportDateFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 367); return toDateString(d); });
   const [importDateTo, setImportDateTo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return toDateString(d); });
@@ -367,7 +367,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadStats(); }, [loadStats]);
-  useEffect(() => { ensureInparsData(); }, []);
+  useEffect(() => { ensureListingData(); }, []);
   useEffect(() => {
     getModules().then(data => {
       const active = data.modules.some(m => m.code === 'dealsrosreestr' && m.access?.status === 'active');
@@ -489,26 +489,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           applyFilterState(parsed);
         }
       } catch {}
-      // Подгрузить Inpars токен из chrome.storage и определить регион
-      const token = await loadInparsToken();
-      if (token) {
-        try {
-          // Получаем regionId из подписки
-          const sub = await checkSubscription();
-          if (sub.subscribed && sub.regionId) {
-            const regionKey = String(sub.regionId);
-            const info = REGION_CENTERS[regionKey];
-            if (info) {
-              setSubscriptionRegionCode(regionKey);
-              // Центрируем по региону только если нет сохранённого полигона
-              // (если полигон есть, SearchByPolygon сам сделает fitBounds)
-              if (!polygonsCoords) {
-                setFlyToTarget({ lat: info.lat, lon: info.lon, zoom: info.zoom });
-              }
-            }
-          }
-        } catch {}
-      }
+      // Данные загружаются через сервер Неоценка, прямой API ключ не нужен
     })();
   }, []);
 
@@ -1045,8 +1026,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
   };
 
-  // ─── Загрузка данных Inpars (категории + источники из настроек) ───
-  const ensureInparsData = async () => {
+  // ─── Загрузка данных (категории + источники из настроек) ───
+  const ensureListingData = async () => {
     if (categoriesLoadedRef.current) return;
     try {
       // Загрузить настройки пользователя из chrome.storage
@@ -1055,27 +1036,33 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       if (typeof chrome !== 'undefined' && chrome.storage?.local) {
         const stored = await new Promise<Record<string, number[]>>((resolve) => {
           chrome.storage.local.get(
-            ['inpars_selected_categories', 'inpars_selected_sources'],
+            ['listing_selected_categories', 'listing_selected_sources'],
             (r) => resolve(r as Record<string, number[]>)
           );
         });
-        selectedCatIds = stored.inpars_selected_categories || [];
-        selectedSrcIds = stored.inpars_selected_sources || [];
+        selectedCatIds = stored.listing_selected_categories || [];
+        selectedSrcIds = stored.listing_selected_sources || [];
       }
 
       // Загрузить и отфильтровать категории — только выбранные пользователем
-      const saved = await db.table('inpars_categories').toArray();
-      let allCats: InparsCategoryRaw[];
+      let allCats: ListingCategoryRaw[];
+      const saved = await db.table('listing_categories').toArray();
       if (saved.length > 0) {
-        allCats = saved.map((c: any) => ({ id: c.inpars_id, title: c.name, typeId: c.type_id ?? 0, sectionId: c.section_id ?? 0 }));
-      } else if (getInparsToken()) {
-        allCats = await loadCategories();
+        allCats = saved.map((c: any) => ({ id: c.source_id, title: c.name, typeId: c.type_id ?? 0, sectionId: c.section_id ?? 0 }));
       } else {
-        allCats = [];
+        // Пробуем загрузить с сервера
+        try {
+          const serverCats = await getAvailableCategories();
+          allCats = serverCats.map(c => ({ id: c.source_id, title: c.title, typeId: c.type_id ?? 0, sectionId: c.section_id ?? 0 }));
+        } catch {
+          allCats = [];
+        }
       }
+      // Фильтруем арендные секции (6,7,8,10) — работаем только с продажей
+      const saleOnlyCats = allCats.filter(c => ![6, 7, 8, 10].includes(c.sectionId));
       const filteredCats = selectedCatIds.length > 0
-        ? allCats.filter(c => selectedCatIds.includes(c.id))
-        : allCats;
+        ? saleOnlyCats.filter(c => selectedCatIds.includes(c.id))
+        : saleOnlyCats;
       setCategories(filteredCats);
       categoriesLoadedRef.current = true;
 
@@ -1083,7 +1070,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       setImportCategoryIds(filteredCats.map(c => c.id));
 
       // Источники — только выбранные пользователем
-      const allSourceEntries = Object.entries(INPARS_SOURCE_IDS) as [string, number][];
+      const allSourceEntries = Object.entries(SOURCE_IDS) as [string, number][];
       if (selectedSrcIds.length > 0) {
         const enabled = allSourceEntries.filter(([, id]) => selectedSrcIds.includes(id)).map(([key, id]) => ({ id, key }));
         setEnabledSources(enabled);
@@ -1094,16 +1081,15 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     } catch {}
   };
 
-  // ─── Загрузка из Inpars ───
+  // ─── Загрузка данных ───
   const handleOpenImport = async () => {
     setShowImportPanel(!showImportPanel);
     if (!showImportPanel) {
-      await ensureInparsData();
+      await ensureListingData();
     }
   };
 
   const handleImport = () => {
-    if (!getInparsToken()) { setImportError('Сначала сохраните API ключ в Настройках'); return; }
     if (!polygonsCoords || polygonsCoords.length === 0) { setImportError('Нарисуйте полигон на карте'); return; }
     setImportError('');
     startAdsImport({
@@ -1113,6 +1099,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       sellerTypes: importSellerTypeIds.length > 0 ? importSellerTypeIds : undefined,
       dateFrom: importDateFrom || undefined,
       dateTo: importDateTo || undefined,
+      isNew: importIsNew,
     });
   };
 
@@ -1889,7 +1876,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             </Button>
             <Button onClick={handleOpenImport} color={showImportPanel ? 'dark' : 'white'}><ArrowDownTrayIcon className="size-4" />Загрузка</Button>
             <Button onClick={() => setShowReports(!showReports)} color={showReports ? 'dark' : 'white'}><ChartBarIcon className="size-4" />Отчёты</Button>
-            <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureInparsData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтры</Button>
+            <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureListingData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтры</Button>
           </div>
         </div>
 
@@ -1899,7 +1886,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             {/* Раздел 1: Загрузка объявлений */}
             <div className="space-y-3">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><ArrowDownTrayIcon className="size-4" /> Загрузка объявлений</h3>
-              {!getInparsToken() && <p className="text-xs text-amber-600 dark:text-amber-400">API ключ не задан. Укажите его в Настройках.</p>}
               {!polygonsCoords && <p className="text-xs text-amber-600 dark:text-amber-400">Нарисуйте полигон на карте в фильтрах.</p>}
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Источник</label>
@@ -1919,7 +1905,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {(() => {
-                      const sectionMap = new Map<number, InparsCategoryRaw[]>();
+                      const sectionMap = new Map<number, ListingCategoryRaw[]>();
                       for (const c of categories) {
                         if (!sectionMap.has(c.sectionId)) sectionMap.set(c.sectionId, []);
                         sectionMap.get(c.sectionId)!.push(c);
@@ -1966,11 +1952,18 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 </div>
                 {importSellerTypeIds.length === 0 && <span className="text-[10px] text-zinc-400">Все типы (если не выбрано)</span>}
               </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Тип недвижимости</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button onClick={() => setImportIsNew(0)} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${importIsNew === 0 ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>Вторичка</button>
+                  <button onClick={() => setImportIsNew(1)} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${importIsNew === 1 ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>Новостройка</button>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата от</label><input type="date" value={importDateFrom} onChange={e => setImportDateFrom(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white" /></div>
                 <div><label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата до</label><input type="date" value={importDateTo} onChange={e => setImportDateTo(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white" /></div>
               </div>
-              <button onClick={handleImport} disabled={adsImportRunning || !polygonsCoords || !getInparsToken()} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+              <button onClick={handleImport} disabled={adsImportRunning || !polygonsCoords} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                 {adsImportRunning && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
                 {adsImportRunning ? 'Загрузка...' : 'Загрузить'}
               </button>
@@ -2181,7 +2174,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {(() => {
-                      const sectionMap = new Map<number, InparsCategoryRaw[]>();
+                      const sectionMap = new Map<number, ListingCategoryRaw[]>();
                       for (const c of categories) {
                         if (!sectionMap.has(c.sectionId)) sectionMap.set(c.sectionId, []);
                         sectionMap.get(c.sectionId)!.push(c);

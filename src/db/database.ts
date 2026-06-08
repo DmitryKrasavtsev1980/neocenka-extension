@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, InparsCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmDeal, CrmDealDocument, CrmMessage, CrmParsingSource, CrmBotSettings, CrmSource, CrmLead, CrmTask, CrmStageAction, CrmMessageTemplate, normalizePhone } from '@/types';
+import { Deal, ImportRecord, CadastralQuarter, Ad, AdObject, AdAddress, ListingCategory, ReferenceItem, AdImport, CrmPipeline, CrmStage, CrmClient, CrmDeal, CrmDealDocument, CrmMessage, CrmParsingSource, CrmBotSettings, CrmSource, CrmLead, CrmTask, CrmStageAction, CrmMessageTemplate, normalizePhone } from '@/types';
 
 /**
  * Класс базы данных для хранения сделок с недвижимостью
@@ -13,7 +13,7 @@ export class DealsDatabase extends Dexie {
   ads!: Table<Ad, number>;
   ad_objects!: Table<AdObject, number>;
   ad_addresses!: Table<AdAddress, number>;
-  inpars_categories!: Table<InparsCategory, number>;
+  listing_categories!: Table<ListingCategory, number>;
   ad_wall_materials!: Table<ReferenceItem, number>;
   ad_house_classes!: Table<ReferenceItem, number>;
   ad_house_series!: Table<ReferenceItem, number>;
@@ -120,9 +120,9 @@ export class DealsDatabase extends Dexie {
         wall_material_id,
         ceiling_material_id
       `,
-      inpars_categories: `
+      listing_categories: `
         ++id,
-        inpars_id,
+        source_id,
         name,
         parent_id,
         section_id,
@@ -492,6 +492,18 @@ export class DealsDatabase extends Dexie {
         quarter_cad_number,
         [region_code+year_quarter],
         [region_code+realestate_type_code]
+      `,
+    });
+
+    // Version 17: таблица категорий объявлений (listing_categories)
+    this.version(17).stores({
+      listing_categories: `
+        ++id,
+        source_id,
+        name,
+        parent_id,
+        section_id,
+        is_active
       `,
     });
   }

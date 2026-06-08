@@ -9,6 +9,9 @@ export default defineConfig(({ mode }) => {
   const isProd = mode === 'production';
   const outDir = isProd ? 'dist-prod' : 'dist';
 
+  // Читаем версию из package.json — единый источник истины
+  const pkgVersion = JSON.parse(readFileSync('package.json', 'utf-8')).version;
+
   return {
     base: './',
     plugins: [
@@ -21,11 +24,13 @@ export default defineConfig(({ mode }) => {
             mkdirSync(outDir, { recursive: true });
           }
 
-          // Копируем manifest.json
+          // Читаем manifest и инжектим версию из package.json
           const manifestSrc = isProd && existsSync('public/manifest.prod.json')
             ? 'public/manifest.prod.json'
             : 'public/manifest.json';
-          copyFileSync(manifestSrc, `${outDir}/manifest.json`);
+          const manifest = JSON.parse(readFileSync(manifestSrc, 'utf-8'));
+          manifest.version = pkgVersion;
+          writeFileSync(`${outDir}/manifest.json`, JSON.stringify(manifest, null, 2));
 
           // Копируем иконки
           if (!existsSync(`${outDir}/icons`)) {

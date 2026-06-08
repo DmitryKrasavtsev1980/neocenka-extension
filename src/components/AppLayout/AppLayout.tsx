@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { getCurrentUser, logout, getModules, getNewsUnreadCount, markNewsRead, type ModuleInfo } from '@/services/api-service';
+import { getCurrentUser, logout, getModules, getNewsUnreadCount, markNewsRead, sendCompanyHeartbeat, type ModuleInfo } from '@/services/api-service';
 import { useTheme } from '@/components/ThemeProvider';
 import { SearchPage } from '@/pages/search/SearchPage';
 import ImportPage from '@/pages/import/ImportPage';
@@ -183,6 +183,8 @@ const AppLayout: React.FC = () => {
   const [importModuleCode, setImportModuleCode] = useState<string | undefined>(undefined);
   const [activeModules, setActiveModules] = useState<ModuleInfo[]>([]);
   const [expiredWarnings, setExpiredWarnings] = useState<{code: string; name: string; graceDate: string}[]>([]);
+  const [isCompanyAdmin, setIsCompanyAdmin] = useState(false);
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [unreadNews, setUnreadNews] = useState(0);
   const [crmCounts, setCrmCounts] = useState({ deals: 0, clients: 0, leads: 0, tasks: 0 });
   const [sidebarOrder, setSidebarOrder] = useState<SidebarOrder>(defaultSidebarOrder);
@@ -256,6 +258,8 @@ const AppLayout: React.FC = () => {
     const checkModules = async () => {
       try {
         const data = await getModules();
+        setIsCompanyAdmin(data.is_company_admin);
+        setCompanyName(data.company_name);
         const now = new Date().toISOString().slice(0, 10);
         const warnings: { code: string; name: string; graceDate: string }[] = [];
         const graceActive: ModuleInfo[] = [];
@@ -302,6 +306,25 @@ const AppLayout: React.FC = () => {
     const interval = setInterval(checkModules, CHECK_INTERVAL);
     return () => clearInterval(interval);
   }, [user]);
+
+  // Heartbeat для concurrent корпоративных лицензий
+  useEffect(() => {
+    if (!user || activeModules.length === 0) return;
+
+    const HEARTBEAT_INTERVAL = 60 * 1000; // 1 минута
+
+    const sendHeartbeats = () => {
+      for (const mod of activeModules) {
+        if (mod.access?.source === 'company' && mod.access?.license_type === 'concurrent') {
+          sendCompanyHeartbeat(mod.code).catch(() => {});
+        }
+      }
+    };
+
+    sendHeartbeats();
+    const hbInterval = setInterval(sendHeartbeats, HEARTBEAT_INTERVAL);
+    return () => clearInterval(hbInterval);
+  }, [user, activeModules]);
 
   useEffect(() => {
     if (!user) return;
@@ -352,7 +375,7 @@ const AppLayout: React.FC = () => {
   const renderContent = () => {
     switch (activePage) {
       case 'modules':
-        return <ModulesPage onModuleOpen={handleModuleOpen} />;
+        return <ModulesPage onModuleOpen={handleModuleOpen} isCompanyAdmin={isCompanyAdmin} />;
       case 'search':
         return <SearchPage onNavigate={handleNavigate} />;
       case 'import':
@@ -386,7 +409,7 @@ const AppLayout: React.FC = () => {
       case 'crm-settings':
         return <CrmSettingsPage />;
       default:
-        return <ModulesPage onModuleOpen={handleModuleOpen} />;
+        return <ModulesPage onModuleOpen={handleModuleOpen} isCompanyAdmin={isCompanyAdmin} />;
     }
   };
 
@@ -407,6 +430,12 @@ const AppLayout: React.FC = () => {
               <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-[160px]">
                 {user?.name || 'Пользователь'}
               </span>
+              {companyName && (
+                <span className="mt-0.5 inline-flex items-center gap-1 self-start rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                  <BuildingOffice2Icon className="size-3" />
+                  {companyName}{isCompanyAdmin ? ' · Админ' : ''}
+                </span>
+              )}
             </div>
           </SidebarHeader>
 
@@ -568,7 +597,11 @@ const AppLayout: React.FC = () => {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto">
-        {expiredWarnings.length > 0 && (
+        {expiredWarnings.length > 0 && (() => {
+          const hasCompanyModules = activeModules.some(m => m.access?.source === 'company');
+          const isNonAdminCompanyUser = !isCompanyAdmin && hasCompanyModules;
+          return !isNonAdminCompanyUser;
+        })() && (
           <div className="border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
             <div className="flex items-center gap-2">
               <svg className="size-5 shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor">

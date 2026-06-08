@@ -3,12 +3,15 @@
  * Обрабатывает chrome.scripting.executeScript вызовы от UI-страниц
  */
 
-// Установка расширения
+// Установка / обновление расширения
 chrome.runtime.onInstalled.addListener((details) => {
+  const version = chrome.runtime.getManifest().version;
+
   if (details.reason === 'install') {
-    console.log('Расширение установлено');
+    console.log('Расширение установлено, версия', version);
   } else if (details.reason === 'update') {
-    console.log('Расширение обновлено до версии', chrome.runtime.getManifest().version);
+    const prevVersion = details.previousVersion || '?';
+    console.log(`Расширение обновлено: ${prevVersion} → ${version}`);
   }
 });
 

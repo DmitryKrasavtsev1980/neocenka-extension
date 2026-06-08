@@ -109,7 +109,7 @@ export interface Ad {
   address_match_score: number | null;
   address_distance: number | null;
 
-  // Географические ID (Inpars)
+  // Географические ID
   region_id: number | null;
   city_id: number | null;
   metro_id: number | null;
@@ -207,10 +207,10 @@ export interface AdAddress {
   updated_at: string;
 }
 
-/** Категория Inpars */
-export interface InparsCategory {
+/** Категория объявлений */
+export interface ListingCategory {
   id?: number;
-  inpars_id: number | null;
+  source_id: number | null;
   name: string;
   name_en: string;
   parent_id: number | null;

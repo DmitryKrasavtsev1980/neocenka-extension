@@ -2,8 +2,11 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { importFromUrl } from '@/services/csv-parser';
 import { logImport, type ManifestFile } from '@/services/api-service';
 import { downloadCadastralData, type CadastralDownloadProgress } from '@/services/cadastral.service';
-import { getListingsByPolygon, transformInparsListing, loadInparsToken } from '@/services/inpars-service';
-import { adsRepository } from '@/db/repositories/ads.repository';
+import {
+  createDataRequest,
+  pollDataRequest,
+  downloadAndImportResult,
+} from '@/services/data-request-service';
 
 export interface ImportTask {
   id: string;
@@ -15,12 +18,15 @@ export interface ImportTask {
 }
 
 export interface AdsImportOptions {
-  polygons: [number, number][][];
+  polygons?: [number, number][][];
+  regionId?: number;
+  regionName?: string;
   sourceIds?: number[];
   categoryIds?: number[];
   sellerTypes?: number[];
   dateFrom?: string;
   dateTo?: string;
+  isNew?: number;
 }
 
 interface ImportTaskContextValue {
@@ -70,7 +76,6 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
         },
       ]);
 
-      // Запускаем в фоне — не await
       (async () => {
         let completed = 0;
         for (const file of files) {
@@ -125,7 +130,6 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
         },
       ]);
 
-      // Запускаем в фоне
       (async () => {
         try {
           await downloadCadastralData(moduleCode, (progress: CadastralDownloadProgress) => {
@@ -154,68 +158,75 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
   const startAdsImport = useCallback(
     (options: AdsImportOptions) => {
       const taskId = crypto.randomUUID();
-      const { polygons, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo } = options;
+      const { polygons, regionId, regionName, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew } = options;
+
+      const label = regionName
+        ? `Объявления: ${regionName}`
+        : `Объявления: ${polygons?.length || 0} полигон(ов)`;
 
       setTasks((prev) => [
         ...prev,
         {
           id: taskId,
           type: 'ads-import',
-          label: `Объявления: ${polygons.length} полигон(ов)`,
+          label,
           status: 'running',
           progress: 0,
-          detail: 'Запуск загрузки...',
+          detail: 'Отправка запроса на сервер...',
         },
       ]);
 
       (async () => {
         try {
-          const token = await loadInparsToken();
-          if (!token) {
-            updateTask(taskId, { status: 'error', detail: 'API ключ не задан' });
-            setTimeout(() => removeTask(taskId), 8000);
-            return;
-          }
-
-          const apiOptions: Record<string, unknown> = {};
-          if (categoryIds?.length) apiOptions.categoryId = categoryIds.join(',');
-          if (sourceIds?.length) apiOptions.sourceId = sourceIds.join(',');
-          if (sellerTypes?.length) apiOptions.sellerType = sellerTypes.join(',');
-          if (dateFrom) apiOptions.timeStart = Math.floor(new Date(dateFrom).getTime() / 1000);
-          if (dateTo) apiOptions.timeEnd = Math.floor(new Date(dateTo).getTime() / 1000);
-
-          const allListings: ReturnType<typeof transformInparsListing>[] = [];
-
-          for (let i = 0; i < polygons.length; i++) {
-            updateTask(taskId, {
-              progress: Math.round((i / polygons.length) * 90),
-              detail: `Полигон ${i + 1}/${polygons.length}, загружено ${allListings.length}...`,
-            });
-            const result = await getListingsByPolygon(polygons[i], apiOptions, (loaded) => {
-              updateTask(taskId, {
-                progress: Math.round((i / polygons.length) * 90),
-                detail: `Полигон ${i + 1}/${polygons.length}, загружено ${allListings.length + loaded}...`,
-              });
-            });
-            allListings.push(...result.listings);
-          }
-
-          updateTask(taskId, { progress: 95, detail: `Получено ${allListings.length}. Сохранение в БД...` });
-
-          const adsData = allListings.map(transformInparsListing);
-          const importResult = await adsRepository.bulkInsert(adsData);
-
-          await adsRepository.recordImport({
-            source: sourceIds?.length ? sourceIds.join(',') : 'all',
-            params: JSON.stringify({ polygonCount: polygons.length, ...apiOptions }),
-            count: importResult.inserted,
-            created_at: new Date().toISOString(),
+          // 1. Создать запрос на сервере
+          const request = await createDataRequest({
+            regionId,
+            regionName,
+            polygons: polygons,
+            sourceId: sourceIds?.join(','),
+            categoryId: categoryIds?.join(','),
+            sellerType: sellerTypes?.join(','),
+            timeStart: dateFrom ? Math.floor(new Date(dateFrom).getTime() / 1000) : undefined,
+            timeEnd: dateTo ? Math.floor(new Date(dateTo).getTime() / 1000) : undefined,
+            isNew,
           });
+
+          updateTask(taskId, {
+            progress: 10,
+            detail: `Запрос #${request.id} отправлен. Ожидание обработки...`,
+          });
+
+          // 2. Polling статуса
+          const result = await pollDataRequest(
+            request.id,
+            (status) => {
+              const pct = status.status === 'processing'
+                ? Math.min(90, 10 + Math.round(status.total_records / 100))
+                : 10;
+              updateTask(taskId, {
+                progress: pct,
+                detail: status.status === 'processing'
+                  ? `Обработка: загружено ${status.total_records} записей...`
+                  : 'Ожидание в очереди...',
+              });
+            },
+            5000,  // 5 секунд интервал
+            600000, // 10 минут таймаут
+          );
+
+          if (!result.download_url) {
+            throw new Error('Результат готов, но нет ссылки для скачивания');
+          }
+
+          // 3. Скачать и импортировать
+          updateTask(taskId, { progress: 95, detail: 'Скачивание результата...' });
+
+          const importResult = await downloadAndImportResult(result.id, result.download_url);
 
           updateTask(taskId, {
             status: 'done',
             progress: 100,
-            detail: `Загружено: ${importResult.inserted} новых, ${importResult.updated} обновлено`,
+            detail: `Готово: ${importResult.inserted} новых, ${importResult.updated} обновлено`,
           });
           setTimeout(() => removeTask(taskId), 8000);
         } catch (e) {
