@@ -1,13 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Неоценка",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "tabs",
+    "scripting",
+    "notifications"
   ],
-  "host_permissions": [],
+  "host_permissions": [
+    "https://*.cian.ru/*",
+    "https://*.avito.ru/*",
+    "https://*.inpars.ru/*"
+  ],
   "action": {
     "default_popup": "src/popup/popup.html",
     "default_icon": {
@@ -30,8 +37,33 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["src/pages/*", "assets/*"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "src/pages/*",
+        "assets/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.cian.ru/*"
+      ],
+      "js": [
+        "content/cian-parser.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.avito.ru/*"
+      ],
+      "js": [
+        "content/avito-parser.js"
+      ],
+      "run_at": "document_idle"
     }
   ]
 }

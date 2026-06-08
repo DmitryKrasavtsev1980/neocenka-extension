@@ -36,17 +36,24 @@ export interface ModuleInfo {
   price_90d: number | null;
   price_180d: number | null;
   price_365d: number | null;
+  trial_days: number;
+  has_regional_pricing: boolean;
   trial_available: boolean;
+  regional_prices: Record<string, Record<string, number>> | null;
+  available_regions: { code: string; name: string }[] | null;
   access: {
     status: string;
     period: string;
     expires_at: string | null;
     regions: string[];
+    source: 'personal' | 'company';
+    license_type?: string;
   } | null;
   pending_payment: {
     id: number;
     period: string;
     amount: number;
+    region_codes: string[] | null;
     created_at: string;
   } | null;
 }
@@ -160,7 +167,7 @@ export function getCurrentUser(): User | null {
 
 // === API requests ===
 
-async function apiRequest<T>(
+export async function apiRequest<T>(
   method: string,
   path: string,
   body?: Record<string, unknown>,
@@ -317,8 +324,8 @@ export async function unlinkDevice(deviceId: string): Promise<{ message: string 
   return apiRequest<{ message: string }>('POST', '/auth/unlink-device', { device_id: deviceId });
 }
 
-export async function getModules(): Promise<{ modules: ModuleInfo[] }> {
-  return apiRequest<{ modules: ModuleInfo[] }>('GET', '/modules');
+export async function getModules(): Promise<{ modules: ModuleInfo[]; is_company_admin: boolean; company_name: string | null }> {
+  return apiRequest<{ modules: ModuleInfo[]; is_company_admin: boolean; company_name: string | null }>('GET', '/modules');
 }
 
 export async function getManifest(moduleCode: string): Promise<{ files: ManifestFile[] }> {
@@ -637,4 +644,20 @@ export async function postAddressChanges(changes: Record<string, unknown>[]): Pr
 
 export async function getAddressChanges(): Promise<{ changes: AddressChangeResponse[] }> {
   return apiRequest<{ changes: AddressChangeResponse[] }>('GET', '/address-changes');
+}
+
+// === Company Heartbeat ===
+
+export async function sendCompanyHeartbeat(moduleCode: string): Promise<{
+  ok: boolean;
+  license_type?: string;
+  active_users?: number;
+  max_seats?: number;
+  error?: string;
+}> {
+  try {
+    return await apiRequest('POST', '/company/heartbeat', { module_code: moduleCode });
+  } catch {
+    return { ok: false, error: 'heartbeat_failed' };
+  }
 }
