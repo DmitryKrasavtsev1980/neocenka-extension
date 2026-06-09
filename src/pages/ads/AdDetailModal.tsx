@@ -17,6 +17,7 @@ import type { Ad, AdAddress, PriceHistoryItem, ReferenceItem } from '@/types';
 import { adsAddressService } from '@/services/ads-address-service';
 import { getMapConfig, createTileLayer } from '@/services/map-config';
 import { actualizeCianAd } from '@/services/cian-update-service';
+import { actualizeAvitoAd } from '@/services/avito-update-service';
 
 const SELLER_TYPE_LABELS: Record<string, string> = {
   owner: 'Собственник', agent: 'Агент', developer: 'Застройщик',
@@ -835,10 +836,15 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
               <button
                 onClick={async () => {
                   if (actualizing) return;
+                  const isAvito = ad.url?.includes('avito.ru');
+                  const isCian = ad.url?.includes('cian.ru');
+                  if (!isAvito && !isCian) return;
                   setActualizing(true);
                   setActualizeResult(null);
                   try {
-                    const result = await actualizeCianAd(ad);
+                    const result = isAvito
+                      ? await actualizeAvitoAd(ad)
+                      : await actualizeCianAd(ad);
                     if (result.success && result.ad) {
                       setAd(result.ad);
                       onSave?.(result.ad);
@@ -852,11 +858,11 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
                     setActualizing(false);
                   }
                 }}
-                disabled={actualizing || !ad.url?.includes('cian.ru')}
+                disabled={actualizing || (!ad.url?.includes('cian.ru') && !ad.url?.includes('avito.ru'))}
                 className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
                   actualizing
                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 cursor-wait'
-                    : !ad.url?.includes('cian.ru')
+                    : !ad.url?.includes('cian.ru') && !ad.url?.includes('avito.ru')
                       ? 'bg-zinc-50 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
                       : 'bg-zinc-100 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600'
                 }`}

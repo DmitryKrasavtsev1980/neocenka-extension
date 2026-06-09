@@ -8,6 +8,8 @@ import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
 import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem } from '@/types';
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
+import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
+import { useImportTasks, type ImportTask } from '@/contexts/ImportTaskContext';
 import { getModules } from '@/services/api-service';
 import AdsReportsPanel from './reports/AdsReportsPanel';
 import { REGION_CENTERS } from '@/constants/regions';
@@ -187,7 +189,7 @@ const PaginationBar: React.FC<{
 };
 
 const AdsPage: React.FC<AdsPageProps> = () => {
-  const { startAdsImport, tasks: importTasks } = useImportTasks();
+  const { startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, tasks: importTasks } = useImportTasks();
   const adsImportRunning = importTasks.some(t => t.type === 'ads-import' && t.status === 'running');
   // ─── Данные ───
   const [allAds, setAllAds] = useState<Ad[]>([]);
@@ -279,7 +281,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [runImport, setRunImport] = useState(false);
   const [runAddress, setRunAddress] = useState(false);
   const [runUpdate, setRunUpdate] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
+  const cianTask = importTasks.find(t => t.type === 'cian-update' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
+  const avitoTask = importTasks.find(t => t.type === 'avito-update' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const [archiveDays, setArchiveDays] = useState(7);
   const [showReports, setShowReports] = useState(false);
   const [dealsModuleActive, setDealsModuleActive] = useState(false);
@@ -320,7 +323,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   // ─── Карта ───
   const [showMapFilter, setShowMapFilter] = useState(false);
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lon: number; zoom: number } | null>(null);
-  const [subscriptionRegionCode, setSubscriptionRegionCode] = useState<string | null>(null);
+  const [subscriptionRegionCodes, setSubscriptionRegionCodes] = useState<string[]>([]);
   const [polygonsCoords, setPolygonsCoords] = useState<[number, number][][] | null>(() => {
     try {
       const saved = localStorage.getItem('ret_ads_polygon_coords');
@@ -372,6 +375,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     getModules().then(data => {
       const active = data.modules.some(m => m.code === 'dealsrosreestr' && m.access?.status === 'active');
       setDealsModuleActive(active);
+      // Регионы подписки на модуль ads
+      const adsModule = data.modules.find(m => m.code === 'ads' && m.access?.status === 'active');
+      if (adsModule?.access?.regions) {
+        setSubscriptionRegionCodes(adsModule.access.regions);
+      }
     }).catch(() => {});
   }, []);
 
@@ -1532,7 +1540,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   /** Собрать CIAN-объявления из текущего фильтра и запустить batch-обновление */
   const handleBatchUpdate = () => {
-    // Собираем все CIAN-объявления, попадающие под текущий фильтр
     const cianAdsSet = new Set<number>();
     const cianAds: Ad[] = [];
     const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
@@ -1542,9 +1549,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         cianAds.push(ad);
       }
     };
-    // Объявления без объекта (уже отфильтрованные)
     for (const ad of filteredAds) addIfCian(ad);
-    // Объявления внутри отфильтрованных объектов (из allAds)
     for (const ad of allAds) {
       if (ad.object_id && filteredObjectIds.has(ad.object_id)) addIfCian(ad);
     }
@@ -1552,26 +1557,42 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       setToast({ message: 'Нет CIAN объявлений для обновления', type: 'info' });
       return;
     }
-    setBatchProgress({ phase: 'check', total: cianAds.length, current: 0, changed: 0, updated: 0, errors: [] });
-    batchUpdateCianAds(cianAds, setBatchProgress, archiveDays)
-      .then(result => {
-        setBatchProgress(null);
-        setToast({
-          message: `Обновление завершено: проверено ${result.checked}, изменено ${result.changed}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок: ${result.errors.length}` : ''}`,
-          type: result.errors.length > 0 ? 'error' : 'success',
-        });
-        loadData();
-      })
-      .catch(err => {
-        setBatchProgress(null);
-        setToast({ message: `Ошибка: ${err instanceof Error ? err.message : String(err)}`, type: 'error' });
-      });
+    if (!startCianBatchUpdate(cianAds, archiveDays)) {
+      setToast({ message: 'CIAN: актуализация уже запущена', type: 'info' });
+    }
+  };
+
+  /** Собрать Avito-объявления из текущего фильтра и запустить batch-обновление */
+  const handleAvitoBatchUpdate = () => {
+    const avitoAdsSet = new Set<number>();
+    const avitoAds: Ad[] = [];
+    const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
+    const addIfAvito = (ad: Ad) => {
+      if (ad.url?.includes('avito.ru') && ad.id && !avitoAdsSet.has(ad.id)) {
+        avitoAdsSet.add(ad.id);
+        avitoAds.push(ad);
+      }
+    };
+    for (const ad of filteredAds) addIfAvito(ad);
+    for (const ad of allAds) {
+      if (ad.object_id && filteredObjectIds.has(ad.object_id)) addIfAvito(ad);
+    }
+    if (avitoAds.length === 0) {
+      setToast({ message: 'Нет Avito объявлений для обновления', type: 'info' });
+      return;
+    }
+    if (!startAvitoBatchUpdate(avitoAds, archiveDays)) {
+      setToast({ message: 'Avito: актуализация уже запущена', type: 'info' });
+    }
   };
 
   const handleRunAll = () => {
     if (runImport) handleImport();
     if (runAddress) handleMatchAddresses();
-    if (runUpdate) handleBatchUpdate();
+    if (runUpdate) {
+      handleBatchUpdate();
+      handleAvitoBatchUpdate();
+    }
   };
 
   const toggleNumFilter = (arr: number[], item: number, setter: (v: number[]) => void) => {
@@ -1876,7 +1897,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             </Button>
             <Button onClick={handleOpenImport} color={showImportPanel ? 'dark' : 'white'}><ArrowDownTrayIcon className="size-4" />Загрузка</Button>
             <Button onClick={() => setShowReports(!showReports)} color={showReports ? 'dark' : 'white'}><ChartBarIcon className="size-4" />Отчёты</Button>
-            <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureListingData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтры</Button>
+            <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureListingData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтр</Button>
           </div>
         </div>
 
@@ -2023,41 +2044,55 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             {/* Раздел 3: Обновление объявлений */}
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><ArrowPathIcon className="size-4" /> Обновление объявлений</h3>
-              {batchProgress ? (
-                <div className="space-y-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                      {batchProgress.phase === 'check' && 'Проверка объявлений...'}
-                      {batchProgress.phase === 'parse' && 'Полный парсинг изменившихся...'}
-                      {batchProgress.phase === 'done' && 'Завершено'}
-                    </span>
-                    <span className="text-xs text-blue-600 dark:text-blue-400">
-                      {batchProgress.current}/{batchProgress.total}
-                    </span>
-                  </div>
-                  {/* Прогресс-бар */}
-                  <div className="w-full bg-blue-200 dark:bg-blue-900 rounded-full h-1.5">
-                    <div
-                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                      style={{ width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%` }}
-                    />
-                  </div>
-                  {batchProgress.phase === 'check' && batchProgress.changed > 0 && (
-                    <p className="text-[10px] text-blue-600 dark:text-blue-400">Изменилось: {batchProgress.changed}</p>
-                  )}
-                  {batchProgress.phase === 'parse' && (
-                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{batchProgress.currentUrl}</p>
-                  )}
-                  {batchProgress.errors.length > 0 && (
-                    <div className="text-[10px] text-red-600 dark:text-red-400 space-y-0.5">
-                      {batchProgress.errors.slice(0, 3).map((e, i) => (
-                        <p key={i} className="truncate">{e.error}</p>
-                      ))}
-                      {batchProgress.errors.length > 3 && <p>...и ещё {batchProgress.errors.length - 3} ошибок</p>}
+
+              {/* CIAN прогресс */}
+              {cianTask && (() => {
+                const eta = cianTask.startTime && cianTask.current && cianTask.total && cianTask.current > 0
+                  ? (() => { const rem = ((Date.now() - cianTask.startTime) / cianTask.current) * (cianTask.total - cianTask.current); const s = Math.ceil(rem / 1000); return s < 60 ? `≈ ${s} сек` : `≈ ${Math.floor(s / 60)} мин ${s % 60 > 0 ? `${s % 60} сек` : ''}`; })()
+                  : null;
+                return (
+                  <div className="space-y-1 p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                        CIAN: {cianTask.phase === 'check' ? 'Проверка...' : cianTask.phase === 'parse' ? 'Парсинг...' : 'Завершено'}
+                      </span>
+                      <span className="text-[11px] text-blue-600 dark:text-blue-400 tabular-nums">
+                        {cianTask.current}/{cianTask.total} {eta && `(${eta})`}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ) : (
+                    <div className="w-full bg-blue-200 dark:bg-blue-900 rounded-full h-1.5">
+                      <div className="bg-blue-600 h-1.5 rounded-full transition-all duration-300" style={{ width: `${cianTask.progress}%` }} />
+                    </div>
+                    {cianTask.detail && <p className="text-[10px] text-blue-600 dark:text-blue-400">{cianTask.detail}</p>}
+                  </div>
+                );
+              })()}
+
+              {/* Avito прогресс */}
+              {avitoTask && (() => {
+                const eta = avitoTask.startTime && avitoTask.current && avitoTask.total && avitoTask.current > 0
+                  ? (() => { const rem = ((Date.now() - avitoTask.startTime) / avitoTask.current) * (avitoTask.total - avitoTask.current); const s = Math.ceil(rem / 1000); return s < 60 ? `≈ ${s} сек` : `≈ ${Math.floor(s / 60)} мин ${s % 60 > 0 ? `${s % 60} сек` : ''}`; })()
+                  : null;
+                return (
+                  <div className="space-y-1 p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-green-700 dark:text-green-300">
+                        Avito: {avitoTask.phase === 'check' ? 'Проверка...' : avitoTask.phase === 'parse' ? 'Парсинг...' : 'Завершено'}
+                      </span>
+                      <span className="text-[11px] text-green-600 dark:text-green-400 tabular-nums">
+                        {avitoTask.current}/{avitoTask.total} {eta && `(${eta})`}
+                      </span>
+                    </div>
+                    <div className="w-full bg-green-200 dark:bg-green-900 rounded-full h-1.5">
+                      <div className="bg-green-600 h-1.5 rounded-full transition-all duration-300" style={{ width: `${avitoTask.progress}%` }} />
+                    </div>
+                    {avitoTask.detail && <p className="text-[10px] text-green-600 dark:text-green-400">{avitoTask.detail}</p>}
+                  </div>
+                );
+              })()}
+
+              {/* Кнопки и настройки — всегда видны */}
+              {!cianTask?.status?.startsWith('running') && !avitoTask?.status?.startsWith('running') && (
                 <>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     В фильтре: {(() => {
@@ -2086,15 +2121,34 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                     />
                     <span className="text-xs text-zinc-500 dark:text-zinc-400">дней</span>
                   </div>
-                  <button
-                    onClick={handleBatchUpdate}
-                    className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 flex items-center gap-1.5"
-                  >
-                    <ArrowPathIcon className="size-3.5" />
-                    Обновить CIAN объявления
-                  </button>
                 </>
               )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { handleBatchUpdate(); handleAvitoBatchUpdate(); }}
+                  disabled={(!!cianTask && cianTask.status === 'running') || (!!avitoTask && avitoTask.status === 'running')}
+                  className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <ArrowPathIcon className="size-3.5" />
+                  Актуализировать всё
+                </button>
+                <button
+                  onClick={handleBatchUpdate}
+                  disabled={!!cianTask && cianTask.status === 'running'}
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <ArrowPathIcon className="size-3.5" />
+                  CIAN
+                </button>
+                <button
+                  onClick={handleAvitoBatchUpdate}
+                  disabled={!!avitoTask && avitoTask.status === 'running'}
+                  className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <ArrowPathIcon className="size-3.5" />
+                  Avito
+                </button>
+              </div>
             </div>
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
@@ -2142,216 +2196,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           </div>
         )}
 
-        {/* Filters */}
-        {showFilters && (
-          <div className="space-y-3 mb-4">
-            {/* Основной фильтр (сегментный) — синяя панель */}
-            <div className="rounded-xl bg-white dark:bg-zinc-900 p-5 shadow-sm border border-blue-200 dark:border-blue-800 mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Фильтр</h4>
-                <button onClick={clearAllFilters} className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"><XMarkIcon className="size-3" />Очистить все</button>
-              </div>
-
-              {/* Источник */}
-              <div className="mb-3">
-                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Источник</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {enabledSources.map(({ key }) => (
-                    <button key={key} onClick={() => setFilterSources(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSources.includes(key) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{SOURCE_LABELS[key] || key}</button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Категория (тип недвижимости) */}
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Категория</label>
-                  <span className="text-[10px] text-zinc-400">{filterCategoryIds.length} из {categories.length}</span>
-                </div>
-                {categories.length === 0 ? (
-                  <span className="text-xs text-zinc-400">Загрузка категорий...</span>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {(() => {
-                      const sectionMap = new Map<number, ListingCategoryRaw[]>();
-                      for (const c of categories) {
-                        if (!sectionMap.has(c.sectionId)) sectionMap.set(c.sectionId, []);
-                        sectionMap.get(c.sectionId)!.push(c);
-                      }
-                      return Array.from(sectionMap.entries()).map(([sectionId, cats]) => {
-                        const allSelected = cats.every(c => filterCategoryIds.includes(c.id));
-                        return (
-                          <div key={sectionId}>
-                            <button
-                              onClick={() => {
-                                const catIds = cats.map(c => c.id);
-                                if (allSelected) {
-                                  setFilterCategoryIds(prev => prev.filter(id => !catIds.includes(id)));
-                                } else {
-                                  setFilterCategoryIds(prev => [...new Set([...prev, ...catIds])]);
-                                }
-                              }}
-                              className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 mb-1"
-                            >
-                              <span className={`inline-flex h-3 w-3 items-center justify-center rounded border text-[8px] ${allSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-zinc-300 dark:border-zinc-600'}`}>
-                                {allSelected && '✓'}
-                              </span>
-                              {SECTION_LABELS[sectionId] || `Раздел ${sectionId}`}
-                            </button>
-                            <div className="flex flex-wrap gap-1 pl-4">
-                              {cats.map(c => (
-                                <button key={c.id} onClick={() => setFilterCategoryIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])}
-                                  className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterCategoryIds.includes(c.id) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{c.title}</button>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                )}
-              </div>
-
-              {/* Диапазоны: цена, площадь, этаж, год */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Цена от</label>
-                  <input type="number" placeholder="0" value={filterPriceMin} onChange={e => setFilterPriceMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Цена до</label>
-                  <input type="number" placeholder="∞" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Площадь от (м²)</label>
-                  <input type="number" placeholder="0" value={filterAreaMin} onChange={e => setFilterAreaMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Площадь до (м²)</label>
-                  <input type="number" placeholder="∞" value={filterAreaMax} onChange={e => setFilterAreaMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этаж от</label>
-                  <input type="number" min={1} max={100} placeholder="1" value={filterFloorMin} onChange={e => setFilterFloorMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этаж до</label>
-                  <input type="number" min={1} max={100} placeholder="∞" value={filterFloorMax} onChange={e => setFilterFloorMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Год постройки от</label>
-                  <input type="number" min={1900} max={2030} placeholder="1900" value={filterYearMin} onChange={e => setFilterYearMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Год постройки до</label>
-                  <input type="number" min={1900} max={2030} placeholder="2030" value={filterYearMax} onChange={e => setFilterYearMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              </div>
-
-              {/* Параметры дома (через адрес) */}
-              {availableHouseSeries.length > 0 && (
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Серия дома</label>
-                    <span className="text-[10px] text-zinc-400">{filterHouseSeriesIds.length} из {availableHouseSeries.length}{filterAddressIds.size > 0 ? ' (в полигоне)' : ''}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {availableHouseSeries.map(s => (
-                      <button key={s.server_id} onClick={() => setFilterHouseSeriesIds(prev => prev.includes(s.server_id!) ? prev.filter(x => x !== s.server_id) : [...prev, s.server_id!])}
-                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterHouseSeriesIds.includes(s.server_id!) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{s.name}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {availableWallMaterials.length > 0 && (
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Материал стен</label>
-                    <span className="text-[10px] text-zinc-400">{filterWallMaterialIds.length} из {availableWallMaterials.length}{filterAddressIds.size > 0 ? ' (в полигоне)' : ''}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {availableWallMaterials.map(s => (
-                      <button key={s.server_id} onClick={() => setFilterWallMaterialIds(prev => prev.includes(s.server_id!) ? prev.filter(x => x !== s.server_id) : [...prev, s.server_id!])}
-                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterWallMaterialIds.includes(s.server_id!) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{s.name}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этажность дома от</label>
-                  <input type="number" min={1} max={100} placeholder="1" value={filterFloorsMin} onChange={e => setFilterFloorsMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этажность дома до</label>
-                  <input type="number" min={1} max={100} placeholder="∞" value={filterFloorsMax} onChange={e => setFilterFloorsMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              </div>
-
-              {/* Продавец */}
-              <div className="mb-3">
-                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Продавец</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(SELLER_TYPE_LABELS).map(([key, label]) => (
-                    <button key={key} onClick={() => setFilterSellerTypes(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSellerTypes.includes(key) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{label}</button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Статус + Даты */}
-              <div className="flex flex-wrap items-end gap-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Статус</label>
-                  <div className="flex gap-1">
-                    <button onClick={() => setFilterStatus('')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${!filterStatus ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Все</button>
-                    <button onClick={() => setFilterStatus('active')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'active' ? 'bg-green-600 text-white' : 'bg-zinc-100 text-green-700 hover:bg-green-100 dark:bg-zinc-800 dark:text-green-400'}`}>Активные</button>
-                    <button onClick={() => setFilterStatus('archived')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'archived' ? 'bg-zinc-600 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Архивные</button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата создания от</label>
-                  <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата создания до</label>
-                  <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              </div>
-            </div>
-
-            {/* Карта */}
-            <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
-              <button className="flex w-full items-center gap-2 bg-zinc-50 px-3.5 py-2.5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-100 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700" onClick={() => setShowMapFilter(!showMapFilter)}>
-                <span>Поиск по карте</span>
-                {polygonsCoords && <Badge color="blue" className="ml-2">{polygonsCoords.length} полигон(ов)</Badge>}
-                <ChevronDownIcon className={`ml-auto size-4 transition-transform ${showMapFilter ? 'rotate-180' : ''}`} />
-              </button>
-              {showMapFilter && subscriptionRegionCode && (() => {
-                const info = REGION_CENTERS[subscriptionRegionCode];
-                if (!info) return null;
-                return (
-                  <div className="flex flex-wrap gap-1.5 border-b border-zinc-200 dark:border-zinc-700 px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800">
-                    <span className="flex items-center text-xs text-zinc-400 dark:text-zinc-500">Регион:</span>
-                    <button
-                      onClick={() => handleFlyToRegion(subscriptionRegionCode)}
-                      className="rounded-md bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-800/40"
-                    >
-                      {info.name}
-                    </button>
-                  </div>
-                );
-              })()}
-              {showMapFilter && (
-                <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries, houseClasses: refHouseClasses, ceilingMaterials: refCeilingMaterials }} onAddressClick={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }} selectedAddressIds={filterAddressIds} highlightedAddressIds={highlightedAddressIds} excludedAddressIds={excludedAddressIds} onAddressToggle={handleAddressToggle} onSelectAllInPolygon={handleSelectAllInPolygon} polygonsCoords={polygonsCoords} />
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* Reports panel */}
+        {/* Reports panel — между заголовком и тегами фильтров */}
         {showReports && (
           <AdsReportsPanel
             objects={filteredObjects}
@@ -2359,7 +2204,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           />
         )}
 
-        {/* Active filters — всегда видны */}
+        {/* Compact filter summary — всегда видима */}
         {activeFilterTags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 mb-4">
             <span className="text-[10px] text-zinc-500">Фильтры:</span>
@@ -2371,6 +2216,217 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             ))}
           </div>
         )}
+
+        {/* Фильтр — между тегами и картой */}
+        {showFilters && (
+          <div className="rounded-xl bg-white dark:bg-zinc-900 p-5 shadow-sm border border-blue-200 dark:border-blue-800 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Фильтр</h4>
+              <button onClick={clearAllFilters} className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"><XMarkIcon className="size-3" />Очистить все</button>
+            </div>
+
+            {/* Источник */}
+            <div className="mb-3">
+              <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Источник</label>
+              <div className="flex flex-wrap gap-1.5">
+                {enabledSources.map(({ key }) => (
+                  <button key={key} onClick={() => setFilterSources(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSources.includes(key) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{SOURCE_LABELS[key] || key}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Категория */}
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Категория</label>
+                <span className="text-[10px] text-zinc-400">{filterCategoryIds.length} из {categories.length}</span>
+              </div>
+              {categories.length === 0 ? (
+                <span className="text-xs text-zinc-400">Загрузка категорий...</span>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {(() => {
+                    const sectionMap = new Map<number, ListingCategoryRaw[]>();
+                    for (const c of categories) {
+                      if (!sectionMap.has(c.sectionId)) sectionMap.set(c.sectionId, []);
+                      sectionMap.get(c.sectionId)!.push(c);
+                    }
+                    return Array.from(sectionMap.entries()).map(([sectionId, cats]) => {
+                      const allSelected = cats.every(c => filterCategoryIds.includes(c.id));
+                      return (
+                        <div key={sectionId}>
+                          <button
+                            onClick={() => {
+                              const catIds = cats.map(c => c.id);
+                              if (allSelected) {
+                                setFilterCategoryIds(prev => prev.filter(id => !catIds.includes(id)));
+                              } else {
+                                setFilterCategoryIds(prev => [...new Set([...prev, ...catIds])]);
+                              }
+                            }}
+                            className="flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 mb-1"
+                          >
+                            <span className={`inline-flex h-3 w-3 items-center justify-center rounded border text-[8px] ${allSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-zinc-300 dark:border-zinc-600'}`}>
+                              {allSelected && '✓'}
+                            </span>
+                            {SECTION_LABELS[sectionId] || `Раздел ${sectionId}`}
+                          </button>
+                          <div className="flex flex-wrap gap-1 pl-4">
+                            {cats.map(c => (
+                              <button key={c.id} onClick={() => setFilterCategoryIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])}
+                                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterCategoryIds.includes(c.id) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{c.title}</button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Диапазоны: цена, площадь, этаж, год */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Цена от</label>
+                <input type="number" placeholder="0" value={filterPriceMin} onChange={e => setFilterPriceMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Цена до</label>
+                <input type="number" placeholder="∞" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Площадь от (м²)</label>
+                <input type="number" placeholder="0" value={filterAreaMin} onChange={e => setFilterAreaMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Площадь до (м²)</label>
+                <input type="number" placeholder="∞" value={filterAreaMax} onChange={e => setFilterAreaMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этаж от</label>
+                <input type="number" min={1} max={100} placeholder="1" value={filterFloorMin} onChange={e => setFilterFloorMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этаж до</label>
+                <input type="number" min={1} max={100} placeholder="∞" value={filterFloorMax} onChange={e => setFilterFloorMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Год постройки от</label>
+                <input type="number" min={1900} max={2030} placeholder="1900" value={filterYearMin} onChange={e => setFilterYearMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Год постройки до</label>
+                <input type="number" min={1900} max={2030} placeholder="2030" value={filterYearMax} onChange={e => setFilterYearMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+
+            {/* Параметры дома */}
+            {availableHouseSeries.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Серия дома</label>
+                  <span className="text-[10px] text-zinc-400">{filterHouseSeriesIds.length} из {availableHouseSeries.length}{filterAddressIds.size > 0 ? ' (в полигоне)' : ''}</span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {availableHouseSeries.map(s => (
+                    <button key={s.server_id} onClick={() => setFilterHouseSeriesIds(prev => prev.includes(s.server_id!) ? prev.filter(x => x !== s.server_id) : [...prev, s.server_id!])}
+                      className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterHouseSeriesIds.includes(s.server_id!) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{s.name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {availableWallMaterials.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Материал стен</label>
+                  <span className="text-[10px] text-zinc-400">{filterWallMaterialIds.length} из {availableWallMaterials.length}{filterAddressIds.size > 0 ? ' (в полигоне)' : ''}</span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {availableWallMaterials.map(s => (
+                    <button key={s.server_id} onClick={() => setFilterWallMaterialIds(prev => prev.includes(s.server_id!) ? prev.filter(x => x !== s.server_id) : [...prev, s.server_id!])}
+                      className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${filterWallMaterialIds.includes(s.server_id!) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{s.name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этажность дома от</label>
+                <input type="number" min={1} max={100} placeholder="1" value={filterFloorsMin} onChange={e => setFilterFloorsMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Этажность дома до</label>
+                <input type="number" min={1} max={100} placeholder="∞" value={filterFloorsMax} onChange={e => setFilterFloorsMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+
+            {/* Продавец */}
+            <div className="mb-3">
+              <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Продавец</label>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(SELLER_TYPE_LABELS).map(([key, label]) => (
+                  <button key={key} onClick={() => setFilterSellerTypes(prev => prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key])}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filterSellerTypes.includes(key) ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}`}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Статус + Даты */}
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Статус</label>
+                <div className="flex gap-1">
+                  <button onClick={() => setFilterStatus('')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${!filterStatus ? 'bg-blue-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Все</button>
+                  <button onClick={() => setFilterStatus('active')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'active' ? 'bg-green-600 text-white' : 'bg-zinc-100 text-green-700 hover:bg-green-100 dark:bg-zinc-800 dark:text-green-400'}`}>Активные</button>
+                  <button onClick={() => setFilterStatus('archived')} className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${filterStatus === 'archived' ? 'bg-zinc-600 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300'}`}>Архивные</button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата создания от</label>
+                <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата создания до</label>
+                <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Карта — всегда видима, сворачиваемая */}
+        <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 mb-4">
+          <button className="flex w-full items-center gap-2 bg-zinc-50 px-3.5 py-2.5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-100 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700" onClick={() => setShowMapFilter(!showMapFilter)}>
+            <MapPinIcon className="size-4" />
+            <span>Поиск по карте</span>
+            {polygonsCoords && <Badge color="blue" className="ml-2">{polygonsCoords.length} полигон(ов)</Badge>}
+            <ChevronDownIcon className={`ml-auto size-4 transition-transform ${showMapFilter ? 'rotate-180' : ''}`} />
+          </button>
+          {showMapFilter && subscriptionRegionCodes.length > 0 && (() => {
+            const regionList = subscriptionRegionCodes
+              .map(code => ({ code, ...REGION_CENTERS[code] }))
+              .filter(r => r.name);
+            if (regionList.length === 0) return null;
+            return (
+              <div className="flex flex-wrap gap-1.5 border-b border-zinc-200 dark:border-zinc-700 px-3.5 py-2 bg-zinc-50 dark:bg-zinc-800">
+                <span className="flex items-center text-xs text-zinc-400 dark:text-zinc-500">Перейти:</span>
+                {regionList.map(region => (
+                  <button
+                    key={region.code}
+                    onClick={() => handleFlyToRegion(region.code)}
+                    className="cursor-pointer rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-blue-100 hover:text-blue-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-400"
+                  >
+                    {region.name}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+          {showMapFilter && (
+            <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries, houseClasses: refHouseClasses, ceilingMaterials: refCeilingMaterials }} onAddressClick={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }} selectedAddressIds={filterAddressIds} highlightedAddressIds={highlightedAddressIds} excludedAddressIds={excludedAddressIds} onAddressToggle={handleAddressToggle} onSelectAllInPolygon={handleSelectAllInPolygon} polygonsCoords={polygonsCoords} />
+          )}
+        </div>
 
         {/* Фильтр обработки — над таблицей */}
         {showProcessingFilter && (

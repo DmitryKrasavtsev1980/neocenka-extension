@@ -7,14 +7,25 @@ import {
   pollDataRequest,
   downloadAndImportResult,
 } from '@/services/data-request-service';
+import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
+import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
+import type { Ad } from '@/types';
 
 export interface ImportTask {
   id: string;
-  type: 'deals' | 'cadastral' | 'ads-import';
+  type: 'deals' | 'cadastral' | 'ads-import' | 'cian-update' | 'avito-update';
   label: string;
   status: 'running' | 'done' | 'error';
   progress: number;
   detail?: string;
+  // Поля для batch-актуализации
+  phase?: 'check' | 'parse' | 'done';
+  total?: number;
+  current?: number;
+  changed?: number;
+  updated?: number;
+  errors?: Array<{ url: string; error: string }>;
+  startTime?: number;
 }
 
 export interface AdsImportOptions {
@@ -34,6 +45,8 @@ interface ImportTaskContextValue {
   startDealsImport: (files: ManifestFile[], moduleCode: string) => void;
   startCadastralImport: (moduleCode: string, regionCodes: string[], regionNames: string[]) => void;
   startAdsImport: (options: AdsImportOptions) => void;
+  startCianBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
+  startAvitoBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
   removeTask: (taskId: string) => void;
 }
 
@@ -242,8 +255,144 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
     [updateTask, removeTask],
   );
 
+  const startCianBatchUpdate = useCallback(
+    (ads: Ad[], archiveDays?: number) => {
+      if (tasksRef.current.some(t => t.type === 'cian-update' && t.status === 'running')) {
+        return false;
+      }
+      const taskId = crypto.randomUUID();
+      setTasks((prev) => [
+        ...prev,
+        {
+          id: taskId,
+          type: 'cian-update',
+          label: `CIAN: актуализация (${ads.length})`,
+          status: 'running',
+          progress: 0,
+          phase: 'check',
+          total: ads.length,
+          current: 0,
+          changed: 0,
+          updated: 0,
+          errors: [],
+          startTime: Date.now(),
+        },
+      ]);
+
+      (async () => {
+        try {
+          const result = await batchUpdateCianAds(
+            ads,
+            (p: BatchProgress) => {
+              const pct = p.total > 0 ? Math.round((p.current / p.total) * 100) : 0;
+              updateTask(taskId, {
+                progress: pct,
+                phase: p.phase,
+                total: p.total,
+                current: p.current,
+                changed: p.changed,
+                updated: p.updated,
+                errors: p.errors,
+                detail: p.phase === 'check'
+                  ? `Проверка: ${p.current}/${p.total}`
+                  : p.phase === 'parse'
+                    ? `Парсинг: ${p.current}/${p.total} (изменилось ${p.changed})`
+                    : 'Завершено',
+              });
+            },
+            archiveDays,
+          );
+          updateTask(taskId, {
+            status: 'done',
+            progress: 100,
+            phase: 'done',
+            detail: `Готово: проверено ${result.checked}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок ${result.errors.length}` : ''}`,
+          });
+          setTimeout(() => removeTask(taskId), 8000);
+        } catch (e) {
+          updateTask(taskId, {
+            status: 'error',
+            progress: 0,
+            detail: `Ошибка: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          setTimeout(() => removeTask(taskId), 12000);
+        }
+      })();
+      return true;
+    },
+    [updateTask, removeTask],
+  );
+
+  const startAvitoBatchUpdate = useCallback(
+    (ads: Ad[], archiveDays?: number) => {
+      if (tasksRef.current.some(t => t.type === 'avito-update' && t.status === 'running')) {
+        return false;
+      }
+      const taskId = crypto.randomUUID();
+      setTasks((prev) => [
+        ...prev,
+        {
+          id: taskId,
+          type: 'avito-update',
+          label: `Avito: актуализация (${ads.length})`,
+          status: 'running',
+          progress: 0,
+          phase: 'check',
+          total: ads.length,
+          current: 0,
+          changed: 0,
+          updated: 0,
+          errors: [],
+          startTime: Date.now(),
+        },
+      ]);
+
+      (async () => {
+        try {
+          const result = await batchUpdateAvitoAds(
+            ads,
+            (p: AvitoBatchProgress) => {
+              const pct = p.total > 0 ? Math.round((p.current / p.total) * 100) : 0;
+              updateTask(taskId, {
+                progress: pct,
+                phase: p.phase,
+                total: p.total,
+                current: p.current,
+                changed: p.changed,
+                updated: p.updated,
+                errors: p.errors,
+                detail: p.phase === 'check'
+                  ? `Проверка: ${p.current}/${p.total}`
+                  : p.phase === 'parse'
+                    ? `Парсинг: ${p.current}/${p.total} (изменилось ${p.changed})`
+                    : 'Завершено',
+              });
+            },
+            archiveDays,
+          );
+          updateTask(taskId, {
+            status: 'done',
+            progress: 100,
+            phase: 'done',
+            detail: `Готово: проверено ${result.checked}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок ${result.errors.length}` : ''}`,
+          });
+          setTimeout(() => removeTask(taskId), 8000);
+        } catch (e) {
+          updateTask(taskId, {
+            status: 'error',
+            progress: 0,
+            detail: `Ошибка: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          setTimeout(() => removeTask(taskId), 12000);
+        }
+      })();
+      return true;
+    },
+    [updateTask, removeTask],
+  );
+
   return (
-    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, startAdsImport, removeTask }}>
+    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, removeTask }}>
       {children}
     </ImportTaskContext.Provider>
   );

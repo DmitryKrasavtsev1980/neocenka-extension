@@ -676,6 +676,370 @@ function checkCianAdHtml(url: string): Promise<{ price: number | null; status: '
 }
 
 // ============================================================
+// Актуализация объявления Авито — парсинг карточки
+// ============================================================
+
+interface AvitoDetailParsed {
+  status: 'active' | 'archived';
+  price: number | null;
+  pricePerMeter: number | null;
+  photos: string[];
+  updatedDate: string | null;
+  datePublished: string | null;
+  sellerName: string | null;
+  sellerType: string | null;
+  views: number | null;
+  priceHistory: Array<{ date: string; price: number }>;
+  logs?: string[];
+}
+
+/**
+ * Парсинг русской даты (встроенная копия для executeScript)
+ * Форматы: "25 мая 2026", "27 апр, 10:55", "вчера, 13:30", "15 мая в 09:15"
+ */
+function parseRuDateAvito(dateStr: string): Date | null {
+  const now = new Date();
+  const months: Record<string, number> = {
+    'января': 0, 'янв': 0, 'февраля': 1, 'фев': 1,
+    'марта': 2, 'мар': 2, 'апреля': 3, 'апр': 3,
+    'мая': 4, 'май': 4, 'июня': 5, 'июн': 5,
+    'июля': 6, 'июл': 6, 'августа': 7, 'авг': 7,
+    'сентября': 8, 'сен': 8, 'октября': 9, 'окт': 9,
+    'ноября': 10, 'ноя': 10, 'декабря': 11, 'дек': 11,
+  };
+  if (dateStr.startsWith('вчера')) {
+    const d = new Date(now); d.setDate(d.getDate() - 1);
+    const m = dateStr.match(/(\d{1,2}):(\d{2})/);
+    if (m) d.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+    return d;
+  }
+  if (dateStr.startsWith('сегодня')) {
+    const d = new Date(now);
+    const m = dateStr.match(/(\d{1,2}):(\d{2})/);
+    if (m) d.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+    return d;
+  }
+  // "15 мая в 09:15" или "27 апр, 10:55" или "25 мая 2026"
+  const cleaned = dateStr.replace(/\s*в\s*/, ' ');
+  const parts = cleaned.match(/(\d{1,2})\s+([a-zA-Zа-яА-ЯёЁ]+)\s*(\d{4})?/);
+  if (!parts) return null;
+  const day = parseInt(parts[1]);
+  const month = months[parts[2].toLowerCase()];
+  if (month === undefined) return null;
+  let year = parts[3] ? parseInt(parts[3]) : now.getFullYear();
+  if (!parts[3] && new Date(year, month, day) > now) year--;
+  const d = new Date(year, month, day);
+  const tm = dateStr.match(/(\d{1,2}):(\d{2})/);
+  if (tm) d.setHours(parseInt(tm[1]), parseInt(tm[2]), 0, 0);
+  return d;
+}
+
+/**
+ * Простой инжектируемый скрипт для чтения __staticRouterHydrationData со страницы Avito.
+ * Возвращает минимальный объект — только url, title, bodySnippet, metaPrice и JSON-строку данных.
+ * Весь парсинг делается в service worker.
+ */
+function readAvitoPageData(): {
+  url: string;
+  title: string;
+  bodySnippet: string;
+  metaPrice: string | null;
+  buyerItemJson: string | null;
+  loaderKeys: string[];
+  itemId: number | null;
+  categoryId: number | null;
+  microCategoryId: number | null;
+} {
+  const data = (window as any).__staticRouterHydrationData;
+  let buyerItemJson: string | null = null;
+  let loaderKeys: string[] = [];
+  let itemId: number | null = null;
+  let categoryId: number | null = null;
+  let microCategoryId: number | null = null;
+  try {
+    if (data?.loaderData) {
+      loaderKeys = Object.keys(data.loaderData);
+      for (const key of loaderKeys) {
+        if (data.loaderData[key]?.buyerItem) {
+          const bi = data.loaderData[key].buyerItem;
+          buyerItemJson = JSON.stringify(bi);
+          const item = bi.item;
+          if (item) {
+            itemId = item.id || null;
+            categoryId = item.category?.id || null;
+            microCategoryId = item.microCategoryId || item.microCategory?.id || null;
+          }
+          break;
+        }
+      }
+    }
+  } catch {}
+  const metaPriceEl = document.querySelector('meta[property="product:price:amount"]');
+  return {
+    url: location.href,
+    title: document.title,
+    bodySnippet: (document.body?.innerText || '').slice(0, 500),
+    metaPrice: metaPriceEl ? metaPriceEl.getAttribute('content') : null,
+    buyerItemJson,
+    loaderKeys,
+    itemId,
+    categoryId,
+    microCategoryId,
+  };
+}
+
+/**
+ * Получение истории изменения цены через скрытое API Авито.
+ * Вызывается через executeScript в контексте вкладки avito.ru.
+ * API: GET /web/1/realty/price/history/{itemId}?categoryID=&microcatID=&offset=0&limit=40
+ */
+function fetchAvitoPriceHistory(itemId: number, categoryId: number, microCategoryId: number): Promise<Array<{ date: string; price: number }>> {
+  return fetch(
+    `/web/1/realty/price/history/${itemId}?categoryID=${categoryId}&microcatID=${microCategoryId}&offset=0&limit=40`,
+    { credentials: 'include' }
+  )
+    .then(r => r.json())
+    .then((data: any) => {
+      const history: Array<{ date: string; price: number }> = [];
+      if (data?.result?.items && Array.isArray(data.result.items)) {
+        for (const item of data.result.items) {
+          if (item.date && item.price) {
+            history.push({
+              date: new Date(item.date * 1000).toISOString(),
+              price: item.price,
+            });
+          }
+        }
+      }
+      return history;
+    })
+    .catch(() => [] as Array<{ date: string; price: number }>);
+}
+
+/**
+ * Парсинг данных __staticRouterHydrationData в service worker.
+ * Вызывается после readAvitoPageData — получает JSON-строку и разбирает её.
+ */
+function parseAvitoHydrationData(pageData: {
+  url: string;
+  title: string;
+  bodySnippet: string;
+  metaPrice: string | null;
+  buyerItemJson: string | null;
+  loaderKeys: string[];
+}): AvitoDetailParsed & { error?: string } {
+  const result: AvitoDetailParsed & { error?: string } = {
+    status: 'active',
+    price: null,
+    pricePerMeter: null,
+    photos: [],
+    updatedDate: null,
+    datePublished: null,
+    sellerName: null,
+    sellerType: null,
+    views: null,
+    priceHistory: [],
+  };
+
+  // Проверяем что мы на странице объявления, а не на списке
+  const isListingPage = !pageData.url.match(/\/\d{8,}$/) && !pageData.url.match(/_\d{8,}/);
+  if (isListingPage) {
+    result.status = 'archived';
+    return result;
+  }
+
+  // Пробуем распарсить buyerItem
+  let buyerItem: any = null;
+  if (pageData.buyerItemJson) {
+    try {
+      buyerItem = JSON.parse(pageData.buyerItemJson);
+    } catch (e) {
+      console.error('[Avito] Ошибка парсинга buyerItemJson:', e);
+    }
+  }
+
+  if (!buyerItem) {
+    // Нет JSON данных — проверяем страницу
+    const bodyText = pageData.bodySnippet || '';
+    const pageTitle = pageData.title || '';
+
+    if (bodyText.includes('Объявление закрыто') || bodyText.includes('объявление не найдено') ||
+        bodyText.includes('объявление удалено') || bodyText.includes('404') ||
+        pageTitle.includes('404')) {
+      result.status = 'archived';
+      return result;
+    }
+
+    if (bodyText.toLowerCase().includes('captcha') || bodyText.includes('подтвердите, что вы не робот')) {
+      result.error = 'Страница требует прохождения капчи';
+      return result;
+    }
+
+    // Если есть metaPrice — используем хотя бы цену
+    if (pageData.metaPrice) {
+      result.price = parseInt(pageData.metaPrice, 10);
+      return result;
+    }
+
+    result.error = 'Не найдены данные объявления. Страница: ' + pageTitle;
+    return result;
+  }
+
+  const item = buyerItem.item || buyerItem;
+  const seller = buyerItem.seller || item?.seller || {};
+  const priceData = buyerItem.priceDataDTO || {};
+  const galleryInfo = buyerItem.galleryInfo || {};
+  const viewStat = buyerItem.viewStat || {};
+  const priceHistoryData = buyerItem.priceHistory || {};
+
+  // 1. Статус
+  if (item.isActive === true) {
+    result.status = 'active';
+  } else {
+    result.status = 'archived';
+  }
+  if (item.isClosed || item.isDeleted || item.isExpired) {
+    result.status = 'archived';
+  }
+
+  // 2. Цена
+  if (item.price?.value != null) {
+    result.price = item.price.value;
+  } else if (item.formattedPrice?.string) {
+    const priceText = String(item.formattedPrice.string).replace(/\s/g, '').replace(/[^\d]/g, '');
+    if (priceText) result.price = parseInt(priceText, 10);
+  }
+  if (result.price === null && pageData.metaPrice) {
+    result.price = parseInt(pageData.metaPrice, 10);
+  }
+
+  // 3. Цена за м²
+  if (priceData.normalizedPrice) {
+    const ppmText = String(priceData.normalizedPrice).replace(/[^\d]/g, '');
+    if (ppmText) result.pricePerMeter = parseInt(ppmText, 10);
+  }
+
+  // 4. Фото
+  const media = galleryInfo.media || [];
+  const seenPhotoIds = new Set<string>();
+  for (const m of media) {
+    const images = m.images || {};
+    const url = images['1280x960'] || images['640x480'] || m.defaultUrl || '';
+    if (!url) continue;
+    const idMatch = url.match(/\/img\/(\d+)/) || url.match(/\/(\d{10,})/);
+    const photoId = idMatch ? idMatch[1] : url.split('?')[0];
+    if (seenPhotoIds.has(photoId)) continue;
+    seenPhotoIds.add(photoId);
+    result.photos.push(url);
+  }
+  if (result.photos.length === 0 && Array.isArray(item.images)) {
+    for (const imgId of item.images) {
+      result.photos.push(`https://60.img.avito.st/image/1/${imgId}`);
+    }
+  }
+
+  // 5. Дата публикации
+  if (item.sortFormatedDate) {
+    const d = parseRuDateAvito(item.sortFormatedDate);
+    if (d) result.datePublished = d.toISOString();
+  }
+  if (item.finishTime) {
+    result.updatedDate = new Date(item.finishTime * 1000).toISOString();
+  }
+
+  // 6. Продавец
+  if (seller.name) result.sellerName = seller.name;
+  const sellerLabel = seller.labels?.nominative || '';
+  if (sellerLabel === 'Собственник') result.sellerType = 'owner';
+  else if (sellerLabel === 'Риелтор' || sellerLabel === 'Агент') result.sellerType = 'agent';
+  else if (sellerLabel === 'Компания') result.sellerType = 'company';
+  else if (seller.isCompany === true) result.sellerType = 'company';
+  else if (seller.isCompany === false && !sellerLabel) result.sellerType = 'owner';
+
+  // 7. Просмотры
+  if (viewStat.totalViews != null) result.views = viewStat.totalViews;
+
+  // 8. История цены
+  if (Array.isArray(priceHistoryData.records)) {
+    for (const rec of priceHistoryData.records) {
+      if (rec.date && rec.price) {
+        result.priceHistory.push({
+          date: new Date(rec.date).toISOString(),
+          price: rec.price,
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Быстрая проверка объявления Авито через HTML-fetch (без навигации)
+ * Вызывается через executeScript в контексте вкладки avito.ru.
+ * Извлекает цену и статус из JSON встроенного в HTML.
+ */
+function checkAvitoAdHtml(url: string): Promise<{ price: number | null; status: 'active' | 'archived'; error?: string }> {
+  return fetch(url, { credentials: 'include' })
+    .then(r => {
+      if (r.status === 404) {
+        return { price: null as null, status: 'archived' as const };
+      }
+      if (!r.ok) {
+        return { price: null as null, status: 'archived' as const, error: `HTTP ${r.status}` };
+      }
+      return r.text().then(html => {
+        let price: number | null = null;
+        let status: 'active' | 'archived' = 'active';
+
+        // Способ 1: извлечь JSON из __staticRouterHydrationData
+        const hydrationMatch = html.match(/window\.__staticRouterHydrationData\s*=\s*JSON\.parse\("([\s\S]*?)"\)\s*;?\s*<\/script>/);
+        if (hydrationMatch) {
+          try {
+            // Двойное экранирование: JSON.parse внутри строки
+            const jsonStr = hydrationMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+            const data = JSON.parse(jsonStr);
+            const routeData = data?.loaderData;
+            if (routeData) {
+              let item: any = null;
+              for (const key of Object.keys(routeData)) {
+                const bi = routeData[key]?.buyerItem;
+                if (bi) { item = bi.item || bi; break; }
+              }
+              if (item) {
+                if (item.price?.value != null) price = item.price.value;
+                else if (item.formattedPrice?.string) {
+                  const p = String(item.formattedPrice.string).replace(/\s/g, '').replace(/[^\d]/g, '');
+                  if (p) price = parseInt(p, 10);
+                }
+                if (item.isActive !== true || item.isClosed || item.isDeleted) status = 'archived';
+              }
+            }
+          } catch { /* JSON parse failed */ }
+        }
+
+        // Способ 2: мета-теги
+        if (price === null) {
+          const metaMatch = html.match(/<meta[^>]*property="product:price:amount"[^>]*content="(\d+)"/);
+          if (metaMatch) price = parseInt(metaMatch[1], 10);
+        }
+
+        // Способ 3: маркеры в HTML
+        if (html.includes('Объявление закрыто') || html.includes('closedItem')) {
+          status = 'archived';
+        }
+
+        return { price, status };
+      });
+    })
+    .catch(err => ({
+      price: null as null,
+      status: 'archived' as const,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+}
+
+// ============================================================
 // Обработка сообщений от UI-страниц
 // ============================================================
 
@@ -1078,6 +1442,118 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       target: { tabId },
       func: checkCianAdHtml,
       args: [url],
+    }).then(results => {
+      if (!results || results.length === 0) {
+        sendResponse({ success: false, error: 'executeScript вернул пустой результат' });
+        return;
+      }
+      const data = results[0].result;
+      if (results[0].error) {
+        sendResponse({ success: false, error: results[0].error.message || String(results[0].error) });
+        return;
+      }
+      sendResponse({ success: true, data });
+    }).catch(err => {
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+  // ─── Актуализация объявления Авито ────────────────────────
+
+  if (message.type === 'ACTUALIZE_AVITO_AD') {
+    const tabId = message.tabId as number;
+    console.log(`[Avito] ACTUALIZE_AVITO_AD: tabId=${tabId}`);
+
+    // Шаг 1: читаем данные страницы через инъекцию в MAIN world (чтобы видеть window.__staticRouterHydrationData)
+    const readPageData = async (): Promise<{
+      url: string; title: string; bodySnippet: string; metaPrice: string | null;
+      buyerItemJson: string | null; loaderKeys: string[];
+      itemId: number | null; categoryId: number | null; microCategoryId: number | null;
+    } | null> => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const res = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: readAvitoPageData,
+          world: 'MAIN',
+        });
+        if (res && res.length > 0 && res[0].result) {
+          const pd = res[0].result;
+          if (pd.buyerItemJson) return pd; // данные есть — успех
+          console.log(`[Avito] Попытка чтения ${attempt + 1}: buyerItemJson=null, ждём 3 сек...`);
+        }
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      // Последняя попытка — вернём что есть
+      const res = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: readAvitoPageData,
+        world: 'MAIN',
+      });
+      return (res && res.length > 0) ? res[0].result : null;
+    };
+
+    readPageData().then(async (pageData) => {
+      if (!pageData) {
+        sendResponse({ success: false, error: 'Не удалось прочитать данные вкладки' });
+        return;
+      }
+
+      // Шаг 2: получаем историю цены через API Авито
+      let priceHistory: Array<{ date: string; price: number }> = [];
+      if (pageData.itemId && pageData.categoryId && pageData.microCategoryId) {
+        try {
+          const histResults = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: fetchAvitoPriceHistory,
+            args: [pageData.itemId, pageData.categoryId, pageData.microCategoryId],
+            world: 'MAIN',
+          });
+          priceHistory = (histResults && histResults.length > 0) ? histResults[0].result || [] : [];
+        } catch { /* API может быть недоступен */ }
+      }
+
+      // Шаг 3: парсим данные в service worker
+      const parsed = parseAvitoHydrationData(pageData);
+      console.log(`[Avito] Спарсено: status=${parsed.status}, price=${parsed.price}, photos=${parsed.photos.length}, priceHistory=${priceHistory.length}`);
+
+      if (parsed.error) {
+        sendResponse({ success: false, error: parsed.error });
+        return;
+      }
+
+      sendResponse({
+        success: true,
+        data: {
+          status: parsed.status,
+          price: parsed.price,
+          pricePerMeter: parsed.pricePerMeter,
+          photos: parsed.photos,
+          updatedDate: parsed.updatedDate,
+          datePublished: parsed.datePublished,
+          sellerName: parsed.sellerName,
+          sellerType: parsed.sellerType,
+          views: parsed.views,
+          priceHistory: priceHistory.length > 0 ? priceHistory : parsed.priceHistory,
+        },
+      });
+    }).catch(err => {
+      console.error('[Avito] executeScript catch:', err.message);
+      sendResponse({ success: false, error: err.message });
+    });
+    return true;
+  }
+
+  // Быстрая проверка Авито объявления через HTML-fetch (без навигации)
+  if (message.type === 'CHECK_AVITO_AD_HTML') {
+    const tabId = message.tabId as number;
+    const url = message.url as string;
+
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: checkAvitoAdHtml,
+      args: [url],
+      world: 'MAIN',
     }).then(results => {
       if (!results || results.length === 0) {
         sendResponse({ success: false, error: 'executeScript вернул пустой результат' });
