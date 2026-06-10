@@ -20,7 +20,7 @@ import {
 import {
   getAvailableCategories,
 } from '@/services/data-request-service';
-import { useImportTasks } from '@/contexts/ImportTaskContext';
+import { recalculateObjectFromAds, mergePriceHistory } from '@/services/ad-object-utils';
 import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
 import { Button } from '@/components/catalyst/button';
 import { Badge } from '@/components/catalyst/badge';
@@ -189,7 +189,7 @@ const PaginationBar: React.FC<{
 };
 
 const AdsPage: React.FC<AdsPageProps> = () => {
-  const { startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, tasks: importTasks } = useImportTasks();
+  const { startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, startDeduplication, tasks: importTasks } = useImportTasks();
   const importTasksRef = useRef(importTasks);
   importTasksRef.current = importTasks;
   const adsImportRunning = importTasks.some(t => t.type === 'ads-import' && t.status === 'running');
@@ -283,8 +283,10 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [runImport, setRunImport] = useState(false);
   const [runAddress, setRunAddress] = useState(false);
   const [runUpdate, setRunUpdate] = useState(false);
+  const [runDedup, setRunDedup] = useState(false);
   const cianTask = importTasks.find(t => t.type === 'cian-update' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const avitoTask = importTasks.find(t => t.type === 'avito-update' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
+  const dedupTask = importTasks.find(t => t.type === 'deduplicate' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const [archiveDays, setArchiveDays] = useState(7);
   const [showReports, setShowReports] = useState(false);
   const [dealsModuleActive, setDealsModuleActive] = useState(false);
@@ -412,6 +414,22 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     const timer = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // Обновление данных после завершения дедупликации
+  const lastSeenDedupStatus = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const task = importTasks.find(t => t.type === 'deduplicate');
+    if (!task) return;
+    const prev = lastSeenDedupStatus.current[task.id];
+    lastSeenDedupStatus.current[task.id] = task.status;
+    if (prev === 'running' && (task.status === 'done' || task.status === 'error')) {
+      loadData();
+      loadStats();
+      if (task.status === 'done') {
+        setToast({ message: task.detail || 'Дедупликация завершена', type: 'success' });
+      }
+    }
+  }, [importTasks, loadData, loadStats]);
 
   // Загрузка адресов и справочников для карты (+ дефолтные данные если пусто)
   useEffect(() => {
@@ -816,12 +834,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterAreaMax) result = result.filter(o => o.area_total != null && o.area_total <= Number(filterAreaMax));
     if (filterFloorMin) result = result.filter(o => o.floor != null && o.floor >= Number(filterFloorMin));
     if (filterFloorMax) result = result.filter(o => o.floor != null && o.floor <= Number(filterFloorMax));
-    // Фильтр обработки
     if (filterAddressId) result = result.filter(o => o.address_id === filterAddressId);
     if (filterProcessingFloor) result = result.filter(o => o.floor != null && o.floor === Number(filterProcessingFloor));
-    // Фильтр по выбранным адресам (из полигона)
     if (filterAddressIds.size > 0) result = result.filter(o => o.address_id != null && filterAddressIds.has(o.address_id) && !excludedAddressIds.has(o.address_id));
-    // Фильтр по серии дома, материалу стен и этажности (через адрес)
     if (filterHouseSeriesIds.length > 0 || filterWallMaterialIds.length > 0 || filterFloorsMin || filterFloorsMax) {
       const addrMap = new Map<number, AdAddress>();
       for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
@@ -836,10 +851,59 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         return true;
       });
     }
+
+    // Фильтрация по объявлениям объекта (source, category, seller, date, query — есть только у ads)
+    const needsAdFilter = filterSources.length > 0
+      || filterCategoryIds.length > 0
+      || filterYearMin || filterYearMax
+      || filterSellerTypes.length > 0
+      || filterDateFrom || filterDateTo
+      || searchQuery
+      || filterContactType
+      || filterProcessingCategoryId;
+
+    if (needsAdFilter) {
+      // Мапа: objectId → его ads
+      const objAdsMap = new Map<number, Ad[]>();
+      for (const ad of allAds) {
+        if (ad.object_id) {
+          let arr = objAdsMap.get(ad.object_id);
+          if (!arr) { arr = []; objAdsMap.set(ad.object_id, arr); }
+          arr.push(ad);
+        }
+      }
+      result = result.filter(obj => {
+        if (!obj.id) return false;
+        const objAds = objAdsMap.get(obj.id);
+        if (!objAds || objAds.length === 0) return false;
+        // Объект проходит, если хотя бы одно его объявление проходит фильтр
+        return objAds.some(ad => {
+          if (filterSources.length > 0 && !filterSources.includes(normalizeSource(ad.source))) return false;
+          if (filterCategoryIds.length > 0 && (ad.category_id == null || !filterCategoryIds.includes(ad.category_id))) return false;
+          if (filterYearMin) { const y = ad.year_built ?? ad.house_details?.build_year; if (y == null || y < Number(filterYearMin)) return false; }
+          if (filterYearMax) { const y = ad.year_built ?? ad.house_details?.build_year; if (y == null || y > Number(filterYearMax)) return false; }
+          if (filterSellerTypes.length > 0 && !filterSellerTypes.includes(ad.seller_info?.type || ad.seller_type)) return false;
+          if (filterDateFrom && (!ad.created || new Date(ad.created) < new Date(filterDateFrom))) return false;
+          if (filterDateTo && (!ad.created || new Date(ad.created) > new Date(filterDateTo + 'T23:59:59'))) return false;
+          if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            if (!(ad.address || '').toLowerCase().includes(q) && !(ad.title || '').toLowerCase().includes(q)) return false;
+          }
+          if (filterContactType && (ad.seller_info?.type || ad.seller_type) !== filterContactType) return false;
+          if (filterProcessingCategoryId && ad.category_id !== filterProcessingCategoryId) return false;
+          return true;
+        });
+      });
+    }
+
     return result;
-  }, [allObjects, filterStatus, filterPropertyTypes, filterPriceMin, filterPriceMax,
+  }, [allObjects, allAds, filterStatus, filterPropertyTypes, filterPriceMin, filterPriceMax,
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax,
-    filterAddressId, filterProcessingFloor, filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
+    filterAddressId, filterProcessingFloor, filterAddressIds, excludedAddressIds, addresses,
+    filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax,
+    filterSources, filterCategoryIds, filterYearMin, filterYearMax,
+    filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
+    filterContactType, filterProcessingCategoryId]);
 
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
@@ -1215,137 +1279,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   // ─── Объединение / разбиение объектов ───
 
-  /** Объединение историй цен из нескольких объявлений */
-  const mergePriceHistory = useCallback((ads: Ad[]): PriceHistoryItem[] => {
-    type Entry = { date: string; price: number; adId: number };
-    const entries: Entry[] = [];
-
-    for (const ad of ads) {
-      // Записи из price_history
-      if (ad.price_history && ad.price_history.length > 0) {
-        for (const h of ad.price_history) {
-          const price = h.new_price ?? h.price;
-          if (price != null && h.date) {
-            entries.push({ date: h.date, price, adId: ad.id ?? 0 });
-          }
-        }
-      }
-      // Текущая цена как финальная точка
-      if (ad.price != null) {
-        const date = ad.updated || ad.created || new Date().toISOString();
-        entries.push({ date, price: ad.price, adId: ad.id ?? 0 });
-      }
-    }
-
-    // Сортировка по дате
-    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    // Удаление дубликатов: ключ = (дата_без_времени, цена, adId)
-    const seen = new Set<string>();
-    const unique: PriceHistoryItem[] = [];
-    for (const e of entries) {
-      const day = e.date.slice(0, 10);
-      const key = `${day}|${e.price}|${e.adId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push({ date: e.date, new_price: e.price, price: e.price });
-    }
-
-    return unique;
-  }, []);
-
-  /** Пересчёт объекта из массива объявлений */
-  const recalculateObjectFromAds = useCallback((ads: Ad[]): Omit<AdObject, 'id' | 'created_at' | 'updated_at'> => {
-    if (ads.length === 0) {
-      return {
-        address_id: null, property_type: null, area_total: null, area_living: null,
-        area_kitchen: null, floor: null, floors_total: null, rooms: null,
-        status: 'archive', current_price: null, price_per_meter: null,
-        price_history: [], listings_count: 0, active_listings_count: 0,
-        owner_status: '', sale_deal: null, created: null, updated: null, last_recalculated_at: new Date().toISOString(),
-      };
-    }
-
-    // Преобладающий тип (наиболее частый)
-    const typeCounts: Record<string, number> = {};
-    for (const ad of ads) {
-      if (ad.property_type) typeCounts[ad.property_type] = (typeCounts[ad.property_type] || 0) + 1;
-    }
-    const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-
-    // Преобладающий этаж
-    const floorCounts: Record<number, number> = {};
-    for (const ad of ads) {
-      if (ad.floor != null) floorCounts[ad.floor] = (floorCounts[ad.floor] || 0) + 1;
-    }
-    const dominantFloor = Object.entries(floorCounts)
-      .sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0]
-      ? [Number(Object.entries(floorCounts).sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0]?.[0])]
-      : null;
-
-    // Минимальные площади
-    const areas = ads.map(a => a.area_total).filter((v): v is number => v != null);
-    const areasLiving = ads.map(a => a.area_living).filter((v): v is number => v != null);
-    const areasKitchen = ads.map(a => a.area_kitchen).filter((v): v is number => v != null);
-
-    // Комнаты из property_type
-    const roomsMap: Record<string, number> = { studio: 0, '1k': 1, '2k': 2, '3k': 3, '4k+': 4 };
-    const rooms = dominantType ? (roomsMap[dominantType] ?? null) : null;
-
-    // Общий address_id
-    const addressIds = [...new Set(ads.map(a => a.address_id).filter((v): v is number => v != null))];
-    const commonAddressId = addressIds.length === 1 ? addressIds[0] : (addressIds.length > 0 ? addressIds[0] : null);
-
-    // Статус
-    const hasActive = ads.some(a => a.status === 'active');
-    const status = hasActive ? 'active' : 'archive';
-
-    // Даты
-    const dates = ads.map(a => a.created).filter((v): v is string => !!v);
-    const updatedDates = ads.map(a => a.updated || a.created).filter((v): v is string => !!v);
-    const earliest = dates.length > 0 ? dates.sort()[0] : null;
-    const latest = updatedDates.length > 0 ? updatedDates.sort().reverse()[0] : null;
-
-    // История цен
-    const priceHistory = mergePriceHistory(ads);
-    const currentPrice = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].new_price ?? priceHistory[priceHistory.length - 1].price ?? null : null;
-    const areaTotal = areas.length > 0 ? Math.min(...areas) : null;
-    const pricePerMeter = (currentPrice != null && areaTotal != null && areaTotal > 0)
-      ? Math.round(currentPrice / areaTotal)
-      : null;
-
-    // Статус собственника
-    const hasOwner = ads.some(a =>
-      a.seller_type === 'owner' || a.seller_info?.type === 'owner'
-    );
-    const ownerStatus = hasOwner ? 'есть от собственника' : 'только от агентов';
-
-    // Подсчёт объявлений
-    const listingsCount = ads.length;
-    const activeListingsCount = ads.filter(a => a.status === 'active').length;
-
-    return {
-      address_id: commonAddressId,
-      property_type: dominantType,
-      area_total: areaTotal,
-      area_living: areasLiving.length > 0 ? Math.min(...areasLiving) : null,
-      area_kitchen: areasKitchen.length > 0 ? Math.min(...areasKitchen) : null,
-      floor: dominantFloor?.[0] ?? null,
-      floors_total: ads[0]?.floors_total ?? null,
-      rooms,
-      status,
-      current_price: currentPrice,
-      price_per_meter: pricePerMeter,
-      price_history: priceHistory,
-      listings_count: listingsCount,
-      active_listings_count: activeListingsCount,
-      owner_status: ownerStatus,
-      sale_deal: null, // сохраняется отдельно через onLinkDeal
-      created: earliest,
-      updated: latest,
-      last_recalculated_at: new Date().toISOString(),
-    };
-  }, [mergePriceHistory]);
+  // mergePriceHistory и recalculateObjectFromAds импортированы из @/services/ad-object-utils
 
   /** Пересчёт и сохранение объекта при изменении одного объявления */
   const recalculateAndSaveObject = useCallback(async (objectId: number) => {
@@ -1359,7 +1293,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       sale_deal: existing?.sale_deal ?? null,
       updated_at: new Date().toISOString(),
     });
-  }, [recalculateObjectFromAds]);
+  }, []);
 
   /** Объединить выбранные объявления/объекты в один объект */
   const handleMergeSelected = async () => {
@@ -1630,6 +1564,28 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         };
         setTimeout(check, 500);
       });
+    }
+
+    // 4. Поиск дубликатов
+    if (runDedup) {
+      handleDeduplicate();
+      await new Promise<void>(resolve => {
+        const check = () => {
+          const running = importTasksRef.current.some(t =>
+            t.type === 'deduplicate' && t.status === 'running'
+          );
+          if (!running) resolve();
+          else setTimeout(check, 500);
+        };
+        setTimeout(check, 500);
+      });
+    }
+  };
+
+  /** Запуск поиска дубликатов */
+  const handleDeduplicate = () => {
+    if (!startDeduplication(filteredAds)) {
+      setToast({ message: 'Поиск дубликатов уже запущен', type: 'info' });
     }
   };
 
@@ -2191,6 +2147,54 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
 
+            {/* Раздел: Поиск дубликатов */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
+                <svg className="size-4" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4z" /></svg>
+                Поиск дубликатов
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Автоматическая группировка объявлений одного объекта.
+              </p>
+              <p className="text-xs text-zinc-400">
+                Без объекта: {allAds.filter(a => !a.object_id && a.address_id).length}
+              </p>
+
+              {/* Прогресс */}
+              {dedupTask && (() => {
+                const eta = dedupTask.startTime && dedupTask.current && dedupTask.total && dedupTask.current > 0
+                  ? (() => { const rem = ((Date.now() - dedupTask.startTime) / dedupTask.current) * (dedupTask.total - dedupTask.current); const s = Math.ceil(rem / 1000); return s < 60 ? `≈ ${s} сек` : `≈ ${Math.floor(s / 60)} мин`; })()
+                  : null;
+                return (
+                  <div className="space-y-1 p-2.5 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-purple-700 dark:text-purple-300">
+                        {dedupTask.status === 'running' ? 'Поиск...' : dedupTask.status === 'done' ? 'Завершено' : 'Ошибка'}
+                      </span>
+                      <span className="text-[11px] text-purple-600 dark:text-purple-400 tabular-nums">
+                        {dedupTask.current}/{dedupTask.total} {eta && `(${eta})`}
+                      </span>
+                    </div>
+                    <div className="w-full bg-purple-200 dark:bg-purple-900 rounded-full h-1.5">
+                      <div className="bg-purple-600 h-1.5 rounded-full transition-all duration-300" style={{ width: `${dedupTask.progress}%` }} />
+                    </div>
+                    {dedupTask.detail && <p className="text-[10px] text-purple-600 dark:text-purple-400">{dedupTask.detail}</p>}
+                  </div>
+                );
+              })()}
+
+              <button
+                onClick={handleDeduplicate}
+                disabled={!!dedupTask && dedupTask.status === 'running'}
+                className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              >
+                <svg className="size-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4z" /></svg>
+                Найти дубликаты
+              </button>
+            </div>
+
+            <hr className="border-zinc-200 dark:border-zinc-700" />
+
             {/* Раздел 4: Удаление объявлений */}
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><TrashIcon className="size-4" /> Удаление объявлений</h3>
@@ -2228,7 +2232,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runImport} onChange={e => setRunImport(e.target.checked)} className="rounded border-zinc-300 text-blue-600 h-3 w-3" />Загрузить объявления</label>
                 <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runAddress} onChange={e => setRunAddress(e.target.checked)} className="rounded border-zinc-300 text-blue-600 h-3 w-3" />Определить адреса</label>
                 <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runUpdate} onChange={e => setRunUpdate(e.target.checked)} className="rounded border-zinc-300 text-blue-600 h-3 w-3" />Обновить объявления</label>
-                <button onClick={handleRunAll} disabled={!runImport && !runAddress && !runUpdate} className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Запустить выбранные</button>
+                <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runDedup} onChange={e => setRunDedup(e.target.checked)} className="rounded border-zinc-300 text-blue-600 h-3 w-3" />Найти дубликаты</label>
+                <button onClick={handleRunAll} disabled={!runImport && !runAddress && !runUpdate && !runDedup} className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Запустить выбранные</button>
               </div>
             </div>
           </div>

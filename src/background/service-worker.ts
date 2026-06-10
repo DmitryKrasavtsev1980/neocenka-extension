@@ -1459,6 +1459,40 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  // Быстрая проверка CIAN объявления через fetch из service worker (без вкладки)
+  if (message.type === 'CHECK_CIAN_AD_STATUS') {
+    const url = message.url as string;
+    fetch(url, { credentials: 'include' })
+      .then(r => {
+        if (!r.ok) {
+          sendResponse({ success: true, data: { status: 'archived' as const, price: null, error: `HTTP ${r.status}` } });
+          return;
+        }
+        return r.text().then(html => {
+          let price: number | null = null;
+          let status: 'active' | 'archived' = 'active';
+          const ldMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/);
+          if (ldMatch) {
+            try {
+              const ld = JSON.parse(ldMatch[1]);
+              if (ld?.offers?.price) price = ld.offers.price;
+              if (ld?.description?.includes('снято с публикации')) status = 'archived';
+            } catch { /* не удалось распарсить JSON-LD */ }
+          }
+          if (html.includes('OfferUnpublished')) status = 'archived';
+          if (price === null) {
+            const priceMatch = html.match(/"price"\s*:\s*(\d{5,})/);
+            if (priceMatch) price = parseInt(priceMatch[1], 10);
+          }
+          sendResponse({ success: true, data: { status, price, error: undefined } });
+        });
+      })
+      .catch(err => {
+        sendResponse({ success: true, data: { status: 'archived' as const, price: null, error: err instanceof Error ? err.message : String(err) } });
+      });
+    return true;
+  }
+
   // ─── Актуализация объявления Авито ────────────────────────
 
   if (message.type === 'ACTUALIZE_AVITO_AD') {

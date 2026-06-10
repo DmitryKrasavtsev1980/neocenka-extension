@@ -13,7 +13,7 @@ import type { Ad } from '@/types';
 
 export interface ImportTask {
   id: string;
-  type: 'deals' | 'cadastral' | 'ads-import' | 'cian-update' | 'avito-update';
+  type: 'deals' | 'cadastral' | 'ads-import' | 'cian-update' | 'avito-update' | 'deduplicate';
   label: string;
   status: 'running' | 'done' | 'error';
   progress: number;
@@ -47,6 +47,7 @@ interface ImportTaskContextValue {
   startAdsImport: (options: AdsImportOptions) => void;
   startCianBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
   startAvitoBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
+  startDeduplication: (scopeAds?: Ad[]) => boolean;
   removeTask: (taskId: string) => void;
 }
 
@@ -391,8 +392,63 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
     [updateTask, removeTask],
   );
 
+  const startDeduplication = useCallback(
+    (scopeAds?: Ad[]) => {
+      if (tasksRef.current.some(t => t.type === 'deduplicate' && t.status === 'running')) {
+        return false;
+      }
+      const taskId = crypto.randomUUID();
+      setTasks((prev) => [
+        ...prev,
+        {
+          id: taskId,
+          type: 'deduplicate',
+          label: 'Поиск дубликатов',
+          status: 'running',
+          progress: 0,
+          total: 0,
+          current: 0,
+          detail: 'Подготовка...',
+          startTime: Date.now(),
+        },
+      ]);
+
+      (async () => {
+        try {
+          const { runDeduplication } = await import('@/services/deduplication-service');
+          const result = await runDeduplication(
+            (progress) => {
+              updateTask(taskId, {
+                progress: progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0,
+                total: progress.total,
+                current: progress.current,
+                detail: progress.detail,
+              });
+            },
+            scopeAds,
+          );
+          updateTask(taskId, {
+            status: 'done',
+            progress: 100,
+            detail: `Готово: ${result.objectsCreated} объектов, ${result.adsGrouped} объявлений${result.errors.length > 0 ? `, ошибок: ${result.errors.length}` : ''}`,
+          });
+          setTimeout(() => removeTask(taskId), 8000);
+        } catch (e) {
+          updateTask(taskId, {
+            status: 'error',
+            progress: 0,
+            detail: `Ошибка: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          setTimeout(() => removeTask(taskId), 12000);
+        }
+      })();
+      return true;
+    },
+    [updateTask, removeTask],
+  );
+
   return (
-    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, removeTask }}>
+    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, startDeduplication, removeTask }}>
       {children}
     </ImportTaskContext.Provider>
   );

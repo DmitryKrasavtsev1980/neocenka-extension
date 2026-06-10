@@ -275,8 +275,20 @@ export async function batchUpdateCianAds(
         const checked = await checkAdQuick(tabId, ad);
 
         if (checked.error) {
-          // Ошибка проверки — ставим в очередь на полный парсинг
-          needFullParse.push(ad);
+          // HTTP 404/410 — объявление удалено, сразу в архив
+          if (checked.error.includes('HTTP 404') || checked.error.includes('HTTP 410')) {
+            await adsRepository.update(ad.id!, {
+              status: 'archived',
+              parsed_at: new Date().toISOString(),
+            });
+            result.updated++;
+            if (ad.object_id) {
+              await recalculateObject(ad.object_id);
+            }
+          } else {
+            // Другая ошибка — ставим в очередь на полный парсинг
+            needFullParse.push(ad);
+          }
           continue;
         }
 
@@ -333,13 +345,38 @@ export async function batchUpdateCianAds(
               await recalculateObject(actualizeResult.ad.object_id);
             }
           } else {
-            result.errors.push({ url: ad.url || '', error: actualizeResult.error || 'Неизвестная ошибка' });
-            progress.errors = [...result.errors];
+            const errMsg = actualizeResult.error || 'Неизвестная ошибка';
+            // Если объявление удалено (404/не найдено) — помечаем как архивное
+            if (errMsg.includes('404') || errMsg.includes('не найдено') || errMsg.includes('удалено')) {
+              await adsRepository.update(ad.id!, {
+                status: 'archived',
+                parsed_at: new Date().toISOString(),
+              });
+              result.updated++;
+              if (ad.object_id) {
+                await recalculateObject(ad.object_id);
+              }
+            } else {
+              result.errors.push({ url: ad.url || '', error: errMsg });
+              progress.errors = [...result.errors];
+            }
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          result.errors.push({ url: ad.url || '', error: msg });
-          progress.errors = [...result.errors];
+          // Если объявление удалено (404/не найдено) — помечаем как архивное
+          if (msg.includes('404') || msg.includes('не найдено') || msg.includes('удалено')) {
+            await adsRepository.update(ad.id!, {
+              status: 'archived',
+              parsed_at: new Date().toISOString(),
+            });
+            result.updated++;
+            if (ad.object_id) {
+              await recalculateObject(ad.object_id);
+            }
+          } else {
+            result.errors.push({ url: ad.url || '', error: msg });
+            progress.errors = [...result.errors];
+          }
         }
 
         // Задержка между полными парсингами (каждый и так ~5-10 сек из-за загрузки)

@@ -106,6 +106,53 @@ export async function actualizeCianAd(ad: Ad): Promise<ActualizeResult> {
   let tabId: number | undefined;
 
   try {
+    // 0. Предварительная проверка через service worker (fetch без навигации)
+    const quickCheck = await sendMessageToWorker<{
+      success: boolean;
+      data?: { price: number | null; status: 'active' | 'archived'; error?: string };
+      error?: string;
+    }>({
+      type: 'CHECK_CIAN_AD_STATUS',
+      url: ad.url,
+    });
+
+    // Если fetch вернул HTTP 404/410 — объявление удалено, не открываем вкладку
+    const quickError = quickCheck?.data?.error;
+    if (quickError && (quickError.includes('HTTP 404') || quickError.includes('HTTP 410'))) {
+      const updates: Partial<Ad> = {
+        status: 'archived',
+        parsed_at: new Date().toISOString(),
+        processing_status: 'processed',
+      };
+      if (ad.id) {
+        await adsRepository.update(ad.id, updates);
+      }
+      const updatedAd = { ...ad, ...updates };
+      return {
+        success: true,
+        ad: updatedAd,
+        changes: ['Объявление удалено (404). Статус изменён на «архивное».'],
+      };
+    }
+
+    // Если по quick check видно что статус archived (снято с публикации)
+    if (quickCheck?.success && quickCheck.data?.status === 'archived' && quickCheck.data.price === null) {
+      const updates: Partial<Ad> = {
+        status: 'archived',
+        parsed_at: new Date().toISOString(),
+        processing_status: 'processed',
+      };
+      if (ad.id) {
+        await adsRepository.update(ad.id, updates);
+      }
+      const updatedAd = { ...ad, ...updates };
+      return {
+        success: true,
+        ad: updatedAd,
+        changes: ['Объявление снято с публикации. Статус изменён на «архивное».'],
+      };
+    }
+
     // 1. Открываем вкладку
     const tab = await findOrCreateTab(ad.url);
     tabId = tab.id;
