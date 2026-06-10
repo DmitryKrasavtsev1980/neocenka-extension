@@ -2239,6 +2239,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           <AdsReportsPanel
             objects={filteredObjects}
             addresses={addresses.map(a => ({ id: a.id!, address: a.address }))}
+            onObjectClick={openObjectDetail}
           />
         )}
 

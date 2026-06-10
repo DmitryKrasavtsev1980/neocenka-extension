@@ -41,6 +41,7 @@ export interface CorridorPoint {
   address: string;
   dateLabel: string;
   confirmed?: boolean;
+  dealPrice?: number;
 }
 
 export type CorridorMode = 'scatter' | 'history_active' | 'history_archived' | 'history_all';
@@ -231,6 +232,7 @@ function objToCorridorPoint(obj: AdObject, x: number, addresses?: { id: number; 
     address: addrLabel(obj, addresses),
     dateLabel: new Date(x).toLocaleDateString('ru-RU'),
     confirmed: !!obj.sale_deal,
+    dealPrice: obj.sale_deal?.deal_price,
   };
 }
 
@@ -270,9 +272,10 @@ export function computeCorridorHistoryLines(
   objects: AdObject[],
   mode: 'active' | 'archived' | 'all',
   addresses?: { id: number; address: string }[],
-): { lines: ObjectLine[]; scatterPoints: CorridorPoint[] } {
+): { lines: ObjectLine[]; scatterArchived: CorridorPoint[]; scatterConfirmed: CorridorPoint[] } {
   const lines: ObjectLine[] = [];
-  const scatterPoints: CorridorPoint[] = [];
+  const scatterArchived: CorridorPoint[] = [];
+  const scatterConfirmed: CorridorPoint[] = [];
   const now = Date.now();
 
   for (const obj of objects) {
@@ -282,18 +285,23 @@ export function computeCorridorHistoryLines(
     const isArchived = obj.status === 'archived';
 
     if (mode === 'active') {
-      // Активные — линии, архивные — точки
+      // Активные — линии, архивные и продажи — точки
       if (isActive && obj.price_history && obj.price_history.length > 0) {
         lines.push(buildLine(obj, addresses));
-      } else if (isArchived && obj.updated) {
-        scatterPoints.push(objToCorridorPoint(obj, new Date(obj.updated).getTime(), addresses));
+      } else if (isArchived) {
+        const point = objToCorridorPoint(obj, obj.updated ? new Date(obj.updated).getTime() : now, addresses);
+        if (obj.sale_deal) {
+          scatterConfirmed.push(point);
+        } else {
+          scatterArchived.push(point);
+        }
       }
     } else if (mode === 'archived') {
       // Архивные — линии, активные — точки
       if (isArchived && obj.price_history && obj.price_history.length > 0) {
         lines.push(buildLine(obj, addresses));
       } else if (isActive) {
-        scatterPoints.push(objToCorridorPoint(obj, now, addresses));
+        scatterArchived.push(objToCorridorPoint(obj, now, addresses));
       }
     } else {
       // Все — линии
@@ -303,10 +311,10 @@ export function computeCorridorHistoryLines(
     }
   }
 
-  return { lines, scatterPoints };
+  return { lines, scatterArchived, scatterConfirmed };
 }
 
-function buildLine(obj: AdObject, addresses?: { id: number; address: string }[]): ObjectLine {
+export function buildLine(obj: AdObject, addresses?: { id: number; address: string }[]): ObjectLine {
   const history = obj.price_history || [];
   const points: { x: number; y: number }[] = [];
 

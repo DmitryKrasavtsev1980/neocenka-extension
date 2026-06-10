@@ -135,7 +135,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
   const [loadingDeals, setLoadingDeals] = useState(false);
   const [cadQuarter, setCadQuarter] = useState<string | null>(null);
   const [selectedDealId, setSelectedDealId] = useState<number | null>(null);
-  const [useYearQuarters, setUseYearQuarters] = useState(obj.status === 'archive');
+  const [useYearQuarters, setUseYearQuarters] = useState(true);
   const [useFloorFilter, setUseFloorFilter] = useState(true);
   const [useAreaFilter, setUseAreaFilter] = useState(true);
 
@@ -208,7 +208,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
       points.push({ date: h.date, price: h.new_price ?? h.price ?? 0, shortDate: fmtDate(h.date) });
     }
     if (obj.current_price != null) {
-      const lastDate = obj.status === 'archive' && obj.updated ? obj.updated : new Date().toISOString();
+      const lastDate = obj.status === 'archived' && obj.updated ? obj.updated : new Date().toISOString();
       points.push({ date: lastDate, price: obj.current_price, shortDate: fmtDate(lastDate) });
     }
     return points;
@@ -368,6 +368,86 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
             <InfoCell label="Объявлений" value={`${obj.listings_count} (${obj.active_listings_count} акт.)`} />
             <InfoCell label="Статус собственника" value={obj.owner_status || '—'} />
           </div>
+
+          {/* Адрес и параметры дома */}
+          {objAddress && (
+            <div className="bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 space-y-2">
+              {objAddress.address && (
+                <div className="flex items-start gap-1.5 text-xs text-zinc-700 dark:text-zinc-300">
+                  <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  <span>{objAddress.address}</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1">
+                {objAddress.build_year != null && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Год постройки: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.build_year}</span>
+                  </div>
+                )}
+                {objAddress.wall_material_id && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Материал стен: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{getWallMaterialName(objAddress.wall_material_id)}</span>
+                  </div>
+                )}
+                {objAddress.floors_count != null && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Этажность: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.floors_count} эт.</span>
+                  </div>
+                )}
+                {objAddress.house_type && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Тип дома: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.house_type}</span>
+                  </div>
+                )}
+                {objAddress.serie && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Серия: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.serie}</span>
+                  </div>
+                )}
+                {objAddress.entrances_count != null && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Подъезды: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.entrances_count}</span>
+                  </div>
+                )}
+                {objAddress.ceiling_height && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Высота потолков: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.ceiling_height} м</span>
+                  </div>
+                )}
+                {objAddress.area_total != null && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Площадь дома: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.area_total} м²</span>
+                  </div>
+                )}
+                {objAddress.gas_supply != null && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Газ: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.gas_supply ? 'Да' : 'Нет'}</span>
+                  </div>
+                )}
+                {objAddress.individual_heating != null && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Инд. отопление: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.individual_heating ? 'Да' : 'Нет'}</span>
+                  </div>
+                )}
+                {objAddress.cadno && (
+                  <div className="text-[10px]">
+                    <span className="text-zinc-400">Кад. номер: </span>
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium">{objAddress.cadno}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Карта */}
           <div>
