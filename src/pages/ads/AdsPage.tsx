@@ -190,6 +190,8 @@ const PaginationBar: React.FC<{
 
 const AdsPage: React.FC<AdsPageProps> = () => {
   const { startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, tasks: importTasks } = useImportTasks();
+  const importTasksRef = useRef(importTasks);
+  importTasksRef.current = importTasks;
   const adsImportRunning = importTasks.some(t => t.type === 'ads-import' && t.status === 'running');
   // ─── Данные ───
   const [allAds, setAllAds] = useState<Ad[]>([]);
@@ -358,7 +360,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         db.table<AdObject>('ad_objects').toArray(),
       ]);
       setAllAds(ads.ads);
-      setAllObjects(objects);
+      // Нормализуем статус: 'archive' → 'archived' (старые записи)
+      const normalized = objects.map(o => o.status === 'archive' ? { ...o, status: 'archived' } : o);
+      setAllObjects(normalized);
       setTotalAds(ads.total);
     } finally { setLoading(false); }
   }, []);
@@ -1540,11 +1544,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   /** Собрать CIAN-объявления из текущего фильтра и запустить batch-обновление */
   const handleBatchUpdate = () => {
+    const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
+    const isActualizable = (ad: Ad) =>
+      ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
     const cianAdsSet = new Set<number>();
     const cianAds: Ad[] = [];
     const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
     const addIfCian = (ad: Ad) => {
-      if (ad.url?.includes('cian.ru') && ad.id && !cianAdsSet.has(ad.id)) {
+      if (ad.url?.includes('cian.ru') && ad.id && !cianAdsSet.has(ad.id) && isActualizable(ad)) {
         cianAdsSet.add(ad.id);
         cianAds.push(ad);
       }
@@ -1564,11 +1571,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   /** Собрать Avito-объявления из текущего фильтра и запустить batch-обновление */
   const handleAvitoBatchUpdate = () => {
+    const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
+    const isActualizable = (ad: Ad) =>
+      ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
     const avitoAdsSet = new Set<number>();
     const avitoAds: Ad[] = [];
     const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
     const addIfAvito = (ad: Ad) => {
-      if (ad.url?.includes('avito.ru') && ad.id && !avitoAdsSet.has(ad.id)) {
+      if (ad.url?.includes('avito.ru') && ad.id && !avitoAdsSet.has(ad.id) && isActualizable(ad)) {
         avitoAdsSet.add(ad.id);
         avitoAds.push(ad);
       }
@@ -1586,12 +1596,40 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
   };
 
-  const handleRunAll = () => {
-    if (runImport) handleImport();
-    if (runAddress) handleMatchAddresses();
+  const handleRunAll = async () => {
+    // 1. Загрузка объявлений
+    if (runImport) {
+      handleImport();
+      // Ждём завершения ads-import задачи
+      await new Promise<void>(resolve => {
+        const check = () => {
+          const task = importTasksRef.current.find(t => t.type === 'ads-import' && t.status === 'running');
+          if (!task) resolve();
+          else setTimeout(check, 500);
+        };
+        setTimeout(check, 500);
+      });
+    }
+
+    // 2. Определение адресов
+    if (runAddress) {
+      await handleMatchAddresses();
+    }
+
+    // 3. Обновление CIAN + Avito параллельно
     if (runUpdate) {
       handleBatchUpdate();
       handleAvitoBatchUpdate();
+      await new Promise<void>(resolve => {
+        const check = () => {
+          const running = importTasksRef.current.some(t =>
+            (t.type === 'cian-update' || t.type === 'avito-update') && t.status === 'running'
+          );
+          if (!running) resolve();
+          else setTimeout(check, 500);
+        };
+        setTimeout(check, 500);
+      });
     }
   };
 
@@ -1895,7 +1933,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
               Сохранённые
             </Button>
-            <Button onClick={handleOpenImport} color={showImportPanel ? 'dark' : 'white'}><ArrowDownTrayIcon className="size-4" />Загрузка</Button>
+            <Button onClick={handleOpenImport} color={showImportPanel ? 'dark' : 'white'}><ArrowDownTrayIcon className="size-4" />Обработка объявлений</Button>
             <Button onClick={() => setShowReports(!showReports)} color={showReports ? 'dark' : 'white'}><ChartBarIcon className="size-4" />Отчёты</Button>
             <Button onClick={() => { setShowFilters(!showFilters); if (!showFilters) ensureListingData(); }} color={showFilters ? 'dark' : 'white'}><FunnelIcon className="size-4" />Фильтр</Button>
           </div>
@@ -1906,7 +1944,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 mb-4 space-y-5 border border-blue-200 dark:border-blue-800">
             {/* Раздел 1: Загрузка объявлений */}
             <div className="space-y-3">
-              <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><ArrowDownTrayIcon className="size-4" /> Загрузка объявлений</h3>
+              <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><ArrowDownTrayIcon className="size-4" /> Обработка объявлений</h3>
               {!polygonsCoords && <p className="text-xs text-amber-600 dark:text-amber-400">Нарисуйте полигон на карте в фильтрах.</p>}
               <div>
                 <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1 uppercase">Источник</label>
@@ -2527,7 +2565,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {!loading && tableRows.length === 0 ? (
-                  <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400 text-sm">Нет данных. Откройте «Загрузка» для импорта.</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-12 text-center text-zinc-400 text-sm">Нет данных. Откройте «Обработка объявлений» для импорта.</td></tr>
                 ) : pagedRows.map((row, idx) => renderRow(row, idx))}
               </tbody>
             </table>

@@ -24,6 +24,10 @@ export interface PriceChangePoint {
   activeAvgPerM2: number | null;
   archivedAvgPrice: number | null;
   archivedAvgPerM2: number | null;
+  activeMedianPrice: number | null;
+  activeMedianPerM2: number | null;
+  archivedMedianPrice: number | null;
+  archivedMedianPerM2: number | null;
 }
 
 export interface CorridorPoint {
@@ -154,35 +158,43 @@ export function computePriceChangeData(objects: AdObject[], months: MonthBucket[
   return months.map(bucket => {
     const midMonth = new Date((bucket.monthStart.getTime() + bucket.monthEnd.getTime()) / 2);
 
-    const calcAvg = (objs: AdObject[]): { avgPrice: number | null; avgPerM2: number | null } => {
+    const calcStats = (objs: AdObject[]) => {
       const prices = objs
         .map(o => ({ price: getPriceAtDate(o.price_history || [], midMonth, o.current_price), area: o.area_total }))
         .filter(p => p.price != null && p.price > 0);
-      if (prices.length === 0) return { avgPrice: null, avgPerM2: null };
-      const avgPrice = Math.round(prices.reduce((s, p) => s + p.price!, 0) / prices.length);
+      if (prices.length === 0) return { avgPrice: null, avgPerM2: null, medianPrice: null, medianPerM2: null };
+
+      const priceValues = prices.map(p => p.price!).sort((a, b) => a - b);
+      const avgPrice = Math.round(priceValues.reduce((s, p) => s + p, 0) / priceValues.length);
+      const medianPrice = Math.round(priceValues[Math.floor(priceValues.length / 2)]);
+
       const withArea = prices.filter(p => p.area);
-      const avgPerM2 = withArea.length > 0
-        ? Math.round(withArea.reduce((s, p) => s + p.price! / p.area!, 0) / withArea.length)
-        : null;
-      return { avgPrice, avgPerM2 };
+      let avgPerM2: number | null = null;
+      let medianPerM2: number | null = null;
+      if (withArea.length > 0) {
+        const perM2Values = withArea.map(p => p.price! / p.area!).sort((a, b) => a - b);
+        avgPerM2 = Math.round(perM2Values.reduce((s, p) => s + p, 0) / perM2Values.length);
+        medianPerM2 = Math.round(perM2Values[Math.floor(perM2Values.length / 2)]);
+      }
+
+      return { avgPrice, avgPerM2, medianPrice, medianPerM2 };
     };
 
-    // Активные на середину месяца
-    const activeObjs = objects.filter(o => {
+    // Объекты, активные на середину месяца (created <= midMonth && (active || updated >= midMonth))
+    const activeAtMid = objects.filter(o => {
       if (!o.created || new Date(o.created) > midMonth) return false;
       if (o.status === 'archived' && o.updated && new Date(o.updated) < midMonth) return false;
       return true;
     });
 
-    // Архивные закрытые в этом месяце
-    const archivedThisMonth = objects.filter(o => {
-      if (o.status !== 'archived' || !o.updated) return false;
-      const d = new Date(o.updated);
-      return d >= bucket.monthStart && d < bucket.monthEnd;
-    });
+    // Из них — текущие активные
+    const activeObjs = activeAtMid.filter(o => o.status !== 'archived');
 
-    const activeStats = calcAvg(activeObjs);
-    const archivedStats = calcAvg(archivedThisMonth);
+    // Из них — ныне архивные (были активны тогда, но потом ушли с рынка)
+    const archivedObjs = activeAtMid.filter(o => o.status === 'archived');
+
+    const activeStats = calcStats(activeObjs);
+    const archivedStats = calcStats(archivedObjs);
 
     return {
       month: bucket.month,
@@ -191,6 +203,10 @@ export function computePriceChangeData(objects: AdObject[], months: MonthBucket[
       activeAvgPerM2: activeStats.avgPerM2,
       archivedAvgPrice: archivedStats.avgPrice,
       archivedAvgPerM2: archivedStats.avgPerM2,
+      activeMedianPrice: activeStats.medianPrice,
+      activeMedianPerM2: activeStats.medianPerM2,
+      archivedMedianPrice: archivedStats.medianPrice,
+      archivedMedianPerM2: archivedStats.medianPerM2,
     };
   });
 }

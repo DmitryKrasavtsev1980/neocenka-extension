@@ -156,9 +156,30 @@
 }
 
 .polygon-map {
-  flex: 1;
   min-height: 500px;
   height: 70vh;
+  flex-shrink: 0;
+}
+
+.polygon-map-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 8px;
+  background: #f0f0f0;
+  cursor: ns-resize;
+  border-top: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.polygon-map-resize-handle:hover {
+  background: #d0d8e8;
+}
+
+.polygon-map-resize-handle:hover svg line {
+  stroke: #555;
 }
 
 /* ─── Marker filter toolbar ─── */
@@ -354,6 +375,20 @@
 .dark .address-toolbar {
   background: #1e293b;
   border-bottom-color: #334155;
+}
+
+.dark .polygon-map-resize-handle {
+  background: #1e293b;
+  border-top-color: #334155;
+  border-bottom-color: #334155;
+}
+
+.dark .polygon-map-resize-handle:hover {
+  background: #2d3f5a;
+}
+
+.dark .polygon-map-resize-handle svg line {
+  stroke: #64748b;
 }
 
 .dark .address-toggle-label {

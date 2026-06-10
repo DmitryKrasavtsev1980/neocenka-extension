@@ -1798,7 +1798,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                 )}
                 <ChevronDownIcon className={`ml-auto size-4 transition-transform ${showMapFilter ? 'rotate-180' : ''}`} />
               </button>
-              <div className={`transition-[max-height] duration-300 ease-in-out ${showMapFilter ? 'max-h-[1200px]' : 'max-h-0'} overflow-hidden`}>
+              <div style={{ display: showMapFilter ? 'block' : 'none' }}>
                 {loadedRegions.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 border-b border-zinc-200 px-3.5 py-2 dark:border-zinc-700">
                     <span className="flex items-center text-xs text-zinc-400 dark:text-zinc-500">Перейти:</span>

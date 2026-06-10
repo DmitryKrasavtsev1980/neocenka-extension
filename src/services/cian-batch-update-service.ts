@@ -162,7 +162,7 @@ async function recalculateObject(objectId: number): Promise<void> {
 
   // Статус
   const hasActive = objectAds.some(a => a.status === 'active');
-  const status = hasActive ? 'active' : 'archive';
+  const status = hasActive ? 'active' : 'archived';
 
   // Даты
   const dates = objectAds.map(a => a.created).filter((v): v is string => !!v);

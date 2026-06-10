@@ -152,7 +152,7 @@ async function recalculateObject(objectId: number): Promise<void> {
   const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 
   const hasActive = objectAds.some(a => a.status === 'active');
-  const status = hasActive ? 'active' : 'archive';
+  const status = hasActive ? 'active' : 'archived';
 
   const dates = objectAds.map(a => a.created).filter((v): v is string => !!v);
   const updatedDates = objectAds.map(a => a.updated || a.created).filter((v): v is string => !!v);

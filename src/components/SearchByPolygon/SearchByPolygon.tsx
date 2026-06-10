@@ -162,6 +162,12 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   onQuartersSelectedRef.current = onQuartersSelected;
   const [selectedCount, setSelectedCount] = useState(0);
   const [quartersLoaded, setQuartersLoaded] = useState(false);
+  // Persisted map height
+  const [mapHeight, setMapHeight] = useState(() => {
+    const saved = localStorage.getItem('polygonMapHeight');
+    return saved ? parseInt(saved, 10) : 0; // 0 = use CSS default (70vh)
+  });
+
   const [addressEnabled, setAddressEnabled] = useState(false);
   const [addressQuery, setAddressQuery] = useState('');
   const [addressSuggestions, setAddressSuggestions] = useState<AdAddress[]>([]);
@@ -1120,7 +1126,44 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
           )}
         </div>
       </div>
-      <div ref={mapRef} className="polygon-map"></div>
+      <div
+        ref={mapRef}
+        className="polygon-map"
+        style={mapHeight > 0 ? { height: mapHeight, minHeight: 300 } : undefined}
+      ></div>
+      {/* Resize handle */}
+      <div
+        className="polygon-map-resize-handle"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const rect = mapRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          const startH = rect.height;
+          const startY = e.clientY;
+          document.body.style.cursor = 'ns-resize';
+          document.body.style.userSelect = 'none';
+          const onMove = (ev: MouseEvent) => {
+            const newH = Math.max(300, Math.round(startH + (ev.clientY - startY)));
+            setMapHeight(newH);
+          };
+          const onUp = () => {
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            const finalRect = mapRef.current?.getBoundingClientRect();
+            if (finalRect) {
+              localStorage.setItem('polygonMapHeight', String(Math.round(finalRect.height)));
+            }
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        }}
+      >
+        <svg width="20" height="6" viewBox="0 0 20 6" fill="none" stroke="#999" strokeWidth="1.5" strokeLinecap="round">
+          <line x1="4" y1="2" x2="16" y2="2"/><line x1="4" y1="4.5" x2="16" y2="4.5"/>
+        </svg>
+      </div>
 
       {/* Панель адресов: либо список, либо кнопка «Выбрать все» */}
       {(!selectedAddressIds || selectedAddressIds.size === 0) && polygonsCoords && polygonsCoords.length > 0 && onSelectAllInPolygon && (
