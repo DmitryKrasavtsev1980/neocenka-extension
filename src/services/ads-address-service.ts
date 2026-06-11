@@ -4,7 +4,7 @@
  */
 
 import { db } from '@/db/database';
-import type { AdAddress } from '@/types';
+import type { Ad, AdAddress } from '@/types';
 import { SmartAddressMatcher } from './smart-address-matcher';
 
 const matcher = new SmartAddressMatcher();
@@ -59,12 +59,13 @@ export const adsAddressService = {
   async matchAdsToAddresses(
     onProgress?: (processed: number, total: number) => void,
     polygons?: [number, number][][],
+    scopeAds?: Ad[],
   ): Promise<{ matched: number; unmatched: number }> {
     // Загружаем все адреса из БД (с сервера)
     const allAddresses = await db.ad_addresses.toArray();
 
     // Фильтруем объявления без привязки к адресу
-    const allAds = await db.ads.toArray();
+    const allAds = scopeAds ?? await db.ads.toArray();
     let ads = allAds.filter(a => !a.address_id);
 
     // Если задан полигон — оставляем только объявления внутри полигона

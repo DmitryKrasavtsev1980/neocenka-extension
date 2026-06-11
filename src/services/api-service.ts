@@ -661,3 +661,94 @@ export async function sendCompanyHeartbeat(moduleCode: string): Promise<{
     return { ok: false, error: 'heartbeat_failed' };
   }
 }
+
+// === Dedup Feedback ===
+
+interface DedupFeedbackPayload {
+  id: number;
+  property_type: string | null;
+  floor: number | null;
+  floors_total: number | null;
+  area_total: number | null;
+  area_living: number | null;
+  area_kitchen: number | null;
+  rooms: number | null;
+  price: number | null;
+  description: string;
+  phone: string | null;
+  seller_name: string | null;
+  photos: string[];
+  source: string | null;
+  created: string | null;
+  updated: string | null;
+}
+
+/**
+ * Отправка одной пары фидбека по дедупликации (merge/split).
+ */
+async function sendDedupFeedbackPair(
+  action: 'merge' | 'split',
+  adA: DedupFeedbackPayload,
+  adB: DedupFeedbackPayload,
+  context?: Record<string, unknown>
+): Promise<void> {
+  await apiRequest('POST', '/dedup-feedback', { action, ad_a: adA, ad_b: adB, context });
+}
+
+/**
+ * Отправка фидбека по всем парам из массива объявлений.
+ * Для N объявлений отправляется N*(N-1)/2 пар.
+ * Silent: ошибки логируются, но не прерывают работу.
+ */
+export async function sendDedupFeedbackBatch(
+  action: 'merge' | 'split',
+  ads: Array<{
+    id: number;
+    property_type: string | null;
+    floor: number | null;
+    floors_total: number | null;
+    area_total: number | null;
+    area_living: number | null;
+    area_kitchen: number | null;
+    rooms: number | null;
+    price: number | null;
+    description?: string;
+    phone?: string | null;
+    seller_name?: string | null;
+    photos?: string[];
+    source?: string | null;
+    created?: string | null;
+    updated?: string | null;
+  }>,
+  context?: Record<string, unknown>
+): Promise<void> {
+  const payloads: DedupFeedbackPayload[] = ads.map(ad => ({
+    id: ad.id,
+    property_type: ad.property_type ?? null,
+    floor: ad.floor ?? null,
+    floors_total: ad.floors_total ?? null,
+    area_total: ad.area_total ?? null,
+    area_living: ad.area_living ?? null,
+    area_kitchen: ad.area_kitchen ?? null,
+    rooms: ad.rooms ?? null,
+    price: ad.price ?? null,
+    description: ad.description || '',
+    phone: ad.phone ?? null,
+    seller_name: ad.seller_name ?? null,
+    photos: ad.photos || [],
+    source: ad.source ?? null,
+    created: ad.created ?? null,
+    updated: ad.updated ?? null,
+  }));
+
+  const promises: Promise<void>[] = [];
+  for (let i = 0; i < payloads.length; i++) {
+    for (let j = i + 1; j < payloads.length; j++) {
+      promises.push(
+        sendDedupFeedbackPair(action, payloads[i], payloads[j], context)
+          .catch(err => console.warn('Dedup feedback error:', err))
+      );
+    }
+  }
+  await Promise.allSettled(promises);
+}

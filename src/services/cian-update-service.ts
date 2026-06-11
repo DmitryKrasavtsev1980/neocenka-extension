@@ -116,9 +116,9 @@ export async function actualizeCianAd(ad: Ad): Promise<ActualizeResult> {
       url: ad.url,
     });
 
-    // Если fetch вернул HTTP 404/410 — объявление удалено, не открываем вкладку
+    // Если fetch вернул HTTP 404/410 или редирект — объявление удалено/снято
     const quickError = quickCheck?.data?.error;
-    if (quickError && (quickError.includes('HTTP 404') || quickError.includes('HTTP 410'))) {
+    if (quickError && (quickError.includes('HTTP 404') || quickError.includes('HTTP 410') || quickError.includes('Redirect to non-ad page'))) {
       const updates: Partial<Ad> = {
         status: 'archived',
         parsed_at: new Date().toISOString(),
@@ -128,15 +128,17 @@ export async function actualizeCianAd(ad: Ad): Promise<ActualizeResult> {
         await adsRepository.update(ad.id, updates);
       }
       const updatedAd = { ...ad, ...updates };
+      const reason = quickError.includes('Redirect') ? 'снято с публикации (редирект)' : 'удалено (404)';
       return {
         success: true,
         ad: updatedAd,
-        changes: ['Объявление удалено (404). Статус изменён на «архивное».'],
+        changes: ['Объявление ' + reason + '. Статус изменён на «архивное».'],
       };
     }
 
-    // Если по quick check видно что статус archived (снято с публикации)
-    if (quickCheck?.success && quickCheck.data?.status === 'archived' && quickCheck.data.price === null) {
+    // Если quick check успешно отработал и страница точно содержит маркер «снято с публикации»
+    // (JSON-LD description или OfferUnpublished), но НЕ было сетевой ошибки
+    if (quickCheck?.success && quickCheck.data?.status === 'archived' && quickCheck.data.price === null && !quickCheck.data.error) {
       const updates: Partial<Ad> = {
         status: 'archived',
         parsed_at: new Date().toISOString(),

@@ -254,7 +254,19 @@ export async function batchUpdateAvitoAds(
         const checked = await checkAdQuick(tabId, ad);
 
         if (checked.error) {
-          needFullParse.push(ad);
+          // Редирект или 404/410 — объявление точно архивировано
+          if (checked.error.includes('Redirect to non-ad page') || checked.error.includes('HTTP 404') || checked.error.includes('HTTP 410')) {
+            await adsRepository.update(ad.id!, {
+              status: 'archived',
+              parsed_at: new Date().toISOString(),
+            });
+            result.updated++;
+            if (ad.object_id) {
+              await recalculateObject(ad.object_id);
+            }
+          } else {
+            needFullParse.push(ad);
+          }
           continue;
         }
 

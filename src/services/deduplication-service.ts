@@ -31,6 +31,9 @@ export interface DeduplicateAdPayload {
   phone: string | null;
   seller_name: string | null;
   photos: string[];
+  source: string | null;
+  created: string | null;
+  updated: string | null;
 }
 
 export interface DeduplicateGroup {
@@ -78,7 +81,7 @@ export async function runDeduplication(
 
   // Неназначенные объявления с адресом из scope
   const unassigned = allScopeAds
-    .filter(ad => !ad.object_id && ad.address_id && ad.property_type)
+    .filter(ad => !ad.object_id && ad.address_id && ad.property_type && ad.floor != null)
     .sort((a, b) => (a.created || '').localeCompare(b.created || ''));
   result.total = unassigned.length;
 
@@ -87,13 +90,13 @@ export async function runDeduplication(
     return result;
   }
 
-  // Индекс scope-объявлений по address_id+property_type для быстрого поиска кандидатов
-  const scopeByAddressType = new Map<string, Ad[]>();
+  // Индекс scope-объявлений по address_id+property_type+floor для быстрого поиска кандидатов
+  const scopeByAddressTypeFloor = new Map<string, Ad[]>();
   for (const ad of allScopeAds) {
-    if (!ad.address_id || !ad.property_type) continue;
-    const key = `${ad.address_id}|${ad.property_type}`;
-    if (!scopeByAddressType.has(key)) scopeByAddressType.set(key, []);
-    scopeByAddressType.get(key)!.push(ad);
+    if (!ad.address_id || !ad.property_type || ad.floor == null) continue;
+    const key = `${ad.address_id}|${ad.property_type}|${ad.floor}`;
+    if (!scopeByAddressTypeFloor.has(key)) scopeByAddressTypeFloor.set(key, []);
+    scopeByAddressTypeFloor.get(key)!.push(ad);
   }
 
   // Множество обработанных ID
@@ -104,8 +107,8 @@ export async function runDeduplication(
 
     // Пропускаем уже обработанные
     if (!seedAd.id || processedIds.has(seedAd.id)) continue;
-    // Пропускаем без address_id или property_type
-    if (!seedAd.address_id || !seedAd.property_type) continue;
+    // Пропускаем без address_id, property_type или floor
+    if (!seedAd.address_id || !seedAd.property_type || seedAd.floor == null) continue;
 
     onProgress?.({
       total: result.total,
@@ -116,9 +119,9 @@ export async function runDeduplication(
     });
 
     try {
-      // 2. Собираем кандидатов из scope по address_id + property_type
-      const key = `${seedAd.address_id}|${seedAd.property_type}`;
-      const candidates = scopeByAddressType.get(key) ?? [];
+      // 2. Собираем кандидатов из scope по address_id + property_type + floor
+      const key = `${seedAd.address_id}|${seedAd.property_type}|${seedAd.floor}`;
+      const candidates = scopeByAddressTypeFloor.get(key) ?? [];
 
       // Фильтруем: ещё не обработанные
       const batch = candidates.filter(a =>
@@ -142,6 +145,9 @@ export async function runDeduplication(
         phone: ad.phone || ad.seller_info?.phone || null,
         seller_name: ad.seller_name || ad.seller_info?.name || null,
         photos: ad.photos || [],
+        source: ad.source || null,
+        created: ad.created || null,
+        updated: ad.updated || null,
       }));
 
       // 4. Отправляем на сервер

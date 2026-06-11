@@ -188,6 +188,10 @@ const MarketCorridorChart: React.FC<Props> = ({ objects, addresses, onObjectClic
       const el = chartAreaRef.current;
       if (!el) return;
 
+      // Если курсор над модалкой или другим overlay — не зумим
+      const target = e.target as HTMLElement;
+      if (target.closest('.ad-object-detail-modal, [role="dialog"], .fixed.inset-0')) return;
+
       // Проверяем, что курсор в зоне графика
       const elRect = el.getBoundingClientRect();
       if (e.clientX < elRect.left || e.clientX > elRect.right ||

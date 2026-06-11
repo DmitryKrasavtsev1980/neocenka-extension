@@ -10,7 +10,7 @@ import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem 
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
 import { useImportTasks, type ImportTask } from '@/contexts/ImportTaskContext';
-import { getModules } from '@/services/api-service';
+import { getModules, sendDedupFeedbackBatch } from '@/services/api-service';
 import AdsReportsPanel from './reports/AdsReportsPanel';
 import { REGION_CENTERS } from '@/constants/regions';
 import {
@@ -76,9 +76,6 @@ const SECTION_LABELS: Record<number, string> = {
 const SELLER_TYPE_LABELS: Record<string, string> = { owner: 'Собственник', agent: 'Агент', developer: 'Застройщик' };
 /** sellerType: 0=собственник, 1=агент, 3=застройщик */
 const SELLER_TYPE_API_MAP: Record<string, number> = { owner: 1, agent: 2, developer: 3 };
-const PROCESSING_STATUS_LABELS: Record<string, string> = {
-  address_needed: 'Определить адрес', duplicate_check_needed: 'Обработать на дубли', needs_update: 'Актуализировать',
-};
 const CONFIDENCE_LABELS: Record<string, string> = {
   high: '(Подтвержден)', medium: '(Средняя)', low: '(Низкая)', very_low: '(Очень низкая)', manual: '(Ручной)',
 };
@@ -248,7 +245,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [filterWallMaterialIds, setFilterWallMaterialIds] = useState<string[]>([]);
   const [filterFloorsMin, setFilterFloorsMin] = useState('');
   const [filterFloorsMax, setFilterFloorsMax] = useState('');
-  const [sortColumn, setSortColumn] = useState<'price' | 'created' | 'updated' | null>(null);
+  const [sortColumn, setSortColumn] = useState<'price' | 'created' | 'updated' | null>('updated');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [excludedAddressIds, setExcludedAddressIds] = useState<Set<number>>(() => {
     try {
@@ -366,8 +363,23 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const normalized = objects.map(o => o.status === 'archive' ? { ...o, status: 'archived' } : o);
       setAllObjects(normalized);
       setTotalAds(ads.total);
+      // Обновляем кеш объявлений раскрытых объектов
+      if (expandedObjects.size > 0) {
+        const newMap = new Map<number, Ad[]>();
+        for (const objId of expandedObjects) {
+          const objAds = ads.ads
+            .filter(a => a.object_id === objId)
+            .sort((a, b) => {
+              const ta = new Date(a.updated || a.created || 0).getTime();
+              const tb = new Date(b.updated || b.created || 0).getTime();
+              return tb - ta;
+            });
+          newMap.set(objId, objAds);
+        }
+        setObjectAds(newMap);
+      }
     } finally { setLoading(false); }
-  }, []);
+  }, [expandedObjects]);
 
   const loadStats = useCallback(async () => {
     const [s, count] = await Promise.all([adsRepository.getStats(), adsRepository.count()]);
@@ -778,16 +790,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         a.processing_status === 'address_needed' ||
         (a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low'))
       );
-    } else if (filterProcessingStatus === 'needs_update') {
-      // «Актуализировать» — все объявления прошедшие этап адреса с устаревшими данными
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
-      result = result.filter(a => {
-        if (a.processing_status === 'address_needed') return false;
-        // Архивные старше N дней — пропускаем
-        if (a.status === 'archived' && a.updated && new Date(a.updated) < archiveCutoff) return false;
-        return !a.updated || new Date(a.updated) < oneDayAgo;
-      });
     } else if (filterProcessingStatus === 'duplicate_check_needed') {
       result = result.filter(a => a.processing_status === 'duplicate_check_needed' && !a.object_id);
     } else if (filterProcessingStatus) {
@@ -908,9 +910,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
     const rows: TableRow[] = [];
-    const isUpdateFilter = filterProcessingStatus === 'needs_update';
-    // Сначала объекты (не показываем при фильтре "Актуализировать")
-    if (!isUpdateFilter) {
+    // Сначала объекты
+    {
       for (const obj of filteredObjects) {
         rows.push({ kind: 'object', data: obj });
         if (expandedObjects.has(obj.id!)) {
@@ -921,15 +922,15 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         }
       }
     }
-    // Потом объявления без объекта (при "Актуализировать" — все объявления)
+    // Потом объявления без объекта
     const objectAdIds = new Set(allAds.filter(a => a.object_id).map(a => a.id));
     for (const ad of filteredAds) {
-      if (!objectAdIds.has(ad.id) || isUpdateFilter) {
+      if (!objectAdIds.has(ad.id)) {
         rows.push({ kind: 'ad', data: ad });
       }
     }
 
-    // Сортировка
+    // Сортировка — объекты сортируются как единое целое со своими expanded_ad
     if (sortColumn) {
       const mul = sortDir === 'asc' ? 1 : -1;
       const getVal = (row: TableRow): number => {
@@ -945,11 +946,34 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         }
         return 0;
       };
-      rows.sort((a, b) => {
-        // expanded_ad всегда следует за parent object — не сортируем
-        if (a.kind === 'expanded_ad' || b.kind === 'expanded_ad') return 0;
-        return (getVal(a) - getVal(b)) * mul;
-      });
+
+      // Группируем строки в блоки: объект + его expanded_ad, отдельно ad
+      const blocks: TableRow[][] = [];
+      let i = 0;
+      while (i < rows.length) {
+        if (rows[i].kind === 'object') {
+          const block: TableRow[] = [rows[i]];
+          i++;
+          // Забираем все следующие expanded_ad за этим объектом
+          while (i < rows.length && rows[i].kind === 'expanded_ad') {
+            block.push(rows[i]);
+            i++;
+          }
+          blocks.push(block);
+        } else {
+          blocks.push([rows[i]]);
+          i++;
+        }
+      }
+
+      // Сортируем блоки по значению первой строки (объект или ad)
+      blocks.sort((a, b) => (getVal(a[0]) - getVal(b[0])) * mul);
+
+      // Разворачиваем обратно
+      rows.length = 0;
+      for (const block of blocks) {
+        rows.push(...block);
+      }
     }
 
     return rows;
@@ -974,7 +998,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterYearMin || filterYearMax) tags.push({ key: 'year', label: `Год: ${filterYearMin || '—'} – ${filterYearMax || '—'}` });
     if (filterSellerTypes.length > 0) tags.push({ key: 'seller', label: `Продавец: ${filterSellerTypes.map(s => SELLER_TYPE_LABELS[s] || s).join(', ')}` });
     if (filterDateFrom || filterDateTo) tags.push({ key: 'dates', label: `Даты: ${filterDateFrom || '—'} – ${filterDateTo || '—'}` });
-    if (filterProcessingStatus) tags.push({ key: 'proc', label: `Обработка: ${PROCESSING_STATUS_LABELS[filterProcessingStatus]}` });
+    if (filterProcessingStatus) tags.push({ key: 'proc', label: 'Обработка: Обработать на дубли' });
     if (filterAddressId) {
       const addr = addresses.find(a => a.id === filterAddressId);
       if (addr) tags.push({ key: 'addr', label: `Адрес: ${addr.address}` });
@@ -1188,6 +1212,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           setMatchProgress({ done: processed, total });
         },
         polygonsCoords ?? undefined,
+        filteredAds,
       );
       await loadData();
       const addrs = await db.table<AdAddress>('ad_addresses').toArray();
@@ -1357,6 +1382,10 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         await db.table('ad_objects').bulkDelete(objectIds);
       }
 
+      // Отправляем feedback на сервер (silent — не блокирует UI)
+      const feedbackContext = addressIds.length === 1 ? { address_id: addressIds[0] } : undefined;
+      sendDedupFeedbackBatch('merge', allMergeAds, feedbackContext).catch(() => {});
+
       // Сброс выбора, обновление UI
       setSelectedIds(new Set());
       setSelectedTypes(new Map());
@@ -1380,9 +1409,16 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
 
     try {
+      // Собираем объявления до разбиения (для feedback)
+      const adsBeforeSplit: Map<number, Ad[]> = new Map();
+      for (const objId of objectIds) {
+        const objAds = await db.ads.where('object_id').equals(objId).toArray();
+        adsBeforeSplit.set(objId, objAds);
+      }
+
       for (const objId of objectIds) {
         // Отвязываем все объявления
-        const objAds = await db.ads.where('object_id').equals(objId).toArray();
+        const objAds = adsBeforeSplit.get(objId) ?? [];
         for (const ad of objAds) {
           if (ad.id != null) {
             await db.ads.update(ad.id, { object_id: null });
@@ -1392,6 +1428,15 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
       // Удаляем объекты
       await db.table('ad_objects').bulkDelete(objectIds);
+
+      // Отправляем feedback на сервер (silent — не блокирует UI)
+      for (const objId of objectIds) {
+        const objAds = adsBeforeSplit.get(objId);
+        if (objAds && objAds.length > 1) {
+          const feedbackContext = objAds[0]?.address_id ? { address_id: objAds[0].address_id } : undefined;
+          sendDedupFeedbackBatch('split', objAds, feedbackContext).catch(() => {});
+        }
+      }
 
       setSelectedIds(new Set());
       setSelectedTypes(new Map());
@@ -1589,6 +1634,61 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
   };
 
+  /** Экспорт объектов с объявлениями в JSON для анализа дублей */
+  const handleExportDedup = async () => {
+    const objectIdSet = new Set(filteredObjects.map(o => o.id).filter((id): id is number => id != null));
+
+    // Собираем ads по object_id из всех ads
+    const objAdsMap = new Map<number, Ad[]>();
+    for (const ad of allAds) {
+      if (ad.object_id && objectIdSet.has(ad.object_id)) {
+        let arr = objAdsMap.get(ad.object_id);
+        if (!arr) { arr = []; objAdsMap.set(ad.object_id, arr); }
+        arr.push(ad);
+      }
+    }
+
+    const exportData = filteredObjects.map(obj => ({
+      object_id: obj.id,
+      address_id: obj.address_id,
+      property_type: obj.property_type,
+      area_total: obj.area_total,
+      current_price: obj.current_price,
+      listings_count: obj.listings_count,
+      ads: (objAdsMap.get(obj.id!) || []).map(ad => ({
+        id: ad.id,
+        source: ad.source,
+        url: ad.url,
+        property_type: ad.property_type,
+        rooms: ad.rooms,
+        floor: ad.floor,
+        floors_total: ad.floors_total,
+        area_total: ad.area_total,
+        area_living: ad.area_living,
+        area_kitchen: ad.area_kitchen,
+        price: ad.price,
+        phone: ad.phone || ad.seller_info?.phone || null,
+        seller_name: ad.seller_name || ad.seller_info?.name || null,
+        seller_type: ad.seller_type || ad.seller_info?.type || null,
+        address: ad.address,
+        description: ad.description,
+        status: ad.status,
+        created: ad.created,
+        updated: ad.updated,
+      })),
+    }));
+
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dedup-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setToast({ message: `Экспортировано ${exportData.length} объектов`, type: 'success' });
+  };
+
   const toggleNumFilter = (arr: number[], item: number, setter: (v: number[]) => void) => {
     setter(arr.includes(item) ? arr.filter(x => x !== item) : [...arr, item]);
   };
@@ -1761,24 +1861,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         )}
         <td className="px-2 py-1.5 text-xs space-y-0.5">
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${a.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'}`}>{a.status === 'active' ? 'Активен' : 'Архив'}</span>
-          {(() => {
-            // Вычисляемый статус обработки для бейджа
-            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-            let badgeStatus = a.processing_status;
-            if (a.processing_status === 'processed') {
-              if (!a.updated || new Date(a.updated) < oneDayAgo) {
-                badgeStatus = 'needs_update';
-              }
-            }
-            if (!badgeStatus || badgeStatus === 'processed') return null;
-            return (
-              <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium ${
-                badgeStatus === 'address_needed' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
-                badgeStatus === 'duplicate_check_needed' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-              }`}>{PROCESSING_STATUS_LABELS[badgeStatus]}</span>
-            );
-          })()}
+          {!a.object_id && (
+            <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Обработать на дубли</span>
+          )}
         </td>
         <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
           <div>{fmtDate(a.created)}</div>
@@ -2015,7 +2100,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><MapPinIcon className="size-4" /> Определение адресов</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">Автоматическое определение адресов для объявлений без привязки к адресной базе.</p>
-              <p className="text-xs text-zinc-400">Без адреса: {allAds.filter(a => !a.address_id).length} / Низкая точность: {allAds.filter(a => a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low')).length}</p>
+              <p className="text-xs text-zinc-400">Без адреса: {filteredAds.filter(a => !a.address_id).length} / Низкая точность: {filteredAds.filter(a => a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low')).length}</p>
               <button onClick={handleMatchAddresses} disabled={matchRunning} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                 {matchRunning && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
                 {matchRunning ? 'Определение...' : 'Определить адреса'}
@@ -2157,7 +2242,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 Автоматическая группировка объявлений одного объекта.
               </p>
               <p className="text-xs text-zinc-400">
-                Без объекта: {allAds.filter(a => !a.object_id && a.address_id).length}
+                Без объекта: {filteredAds.filter(a => !a.object_id && a.address_id).length}
               </p>
 
               {/* Прогресс */}
@@ -2183,14 +2268,24 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 );
               })()}
 
-              <button
-                onClick={handleDeduplicate}
-                disabled={!!dedupTask && dedupTask.status === 'running'}
-                className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-              >
-                <svg className="size-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4z" /></svg>
-                Найти дубликаты
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDeduplicate}
+                  disabled={!!dedupTask && dedupTask.status === 'running'}
+                  className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <svg className="size-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4zm0 5a2 2 0 110 4 2 2 0 010-4z" /></svg>
+                  Найти дубликаты
+                </button>
+                <button
+                  onClick={handleExportDedup}
+                  disabled={filteredObjects.length === 0}
+                  className="rounded-md bg-zinc-100 dark:bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  Экспорт JSON
+                </button>
+              </div>
             </div>
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
@@ -2484,9 +2579,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Статус обработки</label>
                 <select value={filterProcessingStatus} onChange={e => setFilterProcessingStatus(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
                   <option value="">Все статусы</option>
-                  <option value="address_needed">Определить адрес</option>
                   <option value="duplicate_check_needed">Обработать на дубли</option>
-                  <option value="needs_update">Актуализировать</option>
                 </select>
               </div>
               <div>
@@ -2611,8 +2704,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             // Если объявление привязано к объекту — пересчитать объект
             if (updated.object_id) {
               await recalculateAndSaveObject(updated.object_id);
-              await loadData();
             }
+            await loadData();
           }}
           onDelete={async (deleted) => {
             if (deleted.id) {

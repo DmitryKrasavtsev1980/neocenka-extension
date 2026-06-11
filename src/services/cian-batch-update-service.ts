@@ -275,8 +275,8 @@ export async function batchUpdateCianAds(
         const checked = await checkAdQuick(tabId, ad);
 
         if (checked.error) {
-          // HTTP 404/410 — объявление удалено, сразу в архив
-          if (checked.error.includes('HTTP 404') || checked.error.includes('HTTP 410')) {
+          // HTTP 404/410 или редирект — объявление удалено/снято, сразу в архив
+          if (checked.error.includes('HTTP 404') || checked.error.includes('HTTP 410') || checked.error.includes('Redirect to non-ad page')) {
             await adsRepository.update(ad.id!, {
               status: 'archived',
               parsed_at: new Date().toISOString(),

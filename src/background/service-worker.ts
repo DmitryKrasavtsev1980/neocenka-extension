@@ -642,7 +642,22 @@ function clickCianPriceHistoryButton(): boolean {
 function checkCianAdHtml(url: string): Promise<{ price: number | null; status: 'active' | 'archived'; error?: string }> {
   return fetch(url, { credentials: 'include' })
     .then(r => {
-      if (!r.ok) return { price: null, status: 'archived' as const, error: `HTTP ${r.status}` };
+      if (!r.ok) {
+        console.log(`[CIAN] checkHtml: ${url} → HTTP ${r.status}`);
+        return { price: null, status: 'archived' as const, error: `HTTP ${r.status}` };
+      }
+      // Проверка редиректа: если fetch перешёл на другой URL (например, страницу поиска),
+      // значит объявление снято с публикации
+      const finalUrl = r.url;
+      if (finalUrl !== url) {
+        // CIAN URL объявления содержит /flat/ или /rent/ или /sale/ и числовой ID в конце
+        const origIdMatch = url.match(/\/(\d{7,})\/?$/);
+        const finalIdMatch = finalUrl.match(/\/(\d{7,})\/?$/);
+        if (!origIdMatch || !finalIdMatch || origIdMatch[1] !== finalIdMatch[1]) {
+          console.log(`[CIAN] checkHtml: redirect detected ${url} → ${finalUrl} → archived`);
+          return { price: null as null, status: 'archived' as const, error: 'Redirect to non-ad page' };
+        }
+      }
       return r.text().then(html => {
         // JSON-LD — цена и базовые данные
         let price: number | null = null;
@@ -665,6 +680,7 @@ function checkCianAdHtml(url: string): Promise<{ price: number | null; status: '
           if (priceMatch) price = parseInt(priceMatch[1], 10);
         }
 
+        console.log(`[CIAN] checkHtml: ${url} → status=${status}, price=${price}`);
         return { price, status };
       });
     })
@@ -865,7 +881,8 @@ function parseAvitoHydrationData(pageData: {
 
     if (bodyText.includes('Объявление закрыто') || bodyText.includes('объявление не найдено') ||
         bodyText.includes('объявление удалено') || bodyText.includes('404') ||
-        pageTitle.includes('404')) {
+        pageTitle.includes('404') ||
+        pageTitle === 'Авито — Объявления на сайте Авито') {
       result.status = 'archived';
       return result;
     }
@@ -983,10 +1000,24 @@ function checkAvitoAdHtml(url: string): Promise<{ price: number | null; status: 
   return fetch(url, { credentials: 'include' })
     .then(r => {
       if (r.status === 404) {
+        console.log(`[Avito] checkHtml: ${url} → 404`);
         return { price: null as null, status: 'archived' as const };
       }
       if (!r.ok) {
+        console.log(`[Avito] checkHtml: ${url} → HTTP ${r.status}`);
         return { price: null as null, status: 'archived' as const, error: `HTTP ${r.status}` };
+      }
+      // Проверка редиректа: если fetch перешёл на другой URL (например, страницу поиска),
+      // значит объявление удалено/архивировано
+      const finalUrl = r.url;
+      if (finalUrl !== url) {
+        // Проверяем, что финальный URL — это страница объявления (содержит длинный числовой ID)
+        const adIdMatch = finalUrl.match(/\/(\d{8,})/);
+        const origIdMatch = url.match(/\/(\d{8,})/);
+        if (!adIdMatch || !origIdMatch || adIdMatch[1] !== origIdMatch[1]) {
+          console.log(`[Avito] checkHtml: redirect detected ${url} → ${finalUrl} → archived`);
+          return { price: null as null, status: 'archived' as const, error: 'Redirect to non-ad page' };
+        }
       }
       return r.text().then(html => {
         let price: number | null = null;
@@ -1029,6 +1060,7 @@ function checkAvitoAdHtml(url: string): Promise<{ price: number | null; status: 
           status = 'archived';
         }
 
+        console.log(`[Avito] checkHtml: ${url} → status=${status}, price=${price}`);
         return { price, status };
       });
     })
@@ -1436,7 +1468,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // Быстрая проверка CIAN объявления через HTML-fetch (без навигации)
   if (message.type === 'CHECK_CIAN_AD_HTML') {
     const tabId = message.tabId as number;
-    const url = message.url as string;
+    let url = message.url as string;
+    // Нормализация URL — CIAN редиректит https→http и добавляет trailing slash
+    if (url.includes('cian.ru') && !url.endsWith('/')) url += '/';
+    url = url.replace('http://', 'https://');
 
     chrome.scripting.executeScript({
       target: { tabId },
@@ -1461,12 +1496,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Быстрая проверка CIAN объявления через fetch из service worker (без вкладки)
   if (message.type === 'CHECK_CIAN_AD_STATUS') {
-    const url = message.url as string;
+    let url = message.url as string;
+    // CIAN редиректит https→http и добавляет trailing slash — это вызывает CORS.
+    // Предотвращаем: добавляем слэш и гарантируем https.
+    if (url.includes('cian.ru') && !url.endsWith('/')) url += '/';
+    url = url.replace('http://', 'https://');
+    console.log(`[CIAN] CHECK_STATUS: ${url}`);
     fetch(url, { credentials: 'include' })
       .then(r => {
         if (!r.ok) {
+          console.log(`[CIAN] CHECK_STATUS: ${url} → HTTP ${r.status} → archived`);
           sendResponse({ success: true, data: { status: 'archived' as const, price: null, error: `HTTP ${r.status}` } });
           return;
+        }
+        // Проверка редиректа: если fetch перешёл на другой URL — объявление снято
+        const finalUrl = r.url;
+        if (finalUrl !== url) {
+          const origIdMatch = url.match(/\/(\d{7,})\/?$/);
+          const finalIdMatch = finalUrl.match(/\/(\d{7,})\/?$/);
+          if (!origIdMatch || !finalIdMatch || origIdMatch[1] !== finalIdMatch[1]) {
+            console.log(`[CIAN] CHECK_STATUS: redirect ${url} → ${finalUrl} → archived`);
+            sendResponse({ success: true, data: { status: 'archived' as const, price: null, error: 'Redirect to non-ad page' } });
+            return;
+          }
         }
         return r.text().then(html => {
           let price: number | null = null;
@@ -1484,11 +1536,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             const priceMatch = html.match(/"price"\s*:\s*(\d{5,})/);
             if (priceMatch) price = parseInt(priceMatch[1], 10);
           }
+          console.log(`[CIAN] CHECK_STATUS: ${url} → status=${status}, price=${price}`);
           sendResponse({ success: true, data: { status, price, error: undefined } });
         });
       })
       .catch(err => {
-        sendResponse({ success: true, data: { status: 'archived' as const, price: null, error: err instanceof Error ? err.message : String(err) } });
+        console.log(`[CIAN] CHECK_STATUS: ${url} → error: ${err instanceof Error ? err.message : String(err)}`);
+        // НЕ считаем ошибку сети признаком архивации — возвращаем success:false,
+        // чтобы actualizeCianAd перешёл к полному парсингу вместо архивации
+        sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) });
       });
     return true;
   }
@@ -1498,6 +1554,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'ACTUALIZE_AVITO_AD') {
     const tabId = message.tabId as number;
     console.log(`[Avito] ACTUALIZE_AVITO_AD: tabId=${tabId}`);
+    let responded = false;
+    const safeRespond = (msg: unknown) => {
+      if (responded) return;
+      responded = true;
+      try { sendResponse(msg); } catch { /* channel already closed */ }
+    };
 
     // Шаг 1: читаем данные страницы через инъекцию в MAIN world (чтобы видеть window.__staticRouterHydrationData)
     const readPageData = async (): Promise<{
@@ -1529,7 +1591,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     readPageData().then(async (pageData) => {
       if (!pageData) {
-        sendResponse({ success: false, error: 'Не удалось прочитать данные вкладки' });
+        safeRespond({ success: false, error: 'Не удалось прочитать данные вкладки' });
         return;
       }
 
@@ -1552,11 +1614,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       console.log(`[Avito] Спарсено: status=${parsed.status}, price=${parsed.price}, photos=${parsed.photos.length}, priceHistory=${priceHistory.length}`);
 
       if (parsed.error) {
-        sendResponse({ success: false, error: parsed.error });
+        safeRespond({ success: false, error: parsed.error });
         return;
       }
 
-      sendResponse({
+      safeRespond({
         success: true,
         data: {
           status: parsed.status,
@@ -1573,7 +1635,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       });
     }).catch(err => {
       console.error('[Avito] executeScript catch:', err.message);
-      sendResponse({ success: false, error: err.message });
+      safeRespond({ success: false, error: err.message });
     });
     return true;
   }
