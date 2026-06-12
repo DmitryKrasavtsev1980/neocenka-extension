@@ -348,7 +348,57 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
                 </span>
               )}
             </div>
-            <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none ml-3 flex-shrink-0">&times;</button>
+            <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+              <button
+                onClick={() => {
+                  const data = {
+                    object: {
+                      id: obj.id,
+                      property_type: obj.property_type,
+                      area_total: obj.area_total,
+                      area_living: obj.area_living,
+                      area_kitchen: obj.area_kitchen,
+                      floor: obj.floor,
+                      floors_total: obj.floors_total,
+                      current_price: obj.current_price,
+                      status: obj.status,
+                      address: objAddress?.address || null,
+                    },
+                    listings: sortedListings.map(a => ({
+                      id: a.id,
+                      source: a.source,
+                      url: a.url,
+                      status: a.status,
+                      property_type: a.property_type,
+                      rooms: a.rooms,
+                      floor: a.floor,
+                      floors_total: a.floors_total,
+                      area_total: a.area_total,
+                      area_living: a.area_living,
+                      area_kitchen: a.area_kitchen,
+                      price: a.price,
+                      dedup_score: a.dedup_score,
+                      seller_name: a.seller_name || a.seller_info?.name || null,
+                      phone: a.phone || a.seller_info?.phone || null,
+                      description: a.description?.substring(0, 200),
+                      photos_count: a.photos?.length || 0,
+                      created: a.created,
+                      updated: a.updated,
+                    })),
+                  };
+                  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `object-${obj.id}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-[10px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                title="Скачать JSON с данными объекта и объявлений"
+              >JSON</button>
+              <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600 text-lg leading-none">&times;</button>
+            </div>
           </div>
           {headerAddress && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">{headerAddress}</p>

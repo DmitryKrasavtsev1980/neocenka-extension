@@ -40,6 +40,7 @@ export interface DeduplicateGroup {
   ads: number[];
   confidence: 'high' | 'medium' | 'low' | 'single';
   match_details: string;
+  ad_scores?: Record<string, number>;
 }
 
 export interface DeduplicateResponse {
@@ -177,9 +178,11 @@ export async function runDeduplication(
         // Привязываем все объявления группы к новому объекту
         for (const ad of groupAds) {
           if (ad.id) {
+            const score = group.ad_scores?.[String(ad.id)];
             await db.ads.update(ad.id, {
               object_id: newObjectId as number,
               processing_status: 'processed',
+              ...(score != null ? { dedup_score: Math.round(score * 100) / 100 } : {}),
             });
             processedIds.add(ad.id);
           }

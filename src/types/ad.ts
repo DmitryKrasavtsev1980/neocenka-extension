@@ -60,6 +60,7 @@ export interface Ad {
   url: string;
   segment_id: number | null;
   object_id: number | null;
+  dedup_score: number | null;
 
   // Контент
   title: string;

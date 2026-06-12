@@ -41,6 +41,164 @@ import {
   ChartBarIcon,
 } from '@heroicons/react/16/solid';
 
+// ─── Компонент: Strip plot распределения площадей по категориям ───
+
+const CATEGORY_COLORS: Record<string, string> = {
+  studio: '#8b5cf6', // violet
+  '1k':     '#3b82f6', // blue
+  '2k':     '#10b981', // emerald
+  '3k':     '#f59e0b', // amber
+  '4k+':    '#ef4444', // red
+  unknown:  '#6b7280', // gray
+};
+
+function AreaStripPlot({ byCategory, min, max, count, filterMin, filterMax }: {
+  byCategory: Map<string, { area: number }[]>;
+  min: number;
+  max: number;
+  count: number;
+  filterMin: number | null;
+  filterMax: number | null;
+}) {
+  const [hoveredDot, setHoveredDot] = useState<{ area: number; cat: string; idx: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const range = max - min || 1;
+  const ROW_H = 18; // высота строки одной категории
+  const PAD_L = 38, PAD_R = 6, PAD_T = 2, PAD_B = 14;
+
+  // Сортируем категории в фиксированном порядке
+  const catOrder = ['studio', '1k', '2k', '3k', '4k+', 'unknown'];
+  const categories = [...byCategory.keys()].sort((a, b) => {
+    const ai = catOrder.indexOf(a), bi = catOrder.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  const H = PAD_T + categories.length * ROW_H + PAD_B;
+  const W = 500;
+  const chartW = W - PAD_L - PAD_R;
+  const x = (v: number) => PAD_L + ((v - min) / range) * chartW;
+  const fmt = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(1);
+
+  // Для каждой категории: семплируем до 150 точек, создаём jitter
+  const dotsByCategory = useMemo(() => {
+    const result = new Map<string, { area: number; cx: number; cy: number }[]>();
+    for (const cat of categories) {
+      const items = byCategory.get(cat) || [];
+      const sorted = [...items].sort((a, b) => a.area - b.area);
+      const sampled = sorted.length > 150
+        ? sorted.filter((_, i) => i % Math.ceil(sorted.length / 150) === 0)
+        : sorted;
+      const rowY = PAD_T + categories.indexOf(cat) * ROW_H + ROW_H / 2;
+      const jitterH = ROW_H - 6;
+      const dots = sampled.map((item, i) => ({
+        area: item.area,
+        cx: x(item.area),
+        cy: rowY - jitterH / 2 + ((Math.sin(i * 127.1 + cat.charCodeAt(0)) * 43758.5453) % 1 + 1) % 1 * jitterH,
+      }));
+      result.set(cat, dots);
+    }
+    return result;
+  }, [byCategory, min, max, categories.length]);
+
+  return (
+    <div className="mb-3 p-2 rounded-md bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700">
+      <div className="flex items-center justify-between mb-1.5 px-0.5">
+        <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">Распределение площадей</span>
+        <span className="text-[10px] text-zinc-400">{count.toLocaleString('ru-RU')} объявлений</span>
+      </div>
+      <div ref={containerRef} className="relative">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" preserveAspectRatio="xMidYMid meet">
+          {/* Ось */}
+          <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} className="stroke-zinc-300 dark:stroke-zinc-600" strokeWidth={0.5} />
+          <text x={PAD_L} y={H - 2} className="fill-zinc-500 dark:fill-zinc-400" fontSize={9} textAnchor="start">{fmt(min)} м²</text>
+          <text x={W - PAD_R} y={H - 2} className="fill-zinc-500 dark:fill-zinc-400" fontSize={9} textAnchor="end">{fmt(max)} м²</text>
+          {/* Промежуточные подписи */}
+          {(() => {
+            const step = range <= 20 ? 5 : range <= 50 ? 10 : range <= 100 ? 20 : range <= 500 ? 50 : 100;
+            const first = Math.ceil(min / step) * step;
+            const labels: { val: number; xPos: number }[] = [];
+            for (let v = first; v < max; v += step) {
+              if (v > min + step * 0.5 && v < max - step * 0.5) {
+                labels.push({ val: v, xPos: x(v) });
+              }
+            }
+            return labels.map((l, i) => (
+              <text key={i} x={l.xPos} y={H - 2} className="fill-zinc-500 dark:fill-zinc-400" fontSize={7} textAnchor="middle">{fmt(l.val)}</text>
+            ));
+          })()}
+          {/* Подсветка фильтра */}
+          {(filterMin != null || filterMax != null) && (
+            <rect
+              x={x(filterMin ?? min)} y={PAD_T}
+              width={x(filterMax ?? max) - x(filterMin ?? min)}
+              height={H - PAD_T - PAD_B}
+              className="fill-blue-500/10"
+              rx={2}
+            />
+          )}
+          {/* Горизонтальные разделители + лейблы категорий */}
+          {categories.map((cat, ci) => {
+            const rowY = PAD_T + ci * ROW_H;
+            const color = CATEGORY_COLORS[cat] || '#6b7280';
+            const label = PROPERTY_TYPE_LABELS[cat] || cat;
+            return (
+              <g key={cat}>
+                {ci > 0 && <line x1={PAD_L} y1={rowY} x2={W - PAD_R} y2={rowY} className="stroke-zinc-200 dark:stroke-zinc-700" strokeWidth={0.5} />}
+                <text x={PAD_L - 4} y={rowY + ROW_H / 2 + 3} fontSize={9} textAnchor="end" fill={color} fontWeight={600}>{label}</text>
+              </g>
+            );
+          })}
+          {/* Точки */}
+          {categories.map((cat) => {
+            const dots = dotsByCategory.get(cat) || [];
+            const color = CATEGORY_COLORS[cat] || '#6b7280';
+            return dots.map((dot, i) => {
+              const isOut = (filterMin != null && dot.area < filterMin) || (filterMax != null && dot.area > filterMax);
+              return (
+                <circle
+                  key={`${cat}-${i}`}
+                  cx={dot.cx}
+                  cy={dot.cy}
+                  r={2}
+                  fill={color}
+                  opacity={isOut ? 0.2 : 0.65}
+                  onMouseEnter={() => setHoveredDot({ area: dot.area, cat, idx: i })}
+                  onMouseLeave={() => setHoveredDot(null)}
+                  style={{ cursor: 'crosshair' }}
+                />
+              );
+            });
+          })}
+        </svg>
+        {/* Тултип */}
+        {hoveredDot !== null && (() => {
+          const dots = dotsByCategory.get(hoveredDot.cat) || [];
+          const dot = dots[hoveredDot.idx];
+          if (!dot) return null;
+          const svgEl = containerRef.current?.querySelector('svg');
+          if (!svgEl) return null;
+          const svgRect = svgEl.getBoundingClientRect();
+          const tipLeft = (dot.cx / W) * svgRect.width;
+          const catLabel = PROPERTY_TYPE_LABELS[hoveredDot.cat] || hoveredDot.cat;
+          return (
+            <div
+              className="absolute pointer-events-none z-10 px-2 py-1 rounded bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 text-[10px] whitespace-nowrap shadow-lg"
+              style={{
+                left: tipLeft,
+                top: (dot.cy / H) * svgRect.height - 6,
+                transform: 'translate(-50%, -100%)',
+              }}
+            >
+              {catLabel}: <b>{fmt(hoveredDot.area)} м²</b>
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
 // ─── Константы ───
 
 const PROPERTY_TYPE_LABELS: Record<string, string> = {
@@ -186,7 +344,7 @@ const PaginationBar: React.FC<{
 };
 
 const AdsPage: React.FC<AdsPageProps> = () => {
-  const { startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, startDeduplication, tasks: importTasks } = useImportTasks();
+  const { startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, startDeduplication, startDealMatching, tasks: importTasks } = useImportTasks();
   const importTasksRef = useRef(importTasks);
   importTasksRef.current = importTasks;
   const adsImportRunning = importTasks.some(t => t.type === 'ads-import' && t.status === 'running');
@@ -216,6 +374,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [filterPriceMax, setFilterPriceMax] = useState('');
   const [filterAreaMin, setFilterAreaMin] = useState('');
   const [filterAreaMax, setFilterAreaMax] = useState('');
+  const [showAreaChart, setShowAreaChart] = useState(false);
   const [filterFloorMin, setFilterFloorMin] = useState('');
   const [filterFloorMax, setFilterFloorMax] = useState('');
   const [filterYearMin, setFilterYearMin] = useState('');
@@ -281,9 +440,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [runAddress, setRunAddress] = useState(false);
   const [runUpdate, setRunUpdate] = useState(false);
   const [runDedup, setRunDedup] = useState(false);
+  const [runDealMatch, setRunDealMatch] = useState(false);
   const cianTask = importTasks.find(t => t.type === 'cian-update' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const avitoTask = importTasks.find(t => t.type === 'avito-update' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const dedupTask = importTasks.find(t => t.type === 'deduplicate' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
+  const dealMatchTask = importTasks.find(t => t.type === 'deal-matching' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const [archiveDays, setArchiveDays] = useState(7);
   const [showReports, setShowReports] = useState(false);
   const [dealsModuleActive, setDealsModuleActive] = useState(false);
@@ -825,6 +986,32 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
     filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor,
     filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, archiveDays]);
+
+  // Данные для графика распределения площадей объявлений
+  const areaChartData = useMemo(() => {
+    // Группируем по property_type
+    const byCategory = new Map<string, { area: number }[]>();
+    let globalMin = Infinity, globalMax = -Infinity;
+    let total = 0;
+    for (const a of filteredAds) {
+      if (a.area_total == null || a.area_total <= 0) continue;
+      const pt = a.property_type || 'unknown';
+      if (!byCategory.has(pt)) byCategory.set(pt, []);
+      byCategory.get(pt)!.push({ area: a.area_total });
+      if (a.area_total < globalMin) globalMin = a.area_total;
+      if (a.area_total > globalMax) globalMax = a.area_total;
+      total++;
+    }
+    if (total === 0) return null;
+    return {
+      byCategory,
+      min: globalMin,
+      max: globalMax,
+      count: total,
+      filterMin: filterAreaMin ? Number(filterAreaMin) : null,
+      filterMax: filterAreaMax ? Number(filterAreaMax) : null,
+    };
+  }, [filteredAds, filterAreaMin, filterAreaMax]);
 
   const filteredObjects = useMemo(() => {
     let result = allObjects;
@@ -1432,10 +1619,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       // Отправляем feedback на сервер (silent — не блокирует UI)
       for (const objId of objectIds) {
         const objAds = adsBeforeSplit.get(objId);
-        if (objAds && objAds.length > 1) {
-          const feedbackContext = objAds[0]?.address_id ? { address_id: objAds[0].address_id } : undefined;
-          sendDedupFeedbackBatch('split', objAds, feedbackContext).catch(() => {});
-        }
+        // TODO: раскомментировать после завершения тестирования
+        // if (objAds && objAds.length > 1) {
+        //   const feedbackContext = objAds[0]?.address_id ? { address_id: objAds[0].address_id } : undefined;
+        //   sendDedupFeedbackBatch('split', objAds, feedbackContext).catch(() => {});
+        // }
       }
 
       setSelectedIds(new Set());
@@ -1618,6 +1806,21 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         const check = () => {
           const running = importTasksRef.current.some(t =>
             t.type === 'deduplicate' && t.status === 'running'
+          );
+          if (!running) resolve();
+          else setTimeout(check, 500);
+        };
+        setTimeout(check, 500);
+      });
+    }
+
+    // 5. Поиск сделок
+    if (runDealMatch && dealsModuleActive) {
+      startDealMatching(filteredObjects);
+      await new Promise<void>(resolve => {
+        const check = () => {
+          const running = importTasksRef.current.some(t =>
+            t.type === 'deal-matching' && t.status === 'running'
           );
           if (!running) resolve();
           else setTimeout(check, 500);
@@ -1864,6 +2067,16 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           {!a.object_id && (
             <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Обработать на дубли</span>
           )}
+          {a.dedup_score != null && a.object_id && (() => {
+            const s = a.dedup_score;
+            const pct = Math.round(s * 100);
+            const cls = s >= 0.85
+              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+              : s >= 0.4
+                ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+            return <span className={`inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold ${cls}`}>{pct}%</span>;
+          })()}
         </td>
         <td className="px-2 py-1.5 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
           <div>{fmtDate(a.created)}</div>
@@ -2290,6 +2503,58 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
             <hr className="border-zinc-200 dark:border-zinc-700" />
 
+            {/* Раздел: Поиск сделок */}
+            {dealsModuleActive && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
+                <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Поиск сделок
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Без сделки: {filteredObjects.filter(o => !o.sale_deal).length} из {filteredObjects.length} объектов
+              </p>
+
+              {dealMatchTask && (() => {
+                const eta = dealMatchTask.startTime && dealMatchTask.current && dealMatchTask.total && dealMatchTask.current > 0
+                  ? (() => { const rem = ((Date.now() - dealMatchTask.startTime) / dealMatchTask.current) * (dealMatchTask.total - dealMatchTask.current); const s = Math.ceil(rem / 1000); return s < 60 ? `≈ ${s} сек` : `≈ ${Math.floor(s / 60)} мин`; })()
+                  : null;
+                return (
+                  <div className="space-y-1 p-2.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                        {dealMatchTask.status === 'running' ? 'Поиск сделок...' : dealMatchTask.status === 'done' ? 'Завершено' : 'Ошибка'}
+                      </span>
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        {dealMatchTask.current}/{dealMatchTask.total} {eta && `(${eta})`}
+                      </span>
+                    </div>
+                    <div className="w-full bg-emerald-200 dark:bg-emerald-900 rounded-full h-1.5">
+                      <div className="bg-emerald-600 h-1.5 rounded-full transition-all duration-300" style={{ width: `${dealMatchTask.progress}%` }} />
+                    </div>
+                    {dealMatchTask.detail && <p className="text-[10px] text-emerald-600 dark:text-emerald-400">{dealMatchTask.detail}</p>}
+                  </div>
+                );
+              })()}
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (!startDealMatching(filteredObjects)) {
+                      setToast({ message: 'Поиск сделок уже запущен', type: 'info' });
+                    }
+                  }}
+                  disabled={!!dealMatchTask && dealMatchTask.status === 'running'}
+                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                  Найти сделки
+                </button>
+              </div>
+            </div>
+            )}
+
+            <hr className="border-zinc-200 dark:border-zinc-700" />
+
             {/* Раздел 4: Удаление объявлений */}
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><TrashIcon className="size-4" /> Удаление объявлений</h3>
@@ -2328,7 +2593,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runAddress} onChange={e => setRunAddress(e.target.checked)} className="rounded border-zinc-300 text-blue-600 h-3 w-3" />Определить адреса</label>
                 <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runUpdate} onChange={e => setRunUpdate(e.target.checked)} className="rounded border-zinc-300 text-blue-600 h-3 w-3" />Обновить объявления</label>
                 <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runDedup} onChange={e => setRunDedup(e.target.checked)} className="rounded border-zinc-300 text-blue-600 h-3 w-3" />Найти дубликаты</label>
-                <button onClick={handleRunAll} disabled={!runImport && !runAddress && !runUpdate && !runDedup} className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Запустить выбранные</button>
+                {dealsModuleActive && <label className="flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300"><input type="checkbox" checked={runDealMatch} onChange={e => setRunDealMatch(e.target.checked)} className="rounded border-zinc-300 text-emerald-600 h-3 w-3" />Найти сделки</label>}
+                <button onClick={handleRunAll} disabled={!runImport && !runAddress && !runUpdate && !runDedup && !runDealMatch} className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Запустить выбранные</button>
               </div>
             </div>
           </div>
@@ -2436,7 +2702,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <input type="number" placeholder="∞" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Площадь от (м²)</label>
+                <label className="flex items-center justify-between text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">
+                  <span>Площадь от (м²)</span>
+                  {areaChartData && (
+                    <button type="button" onClick={() => setShowAreaChart(v => !v)} className={`p-0.5 rounded transition-colors ${showAreaChart ? 'text-blue-500' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}`} title="Распределение площадей">
+                      <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                    </button>
+                  )}
+                </label>
                 <input type="number" placeholder="0" value={filterAreaMin} onChange={e => setFilterAreaMin(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
@@ -2460,6 +2733,18 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <input type="number" min={1900} max={2030} placeholder="2030" value={filterYearMax} onChange={e => setFilterYearMax(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
+
+            {/* График распределения площадей */}
+            {showAreaChart && areaChartData && (
+              <AreaStripPlot
+                byCategory={areaChartData.byCategory}
+                min={areaChartData.min}
+                max={areaChartData.max}
+                count={areaChartData.count}
+                filterMin={areaChartData.filterMin}
+                filterMax={areaChartData.filterMax}
+              />
+            )}
 
             {/* Параметры дома */}
             {availableHouseSeries.length > 0 && (

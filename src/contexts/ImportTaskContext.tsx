@@ -9,11 +9,11 @@ import {
 } from '@/services/data-request-service';
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
-import type { Ad } from '@/types';
+import type { Ad, AdObject } from '@/types';
 
 export interface ImportTask {
   id: string;
-  type: 'deals' | 'cadastral' | 'ads-import' | 'cian-update' | 'avito-update' | 'deduplicate';
+  type: 'deals' | 'cadastral' | 'ads-import' | 'cian-update' | 'avito-update' | 'deduplicate' | 'deal-matching';
   label: string;
   status: 'running' | 'done' | 'error';
   progress: number;
@@ -48,6 +48,7 @@ interface ImportTaskContextValue {
   startCianBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
   startAvitoBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
   startDeduplication: (scopeAds?: Ad[]) => boolean;
+  startDealMatching: (scopeObjects?: AdObject[]) => boolean;
   removeTask: (taskId: string) => void;
 }
 
@@ -447,8 +448,63 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
     [updateTask, removeTask],
   );
 
+  const startDealMatching = useCallback(
+    (scopeObjects?: AdObject[]) => {
+      if (tasksRef.current.some(t => t.type === 'deal-matching' && t.status === 'running')) {
+        return false;
+      }
+      const taskId = crypto.randomUUID();
+      setTasks((prev) => [
+        ...prev,
+        {
+          id: taskId,
+          type: 'deal-matching',
+          label: 'Поиск сделок',
+          status: 'running',
+          progress: 0,
+          total: 0,
+          current: 0,
+          detail: 'Подготовка...',
+          startTime: Date.now(),
+        },
+      ]);
+
+      (async () => {
+        try {
+          const { runDealMatching } = await import('@/services/deal-matching-service');
+          const result = await runDealMatching(
+            (progress) => {
+              updateTask(taskId, {
+                progress: progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0,
+                total: progress.total,
+                current: progress.current,
+                detail: progress.detail,
+              });
+            },
+            scopeObjects,
+          );
+          updateTask(taskId, {
+            status: 'done',
+            progress: 100,
+            detail: `Готово: привязано ${result.matched}, без сделки ${result.noDeal}${result.errors.length > 0 ? `, ошибок: ${result.errors.length}` : ''}`,
+          });
+          setTimeout(() => removeTask(taskId), 8000);
+        } catch (e) {
+          updateTask(taskId, {
+            status: 'error',
+            progress: 0,
+            detail: `Ошибка: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          setTimeout(() => removeTask(taskId), 12000);
+        }
+      })();
+      return true;
+    },
+    [updateTask, removeTask],
+  );
+
   return (
-    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, startDeduplication, removeTask }}>
+    <ImportTaskContext.Provider value={{ tasks, startDealsImport, startCadastralImport, startAdsImport, startCianBatchUpdate, startAvitoBatchUpdate, startDeduplication, startDealMatching, removeTask }}>
       {children}
     </ImportTaskContext.Provider>
   );

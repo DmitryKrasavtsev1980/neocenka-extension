@@ -5,7 +5,7 @@
  * — Выбор категорий для использования в фильтрах
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   SOURCE_IDS,
 } from '@/services/listing-transform';
@@ -69,6 +69,24 @@ async function saveToStorage<T>(key: string, value: T): Promise<void> {
     chrome.storage.local.set({ [key]: value });
   }
 }
+
+interface ExportSavedFilter {
+  id: string;
+  name: string;
+  groupId: string | null;
+  sortOrder: number;
+  createdAt: number;
+  state: Record<string, unknown>;
+}
+
+interface ExportFilterGroup {
+  id: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  isCollapsed: boolean;
+}
+
 const AdsSettingsPage: React.FC = () => {
   // Справочники
   const [regions, setRegions] = useState<RegionAdmin[]>([]);
@@ -106,6 +124,18 @@ const AdsSettingsPage: React.FC = () => {
   const [regionStats, setRegionStats] = useState<Record<string, number>>({});
   const [regionStatsLoading, setRegionStatsLoading] = useState(false);
   const [regionSearch, setRegionSearch] = useState('');
+
+  // Экспорт/Импорт
+  const [exportMode, setExportMode] = useState<'data' | 'prompt'>('data');
+  const [exporting, setExporting] = useState(false);
+  const [importResult, setImportResult] = useState('');
+  const importRef = useRef<HTMLInputElement>(null);
+
+  // Сохранённые фильтры для экспорта
+  const [savedFilters, setSavedFilters] = useState<ExportSavedFilter[]>([]);
+  const [savedGroups, setSavedGroups] = useState<ExportFilterGroup[]>([]);
+  const [selectedFilterIds, setSelectedFilterIds] = useState<Set<string>>(new Set());
+  const [filteredPreviewCount, setFilteredPreviewCount] = useState<number | null>(null);
 
   // Группировка категорий по разделам (только продажа — секции 6,7,8,10 исключены)
   const RENT_SECTIONS = new Set([6, 7, 8, 10]);
@@ -299,6 +329,337 @@ const AdsSettingsPage: React.FC = () => {
     setSelectedSourceIds([]);
     saveToStorage(STORAGE_KEY_SELECTED_SOURCES, []);
   }, []);
+
+  // Загрузка сохранённых фильтров для экспорта
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await new Promise<{ filters: ExportSavedFilter[]; groups: ExportFilterGroup[] }>((resolve) => {
+          if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+            chrome.storage.local.get(['ret_ads_saved_filters_v2', 'ret_ads_filter_groups'], (r) => {
+              const rawFilters = r.ret_ads_saved_filters_v2;
+              const rawGroups = r.ret_ads_filter_groups;
+              let filters: ExportSavedFilter[] = [];
+              let groups: ExportFilterGroup[] = [];
+              try { filters = Array.isArray(rawFilters) ? rawFilters : JSON.parse(rawFilters); } catch {}
+              try { groups = Array.isArray(rawGroups) ? rawGroups : JSON.parse(rawGroups); } catch {}
+              resolve({
+                filters: Array.isArray(filters) ? filters : [],
+                groups: Array.isArray(groups) ? groups : [],
+              });
+            });
+          } else {
+            resolve({ filters: [], groups: [] });
+          }
+        });
+        setSavedFilters(result.filters || []);
+        setSavedGroups(result.groups || []);
+      } catch {
+        // Не критично
+      }
+    })();
+  }, []);
+
+  const LLM_PROMPT = `Ты — эксперт-аналитик рынка недвижимости. Проанализируй прилагаемые данные об объявлениях, объектах недвижимости.
+
+Задачи:
+1. Оцени рыночную стоимость каждого объекта на основе сопоставимых объявлений в том же районе/доме.
+2. Определи средний срок продажи (в днях) для каждого типа недвижимости в разрезе районов.
+3. Выяви недооценённые и переоценённые объекты (отклонение >15% от рынка).
+4. Сгруппируй объекты по районам/домам и рассчитай среднюю цену за м², медианную цену, разброс.
+5. Укажи факторы, влияющие на цену (этаж, площадь, материал стен, тип дома и т.д.).
+6. Дай рекомендации по стратегии продаж: какие объекты стоит продавать быстрее, какие — держать.
+
+Формат ответа: структурированный отчёт на русском языке с таблицами и выводами.`;
+
+  // Нормализация source (как в AdsPage)
+  const normalizeSource = (s: string | null | undefined): string => {
+    if (!s) return '';
+    if (SOURCE_LABELS[s]) return s;
+    const keys = Object.keys(SOURCE_LABELS);
+    for (const k of keys) {
+      if (s.startsWith(k + '.') || s === SOURCE_LABELS[k]) return k;
+    }
+    return s;
+  };
+
+  // Применение сохранённого фильтра к массиву ads (аналог filteredAds из AdsPage)
+  const applyFilterToAds = (ads: any[], state: Record<string, unknown>, addresses: any[]): any[] => {
+    let result = ads;
+
+    const sources = (state.sources as string[]) || [];
+    const propertyTypes = (state.propertyTypes as string[]) || [];
+    const categoryIds = (state.categoryIds as number[]) || [];
+    const priceMin = (state.priceMin as string) || '';
+    const priceMax = (state.priceMax as string) || '';
+    const areaMin = (state.areaMin as string) || '';
+    const areaMax = (state.areaMax as string) || '';
+    const floorMin = (state.floorMin as string) || '';
+    const floorMax = (state.floorMax as string) || '';
+    const yearMin = (state.yearMin as string) || '';
+    const yearMax = (state.yearMax as string) || '';
+    const sellerTypes = (state.sellerTypes as string[]) || [];
+    const status = (state.status as string) || '';
+    const dateFrom = (state.dateFrom as string) || '';
+    const dateTo = (state.dateTo as string) || '';
+    const searchQuery = (state.searchQuery as string) || '';
+    const processingStatus = (state.processingStatus as string) || '';
+    const addressId = state.addressId as number | '' | undefined;
+    const contactType = (state.contactType as string) || '';
+    const processingCategoryId = state.processingCategoryId as number | '' | undefined;
+    const processingFloor = (state.processingFloor as string) || '';
+    const filterAddressIds = new Set((state.filterAddressIds as number[]) || []);
+    const excludedAddressIds = new Set((state.excludedAddressIds as number[]) || []);
+    const houseSeriesIds = (state.houseSeriesIds as string[]) || [];
+    const wallMaterialIds = (state.wallMaterialIds as string[]) || [];
+    const floorsMin = (state.floorsMin as string) || '';
+    const floorsMax = (state.floorsMax as string) || '';
+
+    if (status) result = result.filter(a => a.status === status);
+    if (sources.length > 0) result = result.filter(a => sources.includes(normalizeSource(a.source)));
+    if (propertyTypes.length > 0) result = result.filter(a => propertyTypes.includes(a.property_type));
+    if (categoryIds.length > 0) result = result.filter(a => a.category_id != null && categoryIds.includes(a.category_id));
+    if (priceMin) result = result.filter(a => a.price != null && a.price >= Number(priceMin));
+    if (priceMax) result = result.filter(a => a.price != null && a.price <= Number(priceMax));
+    if (areaMin) result = result.filter(a => a.area_total != null && a.area_total >= Number(areaMin));
+    if (areaMax) result = result.filter(a => a.area_total != null && a.area_total <= Number(areaMax));
+    if (floorMin) result = result.filter(a => a.floor != null && a.floor >= Number(floorMin));
+    if (floorMax) result = result.filter(a => a.floor != null && a.floor <= Number(floorMax));
+    if (yearMin) result = result.filter(a => { const y = a.year_built ?? a.house_details?.build_year; return y != null && y >= Number(yearMin); });
+    if (yearMax) result = result.filter(a => { const y = a.year_built ?? a.house_details?.build_year; return y != null && y <= Number(yearMax); });
+    if (sellerTypes.length > 0) result = result.filter(a => sellerTypes.includes(a.seller_info?.type || a.seller_type));
+    if (dateFrom) result = result.filter(a => a.created && new Date(a.created) >= new Date(dateFrom));
+    if (dateTo) result = result.filter(a => a.created && new Date(a.created) <= new Date(dateTo + 'T23:59:59'));
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(a => (a.address || '').toLowerCase().includes(q) || (a.title || '').toLowerCase().includes(q));
+    }
+    if (processingStatus === 'address_needed') {
+      result = result.filter(a => a.processing_status === 'address_needed' || (a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low')));
+    } else if (processingStatus === 'duplicate_check_needed') {
+      result = result.filter(a => a.processing_status === 'duplicate_check_needed' && !a.object_id);
+    } else if (processingStatus) {
+      result = result.filter(a => a.processing_status === processingStatus);
+    }
+    if (addressId) result = result.filter(a => a.address_id === addressId);
+    if (contactType) result = result.filter(a => (a.seller_info?.type || a.seller_type) === contactType);
+    if (processingCategoryId) result = result.filter(a => a.category_id === processingCategoryId);
+    if (processingFloor) result = result.filter(a => a.floor != null && a.floor === Number(processingFloor));
+    if (filterAddressIds.size > 0) result = result.filter(a => a.address_id != null && filterAddressIds.has(a.address_id) && !excludedAddressIds.has(a.address_id));
+
+    if (houseSeriesIds.length > 0 || wallMaterialIds.length > 0 || floorsMin || floorsMax) {
+      const addrMap = new Map<number, any>();
+      for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
+      result = result.filter(a => {
+        if (!a.address_id) return false;
+        const addr = addrMap.get(a.address_id);
+        if (!addr) return false;
+        if (houseSeriesIds.length > 0 && (!addr.house_series_id || !houseSeriesIds.includes(addr.house_series_id))) return false;
+        if (wallMaterialIds.length > 0 && (!addr.wall_material_id || !wallMaterialIds.includes(addr.wall_material_id))) return false;
+        if (floorsMin && (!addr.floors_count || addr.floors_count < Number(floorsMin))) return false;
+        if (floorsMax && (!addr.floors_count || addr.floors_count > Number(floorsMax))) return false;
+        return true;
+      });
+    }
+
+    return result;
+  };
+
+  // Предпросмотр количества при выборе фильтров
+  useEffect(() => {
+    if (selectedFilterIds.size === 0) {
+      setFilteredPreviewCount(null);
+      return;
+    }
+    (async () => {
+      try {
+        const allAds = await db.table('ads').toArray() as any[];
+        const allAddresses = await db.table('ad_addresses').toArray() as any[];
+        const selectedFilters = savedFilters.filter(f => selectedFilterIds.has(f.id));
+        const combinedAdIds = new Set<number>();
+        for (const filter of selectedFilters) {
+          const filtered = applyFilterToAds(allAds, filter.state, allAddresses);
+          for (const ad of filtered) { if (ad.id) combinedAdIds.add(ad.id); }
+        }
+        setFilteredPreviewCount(combinedAdIds.size);
+      } catch {
+        setFilteredPreviewCount(null);
+      }
+    })();
+  }, [selectedFilterIds, savedFilters]);
+
+  const handleExport = async () => {
+    if (selectedFilterIds.size === 0) {
+      alert('Выберите хотя бы один фильтр');
+      return;
+    }
+    setExporting(true);
+    try {
+      const allAds = await db.table('ads').toArray() as any[];
+      const allAddresses = await db.table('ad_addresses').toArray() as any[];
+      const selectedFilters = savedFilters.filter(f => selectedFilterIds.has(f.id));
+
+      // Объединяем результаты всех выбранных фильтров
+      const combinedAdIds = new Set<number>();
+      for (const filter of selectedFilters) {
+        const filtered = applyFilterToAds(allAds, filter.state, allAddresses);
+        for (const ad of filtered) { if (ad.id) combinedAdIds.add(ad.id); }
+      }
+
+      const filteredAds = allAds.filter(a => combinedAdIds.has(a.id));
+      const objectIds = new Set(filteredAds.map(a => a.object_id).filter(Boolean));
+
+      // Загружаем объекты
+      const allObjects = objectIds.size > 0
+        ? (await db.table('ad_objects').where('id').anyOf([...objectIds]).toArray()) as any[]
+        : [];
+
+      // Собираем ссылки на адреса (server_id + текст для поиска при импорте)
+      const addressIds = new Set<number>();
+      for (const ad of filteredAds) { if (ad.address_id) addressIds.add(ad.address_id); }
+      for (const obj of allObjects) { if (obj.address_id) addressIds.add(obj.address_id); }
+      const addressRefs = allAddresses
+        .filter(a => addressIds.has(a.id))
+        .map(a => ({ _local_id: a.id, server_id: a.server_id, address: a.address }));
+
+      const data: Record<string, any> = {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        filters: selectedFilters.map(f => ({
+          name: f.name,
+          groupName: savedGroups.find(g => g.id === f.groupId)?.name || null,
+        })),
+        ads: filteredAds.map(a => { const { id, ...rest } = a; return { _local_id: id, ...rest }; }),
+        objects: allObjects.map(o => { const { id, ...rest } = o; return { _local_id: id, ...rest }; }),
+        address_refs: addressRefs,
+      };
+
+      if (exportMode === 'prompt') {
+        data.prompt = LLM_PROMPT;
+      }
+
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const date = new Date().toISOString().slice(0, 10);
+      a.download = `neocenka-data-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Ошибка экспорта: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImport = async (file: File) => {
+    setImportResult('');
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      if (!data.version || data.version < 1) {
+        throw new Error('Неподдерживаемый формат файла');
+      }
+
+      let importedObjects = 0;
+      let importedAds = 0;
+      let skippedObjects = 0;
+      let skippedAds = 0;
+      let unresolvedAddresses = 0;
+
+      // Строим маппинг address_ref._local_id → локальный address.id
+      const addressRefMap = new Map<number, number>();
+      if (data.address_refs && Array.isArray(data.address_refs)) {
+        const existingAddresses = await db.table('ad_addresses').toArray() as any[];
+        const byServerId = new Map<number, any>();
+        const byAddrText = new Map<string, any>();
+        for (const a of existingAddresses) {
+          if (a.server_id) byServerId.set(a.server_id, a);
+          if (a.address) byAddrText.set(a.address.toLowerCase().trim(), a);
+        }
+
+        for (const ref of data.address_refs) {
+          const existing = (ref.server_id && byServerId.get(ref.server_id))
+            || (ref.address && byAddrText.get(ref.address.toLowerCase().trim()));
+          if (existing) {
+            addressRefMap.set(ref._local_id, existing.id);
+          } else {
+            unresolvedAddresses++;
+          }
+        }
+      }
+
+      // Импорт объектов
+      const objectIdMap = new Map<number, number>();
+      if (data.objects && Array.isArray(data.objects)) {
+        const existingObjects = await db.table('ad_objects').toArray();
+        const objKey = (o: any) => {
+          const aid = addressRefMap.get(o.address_id) || o.address_id;
+          return `${aid}_${o.property_type}_${o.area_total}`;
+        };
+        const existingObjKeys = new Set(existingObjects.map(o => objKey(o)));
+
+        for (const obj of data.objects) {
+          const { _local_id, ...fields } = obj;
+          delete fields.id;
+
+          // Перемаппить address_id через refs
+          if (fields.address_id && addressRefMap.has(fields.address_id)) {
+            fields.address_id = addressRefMap.get(fields.address_id)!;
+          }
+
+          const key = objKey(fields);
+          if (existingObjKeys.has(key)) {
+            const existing = existingObjects.find(o => objKey(o) === key);
+            if (existing) objectIdMap.set(_local_id, existing.id!);
+            skippedObjects++;
+          } else {
+            const newId = await db.table('ad_objects').add(fields);
+            objectIdMap.set(_local_id, newId as number);
+            importedObjects++;
+          }
+        }
+      }
+
+      // Импорт объявлений
+      if (data.ads && Array.isArray(data.ads)) {
+        const existingAds = await db.table('ads').toArray();
+        const adKeys = new Set(existingAds.map(a => `${a.source}__${a.external_id}`));
+
+        for (const ad of data.ads) {
+          const { _local_id, ...fields } = ad;
+          delete fields.id;
+
+          // Перемаппить object_id и address_id
+          if (fields.object_id && objectIdMap.has(fields.object_id)) {
+            fields.object_id = objectIdMap.get(fields.object_id)!;
+          }
+          if (fields.address_id && addressRefMap.has(fields.address_id)) {
+            fields.address_id = addressRefMap.get(fields.address_id)!;
+          }
+
+          const key = `${fields.source}__${fields.external_id}`;
+          if (adKeys.has(key)) {
+            skippedAds++;
+          } else {
+            await db.table('ads').add(fields);
+            importedAds++;
+          }
+        }
+      }
+
+      const parts: string[] = [];
+      if (data.objects) parts.push(`объектов: +${importedObjects}${skippedObjects ? ` (пропущено ${skippedObjects})` : ''}`);
+      if (data.ads) parts.push(`объявлений: +${importedAds}${skippedAds ? ` (пропущено ${skippedAds})` : ''}`);
+      if (unresolvedAddresses > 0) parts.push(`адресов не найдено: ${unresolvedAddresses}`);
+      setImportResult(`Импортировано: ${parts.join(', ')}`);
+    } catch (e) {
+      setImportResult(`Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
 
   const handleDeleteAddresses = async () => {
     if (!confirm('Удалить все загруженные адреса из локальной базы?')) return;
@@ -807,6 +1168,193 @@ const AdsSettingsPage: React.FC = () => {
                 </button>
               );
             })}
+          </div>
+        </div>
+        {/* Экспорт/Импорт данных */}
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-4">
+          <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Экспорт / Импорт данных
+          </h2>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Выберите сохранённые фильтры для экспорта данных. Экспортируются объявления, объекты и ссылки на адреса.
+            Адреса и сделки Росреестра должны быть загружены в целевом расширении до импорта.
+          </p>
+
+          {/* Список сохранённых фильтров */}
+          {savedFilters.length === 0 ? (
+            <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3 text-xs text-zinc-500 dark:text-zinc-400 text-center">
+              Нет сохранённых фильтров. Создайте фильтры на странице поиска объявлений.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {/* Фильтры без группы */}
+              {savedFilters
+                .filter(f => !f.groupId)
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map(filter => (
+                  <label key={filter.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedFilterIds.has(filter.id)}
+                      onChange={() => setSelectedFilterIds(prev => {
+                        const next = new Set(prev);
+                        if (next.has(filter.id)) next.delete(filter.id); else next.add(filter.id);
+                        return next;
+                      })}
+                      className="rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-xs text-zinc-700 dark:text-zinc-300 flex-1">{filter.name}</span>
+                  </label>
+                ))
+              }
+              {/* Фильтры по группам */}
+              {savedGroups
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map(group => {
+                  const groupFilters = savedFilters
+                    .filter(f => f.groupId === group.id)
+                    .sort((a, b) => a.sortOrder - b.sortOrder);
+                  if (groupFilters.length === 0) return null;
+                  const allGroupSelected = groupFilters.every(f => selectedFilterIds.has(f.id));
+                  return (
+                    <div key={group.id} className="space-y-0.5">
+                      <button
+                        onClick={() => setSelectedFilterIds(prev => {
+                          const next = new Set(prev);
+                          if (allGroupSelected) {
+                            groupFilters.forEach(f => next.delete(f.id));
+                          } else {
+                            groupFilters.forEach(f => next.add(f.id));
+                          }
+                          return next;
+                        })}
+                        className="flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded"
+                      >
+                        <span className={`inline-flex h-4 w-4 items-center justify-center rounded border text-xs ${
+                          allGroupSelected
+                            ? 'bg-blue-600 border-blue-600 text-white'
+                            : 'border-zinc-300 dark:border-zinc-600'
+                        }`}>
+                          {allGroupSelected && (
+                            <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400" style={{ color: group.color || undefined }}>
+                          {group.name}
+                        </span>
+                        <span className="text-[10px] text-zinc-400">{groupFilters.length}</span>
+                      </button>
+                      <div className="pl-6">
+                        {groupFilters.map(filter => (
+                          <label key={filter.id} className="flex items-center gap-2 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedFilterIds.has(filter.id)}
+                              onChange={() => setSelectedFilterIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(filter.id)) next.delete(filter.id); else next.add(filter.id);
+                                return next;
+                              })}
+                              className="rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="text-xs text-zinc-700 dark:text-zinc-300 flex-1">{filter.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          )}
+
+          {/* Выбрано / Предпросмотр */}
+          {selectedFilterIds.size > 0 && (
+            <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+              <span>Выбрано фильтров: {selectedFilterIds.size}</span>
+              {filteredPreviewCount !== null && (
+                <span>Найдено объявлений: {filteredPreviewCount.toLocaleString('ru-RU')}</span>
+              )}
+            </div>
+          )}
+
+          {/* Режим экспорта */}
+          <div className="space-y-2">
+            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Режим</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setExportMode('data')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  exportMode === 'data'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                }`}
+              >
+                Данные
+              </button>
+              <button
+                onClick={() => setExportMode('prompt')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  exportMode === 'prompt'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                }`}
+              >
+                Данные с промптом
+              </button>
+            </div>
+            {exportMode === 'prompt' && (
+              <p className="text-[10px] text-zinc-400">
+                К JSON-файлу будет добавлен промпт для LLM-модели с задачей анализа данных и оценки стоимости/сроков продажи недвижимости.
+              </p>
+            )}
+          </div>
+
+          {/* Кнопки */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              disabled={selectedFilterIds.size === 0 || exporting}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {exporting ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Экспорт...
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  Экспорт
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => importRef.current?.click()}
+              className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+              Импорт
+            </button>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImport(file);
+                e.target.value = '';
+              }}
+            />
+            {importResult && (
+              <span className="text-xs text-green-600 dark:text-green-400">{importResult}</span>
+            )}
           </div>
         </div>
       </div>
