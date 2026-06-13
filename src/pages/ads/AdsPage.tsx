@@ -1166,10 +1166,30 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return rows;
   }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir, filterProcessingStatus]);
 
-  const totalPages = Math.ceil(tableRows.length / pageSize);
+  // Пагинация по «родительским» строкам (объекты + самостоятельные объявления).
+  // Раскрытые строки объявлений (expanded_ad) не учитываются в лимите страницы.
+  const topLevelRows = useMemo(() => tableRows.filter(r => r.kind !== 'expanded_ad'), [tableRows]);
+  const totalPages = Math.max(1, Math.ceil(topLevelRows.length / pageSize));
   const pagedRows = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return tableRows.slice(start, start + pageSize);
+    const end = start + pageSize;
+    const result: TableRow[] = [];
+    let topIndex = 0;
+    let collecting = false;
+    for (const row of tableRows) {
+      if (row.kind === 'expanded_ad') {
+        if (collecting) result.push(row);
+        continue;
+      }
+      topIndex++;
+      if (topIndex > start && topIndex <= end) {
+        result.push(row);
+        collecting = true;
+      } else {
+        collecting = false;
+      }
+    }
+    return result;
   }, [tableRows, page, pageSize]);
 
   // ─── Активные фильтры ───
@@ -2918,14 +2938,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               <input type="checkbox" checked={showProcessingFilter} onChange={e => setShowProcessingFilter(e.target.checked)} className="h-3 w-3 rounded border-zinc-300 text-blue-600" />
               Фильтр обработки
             </label>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">{loading ? 'Загрузка...' : `Всего: ${tableRows.length}`}</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">{loading ? 'Загрузка...' : `Всего: ${topLevelRows.length}`}</span>
           </div>
 
           {/* Pagination top */}
           {totalPages > 1 && (
             <PaginationBar
               page={page} totalPages={totalPages} pageSize={pageSize}
-              totalItems={tableRows.length}
+              totalItems={topLevelRows.length}
               onPageChange={setPage}
               onPageSizeChange={s => { setPageSize(s); setPage(1); }}
             />
@@ -2959,7 +2979,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           {totalPages > 1 && (
             <PaginationBar
               page={page} totalPages={totalPages} pageSize={pageSize}
-              totalItems={tableRows.length} position="bottom"
+              totalItems={topLevelRows.length} position="bottom"
               onPageChange={setPage}
               onPageSizeChange={s => { setPageSize(s); setPage(1); }}
             />

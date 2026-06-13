@@ -2,6 +2,9 @@ import { getDeviceId } from './device-service';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://admin.test/api';
 
+/** Базовый домен для share-ссылок (без /api) */
+export const APP_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
+
 // === Interfaces ===
 
 interface ApiResponse<T = unknown> {
@@ -461,6 +464,29 @@ export async function markNewsRead(): Promise<{ unread_count: number }> {
   return apiRequest('POST', '/news/mark-read');
 }
 
+// === Instructions ===
+
+export interface Instruction {
+  id: number;
+  title: string;
+  content: string | null;
+  video_url: string | null;
+  video_embed_url: string | null;
+  image_url: string | null;
+}
+
+export interface InstructionCategory {
+  id: number;
+  name: string;
+  slug: string;
+  icon: string | null;
+  instructions: Instruction[];
+}
+
+export async function getInstructions(): Promise<{ categories: InstructionCategory[] }> {
+  return apiRequest<{ categories: InstructionCategory[] }>('GET', '/instructions');
+}
+
 // === Feedback Links ===
 
 export interface FeedbackLink {
@@ -555,6 +581,61 @@ export async function reorderSavedFilters(items: Array<{
   sort_order: number;
 }>): Promise<{ updated: boolean }> {
   return apiRequest<{ updated: boolean }>('PUT', '/user/saved-filters/reorder', { items });
+}
+
+// === Shared Views (Поделиться фильтром) ===
+
+export interface SharedViewMeta {
+  id: number;
+  token: string;
+  title: string;
+  has_password: boolean;
+  expires_at: string | null;
+  is_expired: boolean;
+  data_size: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SharedViewPayload {
+  title: string;
+  password?: string | null;
+  expires_in?: 7 | 30 | 90 | null;
+  data: unknown;
+}
+
+export interface SharedViewCreated {
+  id: number;
+  token: string;
+  title: string;
+  url: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface SharedViewUpdated {
+  id: number;
+  token: string;
+  title: string;
+  has_password: boolean;
+  expires_at: string | null;
+  updated_at: string;
+}
+
+export async function listSharedViews(): Promise<SharedViewMeta[]> {
+  return apiRequest<SharedViewMeta[]>('GET', '/user/shared-views');
+}
+
+export async function createSharedView(payload: SharedViewPayload): Promise<SharedViewCreated> {
+  return apiRequest<SharedViewCreated>('POST', '/user/shared-views', payload as unknown as Record<string, unknown>);
+}
+
+export async function updateSharedView(id: number, payload: Partial<SharedViewPayload> & { clear_password?: boolean }): Promise<SharedViewUpdated> {
+  return apiRequest<SharedViewUpdated>('PUT', `/user/shared-views/${id}`, payload as unknown as Record<string, unknown>);
+}
+
+export async function deleteSharedView(id: number): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>('DELETE', `/user/shared-views/${id}`);
 }
 
 // === Addresses ===

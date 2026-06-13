@@ -23,6 +23,8 @@ import { addressSyncService } from '@/services/address-sync-service';
 import { adsAddressService } from '@/services/ads-address-service';
 import { REGION_CENTERS } from '@/constants/regions';
 import { getAddressesStats, getModules, type ModuleInfo } from '@/services/api-service';
+import { applyFilterToAds } from '@/services/ads-filter-utils';
+import SharePanel from './SharePanel';
 
 const TYPE_ID_LABELS: Record<number, string> = {
   1: 'Аренда',
@@ -185,17 +187,24 @@ const AdsSettingsPage: React.FC = () => {
         // Не критично
       }
 
-      // Загрузить категории — автоматически из IndexedDB или с сервера
+      // Загрузить категории — всегда сверять с сервером (админ может изменить доступные секции)
       let loadedCategories: { source_id: number; title: string; type_id: number | null; section_id: number | null }[] = [];
       try {
         const table = db.table<ListingCategory>('listing_categories');
-        const saved = await table.toArray();
-        let saleOnly = saved.filter(c => ![6, 7, 8, 10].includes(c.section_id ?? 0));
+        const RENT_SECTIONS = [6, 7, 8, 10];
 
-        if (saleOnly.length === 0) {
-          // IndexedDB пуста — загружаем с сервера и сохраняем
-          const serverCategories = await getAvailableCategories();
-          const serverSale = serverCategories.filter(c => ![6, 7, 8, 10].includes(c.section_id ?? 0));
+        // Пытаемся загрузить с сервера (актуальный источник с учётом available_sections)
+        let serverCategories: CategoryAdmin[] | null = null;
+        try {
+          serverCategories = await getAvailableCategories();
+        } catch {
+          // Сервер недоступен — будет использован кеш IndexedDB
+        }
+
+        if (serverCategories && serverCategories.length > 0) {
+          // Обновляем кеш IndexedDB
+          const serverSale = serverCategories.filter(c => !RENT_SECTIONS.includes(c.section_id ?? 0));
+          await table.clear();
           const now = new Date().toISOString();
           for (const cat of serverSale) {
             await table.add({
@@ -213,14 +222,17 @@ const AdsSettingsPage: React.FC = () => {
               imported_at: now,
             });
           }
-          saleOnly = serverSale.map(c => ({
+          loadedCategories = serverSale.map(c => ({
             source_id: c.source_id,
             title: c.title,
             type_id: c.type_id,
             section_id: c.section_id,
           }));
         } else {
-          saleOnly = saleOnly.map(c => ({
+          // Фолбэк на кеш IndexedDB
+          const saved = await table.toArray();
+          const saleOnly = saved.filter(c => !RENT_SECTIONS.includes(c.section_id ?? 0));
+          loadedCategories = saleOnly.map(c => ({
             source_id: c.source_id!,
             title: c.name,
             type_id: c.type_id ?? null,
@@ -228,9 +240,8 @@ const AdsSettingsPage: React.FC = () => {
           }));
         }
 
-        if (saleOnly.length > 0) {
-          loadedCategories = saleOnly;
-          setAllCategories(saleOnly);
+        if (loadedCategories.length > 0) {
+          setAllCategories(loadedCategories);
         }
       } catch {
         // Не критично
@@ -372,98 +383,8 @@ const AdsSettingsPage: React.FC = () => {
 
 Формат ответа: структурированный отчёт на русском языке с таблицами и выводами.`;
 
-  // Нормализация source (как в AdsPage)
-  const normalizeSource = (s: string | null | undefined): string => {
-    if (!s) return '';
-    if (SOURCE_LABELS[s]) return s;
-    const keys = Object.keys(SOURCE_LABELS);
-    for (const k of keys) {
-      if (s.startsWith(k + '.') || s === SOURCE_LABELS[k]) return k;
-    }
-    return s;
-  };
-
-  // Применение сохранённого фильтра к массиву ads (аналог filteredAds из AdsPage)
-  const applyFilterToAds = (ads: any[], state: Record<string, unknown>, addresses: any[]): any[] => {
-    let result = ads;
-
-    const sources = (state.sources as string[]) || [];
-    const propertyTypes = (state.propertyTypes as string[]) || [];
-    const categoryIds = (state.categoryIds as number[]) || [];
-    const priceMin = (state.priceMin as string) || '';
-    const priceMax = (state.priceMax as string) || '';
-    const areaMin = (state.areaMin as string) || '';
-    const areaMax = (state.areaMax as string) || '';
-    const floorMin = (state.floorMin as string) || '';
-    const floorMax = (state.floorMax as string) || '';
-    const yearMin = (state.yearMin as string) || '';
-    const yearMax = (state.yearMax as string) || '';
-    const sellerTypes = (state.sellerTypes as string[]) || [];
-    const status = (state.status as string) || '';
-    const dateFrom = (state.dateFrom as string) || '';
-    const dateTo = (state.dateTo as string) || '';
-    const searchQuery = (state.searchQuery as string) || '';
-    const processingStatus = (state.processingStatus as string) || '';
-    const addressId = state.addressId as number | '' | undefined;
-    const contactType = (state.contactType as string) || '';
-    const processingCategoryId = state.processingCategoryId as number | '' | undefined;
-    const processingFloor = (state.processingFloor as string) || '';
-    const filterAddressIds = new Set((state.filterAddressIds as number[]) || []);
-    const excludedAddressIds = new Set((state.excludedAddressIds as number[]) || []);
-    const houseSeriesIds = (state.houseSeriesIds as string[]) || [];
-    const wallMaterialIds = (state.wallMaterialIds as string[]) || [];
-    const floorsMin = (state.floorsMin as string) || '';
-    const floorsMax = (state.floorsMax as string) || '';
-
-    if (status) result = result.filter(a => a.status === status);
-    if (sources.length > 0) result = result.filter(a => sources.includes(normalizeSource(a.source)));
-    if (propertyTypes.length > 0) result = result.filter(a => propertyTypes.includes(a.property_type));
-    if (categoryIds.length > 0) result = result.filter(a => a.category_id != null && categoryIds.includes(a.category_id));
-    if (priceMin) result = result.filter(a => a.price != null && a.price >= Number(priceMin));
-    if (priceMax) result = result.filter(a => a.price != null && a.price <= Number(priceMax));
-    if (areaMin) result = result.filter(a => a.area_total != null && a.area_total >= Number(areaMin));
-    if (areaMax) result = result.filter(a => a.area_total != null && a.area_total <= Number(areaMax));
-    if (floorMin) result = result.filter(a => a.floor != null && a.floor >= Number(floorMin));
-    if (floorMax) result = result.filter(a => a.floor != null && a.floor <= Number(floorMax));
-    if (yearMin) result = result.filter(a => { const y = a.year_built ?? a.house_details?.build_year; return y != null && y >= Number(yearMin); });
-    if (yearMax) result = result.filter(a => { const y = a.year_built ?? a.house_details?.build_year; return y != null && y <= Number(yearMax); });
-    if (sellerTypes.length > 0) result = result.filter(a => sellerTypes.includes(a.seller_info?.type || a.seller_type));
-    if (dateFrom) result = result.filter(a => a.created && new Date(a.created) >= new Date(dateFrom));
-    if (dateTo) result = result.filter(a => a.created && new Date(a.created) <= new Date(dateTo + 'T23:59:59'));
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(a => (a.address || '').toLowerCase().includes(q) || (a.title || '').toLowerCase().includes(q));
-    }
-    if (processingStatus === 'address_needed') {
-      result = result.filter(a => a.processing_status === 'address_needed' || (a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low')));
-    } else if (processingStatus === 'duplicate_check_needed') {
-      result = result.filter(a => a.processing_status === 'duplicate_check_needed' && !a.object_id);
-    } else if (processingStatus) {
-      result = result.filter(a => a.processing_status === processingStatus);
-    }
-    if (addressId) result = result.filter(a => a.address_id === addressId);
-    if (contactType) result = result.filter(a => (a.seller_info?.type || a.seller_type) === contactType);
-    if (processingCategoryId) result = result.filter(a => a.category_id === processingCategoryId);
-    if (processingFloor) result = result.filter(a => a.floor != null && a.floor === Number(processingFloor));
-    if (filterAddressIds.size > 0) result = result.filter(a => a.address_id != null && filterAddressIds.has(a.address_id) && !excludedAddressIds.has(a.address_id));
-
-    if (houseSeriesIds.length > 0 || wallMaterialIds.length > 0 || floorsMin || floorsMax) {
-      const addrMap = new Map<number, any>();
-      for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
-      result = result.filter(a => {
-        if (!a.address_id) return false;
-        const addr = addrMap.get(a.address_id);
-        if (!addr) return false;
-        if (houseSeriesIds.length > 0 && (!addr.house_series_id || !houseSeriesIds.includes(addr.house_series_id))) return false;
-        if (wallMaterialIds.length > 0 && (!addr.wall_material_id || !wallMaterialIds.includes(addr.wall_material_id))) return false;
-        if (floorsMin && (!addr.floors_count || addr.floors_count < Number(floorsMin))) return false;
-        if (floorsMax && (!addr.floors_count || addr.floors_count > Number(floorsMax))) return false;
-        return true;
-      });
-    }
-
-    return result;
-  };
+  // Нормализация source импортируется из ads-filter-utils.
+  // applyFilterToAds — там же.
 
   // Предпросмотр количества при выборе фильтров
   useEffect(() => {
@@ -1357,6 +1278,9 @@ const AdsSettingsPage: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Поделиться фильтром по ссылке */}
+        <SharePanel />
       </div>
     </div>
   );

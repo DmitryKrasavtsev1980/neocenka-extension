@@ -6,6 +6,7 @@ import ImportPage from '@/pages/import/ImportPage';
 import ModulesPage from '@/components/Modules/ModulesPage';
 import ProfilePage from '@/components/Profile/ProfilePage';
 import NewsPage from '@/pages/news/NewsPage';
+import InstructionsPage from '@/pages/instructions/InstructionsPage';
 import FeedbackPage from '@/pages/feedback/FeedbackPage';
 import { crmRepository } from '@/db/repositories/crm.repository';
 import {
@@ -28,6 +29,7 @@ import {
   MoonIcon,
   BuildingOffice2Icon,
   NewspaperIcon,
+  BookOpenIcon,
   ChatBubbleLeftRightIcon,
   MegaphoneIcon,
   CogIcon,
@@ -55,7 +57,7 @@ import CrmSettingsPage from '@/pages/crm/CrmSettingsPage';
 import CrmBpmnPage from '@/pages/crm/CrmBpmnPage';
 import CrmDashboardPage from '@/pages/crm/CrmDashboardPage';
 
-type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'feedback' | 'ads' | 'ads-settings' | 'crm-dashboard' | 'crm-deals' | 'crm-clients' | 'crm-leads' | 'crm-tasks' | 'crm-calendar' | 'crm-kanban' | 'crm-bpmn' | 'crm-settings';
+type ActivePage = 'modules' | 'search' | 'import' | 'profile' | 'news' | 'instructions' | 'feedback' | 'ads' | 'ads-settings' | 'crm-dashboard' | 'crm-deals' | 'crm-clients' | 'crm-leads' | 'crm-tasks' | 'crm-calendar' | 'crm-kanban' | 'crm-bpmn' | 'crm-settings';
 
 interface ModulePageConfig {
   page: ActivePage;
@@ -384,6 +386,8 @@ const AppLayout: React.FC = () => {
         return <ProfilePage />;
       case 'news':
         return <NewsPage />;
+      case 'instructions':
+        return <InstructionsPage />;
       case 'feedback':
         return <FeedbackPage />;
       case 'ads':
@@ -560,6 +564,11 @@ const AppLayout: React.FC = () => {
                     {unreadNews > 99 ? '99+' : unreadNews}
                   </span>
                 )}
+              </SidebarItem>
+
+              <SidebarItem current={activePage === 'instructions'} onClick={() => handleNavigate('instructions')}>
+                <BookOpenIcon data-slot="icon" />
+                <SidebarLabel>Инструкции</SidebarLabel>
               </SidebarItem>
 
               <SidebarItem current={activePage === 'feedback'} onClick={() => handleNavigate('feedback')}>
