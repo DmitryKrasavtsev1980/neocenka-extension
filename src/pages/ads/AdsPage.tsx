@@ -10,7 +10,8 @@ import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem 
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
 import { useImportTasks, type ImportTask } from '@/contexts/ImportTaskContext';
-import { getModules, sendDedupFeedbackBatch } from '@/services/api-service';
+import { getModules, sendDedupFeedbackBatch, getS3Storage } from '@/services/api-service';
+import { photoArchiveService } from '@/services/photo-archive-service';
 import AdsReportsPanel from './reports/AdsReportsPanel';
 import { REGION_CENTERS } from '@/constants/regions';
 import {
@@ -562,6 +563,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }).catch(() => {});
   }, []);
 
+  // Восстановление незавершённых батчей фотоархива после перезапуска браузера
+  useEffect(() => {
+    photoArchiveService.resumePendingBatches().catch(() => {});
+  }, []);
+
   // Отслеживание завершения импорта — обновление таблицы + toast
   const lastSeenImportStatus = useRef<Record<string, string>>({});
   useEffect(() => {
@@ -576,6 +582,30 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       loadData();
       loadStats();
       setToast({ message: task.detail || 'Импорт завершён', type: 'success' });
+
+      // Авто-архивация фото, если подключён S3
+      (async () => {
+        try {
+          const s3 = await getS3Storage();
+          if (!s3) return;
+          const allAds = await db.table('ads').toArray() as any[];
+          const urls = new Set<string>();
+          for (const ad of allAds) {
+            if (ad.photos && Array.isArray(ad.photos)) {
+              for (const u of ad.photos) {
+                if (typeof u === 'string' && u.startsWith('http')) urls.add(u);
+              }
+            }
+          }
+          if (urls.size === 0) return;
+          const cached = await photoArchiveService.resolveCached([...urls]);
+          const uncached = [...urls].filter(u => !cached.has(u));
+          if (uncached.length === 0) return;
+          await photoArchiveService.submitBatch(uncached);
+        } catch (e) {
+          // Не критично
+        }
+      })();
     } else if (prev === 'running' && task.status === 'error') {
       setToast({ message: task.detail || 'Ошибка импорта', type: 'error' });
     }
@@ -600,6 +630,54 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       loadStats();
       if (task.status === 'done') {
         setToast({ message: task.detail || 'Дедупликация завершена', type: 'success' });
+      }
+    }
+  }, [importTasks, loadData, loadStats]);
+
+  // Обновление данных после завершения актуализации CIAN
+  const lastSeenCianUpdateStatus = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const task = importTasks.find(t => t.type === 'cian-update');
+    if (!task) return;
+    const prev = lastSeenCianUpdateStatus.current[task.id];
+    lastSeenCianUpdateStatus.current[task.id] = task.status;
+    if (prev === 'running' && (task.status === 'done' || task.status === 'error')) {
+      loadData();
+      loadStats();
+      if (task.status === 'done') {
+        setToast({ message: task.detail || 'CIAN: актуализация завершена', type: 'success' });
+      }
+    }
+  }, [importTasks, loadData, loadStats]);
+
+  // Обновление данных после завершения актуализации Avito
+  const lastSeenAvitoUpdateStatus = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const task = importTasks.find(t => t.type === 'avito-update');
+    if (!task) return;
+    const prev = lastSeenAvitoUpdateStatus.current[task.id];
+    lastSeenAvitoUpdateStatus.current[task.id] = task.status;
+    if (prev === 'running' && (task.status === 'done' || task.status === 'error')) {
+      loadData();
+      loadStats();
+      if (task.status === 'done') {
+        setToast({ message: task.detail || 'Avito: актуализация завершена', type: 'success' });
+      }
+    }
+  }, [importTasks, loadData, loadStats]);
+
+  // Обновление данных после завершения поиска сделок
+  const lastSeenDealMatchingStatus = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const task = importTasks.find(t => t.type === 'deal-matching');
+    if (!task) return;
+    const prev = lastSeenDealMatchingStatus.current[task.id];
+    lastSeenDealMatchingStatus.current[task.id] = task.status;
+    if (prev === 'running' && (task.status === 'done' || task.status === 'error')) {
+      loadData();
+      loadStats();
+      if (task.status === 'done') {
+        setToast({ message: task.detail || 'Поиск сделок завершён', type: 'success' });
       }
     }
   }, [importTasks, loadData, loadStats]);
@@ -920,6 +998,28 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return result;
   }, [filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
 
+  // ─── Пересчёт адресов в полигоне при загрузке/изменении адресов ───
+  // handlePolygonsChange может вызваться до загрузки адресов, и filterAddressIds останется пустым.
+  // Этот эффект пересчитывает адреса при появлении данных.
+  useEffect(() => {
+    if (!polygonsCoords || polygonsCoords.length === 0 || addresses.length === 0) return;
+    const ids = new Set<number>();
+    for (const addr of addresses) {
+      const lat = addr.coordinates.lat;
+      const lng = addr.coordinates.lng;
+      if (lat != null && lng != null && isFinite(lat) && isFinite(lng) && polygonsCoords.some(poly => pointInPolygon(lat, lng, poly))) {
+        if (addr.id != null) ids.add(addr.id);
+      }
+    }
+    // Обновляем только если набор изменился
+    const current = filterAddressIds;
+    if (current.size !== ids.size || [...ids].some(id => !current.has(id))) {
+      setFilterAddressIds(ids);
+      localStorage.setItem('ret_ads_filter_address_ids', JSON.stringify([...ids]));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addresses, polygonsCoords]);
+
   // ─── Фильтрация ───
   const filteredAds = useMemo(() => {
     let result = allAds;
@@ -961,8 +1061,20 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterProcessingCategoryId) result = result.filter(a => a.category_id === filterProcessingCategoryId);
     if (filterProcessingFloor) result = result.filter(a => a.floor != null && a.floor === Number(filterProcessingFloor));
 
-    // Фильтр по выбранным адресам (из полигона), исключая отключённые
-    if (filterAddressIds.size > 0) result = result.filter(a => a.address_id != null && filterAddressIds.has(a.address_id) && !excludedAddressIds.has(a.address_id));
+    // Фильтр по полигону: через адрес (если есть) или по координатам самого объявления
+    if (polygonsCoords && polygonsCoords.length > 0) {
+      result = result.filter(a => {
+        if (a.address_id != null) {
+          // Для объявлений с адресом — проверяем через фильтр адресов полигона
+          return filterAddressIds.has(a.address_id) && !excludedAddressIds.has(a.address_id);
+        }
+        // Для объявлений без адреса — проверяем собственные координаты
+        const lat = a.coordinates?.lat;
+        const lng = a.coordinates?.lng;
+        if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) return false;
+        return polygonsCoords.some(poly => pointInPolygon(lat, lng, poly));
+      });
+    }
 
     // Фильтр по серии дома, материалу стен и этажности (через адрес)
     if (filterHouseSeriesIds.length > 0 || filterWallMaterialIds.length > 0 || filterFloorsMin || filterFloorsMax) {
@@ -985,7 +1097,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax, filterYearMin, filterYearMax,
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
     filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor,
-    filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, archiveDays]);
+    filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, archiveDays, polygonsCoords]);
 
   // Данные для графика распределения площадей объявлений
   const areaChartData = useMemo(() => {
@@ -1014,6 +1126,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   }, [filteredAds, filterAreaMin, filterAreaMax]);
 
   const filteredObjects = useMemo(() => {
+    // При фильтре статуса обработки показываем только отдельные объявления, без объектов
+    if (filterProcessingStatus === 'address_needed' || filterProcessingStatus === 'duplicate_check_needed') return [];
     let result = allObjects;
     if (filterStatus) result = result.filter(o => o.status === filterStatus);
     if (filterPropertyTypes.length > 0) result = result.filter(o => o.property_type && filterPropertyTypes.includes(o.property_type));
@@ -1092,7 +1206,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax,
     filterSources, filterCategoryIds, filterYearMin, filterYearMax,
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
-    filterContactType, filterProcessingCategoryId]);
+    filterContactType, filterProcessingCategoryId, filterProcessingStatus]);
 
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
@@ -1205,7 +1319,13 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterYearMin || filterYearMax) tags.push({ key: 'year', label: `Год: ${filterYearMin || '—'} – ${filterYearMax || '—'}` });
     if (filterSellerTypes.length > 0) tags.push({ key: 'seller', label: `Продавец: ${filterSellerTypes.map(s => SELLER_TYPE_LABELS[s] || s).join(', ')}` });
     if (filterDateFrom || filterDateTo) tags.push({ key: 'dates', label: `Даты: ${filterDateFrom || '—'} – ${filterDateTo || '—'}` });
-    if (filterProcessingStatus) tags.push({ key: 'proc', label: 'Обработка: Обработать на дубли' });
+    if (filterProcessingStatus) {
+      const procLabel: Record<string, string> = {
+        address_needed: 'Адрес не определён',
+        duplicate_check_needed: 'Обработать на дубли',
+      };
+      tags.push({ key: 'proc', label: `Обработка: ${procLabel[filterProcessingStatus] || filterProcessingStatus}` });
+    }
     if (filterAddressId) {
       const addr = addresses.find(a => a.id === filterAddressId);
       if (addr) tags.push({ key: 'addr', label: `Адрес: ${addr.address}` });
@@ -1422,6 +1542,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         filteredAds,
       );
       await loadData();
+      await loadStats();
       const addrs = await db.table<AdAddress>('ad_addresses').toArray();
       addrs.sort((a, b) => (a.address || '').localeCompare(b.address || '', 'ru'));
       setAddresses(addrs);
@@ -1439,13 +1560,13 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return allAds.filter(ad => {
       const lat = ad.coordinates.lat;
       const lng = ad.coordinates.lng;
-      if (lat == null || lng == null) return false;
+      if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) return false;
       return polygonsCoords.some(poly => pointInPolygon(lat, lng, poly));
     }).length;
   }, [allAds, polygonsCoords]);
 
   const adsWithCoordsCount = useMemo(() => {
-    return allAds.filter(ad => ad.coordinates.lat != null && ad.coordinates.lng != null).length;
+    return allAds.filter(ad => ad.coordinates.lat != null && ad.coordinates.lng != null && isFinite(ad.coordinates.lat) && isFinite(ad.coordinates.lng)).length;
   }, [allAds]);
 
   const handleDeleteInPolygon = async () => {
@@ -1456,7 +1577,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         .filter(ad => {
           const lat = ad.coordinates.lat;
           const lng = ad.coordinates.lng;
-          if (lat == null || lng == null) return false;
+          if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) return false;
           return polygonsCoords.some(poly => pointInPolygon(lat, lng, poly));
         })
         .map(ad => ad.id!)
@@ -1597,6 +1718,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       setSelectedIds(new Set());
       setSelectedTypes(new Map());
       await loadData();
+      await loadStats();
       setToast({ message: `Объединено ${allMergeAds.length} объявлений в объект`, type: 'success' });
     } catch {
       setToast({ message: 'Ошибка при объединении', type: 'error' });
@@ -1649,6 +1771,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       setSelectedIds(new Set());
       setSelectedTypes(new Map());
       await loadData();
+      await loadStats();
       setToast({ message: `Разбито ${objectIds.length} объектов`, type: 'success' });
     } catch {
       setToast({ message: 'Ошибка при разбиении', type: 'error' });
@@ -1659,6 +1782,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const handleLinkAd = async (adId: number, addressId: number) => {
     await adsAddressService.linkAdToAddress(adId, addressId);
     await loadData();
+    await loadStats();
     setAssignAd(null);
     setToast({ message: 'Адрес привязан', type: 'success' });
   };
@@ -1666,6 +1790,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const handleUnlinkAd = async (adId: number) => {
     await adsAddressService.unlinkAdFromAddress(adId);
     await loadData();
+    await loadStats();
     setAssignAd(null);
     setToast({ message: 'Привязка отменена', type: 'success' });
   };
@@ -1673,6 +1798,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const handleConfirmAd = async (adId: number) => {
     await adsAddressService.confirmAdAddress(adId);
     await loadData();
+    await loadStats();
     setAssignAd(null);
     setToast({ message: 'Адрес подтверждён', type: 'success' });
   };
@@ -1722,6 +1848,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       await adsAddressService.linkAdToAddress(createAddressForAd.id!, savedAddr.id);
       setCreateAddressForAd(null);
       await loadData();
+      await loadStats();
       setToast({ message: 'Новый адрес создан и привязан', type: 'success' });
     } else {
       // Обновление списка адресов
@@ -1939,7 +2066,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       for (const addr of addresses) {
         const lat = addr.coordinates.lat;
         const lng = addr.coordinates.lng;
-        if (lat != null && lng != null && polygons.some(poly => pointInPolygon(lat, lng, poly))) {
+        if (lat != null && lng != null && isFinite(lat) && isFinite(lng) && polygons.some(poly => pointInPolygon(lat, lng, poly))) {
           if (addr.id != null) ids.add(addr.id);
         }
       }
@@ -2884,6 +3011,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Статус обработки</label>
                 <select value={filterProcessingStatus} onChange={e => setFilterProcessingStatus(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
                   <option value="">Все статусы</option>
+                  <option value="address_needed">Адрес не определён</option>
                   <option value="duplicate_check_needed">Обработать на дубли</option>
                 </select>
               </div>
@@ -3011,6 +3139,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               await recalculateAndSaveObject(updated.object_id);
             }
             await loadData();
+            await loadStats();
           }}
           onDelete={async (deleted) => {
             if (deleted.id) {
@@ -3018,9 +3147,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             }
             setAllAds(prev => prev.filter(a => a.id !== deleted.id));
             setDetailAd(null);
+            await loadData();
+            await loadStats();
           }}
           onAddressChange={async () => {
             await loadData();
+            await loadStats();
             // Обновляем detailAd свежими данными
             const fresh = await db.table<Ad>('ads').get(detailAd.id!);
             if (fresh) setDetailAd(fresh);

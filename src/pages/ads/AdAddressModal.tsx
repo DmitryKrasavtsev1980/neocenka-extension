@@ -12,6 +12,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { AdAddress, ReferenceItem } from '@/types';
 import { adsAddressService } from '@/services/ads-address-service';
+import { addressSyncService } from '@/services/address-sync-service';
 import { getMapConfig, createTileLayer } from '@/services/map-config';
 
 const TYPE_OPTIONS = [
@@ -45,6 +46,8 @@ interface AdAddressModalProps {
 const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress, mode = 'edit', referenceData, onClose, onSave }) => {
   const [addr, setAddr] = useState<AdAddress>({ ...initialAddress });
   const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const isCreate = mode === 'create';
 
@@ -175,22 +178,45 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
   // ─── Сохранение ───
   const handleSave = async () => {
     setSaving(true);
+    setSubmitError(false);
     try {
+      let savedId: number | undefined;
+
       if (isCreate) {
-        const newId = await adsAddressService.create({
+        // Новый адрес — source='user', synced_at=null (пока не отправлен)
+        savedId = await adsAddressService.create({
           ...addr,
           source: 'user',
+          synced_at: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
-        onSave?.({ ...addr, id: newId });
       } else {
+        // Редактирование — сбрасываем synced_at, чтобы отправить изменения на модерацию
         await adsAddressService.update(addr.id!, {
           ...addr,
+          synced_at: null,
           updated_at: new Date().toISOString(),
         });
-        onSave?.(addr);
+        savedId = addr.id;
       }
+
+      onSave?.({ ...addr, id: savedId });
+
+      // Автоматическая отправка на модерацию
+      if (savedId) {
+        setSubmitting(true);
+        try {
+          await addressSyncService.submitOne(savedId);
+        } catch (e) {
+          // Адрес сохранён локально, но отправка не удалась (сеть/сервер)
+          console.error('[AdAddressModal] Ошибка отправки на модерацию:', e);
+          setSubmitError(true);
+        } finally {
+          setSubmitting(false);
+        }
+      }
+
       onClose();
     } catch {
       // silent
@@ -376,10 +402,15 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-zinc-200 dark:border-zinc-700 sticky bottom-0 bg-white dark:bg-zinc-900">
+          {submitError && (
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 mr-auto">
+              Сохранено локально, отправка на модерацию не удалась
+            </span>
+          )}
           <button onClick={onClose} className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800">Отмена</button>
-          <button onClick={handleSave} disabled={saving} className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-            {saving && <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
-            Сохранить
+          <button onClick={handleSave} disabled={saving || submitting} className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+            {(saving || submitting) && <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
+            {saving ? 'Сохранение...' : submitting ? 'Отправка на модерацию...' : 'Сохранить'}
           </button>
         </div>
       </div>

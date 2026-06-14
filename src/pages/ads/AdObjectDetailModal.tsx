@@ -17,6 +17,7 @@ import 'leaflet/dist/leaflet.css';
 import type { AdObject, Ad, AdAddress, SaleDeal } from '@/types';
 import type { Deal } from '@/types';
 import { getMapConfig, createTileLayer } from '@/services/map-config';
+import { useArchivedPhotos } from '@/hooks/useArchivedPhotos';
 import { dealsRepository } from '@/db/repositories/deals.repository';
 import { cadastralRepository } from '@/db/repositories/cadastral.repository';
 import { REAL_ESTATE_TYPES, WALL_MATERIALS, getWallMaterialName } from '@/constants/catalogs';
@@ -170,7 +171,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
     });
     const mapConfig = getMapConfig();
     createTileLayer(mapConfig).addTo(map);
-    if (mapLat != null && mapLng != null) {
+    if (mapLat != null && mapLng != null && isFinite(mapLat) && isFinite(mapLng)) {
       map.setView([mapLat, mapLng], 17);
       L.marker([mapLat, mapLng], {
         icon: L.divIcon({
@@ -189,7 +190,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
     return () => { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
   }, [mapLat, mapLng, mapAddressText]);
 
-  const photos = selectedAd?.photos || [];
+  const photos = useArchivedPhotos(selectedAd?.photos || []);
 
   useEffect(() => {
     if (lightboxIndex == null) return;

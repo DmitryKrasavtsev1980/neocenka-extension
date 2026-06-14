@@ -771,7 +771,19 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
-    const map = L.map(mapRef.current, { attributionControl: false }).setView([55.7558, 37.6173], 10);
+    let cancelled = false;
+    let retries = 0;
+    const doInit = () => {
+    if (cancelled || mapInstanceRef.current || !mapRef.current) return;
+    const container = mapRef.current;
+    // Не инициализировать карту, пока контейнер имеет нулевые размеры:
+    // иначе Leaflet вычислит pixelOrigin с делением на 0 → NaN в проекции LatLng.
+    if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+      if (retries++ < 600) requestAnimationFrame(doInit);
+      return;
+    }
+
+    const map = L.map(container, { attributionControl: false }).setView([55.7558, 37.6173], 10);
     L.control.attribution({ prefix: false }).addTo(map);
 
     const mapConfig = getMapConfig();
@@ -875,7 +887,18 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
 
     mapInstanceRef.current = map;
 
+    // Пересчитать размеры после отрисовки контейнера
+    setTimeout(() => {
+      if (mapInstanceRef.current && mapRef.current && mapRef.current.offsetWidth > 0 && mapRef.current.offsetHeight > 0) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    }, 100);
+    };
+
+    doInit();
+
     return () => {
+      cancelled = true;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -945,7 +968,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     if (!container) return;
 
     const observer = new ResizeObserver(() => {
-      if (mapInstanceRef.current) {
+      if (mapInstanceRef.current && container.offsetWidth > 0 && container.offsetHeight > 0) {
         mapInstanceRef.current.invalidateSize();
       }
     });
@@ -1165,20 +1188,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         </svg>
       </div>
 
-      {/* Панель адресов: либо список, либо кнопка «Выбрать все» */}
-      {(!selectedAddressIds || selectedAddressIds.size === 0) && polygonsCoords && polygonsCoords.length > 0 && onSelectAllInPolygon && (
-        <div className="selected-addresses-panel">
-          <div className="selected-addresses-header" style={{ justifyContent: 'center' }}>
-            <button onClick={onSelectAllInPolygon} style={{
-              padding: '5px 14px', fontSize: '12px', fontWeight: 500, border: 'none',
-              background: '#2563eb', color: '#fff', borderRadius: '6px', cursor: 'pointer',
-            }}>
-              Выбрать все адреса в полигоне
-            </button>
-          </div>
-        </div>
-      )}
-      {selectedAddressIds && selectedAddressIds.size > 0 && (
+      {/* Панель адресов в полигоне */}
+      {polygonsCoords && polygonsCoords.length > 0 && (
         <div className="selected-addresses-panel">
           <div className="selected-addresses-header">
             <button className="selected-addresses-toggle" onClick={() => {
@@ -1187,18 +1198,21 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
             }}>
               <span className="selected-addresses-title">
                 {(() => {
+                  const total = selectedAddressIds ? selectedAddressIds.size : 0;
+                  if (total === 0) return 'Адресов в полигоне не найдено';
                   const excluded = excludedAddressIds ? excludedAddressIds.size : 0;
-                  const active = selectedAddressIds.size - excluded;
+                  const active = total - excluded;
                   const hl = highlightedAddressIds ? highlightedAddressIds.size : active;
-                  if (hl !== active) return `Подходит: ${hl} из ${selectedAddressIds.size} (активных: ${active})`;
-                  if (excluded > 0) return `Активных: ${active} из ${selectedAddressIds.size} адресов`;
-                  return `Выбрано адресов: ${selectedAddressIds.size}`;
+                  if (hl !== active) return `Подходит: ${hl} из ${total} (активных: ${active})`;
+                  if (excluded > 0) return `Активных: ${active} из ${total} адресов`;
+                  return `Выбрано адресов: ${total}`;
                 })()}
               </span>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2" strokeLinecap="round">
                 <path d="M6 9l6 6 6-6"/>
               </svg>
             </button>
+            {selectedAddressIds && selectedAddressIds.size > 0 && (
             <div style={{ display: 'flex', gap: '4px' }}>
               <button className="selected-addresses-clear" onClick={() => {
                 if (onSelectAllInPolygon) onSelectAllInPolygon();
@@ -1218,6 +1232,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
                 Отключить все
               </button>
             </div>
+            )}
           </div>
           <div id="selected-addresses-list" className="selected-addresses-list">
             <table className="selected-addresses-table">
@@ -1232,8 +1247,9 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
               </thead>
               <tbody>
                 {(() => {
+                  const selIds = selectedAddressIds || new Set<number>();
                   const all = (addressesRef.current || [])
-                    .filter(a => a.id != null && selectedAddressIds.has(a.id));
+                    .filter(a => a.id != null && selIds.has(a.id));
                   const hasHL = highlightedAddressIds && highlightedAddressIds.size > 0;
                   const hasExcl = excludedAddressIds && excludedAddressIds.size > 0;
                   // Сортировка: highlighted → active → excluded

@@ -36,6 +36,9 @@ export class DealsDatabase extends Dexie {
   crm_stage_actions!: Table<CrmStageAction, number>;
   crm_message_templates!: Table<CrmMessageTemplate, number>;
 
+  // S3-фотоархив
+  archived_photos!: Table<{ id?: number; original_url: string; s3_url: string; archived_at: string }, number>;
+
   constructor() {
     super('NeocenkaDB');
 
@@ -504,6 +507,16 @@ export class DealsDatabase extends Dexie {
         parent_id,
         section_id,
         is_active
+      `,
+    });
+
+    // Version 18: S3-фотоархив
+    this.version(18).stores({
+      archived_photos: `
+        ++id,
+        original_url,
+        s3_url,
+        archived_at
       `,
     });
   }

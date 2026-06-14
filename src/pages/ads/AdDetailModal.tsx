@@ -18,6 +18,7 @@ import { adsAddressService } from '@/services/ads-address-service';
 import { getMapConfig, createTileLayer } from '@/services/map-config';
 import { actualizeCianAd } from '@/services/cian-update-service';
 import { actualizeAvitoAd } from '@/services/avito-update-service';
+import { useArchivedPhotos } from '@/hooks/useArchivedPhotos';
 
 const SELLER_TYPE_LABELS: Record<string, string> = {
   owner: 'Собственник', agent: 'Агент', developer: 'Застройщик',
@@ -139,9 +140,11 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     ? addresses.find(a => a.id === ad.address_id)
     : null;
 
-  // Координаты для отображения на карте
-  const mapLat = currentAddress?.coordinates?.lat ?? ad.coordinates?.lat;
-  const mapLng = currentAddress?.coordinates?.lng ?? ad.coordinates?.lng;
+  // Координаты адреса и объявления
+  const addrLat = currentAddress?.coordinates?.lat ?? null;
+  const addrLng = currentAddress?.coordinates?.lng ?? null;
+  const adLat = ad.coordinates?.lat ?? null;
+  const adLng = ad.coordinates?.lng ?? null;
 
   // Инициализация мини-карты
   useEffect(() => {
@@ -164,29 +167,81 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     const mapConfig = getMapConfig();
     createTileLayer(mapConfig).addTo(map);
 
-    if (mapLat != null && mapLng != null) {
-      map.setView([mapLat, mapLng], 17);
-      L.marker([mapLat, mapLng], {
-        icon: L.divIcon({
-          html: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24s12-15 12-24C24 5.37 18.63 0 12 0z" fill="#ea4335"/>
-            <circle cx="12" cy="12" r="5" fill="#fff"/>
-          </svg>`,
-          iconSize: [24, 36],
-          iconAnchor: [12, 36],
-          className: '',
-        }),
-      }).addTo(map);
-      // Popup с адресом
-      const popupAddr = currentAddress?.address || ad.address || '';
-      if (popupAddr) {
-        L.popup({ closeButton: false, offset: [0, -36] })
-          .setLatLng([mapLat, mapLng])
-          .setContent(`<div style="font-size:12px;max-width:250px;">${popupAddr}</div>`)
-          .openOn(map);
-      }
-    } else {
+    const validCoord = (v: number | null): v is number => v != null && isFinite(v);
+    const hasAddr = validCoord(addrLat) && validCoord(addrLng);
+    const hasAd = validCoord(adLat) && validCoord(adLng);
+
+    if (!hasAddr && !hasAd) {
       map.setView([55.7558, 37.6173], 10);
+    } else {
+      // Маркер определённого адреса (синий)
+      if (hasAddr) {
+        L.marker([addrLat!, addrLng!], {
+          icon: L.divIcon({
+            html: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24s12-15 12-24C24 5.37 18.63 0 12 0z" fill="#2563eb"/>
+              <circle cx="12" cy="12" r="5" fill="#fff"/>
+            </svg>`,
+            iconSize: [24, 36],
+            iconAnchor: [12, 36],
+            className: '',
+          }),
+        }).addTo(map).bindTooltip('Адрес', { direction: 'top', offset: [0, -36] });
+      }
+
+      // Маркер координат объявления (красный)
+      if (hasAd) {
+        L.marker([adLat!, adLng!], {
+          icon: L.divIcon({
+            html: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24s12-15 12-24C24 5.37 18.63 0 12 0z" fill="#ea4335"/>
+              <circle cx="12" cy="12" r="5" fill="#fff"/>
+            </svg>`,
+            iconSize: [24, 36],
+            iconAnchor: [12, 36],
+            className: '',
+          }),
+        }).addTo(map).bindTooltip('Объявление', { direction: 'top', offset: [0, -36] });
+      }
+
+      if (hasAddr && hasAd) {
+        // Пунктирная линия между маркерами
+        L.polyline([[addrLat!, addrLng!], [adLat!, adLng!]], {
+          color: '#6b7280',
+          weight: 2,
+          dashArray: '6, 6',
+        }).addTo(map);
+
+        // Расчёт расстояния (формула гаверсинуса)
+        const R = 6371000;
+        const dLat = (adLat! - addrLat!) * Math.PI / 180;
+        const dLng = (adLng! - addrLng!) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(addrLat! * Math.PI / 180) * Math.cos(adLat! * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+        const dist = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+        const distText = dist < 1000 ? `${dist} м` : `${(dist / 1000).toFixed(1)} км`;
+
+        const midLat = (addrLat! + adLat!) / 2;
+        const midLng = (addrLng! + adLng!) / 2;
+        L.popup({ closeButton: false, offset: [0, 0] })
+          .setLatLng([midLat, midLng])
+          .setContent(`<div style="font-size:12px;font-weight:600;">≈ ${distText}</div>`)
+          .openOn(map);
+
+        // Подогнать масштаб, чтобы оба маркера были видны
+        map.fitBounds(L.latLngBounds([[addrLat!, addrLng!], [adLat!, adLng!]]), { padding: [60, 60], maxZoom: 17 });
+      } else if (hasAddr) {
+        map.setView([addrLat!, addrLng!], 17);
+        const popupAddr = currentAddress?.address || ad.address || '';
+        if (popupAddr) {
+          L.popup({ closeButton: false, offset: [0, -36] })
+            .setLatLng([addrLat!, addrLng!])
+            .setContent(`<div style="font-size:12px;max-width:250px;">${popupAddr}</div>`)
+            .openOn(map);
+        }
+      } else {
+        map.setView([adLat!, adLng!], 17);
+      }
     }
 
     // Небольшая задержка для корректного рендера
@@ -199,7 +254,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
         mapInstanceRef.current = null;
       }
     };
-  }, [locationTab, locationExpanded, mapLat, mapLng]);
+  }, [locationTab, locationExpanded, addrLat, addrLng, adLat, adLng]);
 
   // Фильтрация адресов для селектора
   const filteredAddresses = useMemo(() => {
@@ -264,7 +319,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
   }, [ad.price_history, ad.price, ad.updated, ad.status]);
 
   // Lightbox: навигация клавиатурой
-  const photos = ad.photos || [];
+  const photos = useArchivedPhotos(ad.photos || []);
   useEffect(() => {
     if (lightboxIndex == null) return;
     const handler = (e: KeyboardEvent) => {
@@ -500,7 +555,21 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
 
                 {/* Таб: Карта */}
                 {locationTab === 'map' && (
-                  <div ref={mapContainerRef} style={{ height: 260, width: '100%' }} />
+                  <>
+                    <div ref={mapContainerRef} style={{ height: 260, width: '100%' }} />
+                    {addrLat != null && isFinite(addrLat) && adLat != null && isFinite(adLat) && (
+                      <div className="flex items-center gap-4 px-3 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block w-3 h-3 rounded-full bg-blue-600" />
+                          Адрес
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block w-3 h-3 rounded-full bg-red-500" />
+                          Объявление
+                        </span>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Таб: Данные */}

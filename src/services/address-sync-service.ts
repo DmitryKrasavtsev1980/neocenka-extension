@@ -166,58 +166,46 @@ export const addressSyncService = {
   },
 
   /**
-   * Отправить изменения адресов как предложения на модерацию
-   * Находит адреса с source='user' и synced_at=null
-   * Отправляет через POST /api/address-changes
+   * Отправить ОДИН адрес на модерацию (после create/edit)
+   * server_id=null → создание нового, server_id=N → обновление существующего
    */
-  async submitChanges(): Promise<{ submitted: number }> {
-    const unsynced = await db.ad_addresses
-      .where('source')
-      .equals('user')
-      .toArray();
+  async submitOne(localId: number): Promise<void> {
+    const addr = await db.ad_addresses.get(localId);
+    if (!addr) throw new Error('Адрес не найден в локальной базе');
 
-    const toSync = unsynced.filter((a) => !a.synced_at);
+    const change = {
+      address_id: addr.server_id, // null = новый адрес, число = обновление
+      address: addr.address,
+      lat: addr.coordinates?.lat ?? null,
+      lon: addr.coordinates?.lng ?? null,
+      type: addr.type,
+      region: addr.region,
+      house_type: addr.house_type,
+      cadno: addr.cadno,
+      serie: addr.serie,
+      house_series_id: addr.house_series_id,
+      house_class_id: addr.house_class_id,
+      wall_material_id: addr.wall_material_id,
+      ceiling_material_id: addr.ceiling_material_id,
+      house_problem_id: addr.house_problem_id,
+      levels: addr.floors_count,
+      build_year: addr.build_year,
+      entrances_count: addr.entrances_count,
+      living_spaces_count: addr.living_spaces_count,
+      area_total: addr.area_total,
+      area_live: addr.area_live,
+      gas_supply: addr.gas_supply,
+      individual_heating: addr.individual_heating,
+      has_playground: addr.has_playground,
+      has_sports_area: addr.has_sports_area,
+      ceiling_height: addr.ceiling_height,
+      comment: addr.comment,
+    };
 
-    if (toSync.length === 0) return { submitted: 0 };
+    await postAddressChanges([change]);
 
-    const changes = toSync.map((a) => ({
-      address_id: a.server_id, // server_id = ID на сервере (для update), null для новых
-      address: a.address,
-      lat: a.coordinates.lat,
-      lon: a.coordinates.lng,
-      type: a.type,
-      region: a.region,
-      house_type: a.house_type,
-      cadno: a.cadno,
-      serie: a.serie,
-      house_series_id: a.house_series_id,
-      house_class_id: a.house_class_id,
-      wall_material_id: a.wall_material_id,
-      ceiling_material_id: a.ceiling_material_id,
-      house_problem_id: a.house_problem_id,
-      levels: a.floors_count,
-      build_year: a.build_year,
-      entrances_count: a.entrances_count,
-      living_spaces_count: a.living_spaces_count,
-      area_total: a.area_total,
-      area_live: a.area_live,
-      gas_supply: a.gas_supply,
-      individual_heating: a.individual_heating,
-      has_playground: a.has_playground,
-      has_sports_area: a.has_sports_area,
-      ceiling_height: a.ceiling_height,
-      comment: a.comment,
-    }));
-
-    const result = await postAddressChanges(changes);
-
-    // Пометить как отправленные (на модерации)
-    const now = new Date().toISOString();
-    for (const addr of toSync) {
-      await db.ad_addresses.update(addr.id!, { synced_at: now });
-    }
-
-    return { submitted: result.created };
+    // Пометить как отправленный на модерацию
+    await db.ad_addresses.update(localId, { synced_at: new Date().toISOString() });
   },
 
   /**

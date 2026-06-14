@@ -833,3 +833,86 @@ export async function sendDedupFeedbackBatch(
   }
   await Promise.allSettled(promises);
 }
+
+// === S3-фотоархив ===
+
+export interface S3StorageConfig {
+  id?: number;
+  name: string;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  access_key: string;
+  path_prefix: string;
+  is_active: boolean;
+  last_tested_at: string | null;
+  last_test_status: string | null;
+  last_test_error: string | null;
+}
+
+export interface BatchStatus {
+  batch: {
+    id: number;
+    status: string;
+    total: number;
+    processed: number;
+    succeeded: number;
+    failed: number;
+    error_message: string | null;
+  };
+  progress: number;
+}
+
+export interface MappingItem {
+  original_url: string;
+  s3_url: string;
+  updated_at: string;
+}
+
+export interface MappingList {
+  data: MappingItem[];
+  has_more: boolean;
+  next_page: number;
+  total: number;
+}
+
+export async function getS3Storage(): Promise<S3StorageConfig | null> {
+  const resp = await apiRequest<{ storage: S3StorageConfig | null }>('GET', '/photo-archive/storage');
+  return resp.storage;
+}
+
+export async function saveS3Storage(config: Partial<S3StorageConfig> & {
+  endpoint: string; region: string; bucket: string; access_key: string; secret_key: string;
+}): Promise<S3StorageConfig> {
+  const resp = await apiRequest<{ storage: S3StorageConfig }>('POST', '/photo-archive/storage', config as any);
+  return resp.storage;
+}
+
+export async function deleteS3Storage(): Promise<void> {
+  await apiRequest('DELETE', '/photo-archive/storage');
+}
+
+export async function testS3Storage(config: Partial<S3StorageConfig> & {
+  endpoint: string; region: string; bucket: string; access_key: string; secret_key: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  return await apiRequest('POST', '/photo-archive/storage/test', config as any);
+}
+
+export async function submitPhotoArchiveBatch(urls: string[]): Promise<{
+  batch_id: number | null;
+  total?: number;
+  chunks?: number;
+  message?: string;
+}> {
+  return await apiRequest('POST', '/photo-archive/archive', { urls });
+}
+
+export async function getPhotoArchiveBatchStatus(id: number): Promise<BatchStatus> {
+  return await apiRequest('GET', `/photo-archive/batch/${id}`);
+}
+
+export async function getPhotoArchiveMappings(since?: string, page = 1): Promise<MappingList> {
+  const params = new URLSearchParams({ page: String(page) });
+  if (since) params.set('since', since);
+  return await apiRequest('GET', `/photo-archive/mappings?${params.toString()}`);
+}

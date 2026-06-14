@@ -25,6 +25,7 @@ import { REGION_CENTERS } from '@/constants/regions';
 import { getAddressesStats, getModules, type ModuleInfo } from '@/services/api-service';
 import { applyFilterToAds } from '@/services/ads-filter-utils';
 import SharePanel from './SharePanel';
+import S3PhotoArchiveCard from './S3PhotoArchiveCard';
 
 const TYPE_ID_LABELS: Record<number, string> = {
   1: 'Аренда',
@@ -116,8 +117,6 @@ const AdsSettingsPage: React.FC = () => {
   const [addressDeleting, setAddressDeleting] = useState(false);
   const [addressUnlinking, setAddressUnlinking] = useState(false);
   const [addressUnlinkResult, setAddressUnlinkResult] = useState<number | null>(null);
-  const [addressSubmitting, setAddressSubmitting] = useState(false);
-  const [addressSubmitResult, setAddressSubmitResult] = useState<{ submitted: number } | null>(null);
 
   // Выбранные регионы для синхронизации адресов
   const STORAGE_KEY_SYNC_REGIONS = 'address_sync_regions';
@@ -611,20 +610,6 @@ const AdsSettingsPage: React.FC = () => {
     }
   };
 
-  const handleSubmitChanges = async () => {
-    setAddressSubmitting(true);
-    setAddressSubmitResult(null);
-    setAddressError('');
-    try {
-      const result = await addressSyncService.submitChanges();
-      setAddressSubmitResult(result);
-    } catch (e) {
-      setAddressError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAddressSubmitting(false);
-    }
-  };
-
   const handleSyncAddresses = async () => {
     if (selectedSyncRegions.length === 0) {
       setAddressError('Выберите хотя бы один регион для загрузки');
@@ -910,13 +895,6 @@ const AdsSettingsPage: React.FC = () => {
             >
               {addressUnlinking ? 'Отвязка...' : 'Отвязать от объявлений'}
             </button>
-            <button
-              onClick={handleSubmitChanges}
-              disabled={addressSubmitting}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {addressSubmitting ? 'Отправка...' : 'Отправить на модерацию'}
-            </button>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               В базе: {addressCount.toLocaleString('ru-RU')} адресов
             </span>
@@ -946,12 +924,6 @@ const AdsSettingsPage: React.FC = () => {
           {addressUnlinkResult !== null && (
             <div className="rounded-md bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-3 py-2 text-sm text-orange-700 dark:text-orange-300">
               Отвязано адресов от объявлений: {addressUnlinkResult.toLocaleString('ru-RU')}. Статус сброшен на «Требуется определение адреса».
-            </div>
-          )}
-
-          {addressSubmitResult && (
-            <div className="rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
-              Отправлено предложений на модерацию: {addressSubmitResult.submitted}. Администратор рассмотрит изменения.
             </div>
           )}
 
@@ -1281,6 +1253,9 @@ const AdsSettingsPage: React.FC = () => {
 
         {/* Поделиться фильтром по ссылке */}
         <SharePanel />
+
+        {/* S3-фотоархив */}
+        <S3PhotoArchiveCard />
       </div>
     </div>
   );

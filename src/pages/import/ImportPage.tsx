@@ -71,9 +71,17 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
     setLoading(true);
     try {
       const data = await getModules();
+      const active = data.modules.filter((m) => m.access?.status === 'active');
       setModules(data.modules);
-      if (initialModuleCode && !selectedModuleCode) {
-        setSelectedModuleCode(initialModuleCode);
+      if (!selectedModuleCode) {
+        if (initialModuleCode) {
+          setSelectedModuleCode(initialModuleCode);
+        } else if (active.length === 1) {
+          setSelectedModuleCode(active[0].code);
+        } else {
+          const dealsModule = active.find((m) => m.code === 'dealsrosreestr');
+          if (dealsModule) setSelectedModuleCode(dealsModule.code);
+        }
       }
     } catch {
       setError('Не удалось загрузить модули');
@@ -325,31 +333,14 @@ const ImportPage: React.FC<ImportPageProps> = ({ initialModuleCode, onNavigate }
       </header>
 
       <div className="flex flex-col gap-6">
-        {/* Выбор модуля */}
-        <div className="bg-white rounded-xl p-5 shadow-sm dark:bg-zinc-900">
-          <label className="block text-xs font-medium text-zinc-500 mb-2 uppercase tracking-wide dark:text-zinc-400">
-            Модуль
-          </label>
-          {activeModules.length === 0 ? (
+        {/* Нет активных модулей */}
+        {activeModules.length === 0 && (
+          <div className="bg-white rounded-xl p-5 shadow-sm dark:bg-zinc-900">
             <div className="p-4 bg-amber-50 rounded-lg text-amber-700 text-sm text-center dark:bg-amber-900/20 dark:text-amber-400">
               У вас нет активных модулей. Купите подписку на странице «Мои модули».
             </div>
-          ) : (
-            <select
-              value={selectedModuleCode}
-              onChange={(e) => setSelectedModuleCode(e.target.value)}
-              className="w-full px-3.5 py-3 border border-zinc-200 rounded-lg text-sm text-zinc-900 bg-white cursor-pointer focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
-              disabled={hasRunningImport}
-            >
-              <option value="">Выберите модуль</option>
-              {activeModules.map((m) => (
-                <option key={m.id} value={m.code}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Список файлов */}
         {selectedModuleCode && manifestLoading && (
