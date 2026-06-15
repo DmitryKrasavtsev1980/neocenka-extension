@@ -31,6 +31,7 @@ interface PendingBatch {
 const S3PhotoArchiveCard: React.FC = () => {
   const [storage, setStorage] = useState<S3StorageConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [allowed, setAllowed] = useState(true);
 
   // Форма
   const [endpoint, setEndpoint] = useState('https://s3.ru1.storage.beget.cloud');
@@ -58,7 +59,9 @@ const S3PhotoArchiveCard: React.FC = () => {
   const loadStorage = useCallback(async () => {
     setLoading(true);
     try {
+      // getS3Storage вернёт 403, если пользователь не в списке photoArchiveUsers модуля ads
       const s = await getS3Storage();
+      setAllowed(true);
       setStorage(s);
       if (s) {
         setEndpoint(s.endpoint);
@@ -67,8 +70,12 @@ const S3PhotoArchiveCard: React.FC = () => {
         setAccessKey(s.access_key);
         setPathPrefix(s.path_prefix);
       }
-    } catch (e) {
-      // Не критично
+    } catch (e: any) {
+      if (e?.status === 403 || e?.code === 'photo_archive_forbidden') {
+        // Доступ к функционалу отключён — не показываем карточку
+        setAllowed(false);
+      }
+      // Другие ошибки сети — не критично, карточка остаётся
     } finally {
       setLoading(false);
     }
@@ -252,6 +259,11 @@ const S3PhotoArchiveCard: React.FC = () => {
         <p className="text-xs text-zinc-400 mt-2">Загрузка...</p>
       </div>
     );
+  }
+
+  // Нет доступа к S3-фотоархиву — не показываем карточку
+  if (!allowed) {
+    return null;
   }
 
   return (
