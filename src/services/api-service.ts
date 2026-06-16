@@ -850,19 +850,6 @@ export interface S3StorageConfig {
   last_test_error: string | null;
 }
 
-export interface BatchStatus {
-  batch: {
-    id: number;
-    status: string;
-    total: number;
-    processed: number;
-    succeeded: number;
-    failed: number;
-    error_message: string | null;
-  };
-  progress: number;
-}
-
 export interface MappingItem {
   original_url: string;
   s3_url: string;
@@ -898,17 +885,52 @@ export async function testS3Storage(config: Partial<S3StorageConfig> & {
   return await apiRequest('POST', '/photo-archive/storage/test', config as any);
 }
 
-export async function submitPhotoArchiveBatch(urls: string[]): Promise<{
-  batch_id: number | null;
-  total?: number;
-  chunks?: number;
-  message?: string;
+/**
+ * Загрузить готовый WebP на сервер (FormData).
+ * Сервер заливает WebP в S3 и сохраняет маппинг.
+ */
+export async function uploadArchivedPhoto(originalUrl: string, webpBlob: Blob): Promise<{
+  original_url: string;
+  s3_url: string;
 }> {
-  return await apiRequest('POST', '/photo-archive/archive', { urls });
-}
+  const deviceId = await getDeviceId();
+  const headers: Record<string, string> = {};
 
-export async function getPhotoArchiveBatchStatus(id: number): Promise<BatchStatus> {
-  return await apiRequest('GET', `/photo-archive/batch/${id}`);
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  if (deviceId) {
+    headers['X-Device-ID'] = deviceId;
+  }
+
+  const formData = new FormData();
+  formData.append('original_url', originalUrl);
+  formData.append('webp', webpBlob, 'photo.webp');
+
+  let response = await fetch(`${API_BASE_URL}/photo-archive/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401 && refreshTokenValue) {
+    const refreshed = await refreshAuthToken();
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+      response = await fetch(`${API_BASE_URL}/photo-archive/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+    }
+  }
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw { status: response.status, ...err };
+  }
+
+  return await response.json();
 }
 
 export async function getPhotoArchiveMappings(since?: string, page = 1): Promise<MappingList> {

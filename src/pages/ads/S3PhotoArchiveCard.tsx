@@ -1,32 +1,27 @@
 /**
  * Карточка настроек S3-фотоархива для AdsSettingsPage.
  *
- * Функции:
- * — Форма реквизитов S3 (endpoint, region, bucket, access_key, secret_key, path_prefix)
- * — Проверка соединения
- * — Кнопка «Архивировать все фото»
- * — Прогресс архивации (polling)
- * — Восстановление маппингов
+ * Архивация выполняется на стороне браузера:
+ * — расширение скачивает фото с CDN (IP пользователя)
+ * — конвертирует в WebP через Canvas API
+ * — отправляет на сервер, который заливает в S3
+ *
+ * Нет риска бана серверного IP, нет нагрузки на CPU сервера.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '@/db/database';
 import {
   getS3Storage,
   saveS3Storage,
   deleteS3Storage,
   testS3Storage,
-  getPhotoArchiveBatchStatus,
   type S3StorageConfig,
 } from '@/services/api-service';
-import { photoArchiveService } from '@/services/photo-archive-service';
-
-const PENDING_KEY = 'photo_archive_pending_batches';
-
-interface PendingBatch {
-  id: number;
-  startedAt: number;
-}
+import {
+  photoArchiveService,
+  type ArchiveProgress,
+} from '@/services/photo-archive-service';
 
 const S3PhotoArchiveCard: React.FC = () => {
   const [storage, setStorage] = useState<S3StorageConfig | null>(null);
@@ -46,20 +41,19 @@ const S3PhotoArchiveCard: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+
+  // Архивация
   const [archiving, setArchiving] = useState(false);
-  const [archiveProgress, setArchiveProgress] = useState<{ processed: number; total: number; succeeded: number; failed: number } | null>(null);
+  const [progress, setProgress] = useState<ArchiveProgress | null>(null);
 
   // Статистика
   const [cachedCount, setCachedCount] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // Загрузка данных
   const loadStorage = useCallback(async () => {
     setLoading(true);
     try {
-      // getS3Storage вернёт 403, если пользователь не в списке photoArchiveUsers модуля ads
       const s = await getS3Storage();
       setAllowed(true);
       setStorage(s);
@@ -72,10 +66,8 @@ const S3PhotoArchiveCard: React.FC = () => {
       }
     } catch (e: any) {
       if (e?.status === 403 || e?.code === 'photo_archive_forbidden') {
-        // Доступ к функционалу отключён — не показываем карточку
         setAllowed(false);
       }
-      // Другие ошибки сети — не критично, карточка остаётся
     } finally {
       setLoading(false);
     }
@@ -86,7 +78,6 @@ const S3PhotoArchiveCard: React.FC = () => {
       const cached = await photoArchiveService.getCachedCount();
       setCachedCount(cached);
 
-      // Подсчитать все уникальные фото-URL в объявлениях
       const allAds = await db.table('ads').toArray() as any[];
       const urls = new Set<string>();
       for (const ad of allAds) {
@@ -105,48 +96,9 @@ const S3PhotoArchiveCard: React.FC = () => {
   useEffect(() => {
     loadStorage();
     loadStats();
-    // Восстановление незавершённых батчей
-    photoArchiveService.resumePendingBatches().then(() => loadStats()).catch(() => {});
   }, [loadStorage, loadStats]);
 
-  // Опрос активного батча
-  const startPolling = useCallback((batchId: number) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-
-    const poll = async () => {
-      try {
-        const status = await getPhotoArchiveBatchStatus(batchId);
-        setArchiveProgress({
-          processed: status.batch.processed,
-          total: status.batch.total,
-          succeeded: status.batch.succeeded,
-          failed: status.batch.failed,
-        });
-
-        if (status.batch.status === 'done' || status.batch.status === 'error') {
-          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-          setArchiving(false);
-          // Скачать маппинги
-          await photoArchiveService.downloadMappings();
-          await loadStats();
-          // Убрать из pending
-          const pending = await getPendingBatches();
-          await savePendingBatches(pending.filter((p: PendingBatch) => p.id !== batchId));
-        }
-      } catch (e) {
-        console.warn('Poll error:', e);
-      }
-    };
-
-    poll();
-    pollRef.current = setInterval(poll, 5000);
-  }, [loadStats]);
-
-  useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
-
-  // Обработчики
+  // Обработчики формы
   const handleTest = async () => {
     if (!endpoint || !bucket || !accessKey || !secretKey) {
       setTestResult({ ok: false, error: 'Заполните все поля' });
@@ -180,7 +132,7 @@ const S3PhotoArchiveCard: React.FC = () => {
       });
       setStorage(saved);
       setTestResult({ ok: true });
-      await loadStorage(); // обновить last_test_status
+      await loadStorage();
     } catch (e: any) {
       setTestResult({ ok: false, error: e?.message || String(e) });
     } finally {
@@ -201,14 +153,27 @@ const S3PhotoArchiveCard: React.FC = () => {
     }
   };
 
+  // Архивация
   const handleArchiveAll = async () => {
     if (!storage) return;
-    if (!confirm(`Заархивировать все фото (${totalPhotos} шт.)? Это может занять несколько минут.`)) return;
+
+    const uncachedCount = totalPhotos - cachedCount;
+    if (uncachedCount <= 0) {
+      alert('Все фото уже заархивированы.');
+      return;
+    }
+
+    const msg = uncachedCount > 1000
+      ? `Заархивировать ${uncachedCount.toLocaleString('ru-RU')} фото?\n\nЭто займёт несколько часов. Фото скачиваются через ваш браузер и пережимаются в WebP, затем загружаются в S3. Окно должно оставаться открытым.\n\nПроцесс можно остановить в любой момент.`
+      : `Заархивировать ${uncachedCount.toLocaleString('ru-RU')} фото?`;
+
+    if (!confirm(msg)) return;
 
     setArchiving(true);
-    setArchiveProgress(null);
+    setProgress({ processed: 0, total: uncachedCount, succeeded: 0, failed: 0 });
+
     try {
-      // Собираем все URL
+      // Собираем URL
       const allAds = await db.table('ads').toArray() as any[];
       const urls = new Set<string>();
       for (const ad of allAds) {
@@ -218,28 +183,32 @@ const S3PhotoArchiveCard: React.FC = () => {
           }
         }
       }
-      const urlList = [...urls];
 
       // Отфильтровать уже заархивированные
-      const cached = await photoArchiveService.resolveCached(urlList);
-      const uncached = urlList.filter(u => !cached.has(u));
+      const cached = await photoArchiveService.resolveCached([...urls]);
+      const uncached = [...urls].filter(u => !cached.has(u));
 
       if (uncached.length === 0) {
         alert('Все фото уже заархивированы.');
         setArchiving(false);
+        setProgress(null);
         return;
       }
 
-      const batchId = await photoArchiveService.submitBatch(uncached);
-      if (batchId) {
-        startPolling(batchId);
-      } else {
-        setArchiving(false);
-      }
+      await photoArchiveService.archivePhotos(uncached, (p) => {
+        setProgress({ ...p });
+      });
+
+      await loadStats();
     } catch (e: any) {
       alert('Ошибка: ' + (e?.message || String(e)));
+    } finally {
       setArchiving(false);
     }
+  };
+
+  const handleStop = () => {
+    photoArchiveService.cancelArchive();
   };
 
   const handleSyncMappings = async () => {
@@ -261,10 +230,13 @@ const S3PhotoArchiveCard: React.FC = () => {
     );
   }
 
-  // Нет доступа к S3-фотоархиву — не показываем карточку
   if (!allowed) {
     return null;
   }
+
+  const percent = progress && progress.total > 0
+    ? Math.round((progress.processed / progress.total) * 100)
+    : 0;
 
   return (
     <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-4">
@@ -418,44 +390,60 @@ const S3PhotoArchiveCard: React.FC = () => {
       {storage && (
         <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4 space-y-3">
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={handleArchiveAll}
-              disabled={archiving || totalPhotos === 0}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {archiving && (
-                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            {!archiving ? (
+              <button
+                onClick={handleArchiveAll}
+                disabled={totalPhotos === 0 || cachedCount >= totalPhotos}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {cachedCount >= totalPhotos && totalPhotos > 0
+                  ? 'Все фото заархивированы'
+                  : `Заархивировать фото${totalPhotos - cachedCount > 0 ? ` (${(totalPhotos - cachedCount).toLocaleString('ru-RU')})` : ''}`}
+              </button>
+            ) : (
+              <button
+                onClick={handleStop}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 flex items-center gap-1.5"
+              >
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="1" />
                 </svg>
-              )}
-              {archiving ? 'Архивация...' : 'Архивировать все фото'}
-            </button>
+                Остановить
+              </button>
+            )}
             <button
               onClick={handleSyncMappings}
-              className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              disabled={archiving}
+              className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50"
             >
               Загрузить маппинги с сервера
             </button>
           </div>
 
-          {archiveProgress && (
+          {progress && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
                 <span>
-                  Обработано {archiveProgress.processed.toLocaleString('ru-RU')} из {archiveProgress.total.toLocaleString('ru-RU')}
+                  {archiving ? 'Обработано ' : 'Готово: '}
+                  {progress.processed.toLocaleString('ru-RU')} из {progress.total.toLocaleString('ru-RU')}
+                  <span className="ml-1">({percent}%)</span>
                 </span>
                 <span>
-                  Успешно: {archiveProgress.succeeded}
-                  {archiveProgress.failed > 0 && <span className="text-red-500 ml-1">Ошибок: {archiveProgress.failed}</span>}
+                  Успешно: {progress.succeeded.toLocaleString('ru-RU')}
+                  {progress.failed > 0 && <span className="text-red-500 ml-1">Ошибок: {progress.failed.toLocaleString('ru-RU')}</span>}
                 </span>
               </div>
               <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${archiveProgress.total > 0 ? (archiveProgress.processed / archiveProgress.total * 100) : 0}%` }}
+                  className={`h-2 rounded-full transition-all duration-300 ${archiving ? 'bg-blue-600' : 'bg-green-500'}`}
+                  style={{ width: `${percent}%` }}
                 />
               </div>
+              {archiving && (
+                <p className="text-[11px] text-zinc-400">
+                  Фото скачиваются через ваш браузер и пережимаются в WebP. Не закрывайте окно.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -463,25 +451,5 @@ const S3PhotoArchiveCard: React.FC = () => {
     </div>
   );
 };
-
-// Вспомогательные функции для chrome.storage.local
-async function getPendingBatches(): Promise<PendingBatch[]> {
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-      chrome.storage.local.get(PENDING_KEY, (result) => {
-        const raw = (result as Record<string, unknown>)[PENDING_KEY];
-        resolve(Array.isArray(raw) ? raw as PendingBatch[] : []);
-      });
-    } else {
-      resolve([]);
-    }
-  });
-}
-
-async function savePendingBatches(pending: PendingBatch[]): Promise<void> {
-  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-    chrome.storage.local.set({ [PENDING_KEY]: pending });
-  }
-}
 
 export default S3PhotoArchiveCard;

@@ -10,8 +10,7 @@ import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem 
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
 import { useImportTasks, type ImportTask } from '@/contexts/ImportTaskContext';
-import { getModules, sendDedupFeedbackBatch, getS3Storage } from '@/services/api-service';
-import { photoArchiveService } from '@/services/photo-archive-service';
+import { getModules, sendDedupFeedbackBatch } from '@/services/api-service';
 import AdsReportsPanel from './reports/AdsReportsPanel';
 import { REGION_CENTERS } from '@/constants/regions';
 import {
@@ -563,11 +562,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }).catch(() => {});
   }, []);
 
-  // Восстановление незавершённых батчей фотоархива после перезапуска браузера
-  useEffect(() => {
-    photoArchiveService.resumePendingBatches().catch(() => {});
-  }, []);
-
   // Отслеживание завершения импорта — обновление таблицы + toast
   const lastSeenImportStatus = useRef<Record<string, string>>({});
   useEffect(() => {
@@ -582,30 +576,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       loadData();
       loadStats();
       setToast({ message: task.detail || 'Импорт завершён', type: 'success' });
-
-      // Авто-архивация фото, если подключён S3
-      (async () => {
-        try {
-          const s3 = await getS3Storage();
-          if (!s3) return;
-          const allAds = await db.table('ads').toArray() as any[];
-          const urls = new Set<string>();
-          for (const ad of allAds) {
-            if (ad.photos && Array.isArray(ad.photos)) {
-              for (const u of ad.photos) {
-                if (typeof u === 'string' && u.startsWith('http')) urls.add(u);
-              }
-            }
-          }
-          if (urls.size === 0) return;
-          const cached = await photoArchiveService.resolveCached([...urls]);
-          const uncached = [...urls].filter(u => !cached.has(u));
-          if (uncached.length === 0) return;
-          await photoArchiveService.submitBatch(uncached);
-        } catch (e) {
-          // Не критично
-        }
-      })();
     } else if (prev === 'running' && task.status === 'error') {
       setToast({ message: task.detail || 'Ошибка импорта', type: 'error' });
     }

@@ -1,32 +1,38 @@
 /**
- * Сервис S3-фотоархива.
+ * Сервис S3-фотоархива — client-side архивация.
  *
- * Управляет:
- * — локальным кешем маппингов original_url → s3_url (IndexedDB)
- * — отправкой батчей URL на сервер для архивации
- * — опросом статуса батчей
- * — восстановлением незавершённых батчей после перезапуска браузера
+ * Архивация выполняется в браузере:
+ * 1. fetch() фото с CDN (IP пользователя — нет риска бана серверного IP)
+ * 2. Canvas API: resize → WebP (без серверного GD)
+ * 3. uploadArchivedPhoto() — сервер принимает готовый WebP и заливает в S3
+ *
+ * Локальный кеш маппингов original_url → s3_url хранится в IndexedDB.
  */
 
 import { db } from '@/db/database';
 import {
-  submitPhotoArchiveBatch,
-  getPhotoArchiveBatchStatus,
+  uploadArchivedPhoto,
   getPhotoArchiveMappings,
-  type BatchStatus,
 } from './api-service';
 
-const PENDING_KEY = 'photo_archive_pending_batches';
+const MAX_DIMENSION = 1280;
+const WEBP_QUALITY = 0.8;
+const CONCURRENCY = 3;
 
-interface PendingBatch {
-  id: number;
-  startedAt: number;
+export interface ArchiveProgress {
+  processed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
 }
 
+type ProgressCallback = (progress: ArchiveProgress) => void;
+
 class PhotoArchiveService {
+  private cancelled = false;
+
   /**
-   * Получить S3-URL для массива оригинальных URL из локального кеша.
-   * Возвращает Map только для найденных URL.
+   * Получить S3-URL для массива оригинальных URL из локального кеша (IndexedDB).
    */
   async resolveCached(urls: string[]): Promise<Map<string, string>> {
     if (urls.length === 0) return new Map();
@@ -50,29 +56,131 @@ class PhotoArchiveService {
   }
 
   /**
-   * Отправить батч URL на сервер для архивации.
-   * Сохраняет batch_id в chrome.storage.local для восстановления после перезапуска.
-   * Возвращает batch_id или null если нечего архивировать.
+   * Архивировать массив URL: скачать → WebP → загрузить на сервер.
+   *
+   * @param urls Список оригинальных URL для архивации
+   * @param onProgress Колбэк прогресса (вызывается после каждого фото)
+   * @returns Карта успешных маппингов original_url → s3_url
    */
-  async submitBatch(urls: string[]): Promise<number | null> {
+  async archivePhotos(
+    urls: string[],
+    onProgress?: ProgressCallback,
+  ): Promise<Map<string, string>> {
+    this.cancelled = false;
+
     const uniqueUrls = [...new Set(urls.filter(u => u && u.startsWith('http')))];
-    if (uniqueUrls.length === 0) return null;
+    const total = uniqueUrls.length;
+    let processed = 0;
+    let succeeded = 0;
+    let failed = 0;
 
-    const resp = await submitPhotoArchiveBatch(uniqueUrls);
-    if (!resp.batch_id) return null;
+    const results = new Map<string, string>();
 
-    const pending = await this.getPending();
-    pending.push({ id: resp.batch_id, startedAt: Date.now() });
-    await this.savePending(pending);
+    const report = () => {
+      onProgress?.({ processed, total, succeeded, failed });
+    };
 
-    return resp.batch_id;
+    report();
+
+    // Пул с ограниченной конкурентностью
+    let index = 0;
+
+    const worker = async () => {
+      while (index < uniqueUrls.length && !this.cancelled) {
+        const url = uniqueUrls[index++];
+        try {
+          const s3Url = await this.archiveOnePhoto(url);
+          if (s3Url) {
+            results.set(url, s3Url);
+            succeeded++;
+          }
+        } catch (e) {
+          console.warn('photoArchive: failed to archive', url, e);
+          failed++;
+        }
+        processed++;
+        report();
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(CONCURRENCY, uniqueUrls.length) }, () => worker());
+    await Promise.all(workers);
+
+    return results;
   }
 
   /**
-   * Опросить статус батча.
+   * Остановить архивацию (мягкая остановка — текущие фото доработаются).
    */
-  async pollBatch(batchId: number): Promise<BatchStatus> {
-    return await getPhotoArchiveBatchStatus(batchId);
+  cancelArchive(): void {
+    this.cancelled = true;
+  }
+
+  /**
+   * Архивировать одно фото: скачать → WebP → загрузить.
+   */
+  private async archiveOnePhoto(url: string): Promise<string | null> {
+    // 1. Скачать
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+
+    if (blob.size < 100) {
+      throw new Error('Фото слишком мало (возможно, заглушка)');
+    }
+
+    // 2. Конвертировать в WebP
+    const webpBlob = await this.convertToWebP(blob);
+
+    // 3. Загрузить на сервер
+    const result = await uploadArchivedPhoto(url, webpBlob);
+
+    // 4. Сохранить в IndexedDB
+    await this.saveMappings([{ original_url: url, s3_url: result.s3_url }]);
+
+    return result.s3_url;
+  }
+
+  /**
+   * Конвертировать изображение в WebP через Canvas API.
+   * Resize до MAX_DIMENSION по большей стороне.
+   */
+  private async convertToWebP(blob: Blob): Promise<Blob> {
+    const bitmap = await createImageBitmap(blob);
+
+    let width = bitmap.width;
+    let height = bitmap.height;
+
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+      const ratio = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context недоступен');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    bitmap.close?.();
+
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) => {
+          if (result) {
+            resolve(result);
+          } else {
+            reject(new Error('Canvas.toBlob вернул null'));
+          }
+        },
+        'image/webp',
+        WEBP_QUALITY,
+      );
+    });
   }
 
   /**
@@ -97,42 +205,7 @@ class PhotoArchiveService {
   }
 
   /**
-   * При запуске расширения: проверить chrome.storage.local на незавершённые batch'и,
-   * опросить сервер, применить готовые маппинги.
-   *
-   * Для батчей со статусом done — выкачать маппинги через /mappings (все обновлённые
-   * после startedAt батча). Для processing — оставить в pending. Для error — убрать.
-   */
-  async resumePendingBatches(): Promise<void> {
-    const pending = await this.getPending();
-    if (pending.length === 0) return;
-
-    const stillPending: PendingBatch[] = [];
-
-    for (const p of pending) {
-      try {
-        const status = await this.pollBatch(p.id);
-        const batchStatus = status.batch.status;
-
-        if (batchStatus === 'done') {
-          // Выкачать маппинги, обновлённые после startedAt
-          await this.downloadMappings(new Date(p.startedAt).toISOString());
-        } else if (batchStatus === 'processing' || batchStatus === 'pending') {
-          stillPending.push(p);
-        }
-        // error — убираем из pending, не загружаем
-      } catch (e) {
-        console.warn(`photoArchive.resumePendingBatches: batch ${p.id} poll failed:`, e);
-        stillPending.push(p);
-      }
-    }
-
-    await this.savePending(stillPending);
-  }
-
-  /**
    * Выкачать все маппинги с сервера и сохранить в IndexedDB.
-   * Используется при первом запуске или восстановлении.
    */
   async downloadMappings(since?: string): Promise<number> {
     let page = 1;
@@ -160,25 +233,6 @@ class PhotoArchiveService {
       return await db.table('archived_photos').count();
     } catch {
       return 0;
-    }
-  }
-
-  private async getPending(): Promise<PendingBatch[]> {
-    return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-        chrome.storage.local.get(PENDING_KEY, (result) => {
-          const raw = (result as Record<string, unknown>)[PENDING_KEY];
-          resolve(Array.isArray(raw) ? raw as PendingBatch[] : []);
-        });
-      } else {
-        resolve([]);
-      }
-    });
-  }
-
-  private async savePending(pending: PendingBatch[]): Promise<void> {
-    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-      chrome.storage.local.set({ [PENDING_KEY]: pending });
     }
   }
 }

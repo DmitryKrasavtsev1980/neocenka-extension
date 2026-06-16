@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Неоценка (тестовая)",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
@@ -11,9 +11,7 @@
     "notifications"
   ],
   "host_permissions": [
-    "https://*.cian.ru/*",
-    "https://*.avito.ru/*",
-    "https://*.inpars.ru/*"
+    "https://*/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html",
