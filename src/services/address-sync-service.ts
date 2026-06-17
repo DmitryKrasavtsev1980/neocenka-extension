@@ -18,17 +18,25 @@ import {
 } from '@/services/api-service';
 
 const SYNC_KEY = 'address_last_sync';
+const SYNC_KEY_PREFIX = 'address_last_sync_region_';
 
-function getLastSync(): Promise<string | null> {
+function getSyncKey(regions?: string[]): string {
+  if (!regions || regions.length === 0) return SYNC_KEY;
+  return SYNC_KEY_PREFIX + [...regions].sort().join('_');
+}
+
+function getLastSync(regions?: string[]): Promise<string | null> {
+  const key = getSyncKey(regions);
   return new Promise((resolve) => {
-    chrome.storage.local.get(SYNC_KEY, (result) => {
-      resolve(result?.[SYNC_KEY] || null);
+    chrome.storage.local.get(key, (result) => {
+      resolve(result?.[key] || null);
     });
   });
 }
 
-function setLastSync(date: string): void {
-  chrome.storage.local.set({ [SYNC_KEY]: date });
+function setLastSync(regions: string[] | undefined, date: string): void {
+  const key = getSyncKey(regions);
+  chrome.storage.local.set({ [key]: date });
 }
 
 /** Маппинг серверного Address → AdAddress для IndexedDB */
@@ -107,7 +115,7 @@ export const addressSyncService = {
     });
 
     // 2. Скачать адреса
-    const lastSync = await getLastSync();
+    const lastSync = await getLastSync(regions);
     const response = await getAddresses(regions, lastSync || undefined);
 
     onProgress?.(0, response.total);
@@ -138,7 +146,7 @@ export const addressSyncService = {
       onProgress?.(Math.min(i + batchSize, response.total), response.total);
     }
 
-    setLastSync(new Date().toISOString());
+    setLastSync(regions, new Date().toISOString());
 
     // 4. Починить битые ссылки: address_id в ads → локальный id, который мог измениться
     const allAddresses = await db.ad_addresses.toArray();
@@ -220,7 +228,7 @@ export const addressSyncService = {
    * Проверить нужна ли синхронизация
    */
   async needsSync(): Promise<boolean> {
-    const lastSync = await getLastSync();
+    const lastSync = await getLastSync(undefined);
     if (!lastSync) return true;
 
     const hoursSinceSync = (Date.now() - new Date(lastSync).getTime()) / (1000 * 60 * 60);
@@ -260,7 +268,7 @@ export const addressSyncService = {
    * Последняя синхронизация
    */
   async getLastSyncDate(): Promise<string | null> {
-    return getLastSync();
+    return getLastSync(undefined);
   },
 
   /**
@@ -268,6 +276,15 @@ export const addressSyncService = {
    */
   async clearLocal(): Promise<void> {
     await db.ad_addresses.clear();
-    chrome.storage.local.remove(SYNC_KEY);
+    // Remove global sync key and all per-region sync keys
+    const allKeys = await new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.local.get(null, resolve);
+    });
+    const keysToRemove = Object.keys(allKeys).filter(
+      (k) => k === SYNC_KEY || k.startsWith(SYNC_KEY_PREFIX)
+    );
+    if (keysToRemove.length > 0) {
+      chrome.storage.local.remove(keysToRemove);
+    }
   },
 };
