@@ -2,10 +2,14 @@
  * Сборщик payload для публичной ссылки «Поделиться фильтром».
  * Для каждого выбранного сохранённого фильтра собирает объявления, объекты,
  * полные адреса и привязанные сделки.
+ *
+ * V2: опционально включает сравнительные сессии (одна на фильтр).
  */
 
 import { db } from '@/db/database';
 import { applyFilterToAds, type FilterState } from './ads-filter-utils';
+import type { ComparativeSession, Evaluation } from '@/types/comparative';
+import { computeFilterHash } from '@/pages/ads/reports/comparativeUtils';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -40,8 +44,19 @@ export interface SavedGroupLite {
   isCollapsed: boolean;
 }
 
+/** Payload одной сравнительной сессии для публичной ссылки (V2). */
+export interface ComparativeSessionPayload {
+  id: string;
+  name: string;
+  /** Хэш набора объектов на момент создания ссылки (для отладки). */
+  filterHash: string;
+  /** Пользовательские оценки: objectId → Evaluation. */
+  evaluations: Record<number, Evaluation>;
+}
+
 export interface SharedViewData {
-  version: 1;
+  /** V1 — без comparative. V2 — с полем comparative. Обе валидны. */
+  version: 1 | 2;
   createdAt: string;
   filters: Array<{
     id: string;
@@ -58,6 +73,8 @@ export interface SharedViewData {
     houseClasses?: any[];
     ceilingMaterials?: any[];
   };
+  /** V2: сравнительные сессии по filterId (одна на фильтр). */
+  comparative?: Record<string, ComparativeSessionPayload>;
 }
 
 export interface FilterPayload {
@@ -102,11 +119,13 @@ export async function loadSavedFiltersForShare(): Promise<{
  *
  * @param filterIds Идентификаторы выбранных сохранённых фильтров
  * @param filtersMetadata Метаданные фильтров и групп (для имён)
+ * @param comparativeSelection Выбранные comparative-сессии по filterId (V2, опционально)
  */
 export async function buildSharedViewData(
   filterIds: string[],
   filters: SavedFilterLite[],
   groups: SavedGroupLite[],
+  comparativeSelection?: Record<string, ComparativeSession>,
 ): Promise<SharedViewData> {
   const selectedFilters = filters.filter(f => filterIds.includes(f.id));
 
@@ -130,6 +149,8 @@ export async function buildSharedViewData(
 
   const filters_data: Record<string, FilterPayload> = {};
   const filterMeta: SharedViewData['filters'] = [];
+  // V2: comparative-сессии по filterId
+  const comparative: Record<string, ComparativeSessionPayload> = {};
 
   for (const filter of selectedFilters) {
     const filteredAds = applyFilterToAds(allAds, filter.state, allAddresses);
@@ -175,10 +196,24 @@ export async function buildSharedViewData(
       objects,
       addresses,
     };
+
+    // V2: если есть выбранная comparative-сессия для этого фильтра — включаем её.
+    // filterHash вычисляем из собранных объектов фильтра.
+    const selectedSession = comparativeSelection?.[filter.id];
+    if (selectedSession) {
+      comparative[filter.id] = {
+        id: selectedSession.id,
+        name: selectedSession.name,
+        filterHash: computeFilterHash(objects),
+        evaluations: selectedSession.evaluations || {},
+      };
+    }
   }
 
+  const hasComparative = Object.keys(comparative).length > 0;
+
   return {
-    version: 1,
+    version: hasComparative ? 2 : 1,
     createdAt: new Date().toISOString(),
     filters: filterMeta,
     filters_data,
@@ -189,5 +224,6 @@ export async function buildSharedViewData(
       houseClasses: refHouseClasses,
       ceilingMaterials: refCeilingMaterials,
     },
+    ...(hasComparative ? { comparative } : {}),
   };
 }

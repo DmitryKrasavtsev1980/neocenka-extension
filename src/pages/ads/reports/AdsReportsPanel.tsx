@@ -3,6 +3,7 @@ import type { AdObject } from '@/types/ad';
 import LiquidityChart from './LiquidityChart';
 import PriceChangeChart from './PriceChangeChart';
 import MarketCorridorChart from './MarketCorridorChart';
+import ComparativeAnalysis from './ComparativeAnalysis';
 
 interface Props {
   objects: AdObject[];
@@ -10,12 +11,13 @@ interface Props {
   onObjectClick?: (obj: AdObject) => void;
 }
 
-type ReportType = 'liquidity' | 'priceChange' | 'marketCorridor';
+type ReportType = 'liquidity' | 'priceChange' | 'marketCorridor' | 'comparative';
 
 const REPORT_CONFIG: { id: ReportType; label: string }[] = [
   { id: 'liquidity', label: 'Ликвидность сегмента' },
   { id: 'priceChange', label: 'Изменение средней цены' },
   { id: 'marketCorridor', label: 'Коридор рынка' },
+  { id: 'comparative', label: 'Сравнительный анализ' },
 ];
 
 const AdsReportsPanel: React.FC<Props> = ({ objects, addresses, onObjectClick }) => {
@@ -162,6 +164,23 @@ const AdsReportsPanel: React.FC<Props> = ({ objects, addresses, onObjectClick })
               >
                 <div className="w-10 h-1 rounded-full bg-zinc-300 group-hover:bg-blue-400 dark:bg-zinc-600 dark:group-hover:bg-blue-500 transition-colors" />
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeReports.has('comparative') && (
+        <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
+          <div
+            className="flex justify-between items-center px-5 py-3 cursor-pointer select-none"
+            onClick={() => toggleExpand('comparative')}
+          >
+            <h3 className="text-sm font-semibold text-zinc-800 dark:text-white">Сравнительный анализ</h3>
+            <svg className={`w-4 h-4 text-zinc-400 transition-transform ${expandedPanels.has('comparative') ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+          </div>
+          {expandedPanels.has('comparative') && (
+            <div className="px-5 pb-5 border-t border-zinc-100 dark:border-zinc-700">
+              <ComparativeAnalysis objects={objects} addresses={addresses} onObjectClick={onObjectClick} />
             </div>
           )}
         </div>

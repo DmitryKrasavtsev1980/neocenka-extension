@@ -17,6 +17,11 @@ import {
   type SavedFilterLite,
   type SavedGroupLite,
 } from '@/services/shared-view-builder';
+import type { ComparativeSession } from '@/types/comparative';
+import { loadSessionsForFilter } from '@/pages/ads/reports/comparativeStorage';
+import { computeFilterHash } from '@/pages/ads/reports/comparativeUtils';
+import { applyFilterToAds } from '@/services/ads-filter-utils';
+import { db } from '@/db/database';
 
 interface SharePanelProps {
   /** Сигнал от родителя, чтобы открывать модал создания. Необязательно. */
@@ -72,6 +77,11 @@ const SharePanel: React.FC<SharePanelProps> = () => {
   // Уведомление об успешной операции
   const [notice, setNotice] = useState('');
 
+  // V2: выбор сравнительного анализа для каждого фильтра
+  const [comparativeSelection, setComparativeSelection] = useState<Record<string, ComparativeSession | null>>({});
+  const [comparativeSessionsCache, setComparativeSessionsCache] = useState<Record<string, ComparativeSession[]>>({});
+  const [sessionsLoading, setSessionsLoading] = useState<Set<string>>(new Set());
+
   const refresh = async () => {
     setLoading(true);
     setError('');
@@ -96,6 +106,8 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     setTitle(`Поделиться от ${new Date().toLocaleDateString('ru-RU')}`);
     setExpiresIn(30);
     setSelectedFilterIds(new Set());
+    setComparativeSelection({});
+    setComparativeSessionsCache({});
     if (filters.length === 0) {
       const loaded = await loadSavedFiltersForShare();
       setFilters(loaded.filters);
@@ -110,6 +122,8 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     setTitle(view.title || `Поделиться от ${new Date().toLocaleDateString('ru-RU')}`);
     setExpiresIn(view.expires_at ? null : null); // при обновлении можно задать только новый срок
     setSelectedFilterIds(new Set());
+    setComparativeSelection({});
+    setComparativeSessionsCache({});
     if (filters.length === 0) {
       const loaded = await loadSavedFiltersForShare();
       setFilters(loaded.filters);
@@ -120,10 +134,59 @@ const SharePanel: React.FC<SharePanelProps> = () => {
   const toggleFilter = (id: string) => {
     setSelectedFilterIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        // Очищаем выбор comparative при снятии фильтра
+        setComparativeSelection(prevSel => {
+          const nextSel = { ...prevSel };
+          delete nextSel[id];
+          return nextSel;
+        });
+      } else {
+        next.add(id);
+        // Загружаем сессии для нового выбранного фильтра
+        ensureSessionsLoaded(id);
+      }
       return next;
     });
+  };
+
+  /**
+   * Загрузить сохранённые comparative-сессии для фильтра.
+   * Вычисляет filterHash из объектов фильтра и тянет сессии из comparativeStorage.
+   */
+  const ensureSessionsLoaded = async (filterId: string) => {
+    if (comparativeSessionsCache[filterId]) return; // уже загружено
+    const filter = filters.find(f => f.id === filterId);
+    if (!filter) return;
+
+    setSessionsLoading(prev => new Set(prev).add(filterId));
+    try {
+      const allAds = await db.table('ads').toArray();
+      const allAddresses = await db.table('ad_addresses').toArray();
+      const filteredAds = applyFilterToAds(allAds, filter.state, allAddresses);
+
+      const objectIds = new Set<number>();
+      for (const ad of filteredAds) {
+        if (ad.object_id != null) objectIds.add(ad.object_id);
+      }
+      const objects = await db.table('ad_objects')
+        .where('id').anyOf(Array.from(objectIds)).toArray();
+
+      const filterHash = computeFilterHash(objects);
+      const sessions = await loadSessionsForFilter(filterHash);
+
+      setComparativeSessionsCache(prev => ({ ...prev, [filterId]: sessions }));
+    } catch (e) {
+      console.error('Failed to load comparative sessions:', e);
+      setComparativeSessionsCache(prev => ({ ...prev, [filterId]: [] }));
+    } finally {
+      setSessionsLoading(prev => {
+        const next = new Set(prev);
+        next.delete(filterId);
+        return next;
+      });
+    }
   };
 
   const groupedPreviewCount = useMemo(() => {
@@ -138,10 +201,12 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     setBusy(true);
     setModalError('');
     try {
+      const comparativeMap = buildComparativeMap();
       const data = await buildSharedViewData(
         Array.from(selectedFilterIds),
         filters,
         groups,
+        Object.keys(comparativeMap).length > 0 ? comparativeMap : undefined,
       );
       await createSharedView({
         title,
@@ -169,10 +234,12 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     setBusy(true);
     setModalError('');
     try {
+      const comparativeMap = buildComparativeMap();
       const data = await buildSharedViewData(
         Array.from(selectedFilterIds),
         filters,
         groups,
+        Object.keys(comparativeMap).length > 0 ? comparativeMap : undefined,
       );
       await updateSharedView(editTarget.id, {
         title,
@@ -188,6 +255,15 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Собрать Record<filterId, ComparativeSession> из выбора пользователя (без null). */
+  const buildComparativeMap = (): Record<string, ComparativeSession> => {
+    const map: Record<string, ComparativeSession> = {};
+    for (const [filterId, session] of Object.entries(comparativeSelection)) {
+      if (session) map[filterId] = session;
+    }
+    return map;
   };
 
   const handleDelete = async (id: number) => {
@@ -415,6 +491,56 @@ const SharePanel: React.FC<SharePanelProps> = () => {
                 </div>
                 {renderFiltersList()}
               </div>
+
+              {/* V2: Выбор сравнительного анализа (по одному на фильтр) */}
+              {selectedFilterIds.size > 0 && (
+                <div className="space-y-2 border-t border-zinc-200 dark:border-zinc-700 pt-3">
+                  <div className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">
+                    Сравнительный анализ
+                  </div>
+                  <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                    Для каждого фильтра можно прикрепить одну сохранённую сессию анализа. Получатель ссылки увидит её в режиме «только чтение».
+                  </p>
+                  {Array.from(selectedFilterIds).map(filterId => {
+                    const filter = filters.find(f => f.id === filterId);
+                    const sessions = comparativeSessionsCache[filterId];
+                    const isLoading = sessionsLoading.has(filterId);
+                    const selected = comparativeSelection[filterId];
+                    return (
+                      <div key={filterId} className="flex flex-col gap-1">
+                        <div className="text-[11px] text-zinc-600 dark:text-zinc-400 truncate">
+                          {filter?.name || filterId}
+                        </div>
+                        <select
+                          value={selected?.id || ''}
+                          onChange={e => {
+                            const sid = e.target.value;
+                            const found = sessions?.find(s => s.id === sid) || null;
+                            setComparativeSelection(prev => ({ ...prev, [filterId]: found }));
+                          }}
+                          disabled={isLoading || (sessions != null && sessions.length === 0)}
+                          className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
+                        >
+                          {isLoading ? (
+                            <option value="">Загрузка…</option>
+                          ) : (sessions == null || sessions.length === 0) ? (
+                            <option value="">Нет сохранённых сессий</option>
+                          ) : (
+                            <>
+                              <option value="">Без анализа</option>
+                              {sessions.map(s => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} ({Object.keys(s.evaluations || {}).length} оценок)
+                                </option>
+                              ))}
+                            </>
+                          )}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Название */}
               <div className="space-y-1">
