@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Неоценка (тестовая)",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
@@ -11,9 +11,21 @@
     "notifications"
   ],
   "host_permissions": [
+    "http://admin.test/*",
+    "https://neocenka.ru/*",
+    "https://nominatim.openstreetmap.org/*",
     "https://*.cian.ru/*",
+    "https://images.cdn-cian.ru/*",
     "https://*.avito.ru/*",
-    "https://*.inpars.ru/*"
+    "https://*.img.avito.st/*",
+    "https://api.z.ai/*",
+    "https://unpkg.com/*",
+    "https://esm.sh/*",
+    "https://*.s3.ru1.storage.beget.cloud/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html",

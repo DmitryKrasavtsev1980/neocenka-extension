@@ -163,6 +163,38 @@ const S3PhotoArchiveCard: React.FC = () => {
       return;
     }
 
+    // Запрашиваем разрешение на доступ к любым CDN с фотографиями.
+    // Фотографии объявлений могут быть размещены на произвольных доменах
+    // (images.cdn-cian.ru, *.img.avito.st, домклик, млс и т.д.), поэтому
+    // требуется wide host permission. Запрашивается у пользователя явно.
+    try {
+      const hasWideAccess = await new Promise<boolean>((resolve) => {
+        chrome.permissions.contains(
+          { origins: ['https://*/*'] },
+          (granted) => resolve(granted)
+        );
+      });
+
+      if (!hasWideAccess) {
+        const granted = await new Promise<boolean>((resolve) => {
+          chrome.permissions.request(
+            { origins: ['https://*/*'] },
+            (g) => resolve(g)
+          );
+        });
+        if (!granted) {
+          alert(
+            'Без разрешения на доступ к источникам фотографий архивация невозможна. ' +
+            'Разрешите доступ в появившемся диалоге.'
+          );
+          return;
+        }
+      }
+    } catch {
+      // Если chrome.permissions недоступен (старый Chrome) — продолжаем,
+      // как раньше, в надежде что host_permissions уже покрывает нужные домены.
+    }
+
     const msg = uncachedCount > 1000
       ? `Заархивировать ${uncachedCount.toLocaleString('ru-RU')} фото?\n\nЭто займёт несколько часов. Фото скачиваются через ваш браузер и пережимаются в WebP, затем загружаются в S3. Окно должно оставаться открытым.\n\nПроцесс можно остановить в любой момент.`
       : `Заархивировать ${uncachedCount.toLocaleString('ru-RU')} фото?`;

@@ -11,6 +11,18 @@
     "notifications"
   ],
   "host_permissions": [
+    "https://neocenka.ru/*",
+    "https://nominatim.openstreetmap.org/*",
+    "https://*.cian.ru/*",
+    "https://images.cdn-cian.ru/*",
+    "https://*.avito.ru/*",
+    "https://*.img.avito.st/*",
+    "https://api.z.ai/*",
+    "https://unpkg.com/*",
+    "https://esm.sh/*",
+    "https://*.s3.ru1.storage.beget.cloud/*"
+  ],
+  "optional_host_permissions": [
     "https://*/*"
   ],
   "action": {

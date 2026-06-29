@@ -54,7 +54,7 @@ const _origExtend = L.LatLngBounds.prototype.extend;
 
 import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
-import { booleanIntersects, polygon as turfPolygon } from '@turf/turf';
+import { booleanIntersects, booleanPointInPolygon, point as turfPoint, polygon as turfPolygon } from '@turf/turf';
 import type { Feature, Polygon as TurfPolygon } from 'geojson';
 import { CadastralQuarter } from '../../types';
 import type { AdAddress, ReferenceItem } from '../../types';
@@ -131,6 +131,16 @@ interface SearchByPolygonProps {
   onAddressToggle?: (address: AdAddress) => void;
   onSelectAllInPolygon?: () => void;
   polygonsCoords?: [number, number][][] | null;
+  adsWithoutAddress?: Array<{
+    id: number;
+    title: string;
+    address: string;
+    source: string;
+    price: number | null;
+    coordinates: { lat: number | null; lng: number | null };
+  }>;
+  onAdWithoutAddressClick?: (adId: number) => void;
+  onAddressCreate?: (lat: number, lng: number) => void;
 }
 
 const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
@@ -149,15 +159,23 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   onAddressToggle,
   onSelectAllInPolygon,
   polygonsCoords,
+  adsWithoutAddress,
+  onAdWithoutAddressClick,
+  onAddressCreate,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const drawnItemsRef = useRef<L.FeatureGroup | null>(null);
   const quarterLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const adsNoAddrLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const addressLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const quartersRef = useRef(quarters);
   const quarterStatsRef = useRef(quarterStats);
+  const adsNoAddrRef = useRef(adsWithoutAddress);
+  adsNoAddrRef.current = adsWithoutAddress;
+  const onAdNoAddrClickRef = useRef(onAdWithoutAddressClick);
+  onAdNoAddrClickRef.current = onAdWithoutAddressClick;
   const onQuartersSelectedRef = useRef(onQuartersSelected);
   onQuartersSelectedRef.current = onQuartersSelected;
   const [selectedCount, setSelectedCount] = useState(0);
@@ -169,6 +187,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   });
 
   const [addressEnabled, setAddressEnabled] = useState(false);
+  const [addressCreateMode, setAddressCreateMode] = useState(false);
   const [addressQuery, setAddressQuery] = useState('');
   const [addressSuggestions, setAddressSuggestions] = useState<AdAddress[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -213,6 +232,10 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const findNearestAddressRef = useRef<(lat: number, lng: number) => void>(() => {});
   const addressEnabledRef = useRef(addressEnabled);
   addressEnabledRef.current = addressEnabled;
+  const addressCreateModeRef = useRef(addressCreateMode);
+  addressCreateModeRef.current = addressCreateMode;
+  const onAddressCreateRef = useRef(onAddressCreate);
+  onAddressCreateRef.current = onAddressCreate;
 
   // ─── Построение мапов справочников из пропсов ───
   useEffect(() => {
@@ -297,10 +320,25 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     if (!quartersLoaded) {
       setQuartersLoaded(true);
     }
+    // Рендер видимых кварталов при обновлении данных
+    renderVisibleQuartersRef.current();
   }, [quarters, quarterStats]);
 
+  // Обновление объявлений без адреса при изменении данных
+  useEffect(() => {
+    renderAdsWithoutAddressRef.current();
+  }, [adsWithoutAddress]);
+
   // ─── Создание треугольного маркера адреса ───
-  const createTriangleMarker = useCallback((address: AdAddress, filter: MapFilterType): L.Marker => {
+  const createTriangleMarker = useCallback((address: AdAddress, filter: MapFilterType): L.Marker | null => {
+    // Защита от невалидных координат (NaN, null, undefined)
+    const lat = Number(address.coordinates?.lat);
+    const lng = Number(address.coordinates?.lng);
+    if (!isFinite(lat) || !isFinite(lng)) {
+      console.warn('[SearchByPolygon] Skipping marker: invalid coords', address.address, address.coordinates);
+      return null;
+    }
+
     const floors = address.floors_count || 0;
     const markerHeight = getMarkerHeight(floors);
 
@@ -344,7 +382,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         break;
     }
 
-    const marker = L.marker([address.coordinates.lat!, address.coordinates.lng!], {
+    const marker = L.marker([lat, lng], {
       icon: L.divIcon({
         className: 'triangle-marker',
         html: `<div style="position:relative;">
@@ -496,8 +534,10 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     // Фильтрация по видимой области
     const bounds = map.getBounds();
     const visible = filtered.filter(a => {
-      if (!a.coordinates?.lat || !a.coordinates?.lng) return false;
-      return bounds.contains([a.coordinates.lat, a.coordinates.lng]);
+      const lat = Number(a.coordinates?.lat);
+      const lng = Number(a.coordinates?.lng);
+      if (!isFinite(lat) || !isFinite(lng)) return false;
+      return bounds.contains([lat, lng]);
     });
 
     // Ограничение для производительности
@@ -507,7 +547,9 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     const filter = activeMapFilterRef.current;
     for (const addr of toRender) {
       const marker = createTriangleMarker(addr, filter);
-      marker.addTo(layerGroup);
+      if (marker) {
+        marker.addTo(layerGroup);
+      }
     }
 
     // Применяем прозрачность сразу после создания маркеров
@@ -620,6 +662,133 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       });
   }, []);
 
+  // Рендер всех видимых кварталов (когда нет нарисованного полигона)
+  const renderVisibleQuarters = useCallback(() => {
+    const layerGroup = quarterLayerGroupRef.current;
+    const map = mapInstanceRef.current;
+    if (!layerGroup || !map) return;
+
+    // Если есть нарисованные полигоны — не трогаем, renderQuartersOnMap управляет слоем
+    const drawnItems = drawnItemsRef.current;
+    if (drawnItems && drawnItems.getLayers().length > 0) return;
+
+    layerGroup.clearLayers();
+
+    const currentQuarters = quartersRef.current;
+    if (!currentQuarters || currentQuarters.length === 0) return;
+
+    // Показываем кварталы только при достаточном зуме
+    if (map.getZoom() < 14) return;
+
+    const bounds = map.getBounds();
+    let count = 0;
+    const MAX_QUARTERS = 500; // ограничение для производительности
+
+    for (const q of currentQuarters) {
+      if (count >= MAX_QUARTERS) break;
+      if (!q.geojson || !q.center_lat || !q.center_lon) continue;
+      if (!bounds.contains([q.center_lat, q.center_lon])) continue;
+      try {
+        const coords = q.geojson.geometry.coordinates[0].map(
+          (c: number[]) => [c[1], c[0]] as [number, number]
+        );
+        const polygon = L.polygon(coords, {
+          color: '#3b82f6',
+          weight: 1,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.05,
+        });
+        polygon.bindPopup(`<div class="quarter-popup"><strong>${q.cad_number}</strong></div>`);
+        polygon.addTo(layerGroup);
+        count++;
+      } catch { /* skip */ }
+    }
+  }, []);
+
+  const renderVisibleQuartersRef = useRef(renderVisibleQuarters);
+  renderVisibleQuartersRef.current = renderVisibleQuarters;
+
+  // Рендер объявлений без адреса (маркеры с popup)
+  const renderAdsWithoutAddress = useCallback(() => {
+    const layerGroup = adsNoAddrLayerGroupRef.current;
+    const map = mapInstanceRef.current;
+    const drawnItems = drawnItemsRef.current;
+    if (!layerGroup || !map) return;
+
+    layerGroup.clearLayers();
+
+    const ads = adsNoAddrRef.current;
+    if (!ads || ads.length === 0) return;
+
+    // Получаем активный полигон (если есть)
+    const drawnLayers = drawnItems?.getLayers() || [];
+    const activePolygon = drawnLayers.find((l): l is L.Polygon => l instanceof L.Polygon) || null;
+
+    // Без полигона — объявления без адреса не показываем
+    if (!activePolygon) return;
+
+    // Строим turf-полигон для фильтрации
+    const rawLatLngs = activePolygon.getLatLngs()[0] as L.LatLng[] | L.LatLng[][];
+    const ringLatLngs: L.LatLng[] = Array.isArray(rawLatLngs[0])
+      ? (rawLatLngs as L.LatLng[][])[0]
+      : (rawLatLngs as L.LatLng[]);
+    const ringCoords: number[][] = ringLatLngs.map(ll => [ll.lng, ll.lat]);
+    ringCoords.push(ringCoords[0]); // закрыть кольцо
+    const polygonForFilter = turfPolygon([ringCoords]);
+
+    const MAX_ADS = 300;
+    let count = 0;
+
+    for (const ad of ads) {
+      if (count >= MAX_ADS) break;
+      const lat = ad.coordinates?.lat;
+      const lng = ad.coordinates?.lng;
+      if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) continue;
+      // Только внутри нарисованного полигона
+      if (!booleanPointInPolygon(turfPoint([lng, lat]), polygonForFilter)) continue;
+
+      const icon = L.divIcon({
+        html: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="28" viewBox="0 0 20 28">
+          <path d="M10 0C4.48 0 0 4.48 0 10c0 7.5 10 18 10 18s10-10.5 10-18C20 4.48 15.52 0 10 0z" fill="#f97316"/>
+          <circle cx="10" cy="10" r="4" fill="#fff"/>
+        </svg>`,
+        iconSize: [20, 28],
+        iconAnchor: [10, 28],
+        className: 'ad-noaddr-marker',
+      });
+
+      const marker = L.marker([lat, lng], { icon });
+      const priceStr = ad.price != null ? `${ad.price.toLocaleString('ru-RU')} ₽` : '';
+      marker.bindPopup(`
+        <div style="min-width: 180px;">
+          <strong>${ad.source}</strong><br/>
+          <span style="font-size: 11px; color: #666;">${ad.title || ''}</span><br/>
+          ${ad.address ? `<span style="font-size: 11px;">${ad.address}</span><br/>` : ''}
+          ${priceStr ? `<strong style="color: #f97316;">${priceStr}</strong><br/>` : ''}
+          <button data-action="open-ad" data-ad-id="${ad.id}" style="margin-top: 4px; padding: 2px 8px; background: #2563eb; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px;">Открыть</button>
+        </div>
+      `);
+      marker.on('popupopen', () => {
+        setTimeout(() => {
+          const btn = document.querySelector(`[data-action="open-ad"][data-ad-id="${ad.id}"]`);
+          if (btn) {
+            btn.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              marker.closePopup();
+              if (onAdNoAddrClickRef.current) onAdNoAddrClickRef.current(ad.id);
+            });
+          }
+        }, 0);
+      });
+      marker.addTo(layerGroup);
+      count++;
+    }
+  }, []);
+
+  const renderAdsWithoutAddressRef = useRef(renderAdsWithoutAddress);
+  renderAdsWithoutAddressRef.current = renderAdsWithoutAddress;
+
   // Кастомная иконка маркера (SVG)
   const createMarkerIcon = useCallback(() => {
     return L.divIcon({
@@ -638,10 +807,18 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     const map = mapInstanceRef.current;
     if (!map) return;
 
+    // Защита от невалидных координат (NaN, null-приведённые и т.п.)
+    const safeLat = Number(lat);
+    const safeLng = Number(lng);
+    if (!isFinite(safeLat) || !isFinite(safeLng)) {
+      console.warn('[SearchByPolygon] setAddressMarker skipped: invalid coords', lat, lng);
+      return;
+    }
+
     if (addressMarkerRef.current) {
-      addressMarkerRef.current.setLatLng([lat, lng]);
+      addressMarkerRef.current.setLatLng([safeLat, safeLng]);
     } else {
-      const marker = L.marker([lat, lng], {
+      const marker = L.marker([safeLat, safeLng], {
         icon: createMarkerIcon(),
         draggable: true,
       }).addTo(map);
@@ -746,6 +923,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         isInternalUpdateRef.current = true;
         onQuartersSelectedRef.current([], undefined);
       }
+      // Полигон удалён — очищаем слой ads без адреса
+      renderAdsWithoutAddressRef.current?.();
       return;
     }
 
@@ -762,6 +941,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     renderQuartersOnMap(allCadNumbers);
     isInternalUpdateRef.current = true;
     onQuartersSelectedRef.current(Array.from(allCadNumbers), allPolyCoords);
+    // Полигон создан/изменён — перерисовать ads без адреса
+    renderAdsWithoutAddressRef.current?.();
   }, [findIntersectingForLayer, renderQuartersOnMap, initialPolygons]);
 
   const recalcAndNotifyRef = useRef(recalcAndNotify);
@@ -794,21 +975,25 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     map.addLayer(drawnItems);
     drawnItemsRef.current = drawnItems;
 
-    // Слой для кадастровых кварталов
+    // Слой для кадастровых кварталов (выключен по умолчанию)
     const quarterLayerGroup = L.layerGroup();
     quarterLayerGroupRef.current = quarterLayerGroup;
-    map.addLayer(quarterLayerGroup);
 
-    // Слой для адресных маркеров
+    // Слой для адресных маркеров (включён по умолчанию)
     const addressLayerGroup = L.layerGroup();
     addressLayerGroupRef.current = addressLayerGroup;
     map.addLayer(addressLayerGroup);
 
-    // Управление слоями
+    // Слой для объявлений без адреса (выключен по умолчанию)
+    const adsNoAddrLayerGroup = L.layerGroup();
+    adsNoAddrLayerGroupRef.current = adsNoAddrLayerGroup;
+
+    // Управление слоями (порядок: Адреса → Кадастровые кварталы → Объявления без адреса)
     const baseLayers: Record<string, L.Layer> = {};
     const overlayLayers = {
-      'Кадастровые кварталы': quarterLayerGroup,
       'Адреса': addressLayerGroup,
+      'Кадастровые кварталы': quarterLayerGroup,
+      'Объявления без адреса': adsNoAddrLayerGroup,
     };
     L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);
 
@@ -872,17 +1057,27 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       renderQuartersOnMap(allCadNumbers);
     };
 
-    // Клик по карте — установка маркера адреса + обратное геокодирование
+    // Клик по карте — установка маркера адреса или создание нового адреса
     map.on('click', (e: L.LeafletMouseEvent) => {
-      if (!addressEnabledRef.current) return;
       const { lat, lng } = e.latlng;
+
+      // Режим создания нового адреса — приоритет
+      if (addressCreateModeRef.current) {
+        if (onAddressCreateRef.current) onAddressCreateRef.current(lat, lng);
+        setAddressCreateMode(false);
+        return;
+      }
+
+      if (!addressEnabledRef.current) return;
       setAddressMarkerRef.current(lat, lng);
       reverseGeocodeRef.current(lat, lng);
     });
 
-    // При перемещении карты — обновить адресные маркеры
+    // При перемещении карты — обновить адресные маркеры и кадастровые кварталы
     map.on('moveend', () => {
       renderAddressMarkersRef.current();
+      renderVisibleQuartersRef.current();
+      renderAdsWithoutAddressRef.current();
     });
 
     mapInstanceRef.current = map;
@@ -1022,6 +1217,15 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         <button className="btn btn-secondary btn-small" onClick={clearDrawing}>
           Сбросить
         </button>
+        {onAddressCreate && (
+          <button
+            className={`btn btn-small ${addressCreateMode ? 'btn-active-create' : 'btn-green'}`}
+            onClick={() => setAddressCreateMode(!addressCreateMode)}
+            title="Кликните по карте для размещения нового адреса"
+          >
+            {addressCreateMode ? 'Кликните по карте…' : '+ Адрес'}
+          </button>
+        )}
       </div>
 
       {/* Панель фильтров маркеров */}
@@ -1152,7 +1356,10 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
       <div
         ref={mapRef}
         className="polygon-map"
-        style={mapHeight > 0 ? { height: mapHeight, minHeight: 300 } : undefined}
+        style={{
+          ...(mapHeight > 0 ? { height: mapHeight, minHeight: 300 } : {}),
+          cursor: addressCreateMode ? 'crosshair' : undefined,
+        }}
       ></div>
       {/* Resize handle */}
       <div

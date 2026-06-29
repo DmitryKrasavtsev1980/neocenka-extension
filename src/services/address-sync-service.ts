@@ -217,6 +217,23 @@ export const addressSyncService = {
   },
 
   /**
+   * Отправить запрос на УДАЛЕНИЕ адреса на модерацию
+   * localId — локальный ID адреса в IndexedDB
+   */
+  async submitDelete(localId: number): Promise<void> {
+    const addr = await db.ad_addresses.get(localId);
+    if (!addr) throw new Error('Адрес не найден в локальной базе');
+    if (!addr.server_id) throw new Error('Нельзя удалить адрес, ещё не отправленный на сервер');
+
+    const change = {
+      address_id: addr.server_id,
+      action: 'delete',
+    };
+
+    await postAddressChanges([change]);
+  },
+
+  /**
    * Получить статус своих предложений
    */
   async getChangesStatus(): Promise<AddressChangeResponse[]> {

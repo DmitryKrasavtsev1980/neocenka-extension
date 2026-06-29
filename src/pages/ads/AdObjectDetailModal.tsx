@@ -155,8 +155,11 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
   }, [listings]);
 
   const objAddress = obj.address_id ? addresses.find(a => a.id === obj.address_id) : null;
-  const mapLat = objAddress?.coordinates?.lat ?? listings.find(a => a.coordinates?.lat != null)?.coordinates?.lat;
-  const mapLng = objAddress?.coordinates?.lng ?? listings.find(a => a.coordinates?.lng != null)?.coordinates?.lng;
+  // Принудительно к number — защита от строковых координатов в JSON
+  const rawLat = objAddress?.coordinates?.lat ?? listings.find(a => a.coordinates?.lat != null)?.coordinates?.lat;
+  const rawLng = objAddress?.coordinates?.lng ?? listings.find(a => a.coordinates?.lng != null)?.coordinates?.lng;
+  const mapLat = rawLat != null && Number.isFinite(Number(rawLat)) ? Number(rawLat) : null;
+  const mapLng = rawLng != null && Number.isFinite(Number(rawLng)) ? Number(rawLng) : null;
   const mapAddressText = objAddress?.address || listings.find(a => a.address)?.address || '';
 
   // Инициализация мини-карты
@@ -171,7 +174,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
     });
     const mapConfig = getMapConfig();
     createTileLayer(mapConfig).addTo(map);
-    if (mapLat != null && mapLng != null && isFinite(mapLat) && isFinite(mapLng)) {
+    if (mapLat != null && mapLng != null) {
       map.setView([mapLat, mapLng], 17);
       L.marker([mapLat, mapLng], {
         icon: L.divIcon({

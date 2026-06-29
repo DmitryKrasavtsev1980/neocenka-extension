@@ -15,6 +15,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Ad, AdAddress, PriceHistoryItem, ReferenceItem } from '@/types';
 import { adsAddressService } from '@/services/ads-address-service';
+import AddressCombobox from './AddressCombobox';
 import { getMapConfig, createTileLayer } from '@/services/map-config';
 import { actualizeCianAd } from '@/services/cian-update-service';
 import { actualizeAvitoAd } from '@/services/avito-update-service';
@@ -115,7 +116,6 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
   const [locationExpanded, setLocationExpanded] = useState(true);
   const [selectedAddressId, setSelectedAddressId] = useState<string>(String(ad.address_id || ''));
   const [saving, setSaving] = useState(false);
-  const [addressSearch, setAddressSearch] = useState('');
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [editHistoryIdx, setEditHistoryIdx] = useState<number | null>(null);
   const [editHistoryDate, setEditHistoryDate] = useState('');
@@ -140,11 +140,16 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     ? addresses.find(a => a.id === ad.address_id)
     : null;
 
-  // Координаты адреса и объявления
-  const addrLat = currentAddress?.coordinates?.lat ?? null;
-  const addrLng = currentAddress?.coordinates?.lng ?? null;
-  const adLat = ad.coordinates?.lat ?? null;
-  const adLng = ad.coordinates?.lng ?? null;
+  // Координаты адреса и объявления (принудительно к number, защита от строк в JSON)
+  const toNum = (v: unknown): number | null => {
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const addrLat = toNum(currentAddress?.coordinates?.lat);
+  const addrLng = toNum(currentAddress?.coordinates?.lng);
+  const adLat = toNum(ad.coordinates?.lat);
+  const adLng = toNum(ad.coordinates?.lng);
 
   // Инициализация мини-карты
   useEffect(() => {
@@ -167,7 +172,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     const mapConfig = getMapConfig();
     createTileLayer(mapConfig).addTo(map);
 
-    const validCoord = (v: number | null): v is number => v != null && isFinite(v);
+    const validCoord = (v: number | null): v is number => v != null;
     const hasAddr = validCoord(addrLat) && validCoord(addrLng);
     const hasAd = validCoord(adLat) && validCoord(adLng);
 
@@ -256,12 +261,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
     };
   }, [locationTab, locationExpanded, addrLat, addrLng, adLat, adLng]);
 
-  // Фильтрация адресов для селектора
-  const filteredAddresses = useMemo(() => {
-    if (!addressSearch || addressSearch.length < 2) return addresses;
-    const q = addressSearch.toLowerCase();
-    return addresses.filter(a => a.address.toLowerCase().includes(q));
-  }, [addressSearch, addresses]);
+  // Фильтрация адресов — теперь обрабатывается внутри AddressCombobox
 
   // Статус для шапки секции
   const statusInfo = useMemo(() => {
@@ -587,28 +587,14 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
                         {ad.address_id ? 'Определённый адрес:' : 'Определить адрес:'}
                       </span>
                       <div className="flex items-center gap-2 mt-1">
-                        <input
-                          list={`address-datalist-${ad.id}`}
-                          value={selectedAddressId ? (addresses.find(a => a.id === Number(selectedAddressId))?.address || addressSearch) : addressSearch}
-                          onChange={e => {
-                            const val = e.target.value;
-                            const found = addresses.find(a => a.address === val);
-                            if (found) {
-                              setSelectedAddressId(String(found.id));
-                              setAddressSearch('');
-                            } else {
-                              setSelectedAddressId('');
-                              setAddressSearch(val);
-                            }
-                          }}
-                          placeholder="Поиск адреса..."
-                          className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <datalist id={`address-datalist-${ad.id}`}>
-                          {filteredAddresses.slice(0, 100).map(a => (
-                            <option key={a.id} value={a.address} />
-                          ))}
-                        </datalist>
+                        <div className="flex-1">
+                          <AddressCombobox
+                            addresses={addresses}
+                            value={selectedAddressId ? Number(selectedAddressId) : ''}
+                            onChange={(id) => setSelectedAddressId(id === '' ? '' : String(id))}
+                            placeholder="Поиск адреса…"
+                          />
+                        </div>
                         <button
                           onClick={handleSaveAddress}
                           disabled={saving}

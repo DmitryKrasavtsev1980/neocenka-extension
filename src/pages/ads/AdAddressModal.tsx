@@ -41,14 +41,17 @@ interface AdAddressModalProps {
   };
   onClose: () => void;
   onSave?: (updated: AdAddress) => void;
+  onDelete?: (deletedId: number) => void;
 }
 
-const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress, mode = 'edit', referenceData, onClose, onSave }) => {
+const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress, mode = 'edit', referenceData, onClose, onSave, onDelete }) => {
   const [addr, setAddr] = useState<AdAddress>({ ...initialAddress });
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const isCreate = mode === 'create';
 
   // Refs для карты
@@ -222,6 +225,31 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
       // silent
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ─── Удаление ───
+  const handleDelete = async () => {
+    if (!addr.id) return;
+    setDeleting(true);
+    try {
+      // Если адрес уже на сервере — отправляем запрос на модерацию
+      if (addr.server_id) {
+        try {
+          await addressSyncService.submitDelete(addr.id);
+        } catch (e) {
+          console.error('[AdAddressModal] Ошибка отправки удаления на модерацию:', e);
+          setSubmitError(true);
+        }
+      }
+      // Удаляем локально
+      await adsAddressService.remove(addr.id);
+      onDelete?.(addr.id);
+      onClose();
+    } catch {
+      // silent
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -406,6 +434,34 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
             <span className="text-[11px] text-amber-600 dark:text-amber-400 mr-auto">
               Сохранено локально, отправка на модерацию не удалась
             </span>
+          )}
+          {!isCreate && !deleteConfirm && (
+            <button
+              onClick={() => setDeleteConfirm(true)}
+              disabled={deleting}
+              className="rounded-md px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 mr-auto"
+            >
+              Удалить
+            </button>
+          )}
+          {!isCreate && deleteConfirm && (
+            <div className="flex items-center gap-1 mr-auto">
+              <span className="text-[10px] text-red-600 dark:text-red-400">Удалить адрес?</span>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-2 py-1 rounded text-[10px] font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? '...' : 'Да'}
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(false)}
+                disabled={deleting}
+                className="px-2 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300"
+              >
+                Нет
+              </button>
+            </div>
           )}
           <button onClick={onClose} className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800">Отмена</button>
           <button onClick={handleSave} disabled={saving || submitting} className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">

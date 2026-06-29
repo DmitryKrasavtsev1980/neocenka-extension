@@ -6,7 +6,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
-import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem } from '@/types';
+import { cadastralRepository } from '@/db';
+import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem, CadastralQuarter } from '@/types';
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
 import { useImportTasks, type ImportTask } from '@/contexts/ImportTaskContext';
@@ -27,6 +28,7 @@ import { Badge } from '@/components/catalyst/badge';
 import AdDetailModal from './AdDetailModal';
 import AdObjectDetailModal from './AdObjectDetailModal';
 import AdAddressModal from './AdAddressModal';
+import AddressCombobox from './AddressCombobox';
 import AdsSavedFiltersPanel from './AdsSavedFiltersPanel';
 import AdAddressAssignModal from './AdAddressAssignModal';
 import { adsAddressService } from '@/services/ads-address-service';
@@ -241,6 +243,22 @@ const PAGE_SIZES = [10, 25, 50, 100];
 
 function toDateString(d: Date): string { return d.toISOString().slice(0, 10); }
 
+/** Пресеты быстрых периодов для поля «Дата от» в панели обработки. */
+const IMPORT_DATE_PRESETS = [
+  { days: 3, label: '3 дня' },
+  { days: 7, label: '7 дней' },
+  { days: 30, label: '30 дней' },
+  { days: 90, label: '90 дней' },
+  { days: 180, label: '180 дней' },
+  { days: 365, label: '365 дней' },
+] as const;
+
+function dateNDaysAgoStr(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return toDateString(d);
+}
+
 /** Проверка принадлежности точки полигону (ray casting). Полигон: [lat, lng][] */
 function pointInPolygon(lat: number, lng: number, polygon: [number, number][]): boolean {
   let inside = false;
@@ -304,6 +322,7 @@ const PaginationBar: React.FC<{
           {PAGE_SIZES.map(s => <option key={s} value={s}>{s} на стр.</option>)}
         </select>
       </div>
+      {totalPages > 1 && (
       <div className="flex items-center gap-0.5">
         <button
           onClick={() => onPageChange(1)} disabled={page <= 1}
@@ -339,6 +358,7 @@ const PaginationBar: React.FC<{
           title="Последняя"
         >{'»'}</button>
       </div>
+      )}
     </div>
   );
 };
@@ -356,6 +376,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [totalAds, setTotalAds] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  // Локальный фильтр статуса в таблице (не сохраняется в общий фильтр)
+  const [localStatusFilter, setLocalStatusFilter] = useState<'all' | 'active' | 'archived'>('all');
 
   // ─── Выбор ───
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -430,7 +452,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [importSellerTypeIds, setImportSellerTypeIds] = useState<number[]>([]);
   const [importIsNew, setImportIsNew] = useState<number>(0); // 0=вторичка, 1=новостройка
   const [enabledSources, setEnabledSources] = useState<{ id: number; key: string }[]>([]);
-  const [importDateFrom, setImportDateFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 367); return toDateString(d); });
+  const [importDateFrom, setImportDateFrom] = useState(() => dateNDaysAgoStr(365));
   const [importDateTo, setImportDateTo] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); return toDateString(d); });
   const [importError, setImportError] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -448,6 +470,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [archiveDays, setArchiveDays] = useState(7);
   const [showReports, setShowReports] = useState(false);
   const [dealsModuleActive, setDealsModuleActive] = useState(false);
+  const [cadastralQuarters, setCadastralQuarters] = useState<CadastralQuarter[]>([]);
 
   // ─── Matching адресов ───
   const [matchRunning, setMatchRunning] = useState(false);
@@ -460,6 +483,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   // ─── Модалки ───
   const [detailAd, setDetailAd] = useState<Ad | null>(null);
+  // Ref для проверки — не закрыл ли пользователь модалку во время async-операций
+  const detailAdRef = useRef<Ad | null>(null);
+  detailAdRef.current = detailAd;
   const [detailObject, setDetailObject] = useState<AdObject | null>(null);
   const [detailAddress, setDetailAddress] = useState<AdAddress | null>(null);
   const [assignAd, setAssignAd] = useState<Ad | null>(null);
@@ -561,6 +587,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       }
     }).catch(() => {});
   }, []);
+
+  // Загрузка кадастровых кварталов (только при активном модуле dealsrosreestr)
+  useEffect(() => {
+    if (!dealsModuleActive) return;
+    cadastralRepository.getAllWithGeojson().then(q => setCadastralQuarters(q)).catch(() => {});
+  }, [dealsModuleActive]);
 
   // Отслеживание завершения импорта — обновление таблицы + toast
   const lastSeenImportStatus = useRef<Record<string, string>>({});
@@ -712,6 +744,20 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   }, []);
 
   // Статистика объектов/объявлений по адресам (для маркеров на карте)
+  // Объявления без адреса с координатами — для слоя на карте
+  const adsWithoutAddress = useMemo(() => {
+    return allAds
+      .filter(a => !a.address_id && a.coordinates?.lat != null && a.coordinates?.lng != null)
+      .map(a => ({
+        id: a.id,
+        title: a.title || a.name || '',
+        address: a.address || '',
+        source: a.source || '',
+        price: a.price ?? null,
+        coordinates: { lat: a.coordinates.lat, lng: a.coordinates.lng },
+      }));
+  }, [allAds]);
+
   const addressStatsMap = useMemo(() => {
     const statsMap: Record<number, { objects: number; listings: number }> = {};
     for (const obj of allObjects) {
@@ -991,7 +1037,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   }, [addresses, polygonsCoords]);
 
   // ─── Фильтрация ───
-  const filteredAds = useMemo(() => {
+  // Базовый фильтр: основной фильтр + полигон + серия/материал/этажность.
+  // НЕ включает «Фильтр обработки» — используется для счётчиков панели «Обработка объявлений».
+  const baseFilteredAds = useMemo(() => {
     let result = allAds;
 
     // Основной фильтр
@@ -1014,22 +1062,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const q = searchQuery.toLowerCase();
       result = result.filter(a => (a.address || '').toLowerCase().includes(q) || (a.title || '').toLowerCase().includes(q));
     }
-
-    // Фильтр обработки: «Определить адрес» — показывает address_needed + low/very_low confidence
-    if (filterProcessingStatus === 'address_needed') {
-      result = result.filter(a =>
-        a.processing_status === 'address_needed' ||
-        (a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low'))
-      );
-    } else if (filterProcessingStatus === 'duplicate_check_needed') {
-      result = result.filter(a => a.processing_status === 'duplicate_check_needed' && !a.object_id);
-    } else if (filterProcessingStatus) {
-      result = result.filter(a => a.processing_status === filterProcessingStatus);
-    }
-    if (filterAddressId) result = result.filter(a => a.address_id === filterAddressId);
-    if (filterContactType) result = result.filter(a => (a.seller_info?.type || a.seller_type) === filterContactType);
-    if (filterProcessingCategoryId) result = result.filter(a => a.category_id === filterProcessingCategoryId);
-    if (filterProcessingFloor) result = result.filter(a => a.floor != null && a.floor === Number(filterProcessingFloor));
 
     // Фильтр по полигону: через адрес (если есть) или по координатам самого объявления
     if (polygonsCoords && polygonsCoords.length > 0) {
@@ -1066,8 +1098,30 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   }, [allAds, filterStatus, filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax,
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax, filterYearMin, filterYearMax,
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
-    filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor,
-    filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, archiveDays, polygonsCoords]);
+    filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, polygonsCoords]);
+
+  // filteredAds = baseFilteredAds + «Фильтр обработки» (только для таблицы ручной обработки)
+  const filteredAds = useMemo(() => {
+    let result = baseFilteredAds;
+
+    // Фильтр обработки: «Определить адрес» — показывает address_needed + low/very_low confidence
+    if (filterProcessingStatus === 'address_needed') {
+      result = result.filter(a =>
+        a.processing_status === 'address_needed' ||
+        (a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low'))
+      );
+    } else if (filterProcessingStatus === 'duplicate_check_needed') {
+      result = result.filter(a => a.processing_status === 'duplicate_check_needed' && !a.object_id);
+    } else if (filterProcessingStatus) {
+      result = result.filter(a => a.processing_status === filterProcessingStatus);
+    }
+    if (filterAddressId) result = result.filter(a => a.address_id === filterAddressId);
+    if (filterContactType) result = result.filter(a => (a.seller_info?.type || a.seller_type) === filterContactType);
+    if (filterProcessingCategoryId) result = result.filter(a => a.category_id === filterProcessingCategoryId);
+    if (filterProcessingFloor) result = result.filter(a => a.floor != null && a.floor === Number(filterProcessingFloor));
+
+    return result;
+  }, [baseFilteredAds, filterProcessingStatus, filterAddressId, filterContactType, filterProcessingCategoryId, filterProcessingFloor]);
 
   // Данные для графика распределения площадей объявлений
   const areaChartData = useMemo(() => {
@@ -1095,9 +1149,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     };
   }, [filteredAds, filterAreaMin, filterAreaMax]);
 
-  const filteredObjects = useMemo(() => {
-    // При фильтре статуса обработки показываем только отдельные объявления, без объектов
-    if (filterProcessingStatus === 'address_needed' || filterProcessingStatus === 'duplicate_check_needed') return [];
+  // Базовый фильтр объектов: основной фильтр + полигон + серия/материал + фильтр по ads.
+  // НЕ включает «Фильтр обработки» — используется для счётчиков и запусков в панели «Обработка объявлений».
+  const baseFilteredObjects = useMemo(() => {
     let result = allObjects;
     if (filterStatus) result = result.filter(o => o.status === filterStatus);
     if (filterPropertyTypes.length > 0) result = result.filter(o => o.property_type && filterPropertyTypes.includes(o.property_type));
@@ -1107,8 +1161,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     if (filterAreaMax) result = result.filter(o => o.area_total != null && o.area_total <= Number(filterAreaMax));
     if (filterFloorMin) result = result.filter(o => o.floor != null && o.floor >= Number(filterFloorMin));
     if (filterFloorMax) result = result.filter(o => o.floor != null && o.floor <= Number(filterFloorMax));
-    if (filterAddressId) result = result.filter(o => o.address_id === filterAddressId);
-    if (filterProcessingFloor) result = result.filter(o => o.floor != null && o.floor === Number(filterProcessingFloor));
     if (filterAddressIds.size > 0) result = result.filter(o => o.address_id != null && filterAddressIds.has(o.address_id) && !excludedAddressIds.has(o.address_id));
     if (filterHouseSeriesIds.length > 0 || filterWallMaterialIds.length > 0 || filterFloorsMin || filterFloorsMax) {
       const addrMap = new Map<number, AdAddress>();
@@ -1125,15 +1177,13 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       });
     }
 
-    // Фильтрация по объявлениям объекта (source, category, seller, date, query — есть только у ads)
+    // Фильтрация по объявлениям объекта (без filterContactType/filterProcessingCategoryId — это «Фильтр обработки»)
     const needsAdFilter = filterSources.length > 0
       || filterCategoryIds.length > 0
       || filterYearMin || filterYearMax
       || filterSellerTypes.length > 0
       || filterDateFrom || filterDateTo
-      || searchQuery
-      || filterContactType
-      || filterProcessingCategoryId;
+      || searchQuery;
 
     if (needsAdFilter) {
       // Мапа: objectId → его ads
@@ -1162,8 +1212,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             const q = searchQuery.toLowerCase();
             if (!(ad.address || '').toLowerCase().includes(q) && !(ad.title || '').toLowerCase().includes(q)) return false;
           }
-          if (filterContactType && (ad.seller_info?.type || ad.seller_type) !== filterContactType) return false;
-          if (filterProcessingCategoryId && ad.category_id !== filterProcessingCategoryId) return false;
           return true;
         });
       });
@@ -1172,22 +1220,65 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return result;
   }, [allObjects, allAds, filterStatus, filterPropertyTypes, filterPriceMin, filterPriceMax,
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax,
-    filterAddressId, filterProcessingFloor, filterAddressIds, excludedAddressIds, addresses,
+    filterAddressIds, excludedAddressIds, addresses,
     filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax,
     filterSources, filterCategoryIds, filterYearMin, filterYearMax,
-    filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
-    filterContactType, filterProcessingCategoryId, filterProcessingStatus]);
+    filterSellerTypes, filterDateFrom, filterDateTo, searchQuery]);
+
+  // filteredObjects = baseFilteredObjects + «Фильтр обработки» (для таблицы ручной обработки)
+  const filteredObjects = useMemo(() => {
+    // При фильтре статуса обработки показываем только отдельные объявления, без объектов
+    if (filterProcessingStatus === 'address_needed' || filterProcessingStatus === 'duplicate_check_needed') return [];
+    let result = baseFilteredObjects;
+    if (filterAddressId) result = result.filter(o => o.address_id === filterAddressId);
+    if (filterProcessingFloor) result = result.filter(o => o.floor != null && o.floor === Number(filterProcessingFloor));
+
+    // Дополнительная фильтрация через ads: filterContactType, filterProcessingCategoryId
+    if (filterContactType || filterProcessingCategoryId) {
+      const objAdsMap = new Map<number, Ad[]>();
+      for (const ad of allAds) {
+        if (ad.object_id) {
+          let arr = objAdsMap.get(ad.object_id);
+          if (!arr) { arr = []; objAdsMap.set(ad.object_id, arr); }
+          arr.push(ad);
+        }
+      }
+      result = result.filter(obj => {
+        if (!obj.id) return false;
+        const objAds = objAdsMap.get(obj.id);
+        if (!objAds || objAds.length === 0) return false;
+        return objAds.some(ad => {
+          if (filterContactType && (ad.seller_info?.type || ad.seller_type) !== filterContactType) return false;
+          if (filterProcessingCategoryId && ad.category_id !== filterProcessingCategoryId) return false;
+          return true;
+        });
+      });
+    }
+
+    return result;
+  }, [baseFilteredObjects, allAds, filterProcessingStatus, filterAddressId, filterProcessingFloor, filterContactType, filterProcessingCategoryId]);
 
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
     const rows: TableRow[] = [];
-    // Сначала объекты
+
+    // Нормализация статуса: 'archive' → 'archived' (расхождение в ad-object-utils.ts vs batch-update-services)
+    const normalize = (s: string | null | undefined): string =>
+      s === 'archive' ? 'archived' : (s ?? '');
+
+    // Локальный фильтр статуса для строк (Ad и AdObject)
+    const statusMatches = (s: string | null | undefined): boolean =>
+      localStatusFilter === 'all' || normalize(s) === localStatusFilter;
+
+    // Сначала объекты — фильтруем по собственному статусу объекта
     {
       for (const obj of filteredObjects) {
+        if (!statusMatches(obj.status)) continue;
+        const objAds = objectAds.get(obj.id!) || [];
         rows.push({ kind: 'object', data: obj });
         if (expandedObjects.has(obj.id!)) {
-          const objAds = objectAds.get(obj.id!) || [];
           for (const ad of objAds) {
+            if (!statusMatches(ad.status)) continue;
             rows.push({ kind: 'expanded_ad', data: ad, parentObjectId: obj.id! });
           }
         }
@@ -1196,6 +1287,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     // Потом объявления без объекта
     const objectAdIds = new Set(allAds.filter(a => a.object_id).map(a => a.id));
     for (const ad of filteredAds) {
+      if (!statusMatches(ad.status)) continue;
       if (!objectAdIds.has(ad.id)) {
         rows.push({ kind: 'ad', data: ad });
       }
@@ -1248,7 +1340,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
 
     return rows;
-  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir, filterProcessingStatus]);
+  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir, filterProcessingStatus, localStatusFilter]);
 
   // Пагинация по «родительским» строкам (объекты + самостоятельные объявления).
   // Раскрытые строки объявлений (expanded_ad) не учитываются в лимите страницы.
@@ -1415,6 +1507,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const o = row.data;
       if (o.address_id) setFilterAddressId(o.address_id);
       if (o.floor != null) setFilterProcessingFloor(String(o.floor));
+      // Категория берётся из первого ad объекта (у самого объекта поля category_id нет)
+      const objAd = allAds.find(a => a.object_id === o.id && a.category_id != null);
+      if (objAd?.category_id) setFilterProcessingCategoryId(objAd.category_id);
     } else {
       const a = row.data;
       if (a.address_id) setFilterAddressId(a.address_id);
@@ -1509,7 +1604,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           setMatchProgress({ done: processed, total });
         },
         polygonsCoords ?? undefined,
-        filteredAds,
+        baseFilteredAds,
       );
       await loadData();
       await loadStats();
@@ -1812,6 +1907,46 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     });
   };
 
+  // Создание нового адреса напрямую с карты (без привязки к объявлению)
+  const handleCreateAddressFromMap = (lat: number, lng: number) => {
+    setAssignAd(null);
+    setCreateAddressForAd(null);
+    setAddressModalMode('create');
+    setDetailAddress({
+      id: undefined,
+      server_id: null,
+      house_id: null,
+      address: '',
+      coordinates: { lat, lng },
+      type: 'house',
+      region: null,
+      cadno: null,
+      house_type: null,
+      serie: null,
+      house_series_id: null,
+      house_class_id: null,
+      ceiling_material_id: null,
+      wall_material_id: null,
+      house_problem_id: null,
+      floors_count: null,
+      build_year: null,
+      entrances_count: null,
+      living_spaces_count: null,
+      area_total: null,
+      area_live: null,
+      ceiling_height: null,
+      gas_supply: null,
+      individual_heating: null,
+      has_playground: false,
+      has_sports_area: false,
+      comment: '',
+      source: 'user',
+      synced_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  };
+
   const handleAddressSaved = async (savedAddr: AdAddress) => {
     // Если создавали новый адрес для объявления — привязываем его
     if (addressModalMode === 'create' && createAddressForAd && savedAddr.id) {
@@ -1833,16 +1968,18 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
     const cianAdsSet = new Set<number>();
     const cianAds: Ad[] = [];
-    const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
+    // baseFilteredAds НЕ зависит от «Фильтра обработки» — обновление идёт по всей выборке
+    const baseObjectIds = new Set<number>();
+    for (const ad of baseFilteredAds) { if (ad.object_id) baseObjectIds.add(ad.object_id); }
     const addIfCian = (ad: Ad) => {
       if (ad.url?.includes('cian.ru') && ad.id && !cianAdsSet.has(ad.id) && isActualizable(ad)) {
         cianAdsSet.add(ad.id);
         cianAds.push(ad);
       }
     };
-    for (const ad of filteredAds) addIfCian(ad);
+    for (const ad of baseFilteredAds) addIfCian(ad);
     for (const ad of allAds) {
-      if (ad.object_id && filteredObjectIds.has(ad.object_id)) addIfCian(ad);
+      if (ad.object_id && baseObjectIds.has(ad.object_id)) addIfCian(ad);
     }
     if (cianAds.length === 0) {
       setToast({ message: 'Нет CIAN объявлений для обновления', type: 'info' });
@@ -1860,16 +1997,18 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
     const avitoAdsSet = new Set<number>();
     const avitoAds: Ad[] = [];
-    const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
+    // baseFilteredAds НЕ зависит от «Фильтра обработки» — обновление идёт по всей выборке
+    const baseObjectIds = new Set<number>();
+    for (const ad of baseFilteredAds) { if (ad.object_id) baseObjectIds.add(ad.object_id); }
     const addIfAvito = (ad: Ad) => {
       if (ad.url?.includes('avito.ru') && ad.id && !avitoAdsSet.has(ad.id) && isActualizable(ad)) {
         avitoAdsSet.add(ad.id);
         avitoAds.push(ad);
       }
     };
-    for (const ad of filteredAds) addIfAvito(ad);
+    for (const ad of baseFilteredAds) addIfAvito(ad);
     for (const ad of allAds) {
-      if (ad.object_id && filteredObjectIds.has(ad.object_id)) addIfAvito(ad);
+      if (ad.object_id && baseObjectIds.has(ad.object_id)) addIfAvito(ad);
     }
     if (avitoAds.length === 0) {
       setToast({ message: 'Нет Avito объявлений для обновления', type: 'info' });
@@ -1933,7 +2072,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
     // 5. Поиск сделок
     if (runDealMatch && dealsModuleActive) {
-      startDealMatching(filteredObjects);
+      startDealMatching(baseFilteredObjects);
       await new Promise<void>(resolve => {
         const check = () => {
           const running = importTasksRef.current.some(t =>
@@ -1949,14 +2088,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   /** Запуск поиска дубликатов */
   const handleDeduplicate = () => {
-    if (!startDeduplication(filteredAds)) {
+    if (!startDeduplication(baseFilteredAds)) {
       setToast({ message: 'Поиск дубликатов уже запущен', type: 'info' });
     }
   };
 
   /** Экспорт объектов с объявлениями в JSON для анализа дублей */
   const handleExportDedup = async () => {
-    const objectIdSet = new Set(filteredObjects.map(o => o.id).filter((id): id is number => id != null));
+    const objectIdSet = new Set(baseFilteredObjects.map(o => o.id).filter((id): id is number => id != null));
 
     // Собираем ads по object_id из всех ads
     const objAdsMap = new Map<number, Ad[]>();
@@ -1968,7 +2107,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       }
     }
 
-    const exportData = filteredObjects.map(obj => ({
+    const exportData = baseFilteredObjects.map(obj => ({
       object_id: obj.id,
       address_id: obj.address_id,
       property_type: obj.property_type,
@@ -2390,7 +2529,25 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата от</label><input type="date" value={importDateFrom} onChange={e => setImportDateFrom(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white" /></div>
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата от</label>
+                  <input type="date" value={importDateFrom} onChange={e => setImportDateFrom(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white" />
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {IMPORT_DATE_PRESETS.map(p => (
+                      <button
+                        key={p.days}
+                        onClick={() => setImportDateFrom(dateNDaysAgoStr(p.days))}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                          importDateFrom === dateNDaysAgoStr(p.days)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div><label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата до</label><input type="date" value={importDateTo} onChange={e => setImportDateTo(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white" /></div>
               </div>
               <button onClick={handleImport} disabled={adsImportRunning || !polygonsCoords} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
@@ -2430,7 +2587,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-2"><MapPinIcon className="size-4" /> Определение адресов</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">Автоматическое определение адресов для объявлений без привязки к адресной базе.</p>
-              <p className="text-xs text-zinc-400">Без адреса: {filteredAds.filter(a => !a.address_id).length} / Низкая точность: {filteredAds.filter(a => a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low')).length}</p>
+              <p className="text-xs text-zinc-400">Без адреса: {baseFilteredAds.filter(a => !a.address_id).length} / Низкая точность: {baseFilteredAds.filter(a => a.address_id && (a.address_match_confidence === 'low' || a.address_match_confidence === 'very_low')).length}</p>
               <button onClick={handleMatchAddresses} disabled={matchRunning} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                 {matchRunning && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
                 {matchRunning ? 'Определение...' : 'Определить адреса'}
@@ -2504,17 +2661,21 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               {!cianTask?.status?.startsWith('running') && !avitoTask?.status?.startsWith('running') && (
                 <>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    В фильтре: {(() => {
-                      const filteredObjectIds = new Set(filteredObjects.map(o => o.id));
-                      const cianFiltered = allAds.filter(a =>
-                        a.url?.includes('cian.ru') && (
-                          filteredAds.some(fa => fa.id === a.id) ||
-                          (a.object_id && filteredObjectIds.has(a.object_id))
-                        )
-                      );
-                      const active = cianFiltered.filter(a => a.status === 'active').length;
-                      const archived = cianFiltered.length - active;
-                      return `${cianFiltered.length} CIAN (активных: ${active}, архив: ${archived})`;
+                    {(() => {
+                      // Группировка baseFilteredAds по источникам (без учёта «Фильтра обработки»)
+                      const bySource = new Map<string, { active: number; archived: number }>();
+                      for (const a of baseFilteredAds) {
+                        const src = normalizeSource(a.source) || 'unknown';
+                        const entry = bySource.get(src) || { active: 0, archived: 0 };
+                        if (a.status === 'active') entry.active++; else entry.archived++;
+                        bySource.set(src, entry);
+                      }
+                      const parts: string[] = [];
+                      for (const src of Object.keys(SOURCE_LABELS)) {
+                        const e = bySource.get(src);
+                        if (e) parts.push(`${SOURCE_LABELS[src]}: ${e.active + e.archived} (акт: ${e.active}, арх: ${e.archived})`);
+                      }
+                      return <>Всего: {baseFilteredAds.length}{parts.length > 0 ? ' · ' : ''}{parts.join(' · ')}</>;
                     })()}
                   </p>
                   <p className="text-xs text-zinc-400">Быстрая проверка цены и статуса, полный парсинг только для изменившихся.</p>
@@ -2572,7 +2733,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 Автоматическая группировка объявлений одного объекта.
               </p>
               <p className="text-xs text-zinc-400">
-                Без объекта: {filteredAds.filter(a => !a.object_id && a.address_id).length}
+                Без объекта: {baseFilteredAds.filter(a => !a.object_id && a.address_id).length}
               </p>
 
               {/* Прогресс */}
@@ -2609,7 +2770,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 </button>
                 <button
                   onClick={handleExportDedup}
-                  disabled={filteredObjects.length === 0}
+                  disabled={baseFilteredObjects.length === 0}
                   className="rounded-md bg-zinc-100 dark:bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
                   <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -2628,7 +2789,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 Поиск сделок
               </h3>
               <p className="text-xs text-zinc-400">
-                Без сделки: {filteredObjects.filter(o => !o.sale_deal).length} из {filteredObjects.length} объектов
+                Без сделки: {baseFilteredObjects.filter(o => !o.sale_deal).length} из {baseFilteredObjects.length} объектов
               </p>
 
               {dealMatchTask && (() => {
@@ -2656,7 +2817,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    if (!startDealMatching(filteredObjects)) {
+                    if (!startDealMatching(baseFilteredObjects)) {
                       setToast({ message: 'Поиск сделок уже запущен', type: 'info' });
                     }
                   }}
@@ -2940,7 +3101,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700 mb-4">
           <button className="flex w-full items-center gap-2 bg-zinc-50 px-3.5 py-2.5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-100 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700" onClick={() => setShowMapFilter(!showMapFilter)}>
             <MapPinIcon className="size-4" />
-            <span>Поиск по карте</span>
+            <span>Поиск на карте</span>
             {polygonsCoords && <Badge color="blue" className="ml-2">{polygonsCoords.length} полигон(ов)</Badge>}
             <ChevronDownIcon className={`ml-auto size-4 transition-transform ${showMapFilter ? 'rotate-180' : ''}`} />
           </button>
@@ -2965,7 +3126,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             );
           })()}
           {showMapFilter && (
-            <SearchByPolygon quarters={[]} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries, houseClasses: refHouseClasses, ceilingMaterials: refCeilingMaterials }} onAddressClick={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }} selectedAddressIds={filterAddressIds} highlightedAddressIds={highlightedAddressIds} excludedAddressIds={excludedAddressIds} onAddressToggle={handleAddressToggle} onSelectAllInPolygon={handleSelectAllInPolygon} polygonsCoords={polygonsCoords} />
+            <SearchByPolygon quarters={dealsModuleActive ? cadastralQuarters : []} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries, houseClasses: refHouseClasses, ceilingMaterials: refCeilingMaterials }} onAddressClick={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }} selectedAddressIds={filterAddressIds} highlightedAddressIds={highlightedAddressIds} excludedAddressIds={excludedAddressIds} onAddressToggle={handleAddressToggle} onSelectAllInPolygon={handleSelectAllInPolygon} polygonsCoords={polygonsCoords} adsWithoutAddress={adsWithoutAddress} onAdWithoutAddressClick={(adId) => { const ad = allAds.find(a => a.id === adId); if (ad) setDetailAd(ad); }} onAddressCreate={handleCreateAddressFromMap} />
           )}
         </div>
 
@@ -2987,10 +3148,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               </div>
               <div>
                 <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Адрес</label>
-                <select value={filterAddressId} onChange={e => setFilterAddressId(Number(e.target.value) || '')} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-xs text-zinc-900 dark:text-white">
-                  <option value="">Все адреса</option>
-                  {addresses.map(a => <option key={a.id} value={a.id}>{a.address}</option>)}
-                </select>
+                <AddressCombobox
+                  addresses={addresses.filter(a => a.id != null).map(a => ({ id: a.id!, address: a.address }))}
+                  value={filterAddressId}
+                  onChange={id => { setFilterAddressId(id); setPage(1); }}
+                  placeholder="Все адреса"
+                />
               </div>
               <div>
                 <label className="block text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Категория</label>
@@ -3031,6 +3194,21 @@ const AdsPage: React.FC<AdsPageProps> = () => {
               </div>
             )}
             {selectedIds.size > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400 ml-2">{selectedIds.size} выбрано</span>}
+            <div className="flex items-center gap-0.5 ml-2">
+              {(['all', 'active', 'archived'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => { setLocalStatusFilter(s); setPage(1); }}
+                  className={`px-2 py-1 rounded text-[10px] font-medium border ${
+                    localStatusFilter === s
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  {s === 'all' ? 'Все' : s === 'active' ? 'Активные' : 'Архив'}
+                </button>
+              ))}
+            </div>
             <div className="flex-1" />
             <label className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
               <input type="checkbox" checked={showProcessingFilter} onChange={e => setShowProcessingFilter(e.target.checked)} className="h-3 w-3 rounded border-zinc-300 text-blue-600" />
@@ -3040,14 +3218,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           </div>
 
           {/* Pagination top */}
-          {totalPages > 1 && (
-            <PaginationBar
+          <PaginationBar
               page={page} totalPages={totalPages} pageSize={pageSize}
               totalItems={topLevelRows.length}
               onPageChange={setPage}
               onPageSizeChange={s => { setPageSize(s); setPage(1); }}
             />
-          )}
 
           {/* Table */}
           <div className="overflow-x-auto">
@@ -3074,14 +3250,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           </div>
 
           {/* Pagination bottom */}
-          {totalPages > 1 && (
-            <PaginationBar
+          <PaginationBar
               page={page} totalPages={totalPages} pageSize={pageSize}
               totalItems={topLevelRows.length} position="bottom"
               onPageChange={setPage}
               onPageSizeChange={s => { setPageSize(s); setPage(1); }}
             />
-          )}
         </div>
       </div>
 
@@ -3121,11 +3295,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             await loadStats();
           }}
           onAddressChange={async () => {
+            const adId = detailAd?.id;
+            if (!adId) return;
             await loadData();
             await loadStats();
-            // Обновляем detailAd свежими данными
-            const fresh = await db.table<Ad>('ads').get(detailAd.id!);
-            if (fresh) setDetailAd(fresh);
+            // Не открываем модалку повторно, если пользователь её закрыл
+            if (detailAdRef.current?.id !== adId) return;
+            const fresh = await db.table<Ad>('ads').get(adId);
+            if (fresh && detailAdRef.current?.id === adId) setDetailAd(fresh);
           }}
           onOpenCreateAddress={handleOpenCreateAddress}
           onOpenEditAddress={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }}
@@ -3189,6 +3366,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           }}
           onClose={() => { setDetailAddress(null); setCreateAddressForAd(null); }}
           onSave={handleAddressSaved}
+          onDelete={async (deletedId) => {
+            // Удалить адрес из state — карта перерисуется автоматически
+            setAddresses(prev => prev.filter(a => a.id !== deletedId));
+            await loadData();
+            await loadStats();
+          }}
         />
       )}
 
