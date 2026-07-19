@@ -82,3 +82,12 @@
 .truncate-left * {
   direction: ltr;
 }
+
+/* Indeterminate progress bar — для индикации расчёта позиции на рынке */
+@keyframes lowMarketLoading {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.low-market-loading-bar {
+  animation: lowMarketLoading 1.4s ease-in-out infinite;
+}

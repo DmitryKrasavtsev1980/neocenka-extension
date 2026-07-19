@@ -7,6 +7,13 @@ import {
   pollDataRequest,
   downloadAndImportResult,
 } from '@/services/data-request-service';
+import {
+  loadInparsToken,
+  getListingsByRegion,
+  transformInparsListing,
+  type InparsListingRaw,
+} from '@/services/inpars-service';
+import { adsRepository } from '@/db/repositories/ads.repository';
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
 import type { Ad, AdObject } from '@/types';
@@ -38,6 +45,10 @@ export interface AdsImportOptions {
   dateFrom?: string;
   dateTo?: string;
   isNew?: number;
+  /** Режим получения данных. По умолчанию 'server'. */
+  sourceMode?: 'server' | 'inpars_direct' | 'server_custom';
+  /** Код региона РФ (для контекста ошибки и т.п.) */
+  regionCode?: string;
 }
 
 interface ImportTaskContextValue {
@@ -53,6 +64,108 @@ interface ImportTaskContextValue {
 }
 
 const ImportTaskContext = createContext<ImportTaskContextValue | null>(null);
+
+// ─── Helpers ───
+
+interface DirectImportParams {
+  regionId?: number;
+  regionName?: string;
+  regionCode?: string;
+  sourceIds?: number[];
+  categoryIds?: number[];
+  sellerTypes?: number[];
+  dateFrom?: string;
+  dateTo?: string;
+  isNew?: number;
+}
+
+/**
+ * Импорт объявлений напрямую из Inpars API (без участия сервера Неоценки).
+ * Используется, когда у региона source_mode = 'inpars_direct'.
+ *
+ * Токен Inpars хранится локально в chrome.storage.local (см. inpars-service.ts).
+ * Rate limit: 10 запросов/мин (Inpars API) — пользователю виден прогресс.
+ */
+async function runInparsDirectImport(
+  taskId: string,
+  params: DirectImportParams,
+  updateTask: (id: string, updates: Partial<ImportTask>) => void,
+  removeTask: (id: string) => void,
+): Promise<void> {
+  const { regionId, regionName, regionCode, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew } = params;
+
+  if (!regionId) {
+    throw new Error('Регион не выбран');
+  }
+
+  // 1. Загружаем токен Inpars из chrome.storage
+  const token = await loadInparsToken();
+  if (!token) {
+    throw new Error(
+      'Не указан API-ключ Inpars. Откройте «Настройки → Inpars» и введите ключ. ' +
+      'Это необходимо для регионов с прямым подключением к Inpars.'
+    );
+  }
+
+  updateTask(taskId, { progress: 5, detail: `Inpars: запрос по региону ${regionName || regionCode || regionId}...` });
+
+  // 2. Загружаем объявления (с пагинацией и rate limit внутри inpars-service)
+  const batchSize = 500; // Inpars MAX_LIMIT — для аппроксимации прогресса
+  let estimatedTotal: number | undefined;
+
+  const rawListings: InparsListingRaw[] = await getListingsByRegion(
+    regionId,
+    {
+      sourceId: sourceIds?.join(','),
+      categoryId: categoryIds?.join(','),
+      sellerType: sellerTypes?.join(','),
+      timeStart: dateFrom ? Math.floor(new Date(dateFrom).getTime() / 1000) : undefined,
+      timeEnd: dateTo ? Math.floor(new Date(dateTo).getTime() / 1000) : undefined,
+      isNew,
+    },
+    (loaded) => {
+      if (!estimatedTotal || loaded > estimatedTotal) estimatedTotal = loaded + batchSize;
+      const pct = Math.min(90, 5 + Math.round((loaded / Math.max(estimatedTotal, 1)) * 85));
+      updateTask(taskId, {
+        progress: pct,
+        detail: `Inpars: загружено ${loaded} объявлений...`,
+      });
+    },
+  );
+
+  if (rawListings.length === 0) {
+    updateTask(taskId, {
+      status: 'done',
+      progress: 100,
+      detail: 'Готово: 0 объявлений (регион пуст по фильтрам)',
+    });
+    setTimeout(() => removeTask(taskId), 8000);
+    return;
+  }
+
+  // 3. Трансформируем и импортируем
+  updateTask(taskId, { progress: 92, detail: `Импорт ${rawListings.length} объявлений в базу...` });
+
+  const ads: Ad[] = rawListings.map(transformInparsListing);
+  const result = await adsRepository.bulkInsert(ads);
+
+  await adsRepository.recordImport({
+    source: 'inpars_direct',
+    params: JSON.stringify({
+      regionId, regionCode, count: rawListings.length,
+      filters: { sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew },
+    }),
+    count: result.inserted,
+    created_at: new Date().toISOString(),
+  });
+
+  updateTask(taskId, {
+    status: 'done',
+    progress: 100,
+    detail: `Готово: ${result.inserted} новых, ${result.updated} обновлено`,
+  });
+  setTimeout(() => removeTask(taskId), 8000);
+}
 
 export function useImportTasks(): ImportTaskContextValue {
   const ctx = useContext(ImportTaskContext);
@@ -173,7 +286,11 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
   const startAdsImport = useCallback(
     (options: AdsImportOptions) => {
       const taskId = crypto.randomUUID();
-      const { polygons, regionId, regionName, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew } = options;
+      const {
+        polygons, regionId, regionName, sourceIds, categoryIds, sellerTypes,
+        dateFrom, dateTo, isNew,
+        sourceMode = 'server', regionCode,
+      } = options;
 
       const label = regionName
         ? `Объявления: ${regionName}`
@@ -187,12 +304,26 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
           label,
           status: 'running',
           progress: 0,
-          detail: 'Отправка запроса на сервер...',
+          detail: sourceMode === 'inpars_direct'
+            ? 'Inpars напрямую: подготовка...'
+            : 'Отправка запроса на сервер...',
         },
       ]);
 
       (async () => {
         try {
+          if (sourceMode === 'inpars_direct') {
+            await runInparsDirectImport(
+              taskId,
+              { regionId, regionName, regionCode, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew },
+              updateTask,
+              removeTask,
+            );
+            return;
+          }
+
+          // server / server_custom — текущий путь через сервер Неоценки.
+          // Для server_custom эндпоинт/логика может отличаться в будущем — пока та же.
           // 1. Создать запрос на сервере
           const request = await createDataRequest({
             regionId,

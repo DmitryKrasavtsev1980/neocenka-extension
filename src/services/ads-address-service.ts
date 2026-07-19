@@ -162,6 +162,47 @@ export const adsAddressService = {
       address_match_confidence: 'manual',
     });
   },
+
+  /**
+   * Определить region по координатам через ближайший существующий адрес.
+   * Возвращает region (строка-код) если в радиусе maxRadiusKm найден адрес
+   * с заполненным region, иначе null.
+   *
+   * Используется при создании нового адреса, чтобы пользователь мог его
+   * синхронизировать с сервером — без region сервер не вернёт адрес в
+   * фильтре по региону (см. AddressController@index).
+   */
+  async detectRegionByCoordinates(
+    lat: number,
+    lng: number,
+    maxRadiusKm = 100,
+  ): Promise<string | null> {
+    if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) return null;
+
+    // Берём все адреса с region и координатами. toArray() на 100K+ работает
+    // быстро в IndexedDB; фильтрация через Dexie не ускорит (нет spatial index).
+    const all = await db.ad_addresses.toArray();
+
+    let best: { distDeg: number; region: string } | null = null;
+    for (const a of all) {
+      if (!a.region) continue;
+      const aLat = a.coordinates?.lat;
+      const aLng = a.coordinates?.lng;
+      if (aLat == null || aLng == null) continue;
+      const dLat = aLat - lat;
+      const dLng = aLng - lng;
+      const distDeg = Math.sqrt(dLat * dLat + dLng * dLng);
+      if (!best || distDeg < best.distDeg) {
+        best = { distDeg, region: a.region };
+      }
+    }
+
+    if (!best) return null;
+
+    // Перевод градусов в км: 1° ≈ 111 км
+    const distKm = best.distDeg * 111;
+    return distKm <= maxRadiusKm ? best.region : null;
+  },
 };
 
 /** Проверка принадлежности точки полигону (ray casting). Полигон: [lat, lng][] */

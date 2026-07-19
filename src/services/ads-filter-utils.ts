@@ -3,6 +3,8 @@
  * Вынесена из AdsPage/AdsSettingsPage для переиспользования в shared-view-builder.
  */
 
+import { pointInPolygons } from '@/utils/geometry';
+
 const SOURCE_LABELS: Record<string, string> = {
   avito: 'avito.ru',
   cian: 'cian.ru',
@@ -56,6 +58,8 @@ export interface FilterState {
   wallMaterialIds?: string[];
   floorsMin?: string;
   floorsMax?: string;
+  /** Полигоны (массив контуров, каждый контур — массив [lat, lng]) */
+  polygonsCoords?: [number, number][][] | null;
   [key: string]: unknown;
 }
 
@@ -139,6 +143,31 @@ export function applyFilterToAds(
       if (floorsMin && (!addr.floors_count || addr.floors_count < Number(floorsMin))) return false;
       if (floorsMax && (!addr.floors_count || addr.floors_count > Number(floorsMax))) return false;
       return true;
+    });
+  }
+
+  // Фильтр по полигону: сначала по координатам самого объявления,
+  // затем (если у объявления нет координат) по координатам привязанного адреса.
+  const polygonsCoords = state.polygonsCoords as [number, number][][] | null | undefined;
+  if (polygonsCoords && polygonsCoords.length > 0) {
+    const addrMap = new Map<number, any>();
+    for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
+    result = result.filter(a => {
+      const adLat = a.coordinates?.lat;
+      const adLng = a.coordinates?.lng;
+      if (adLat != null && adLng != null && isFinite(adLat) && isFinite(adLng)) {
+        return pointInPolygons(adLat, adLng, polygonsCoords);
+      }
+      // Нет координат у объявления — пробуем координаты адреса
+      if (a.address_id) {
+        const addr = addrMap.get(a.address_id);
+        const aLat = addr?.coordinates?.lat;
+        const aLng = addr?.coordinates?.lng;
+        if (aLat != null && aLng != null && isFinite(aLat) && isFinite(aLng)) {
+          return pointInPolygons(aLat, aLng, polygonsCoords);
+        }
+      }
+      return false;
     });
   }
 

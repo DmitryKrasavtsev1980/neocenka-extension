@@ -14,6 +14,7 @@ import type { AdAddress, ReferenceItem } from '@/types';
 import { adsAddressService } from '@/services/ads-address-service';
 import { addressSyncService } from '@/services/address-sync-service';
 import { getMapConfig, createTileLayer } from '@/services/map-config';
+import { reverseGeocodeAddress } from '@/services/dadata-service';
 
 const TYPE_OPTIONS = [
   { value: 'house', label: 'Дом' },
@@ -28,6 +29,72 @@ const TRIPLE_OPTIONS = [
   { value: 'true', label: 'Да' },
   { value: 'false', label: 'Нет' },
 ];
+
+/**
+ * Определяет slug города для 2ГИС по строке адреса.
+ * По умолчанию — Новосибирск.
+ */
+function detectCity(addressText: string): string {
+  const lower = addressText.toLowerCase();
+  if (lower.includes('москва')) return 'moscow';
+  if (lower.includes('санкт-петербург') || lower.includes('спб')) return 'spb';
+  if (lower.includes('екатеринбург')) return 'ekaterinburg';
+  if (lower.includes('казань')) return 'kazan';
+  if (lower.includes('нижний новгород')) return 'nizhniy_novgorod';
+  if (lower.includes('новосибирск')) return 'novosibirsk';
+  if (lower.includes('краснодар')) return 'krasnodar';
+  if (lower.includes('самара')) return 'samara';
+  if (lower.includes('омск')) return 'omsk';
+  if (lower.includes('челябинск')) return 'chelyabinsk';
+  if (lower.includes('уфа')) return 'ufa';
+  if (lower.includes('ростов-на-дону') || lower.includes('ростове')) return 'rostov_na_donu';
+  if (lower.includes('красноярск')) return 'krasnoyarsk';
+  if (lower.includes('воронеж')) return 'voronezh';
+  if (lower.includes('пермь')) return 'perm';
+  if (lower.includes('волгоград')) return 'volgograd';
+  if (lower.includes('тюмень')) return 'tyumen';
+  return 'novosibirsk';
+}
+
+/**
+ * Подбирает элемент справочника по текстуу из 2ГИС.
+ * Сначала проверяет точное вхождение текста 2ГИС в имя справочника,
+ * затем — обратное вхождение, затем — общее пересечение по ключевым словам.
+ */
+function matchWallMaterial(text2gis: string, items: ReferenceItem[]): ReferenceItem | null {
+  const t = text2gis.toLowerCase().trim();
+  if (!t) return null;
+
+  // 1. Точное вхождение текста 2ГИС в имя элемента справочника
+  for (const item of items) {
+    const name = (item.name || '').toLowerCase().trim();
+    if (name && name.includes(t)) return item;
+  }
+  // 2. Обратное вхождение: имя справочника внутри текста 2ГИС
+  for (const item of items) {
+    const name = (item.name || '').toLowerCase().trim();
+    if (name && t.includes(name)) return item;
+  }
+  // 3. Словари синонимов для материала стен
+  const synonyms: Record<string, string[]> = {
+    кирпич: ['кирпич'],
+    панель: ['панель'],
+    монолит: ['монолит'],
+    блок: ['блок', 'газобетон', 'пенобетон', 'керамзитобетон'],
+    дерево: ['дерев', 'брус'],
+    железобетон: ['железобетон', 'ж/б', 'жб'],
+  };
+  for (const [canonical, syns] of Object.entries(synonyms)) {
+    if (syns.some(s => t.includes(s))) {
+      const match = items.find(it => {
+        const name = (it.name || '').toLowerCase();
+        return name.includes(canonical) || synonyms[canonical]?.some(s => name.includes(s));
+      });
+      if (match) return match;
+    }
+  }
+  return null;
+}
 
 interface AdAddressModalProps {
   address: AdAddress;
@@ -52,6 +119,8 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
   const [geocoding, setGeocoding] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [loading2gis, setLoading2gis] = useState(false);
+  const [feedback2gis, setFeedback2gis] = useState<string | null>(null);
   const isCreate = mode === 'create';
 
   // Refs для карты
@@ -71,14 +140,7 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
 
     if (lat == null || lng == null) return null;
 
-    // Определение города для 2ГИС
-    const lower = addressText.toLowerCase();
-    let city = 'novosibirsk';
-    if (lower.includes('москва')) city = 'moscow';
-    else if (lower.includes('санкт-петербург') || lower.includes('спб')) city = 'spb';
-    else if (lower.includes('екатеринбург')) city = 'ekaterinburg';
-    else if (lower.includes('казань')) city = 'kazan';
-    else if (lower.includes('нижний новгород')) city = 'nizhniy_novgorod';
+    const city = detectCity(addressText);
 
     return {
       gis2: `https://2gis.ru/${city}/search/${encodeURIComponent(addressText)}`,
@@ -87,17 +149,13 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
     };
   }, [addr.coordinates, addr.address]);
 
-  // ─── Обратное геокодирование (OSM Nominatim) ───
+  // ─── Обратное геокодирование (Dadata) ───
   const reverseGeocode = async (lat: number, lng: number) => {
     setGeocoding(true);
     try {
-      const resp = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ru`,
-        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
-      );
-      const data = await resp.json();
-      if (data?.display_name) {
-        setAddr(prev => ({ ...prev, address: data.display_name }));
+      const addressText = await reverseGeocodeAddress(lat, lng);
+      if (addressText) {
+        setAddr(prev => ({ ...prev, address: addressText }));
       }
     } catch {
       // silent — не удалось геокодировать
@@ -113,6 +171,70 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
       coordinates: { ...prev.coordinates, lat, lng },
     }));
     reverseGeocode(lat, lng);
+  };
+
+  // ─── Загрузка данных о здании из 2ГИС ───
+  const handleFillFrom2gis = async () => {
+    if (!addr.address) {
+      setFeedback2gis('Сначала укажите адрес (поставьте метку на карте)');
+      return;
+    }
+    setLoading2gis(true);
+    setFeedback2gis(null);
+    try {
+      const city = detectCity(addr.address);
+      const response = await chrome.runtime.sendMessage({
+        type: 'FETCH_2GIS_BUILDING_DATA',
+        city,
+        address: addr.address,
+      });
+      if (!response?.success) {
+        setFeedback2gis(`Ошибка: ${response?.error || 'неизвестная'}`);
+        return;
+      }
+      const data = response.data as {
+        floors_count: number | null;
+        build_year: number | null;
+        entrances_count: number | null;
+        wall_material_text: string | null;
+        ceiling_material_text: string | null;
+      };
+      const filled: string[] = [];
+      if (data.floors_count != null) {
+        update('floors_count', data.floors_count);
+        filled.push(`этажей ${data.floors_count}`);
+      }
+      if (data.build_year != null) {
+        update('build_year', data.build_year);
+        filled.push(`год ${data.build_year}`);
+      }
+      if (data.entrances_count != null) {
+        update('entrances_count', data.entrances_count);
+        filled.push(`подъездов ${data.entrances_count}`);
+      }
+      // Маппинг материала стен по тексту
+      if (data.wall_material_text && referenceData.wallMaterials.length > 0) {
+        const matched = matchWallMaterial(data.wall_material_text, referenceData.wallMaterials);
+        if (matched) {
+          update('wall_material_id', matched.id);
+          filled.push(`материал: ${matched.name}`);
+        } else {
+          filled.push(`материал «${data.wall_material_text}» (нет в справочнике)`);
+        }
+      }
+      // Маппинг материала перекрытий
+      if (data.ceiling_material_text && referenceData.ceilingMaterials?.length) {
+        const matched = matchWallMaterial(data.ceiling_material_text, referenceData.ceilingMaterials);
+        if (matched) {
+          update('ceiling_material_id', matched.id);
+        }
+      }
+      setFeedback2gis(filled.length > 0 ? `Заполнено: ${filled.join(', ')}` : 'Данные не найдены в карточке здания');
+    } catch (err) {
+      setFeedback2gis(`Ошибка: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading2gis(false);
+    }
   };
 
   // ─── Инициализация карты Leaflet ───
@@ -185,10 +307,25 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
     try {
       let savedId: number | undefined;
 
+      // Если region не указан — попытаться определить автоматически по координатам
+      // через ближайший существующий адрес (в радиусе 100 км)
+      let finalAddr = addr;
+      if (!finalAddr.region) {
+        const lat = finalAddr.coordinates?.lat;
+        const lng = finalAddr.coordinates?.lng;
+        if (lat != null && lng != null) {
+          const detectedRegion = await adsAddressService.detectRegionByCoordinates(lat, lng);
+          if (detectedRegion) {
+            finalAddr = { ...finalAddr, region: detectedRegion };
+            setAddr(finalAddr);
+          }
+        }
+      }
+
       if (isCreate) {
         // Новый адрес — source='user', synced_at=null (пока не отправлен)
         savedId = await adsAddressService.create({
-          ...addr,
+          ...finalAddr,
           source: 'user',
           synced_at: null,
           created_at: new Date().toISOString(),
@@ -196,15 +333,15 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
         });
       } else {
         // Редактирование — сбрасываем synced_at, чтобы отправить изменения на модерацию
-        await adsAddressService.update(addr.id!, {
-          ...addr,
+        await adsAddressService.update(finalAddr.id!, {
+          ...finalAddr,
           synced_at: null,
           updated_at: new Date().toISOString(),
         });
-        savedId = addr.id;
+        savedId = finalAddr.id;
       }
 
-      onSave?.({ ...addr, id: savedId });
+      onSave?.({ ...finalAddr, id: savedId });
 
       // Автоматическая отправка на модерацию
       if (savedId) {
@@ -326,6 +463,37 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
                   disabled={geocoding}
                   className={inputCls + (geocoding ? ' bg-zinc-100 text-zinc-400 ' : '')}
                   placeholder={geocoding ? '🔍 Поиск адреса...' : ''} />
+              </div>
+
+              {/* Автозаполнение из 2ГИС */}
+              <div className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  onClick={handleFillFrom2gis}
+                  disabled={loading2gis || !addr.address}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {loading2gis ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Загрузка из 2ГИС...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                      Заполнить из 2ГИС
+                    </>
+                  )}
+                </button>
+                {feedback2gis && (
+                  <p className={`text-[11px] ${feedback2gis.startsWith('Ошибка') ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                    {feedback2gis}
+                  </p>
+                )}
               </div>
 
               {/* Тип */}

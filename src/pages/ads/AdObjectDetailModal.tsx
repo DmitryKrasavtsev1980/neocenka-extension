@@ -21,6 +21,8 @@ import { useArchivedPhotos } from '@/hooks/useArchivedPhotos';
 import { dealsRepository } from '@/db/repositories/deals.repository';
 import { cadastralRepository } from '@/db/repositories/cadastral.repository';
 import { REAL_ESTATE_TYPES, WALL_MATERIALS, getWallMaterialName } from '@/constants/catalogs';
+import { calculateMarketPosition, type MarketPosition, type MarketStatsOptions } from '@/services/market-stats-service';
+import MarketPositionWidget from '@/components/MarketPositionWidget';
 
 const PROPERTY_TYPE_FULL: Record<string, string> = {
   studio: 'Студия', '1k': '1-комн.', '2k': '2-комн.', '3k': '3-комн.', '4k+': '4+ комн.',
@@ -115,6 +117,9 @@ interface AdObjectDetailModalProps {
   obj: AdObject;
   listings: Ad[];
   addresses: AdAddress[];
+  comparableAds?: Ad[];
+  marketOptions?: MarketStatsOptions;
+  polygonsCoords?: [number, number][][] | null;
   dealsModuleActive: boolean;
   onClose: () => void;
   onAdClick?: (ad: Ad) => void;
@@ -123,7 +128,7 @@ interface AdObjectDetailModalProps {
 }
 
 const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
-  obj, listings, addresses, dealsModuleActive, onClose, onAdClick, onLinkDeal, onUnlinkDeal,
+  obj, listings, addresses, comparableAds, marketOptions, polygonsCoords, dealsModuleActive, onClose, onAdClick, onLinkDeal, onUnlinkDeal,
 }) => {
   const [selectedAd, setSelectedAd] = useState<Ad | null>(listings[0] || null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -161,6 +166,49 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
   const mapLat = rawLat != null && Number.isFinite(Number(rawLat)) ? Number(rawLat) : null;
   const mapLng = rawLng != null && Number.isFinite(Number(rawLng)) ? Number(rawLng) : null;
   const mapAddressText = objAddress?.address || listings.find(a => a.address)?.address || '';
+
+  // Расчёт позиции объекта на рынке: строим псевдо-объявление из характеристик объекта
+  const marketPosition: MarketPosition = useMemo(() => {
+    if (!comparableAds || comparableAds.length === 0 || !listings[0]) {
+      return {
+        percentileRank: null,
+        isLowMarket: false,
+        deltaToMedian: null,
+        percentiles: null,
+        pricePerMeter: obj.price_per_meter ?? null,
+        comparablesCount: 0,
+        reason: 'too_few_comps',
+      };
+    }
+    const baseAd = listings[0];
+    // Координаты: приоритет — адрес объекта, fallback — координаты из объявлений
+    // (тот же алгоритм, что в AdsPage.tsx для консистентности с таблицей)
+    const addrCoords = objAddress?.coordinates?.lat != null && objAddress?.coordinates?.lng != null
+      ? { lat: objAddress.coordinates.lat, lng: objAddress.coordinates.lng }
+      : null;
+    const fallbackCoords = listings.find(a => a.coordinates?.lat != null && a.coordinates?.lng != null)?.coordinates ?? null;
+    const coords = addrCoords ?? fallbackCoords ?? baseAd.coordinates ?? { lat: null, lng: null };
+
+    // Характеристики дома из адреса (консистентно с таблицей AdsPage)
+    const objHouseType = objAddress?.house_type ?? '';
+    const objBuildYear = objAddress?.build_year ?? null;
+
+    const pseudoAd: Ad = {
+      ...baseAd,
+      id: -1, // уникальный id, чтобы не совпал с реальным
+      address_id: obj.address_id,
+      coordinates: coords,
+      property_type: obj.property_type || baseAd.property_type,
+      area_total: obj.area_total ?? baseAd.area_total,
+      price: obj.current_price ?? baseAd.price,
+      price_per_meter: obj.price_per_meter ?? baseAd.price_per_meter,
+      house_type: objHouseType,
+      year_built: objBuildYear,
+      house_details: { ...(baseAd.house_details || { build_year: null, cargo_lifts: null, passenger_lifts: null, material: null }), build_year: objBuildYear, material: objHouseType || null },
+      status: 'active',
+    };
+    return calculateMarketPosition(pseudoAd, comparableAds, addresses, marketOptions, polygonsCoords);
+  }, [obj, listings, comparableAds, addresses, marketOptions, polygonsCoords]);
 
   // Инициализация мини-карты
   useEffect(() => {
@@ -524,6 +572,11 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Виджет «Позиция на рынке» */}
+          {comparableAds && comparableAds.length > 0 && (
+            <MarketPositionWidget position={marketPosition} />
+          )}
 
           {/* Привязанная сделка */}
           {obj.sale_deal && (

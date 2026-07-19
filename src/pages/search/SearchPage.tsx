@@ -75,6 +75,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
   const [availableWallMaterials, setAvailableWallMaterials] = useState<string[] | null>(null);
   const [softDeals, setSoftDeals] = useState<Deal[]>([]);
   const [softSearching, setSoftSearching] = useState(false);
+  const [showByDistrict, setShowByDistrict] = useState(false);
   const [wallMaterialsLoading, setWallMaterialsLoading] = useState(false);
   const [filterOptions, setFilterOptions] = useState<{
     districts: string[];
@@ -1489,11 +1490,15 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     return sortOrder === 'asc' ? cmp : -cmp;
   }, [sortField, sortOrder]);
 
-  // Объединённый список: точные + мягкие, отсортированные по текущему полю
+  // Объединённый список: точные + мягкие, отсортированные по текущему полю.
+  // Soft-сделки («по району») показываются только если включён чекбокс showByDistrict.
   const allDeals = useMemo(() => {
-    if (softDeals.length === 0) return pagedDeals;
+    if (softDeals.length === 0 || !showByDistrict) {
+      // Сортируем копию, чтобы не мутировать pagedDeals
+      return [...pagedDeals].sort(compareDeals);
+    }
     return [...pagedDeals, ...softDeals].sort(compareDeals);
-  }, [pagedDeals, softDeals, compareDeals]);
+  }, [pagedDeals, softDeals, compareDeals, showByDistrict]);
 
   if (stats && stats.totalDeals === 0) {
     return (
@@ -1819,6 +1824,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                   onQuartersSelected={handleQuartersSelected}
                   initialPolygons={polygonsCoords}
                   flyTo={flyToTarget}
+                  defaultShowQuarters
                 />
               </div>
             </div>
@@ -1869,6 +1875,17 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
                       </span>
                     )}
                   </span>
+                  {softDeals.length > 0 && (
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-zinc-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-amber-400">
+                      <input
+                        type="checkbox"
+                        checked={showByDistrict}
+                        onChange={(e) => setShowByDistrict(e.target.checked)}
+                        className="rounded border-zinc-300 text-amber-500 focus:ring-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                      />
+                      <span>Показывать «По району»</span>
+                    </label>
+                  )}
                   <select
                     value={pageSize}
                     disabled={loading}

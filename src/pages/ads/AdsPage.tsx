@@ -22,6 +22,8 @@ import {
   getAvailableCategories,
 } from '@/services/data-request-service';
 import { recalculateObjectFromAds, mergePriceHistory } from '@/services/ad-object-utils';
+import { calculateMarketPositionsBulk, DEFAULT_MARKET_OPTIONS, type MarketPosition, type MarketStatsOptions } from '@/services/market-stats-service';
+import MarketPositionWidget from '@/components/MarketPositionWidget';
 import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
 import { Button } from '@/components/catalyst/button';
 import { Badge } from '@/components/catalyst/badge';
@@ -409,6 +411,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   // ─── Фильтры обработки ───
   const [showProcessingFilter, setShowProcessingFilter] = useState(false);
+  // ─── Подсветка «низа рынка» (p15) ───
+  const [showLowMarket, setShowLowMarket] = useState(false);
+  const [lowMarketOnly, setLowMarketOnly] = useState(false);
+  const [showLowMarketSettings, setShowLowMarketSettings] = useState(false);
+  const [lowMarketOptions, setLowMarketOptions] = useState<MarketStatsOptions>(DEFAULT_MARKET_OPTIONS);
+  const [lowMarketComputing, setLowMarketComputing] = useState(false);
   const [filterProcessingStatus, setFilterProcessingStatus] = useState('');
   const [filterAddressId, setFilterAddressId] = useState<number | ''>('');
   const [filterContactType, setFilterContactType] = useState('');
@@ -426,7 +434,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [filterWallMaterialIds, setFilterWallMaterialIds] = useState<string[]>([]);
   const [filterFloorsMin, setFilterFloorsMin] = useState('');
   const [filterFloorsMax, setFilterFloorsMax] = useState('');
-  const [sortColumn, setSortColumn] = useState<'price' | 'created' | 'updated' | null>('updated');
+  const [sortColumn, setSortColumn] = useState<'price' | 'created' | 'updated' | 'status' | null>('updated');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [excludedAddressIds, setExcludedAddressIds] = useState<Set<number>>(() => {
     try {
@@ -480,6 +488,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteRunning, setDeleteRunning] = useState(false);
   const [deleteSelectedConfirm, setDeleteSelectedConfirm] = useState(false);
+  const [unlinkSelectedConfirm, setUnlinkSelectedConfirm] = useState(false);
 
   // ─── Модалки ───
   const [detailAd, setDetailAd] = useState<Ad | null>(null);
@@ -550,28 +559,38 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const normalized = objects.map(o => o.status === 'archive' ? { ...o, status: 'archived' } : o);
       setAllObjects(normalized);
       setTotalAds(ads.total);
-      // Обновляем кеш объявлений раскрытых объектов
-      if (expandedObjects.size > 0) {
-        const newMap = new Map<number, Ad[]>();
-        for (const objId of expandedObjects) {
-          const objAds = ads.ads
-            .filter(a => a.object_id === objId)
-            .sort((a, b) => {
-              const ta = new Date(a.updated || a.created || 0).getTime();
-              const tb = new Date(b.updated || b.created || 0).getTime();
-              return tb - ta;
-            });
-          newMap.set(objId, objAds);
-        }
-        setObjectAds(newMap);
-      }
     } finally { setLoading(false); }
-  }, [expandedObjects]);
+  }, []);
 
   const loadStats = useCallback(async () => {
     const [s, count] = await Promise.all([adsRepository.getStats(), adsRepository.count()]);
     setStats(s); setTotalAds(count);
   }, []);
+
+  // Поддерживаем кеш объявлений раскрытых объектов в актуальном состоянии
+  // при изменении allAds (после loadData/сохранения), не перезапуская саму загрузку.
+  useEffect(() => {
+    if (expandedObjects.size === 0) return;
+    const sortAds = (arr: Ad[]) =>
+      arr.slice().sort((a, b) => {
+        const ta = new Date(a.updated || a.created || 0).getTime();
+        const tb = new Date(b.updated || b.created || 0).getTime();
+        return tb - ta;
+      });
+    setObjectAds(prev => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const objId of expandedObjects) {
+        const ads = sortAds(allAds.filter(a => a.object_id === objId));
+        const cur = next.get(objId);
+        if (!cur || cur.length !== ads.length || cur.some((a, i) => a.id !== ads[i].id)) {
+          next.set(objId, ads);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [allAds, expandedObjects]);
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadStats(); }, [loadStats]);
@@ -1258,6 +1277,158 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     return result;
   }, [baseFilteredObjects, allAds, filterProcessingStatus, filterAddressId, filterProcessingFloor, filterContactType, filterProcessingCategoryId]);
 
+  // ─── Расчёт позиций на рынке («низ рынка», p15) ───
+  const [lowMarketMap, setLowMarketMap] = useState<Map<number, MarketPosition>>(new Map());
+  const [lowMarketObjectMap, setLowMarketObjectMap] = useState<Map<number, MarketPosition>>(new Map());
+  useEffect(() => {
+    // Защита: если инвест-фильтр включён, но полигон отсутствует — выключаем,
+    // иначе bulk-расчёт пойдёт по всей базе через fallback на радиус и повесит страницу.
+    // Срабатывает в т.ч. при рассинхроне состояния из localStorage.
+    if (showLowMarket && (!polygonsCoords || polygonsCoords.length === 0)) {
+      setShowLowMarket(false);
+      setLowMarketOnly(false);
+      setShowLowMarketSettings(false);
+      setLowMarketMap(new Map());
+      setLowMarketObjectMap(new Map());
+      setLowMarketComputing(false);
+      return;
+    }
+    if (!showLowMarket) {
+      setLowMarketMap(new Map());
+      setLowMarketObjectMap(new Map());
+      setLowMarketComputing(false);
+      return;
+    }
+    setLowMarketComputing(true);
+    // Откладываем на следующий tick, чтобы UI показал «считаем...»
+    const timer = setTimeout(() => {
+      const result = calculateMarketPositionsBulk(baseFilteredAds, allAds, addresses, lowMarketOptions, polygonsCoords);
+      setLowMarketMap(result);
+
+      // Также считаем позиции для объектов: строим псевдо-объявление из характеристик объекта
+      // Координаты берём из привязанного адреса или первого объявления объекта
+      const addrMap = new Map<number, AdAddress>();
+      for (const a of addresses) if (a.id != null) addrMap.set(a.id, a);
+
+      // Предрассчитываем координаты из объявлений объектов (fallback для объектов без адреса).
+      // Используем baseFilteredAds вместо objectAds, чтобы не зависеть от раскрытия объектов.
+      const objCoordsFromAds = new Map<number, { lat: number; lng: number }>();
+      for (const a of baseFilteredAds) {
+        if (a.object_id == null) continue;
+        if (objCoordsFromAds.has(a.object_id)) continue;
+        const la = a.coordinates?.lat;
+        const ln = a.coordinates?.lng;
+        if (la != null && ln != null) objCoordsFromAds.set(a.object_id, { lat: la, lng: ln });
+      }
+
+      const objectPseudoAds: Ad[] = baseFilteredObjects
+        .filter(o => o.id != null && o.price_per_meter != null && o.price_per_meter > 0)
+        .map(o => {
+          // Ищем координаты и характеристики дома в адресе объекта или в его объявлениях
+          const objAddr = o.address_id != null ? addrMap.get(o.address_id) : null;
+          let coords: { lat: number | null; lng: number | null } = { lat: null, lng: null };
+          if (objAddr?.coordinates?.lat != null && objAddr?.coordinates?.lng != null) {
+            coords = { lat: objAddr.coordinates.lat, lng: objAddr.coordinates.lng };
+          }
+          if (coords.lat == null) {
+            const c = objCoordsFromAds.get(o.id!);
+            if (c) coords = c;
+          }
+          const objHouseType = objAddr?.house_type ?? '';
+          const objBuildYear = objAddr?.build_year ?? null;
+          return {
+            id: -(o.id!), // отрицательный id чтобы не пересекался с реальными объявлениями
+            external_id: `obj-${o.id}`,
+            source: 'object',
+            url: '',
+            segment_id: null,
+            object_id: o.id!,
+            dedup_score: null,
+            title: '', name: '', description: '', address: '',
+            coordinates: coords,
+            property_type: o.property_type || '',
+            area_total: o.area_total,
+            area_living: o.area_living,
+            area_kitchen: o.area_kitchen,
+            floor: o.floor,
+            floors_total: o.floors_total,
+            rooms: o.rooms,
+            house_type: objHouseType,
+            condition: '',
+            year_built: objBuildYear,
+            has_balcony: null,
+            bathroom_type: '',
+            ceiling_height: null,
+            price: o.current_price,
+            price_per_meter: o.price_per_meter,
+            price_history: o.price_history,
+            photos: [],
+            photos_count: 0,
+            seller_name: '',
+            seller_type: '',
+            phone: '',
+            seller_info: { name: null, type: null, is_agent: false, phone: null, phone_protected: null },
+            status: 'active',
+            processing_status: 'processed',
+            address_id: o.address_id,
+            address_match_confidence: null,
+            address_match_method: null,
+            address_match_score: null,
+            address_distance: null,
+            region_id: null,
+            city_id: null,
+            metro_id: null,
+            operation_type: null,
+            section_id: null,
+            category_id: null,
+            original_source_id: null,
+            is_new_building: null,
+            is_apartments: null,
+            house_details: { build_year: objBuildYear, cargo_lifts: null, passenger_lifts: null, material: objHouseType || null },
+            renovation_type: null,
+            bathroom_details: null,
+            balcony_details: null,
+            views_count: null,
+            is_premium: false,
+            parsing_errors: [],
+            created_at: o.created_at,
+            updated_at: o.updated_at,
+            created: o.created,
+            updated: o.updated,
+            parsed_at: null,
+            source_metadata: { original_source: null, source_method: null, original_id: null, source_internal_id: null, import_date: '', last_sync_date: null, sync_errors: [] },
+          };
+        });
+
+      const objectResult = calculateMarketPositionsBulk(objectPseudoAds, allAds, addresses, lowMarketOptions, polygonsCoords);
+      // Перенумеруем ключи обратно в положительные id объектов
+      const remapped = new Map<number, MarketPosition>();
+      for (const [negId, pos] of objectResult) {
+        remapped.set(-negId, pos);
+      }
+      setLowMarketObjectMap(remapped);
+      setLowMarketComputing(false);
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [showLowMarket, baseFilteredAds, allAds, baseFilteredObjects, addresses, lowMarketOptions, polygonsCoords]);
+
+  // Множество id объявлений «низа рынка» для быстрой проверки в renderRow
+  const lowMarketAdIds = useMemo(() => {
+    const set = new Set<number>();
+    for (const [id, pos] of lowMarketMap) if (pos.isLowMarket) set.add(id);
+    return set;
+  }, [lowMarketMap]);
+
+  // Множество id объектов «низа рынка»
+  const lowMarketObjectIds = useMemo(() => {
+    const set = new Set<number>();
+    for (const [id, pos] of lowMarketObjectMap) if (pos.isLowMarket) set.add(id);
+    return set;
+  }, [lowMarketObjectMap]);
+
+  // Количество подсвеченных (для тултипа на кнопке)
+  const lowMarketCount = lowMarketAdIds.size + lowMarketObjectIds.size;
+
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
     const rows: TableRow[] = [];
@@ -1270,8 +1441,40 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     const statusMatches = (s: string | null | undefined): boolean =>
       localStatusFilter === 'all' || normalize(s) === localStatusFilter;
 
-    // Сначала объекты — фильтруем по собственному статусу объекта
-    {
+    const objectAdIds = new Set(allAds.filter(a => a.object_id).map(a => a.id));
+
+    if (showLowMarket && lowMarketOnly) {
+      // Режим «Только низ»: показываем только объекты и объявления с бейджем.
+      // Берём объявления из allAds напрямую, т.к. objectAds может быть ещё не загружен.
+      const adsByObject = new Map<number, Ad[]>();
+      for (const a of allAds) {
+        if (a.object_id == null) continue;
+        if (!adsByObject.has(a.object_id)) adsByObject.set(a.object_id, []);
+        adsByObject.get(a.object_id)!.push(a);
+      }
+
+      for (const obj of filteredObjects) {
+        if (!statusMatches(obj.status)) continue;
+        if (!lowMarketObjectIds.has(obj.id!)) continue;
+        const objAds = adsByObject.get(obj.id!) || [];
+        rows.push({ kind: 'object', data: obj });
+        if (expandedObjects.has(obj.id!)) {
+          for (const ad of objAds) {
+            if (!statusMatches(ad.status)) continue;
+            rows.push({ kind: 'expanded_ad', data: ad, parentObjectId: obj.id! });
+          }
+        }
+      }
+      // Standalone low-market ads (без объекта)
+      for (const ad of filteredAds) {
+        if (!statusMatches(ad.status)) continue;
+        if (objectAdIds.has(ad.id)) continue;
+        if (lowMarketAdIds.has(ad.id!)) {
+          rows.push({ kind: 'ad', data: ad });
+        }
+      }
+    } else {
+      // Обычный режим
       for (const obj of filteredObjects) {
         if (!statusMatches(obj.status)) continue;
         const objAds = objectAds.get(obj.id!) || [];
@@ -1283,13 +1486,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           }
         }
       }
-    }
-    // Потом объявления без объекта
-    const objectAdIds = new Set(allAds.filter(a => a.object_id).map(a => a.id));
-    for (const ad of filteredAds) {
-      if (!statusMatches(ad.status)) continue;
-      if (!objectAdIds.has(ad.id)) {
-        rows.push({ kind: 'ad', data: ad });
+      for (const ad of filteredAds) {
+        if (!statusMatches(ad.status)) continue;
+        if (!objectAdIds.has(ad.id)) {
+          rows.push({ kind: 'ad', data: ad });
+        }
       }
     }
 
@@ -1298,6 +1499,19 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const mul = sortDir === 'asc' ? 1 : -1;
       const getVal = (row: TableRow): number => {
         const d = row.data as any;
+        if (sortColumn === 'status') {
+          if (showLowMarket) {
+            // Сортировка по отклонению от медианы: neg delta → bigger discount
+            const id = d.id;
+            const pos = row.kind === 'object'
+              ? lowMarketObjectMap.get(id)
+              : lowMarketMap.get(id);
+            // Негативный delta (скидка) → положительное значение → desc = скидка сначала
+            return pos?.deltaToMedian != null ? -(pos.deltaToMedian) : -Infinity;
+          }
+          // Без инвест-фильтра: active=0, archived=1
+          return d.status === 'active' ? 0 : 1;
+        }
         if (sortColumn === 'price') {
           return d.price ?? d.current_price ?? -Infinity;
         }
@@ -1340,7 +1554,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
 
     return rows;
-  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir, filterProcessingStatus, localStatusFilter]);
+  }, [filteredObjects, filteredAds, expandedObjects, objectAds, allAds, sortColumn, sortDir, filterProcessingStatus, localStatusFilter, showLowMarket, lowMarketOnly, lowMarketAdIds, lowMarketObjectIds, lowMarketMap, lowMarketObjectMap]);
 
   // Пагинация по «родительским» строкам (объекты + самостоятельные объявления).
   // Раскрытые строки объявлений (expanded_ad) не учитываются в лимите страницы.
@@ -1467,7 +1681,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           .sort((a, b) => {
             const ta = new Date(a.updated || a.created || 0).getTime();
             const tb = new Date(b.updated || b.created || 0).getTime();
-            return tb - ta; // по убыванию даты обновления
+            return tb - ta;
           });
         setObjectAds(prev => new Map(prev).set(objectId, ads));
       }
@@ -1860,6 +2074,38 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     setToast({ message: 'Привязка отменена', type: 'success' });
   };
 
+  // Собираем id объявлений для выбранных строк: отдельно выбранные объявления +
+  // все объявления из выбранных объектов.
+  const collectSelectedAdIds = (): number[] => {
+    const ids = new Set<number>();
+    for (const id of selectedIds) {
+      const type = selectedTypes.get(id);
+      if (type === 'ad') {
+        ids.add(id);
+      } else if (type === 'object') {
+        for (const a of allAds) {
+          if (a.object_id === id && a.id != null) ids.add(a.id);
+        }
+      }
+    }
+    return [...ids].filter(id => {
+      const ad = allAds.find(a => a.id === id);
+      return ad?.address_id != null;
+    });
+  };
+
+  const handleUnlinkSelected = async () => {
+    const adIds = collectSelectedAdIds();
+    if (adIds.length === 0) return;
+    for (const id of adIds) {
+      await adsAddressService.unlinkAdFromAddress(id);
+    }
+    await loadData();
+    await loadStats();
+    setUnlinkSelectedConfirm(false);
+    setToast({ message: `Отвязано адресов: ${adIds.length}`, type: 'success' });
+  };
+
   const handleConfirmAd = async (adId: number) => {
     await adsAddressService.confirmAdAddress(adId);
     await loadData();
@@ -1955,9 +2201,19 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       await loadData();
       await loadStats();
       setToast({ message: 'Новый адрес создан и привязан', type: 'success' });
-    } else {
-      // Обновление списка адресов
-      setAddresses(prev => prev.map(a => a.id === savedAddr.id ? savedAddr : a));
+    }
+    // Универсально: добавить/обновить адрес в state
+    setAddresses(prev => prev.some(a => a.id === savedAddr.id)
+      ? prev.map(a => a.id === savedAddr.id ? savedAddr : a)
+      : [savedAddr, ...prev]);
+
+    // После добавления — полёт к новому адресу (триггерит moveend и перерисовку маркеров)
+    if (addressModalMode === 'create' && savedAddr.coordinates?.lat != null && savedAddr.coordinates?.lng != null) {
+      setFlyToTarget({
+        lat: savedAddr.coordinates.lat,
+        lon: savedAddr.coordinates.lng,
+        zoom: 17,
+      });
     }
   };
 
@@ -2016,6 +2272,62 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
     if (!startAvitoBatchUpdate(avitoAds, archiveDays)) {
       setToast({ message: 'Avito: актуализация уже запущена', type: 'info' });
+    }
+  };
+
+  /** Запустить batch-обновление только для выделенных объявлений.
+   *  Берём прямые выбранные объявления + все объявления из выбранных объектов,
+   *  фильтруем по критерию «требует обновления» и запускаем batch по источникам. */
+  const handleActualizeSelected = () => {
+    const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
+    const isActualizable = (ad: Ad) =>
+      ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
+
+    // Собираем id выбранных объявлений (включая все объявления выбранных объектов)
+    const targetIds = new Set<number>();
+    for (const id of selectedIds) {
+      const type = selectedTypes.get(id);
+      if (type === 'ad') {
+        targetIds.add(id);
+      } else if (type === 'object') {
+        for (const a of allAds) {
+          if (a.object_id === id && a.id != null) targetIds.add(a.id);
+        }
+      }
+    }
+
+    const cianAds: Ad[] = [];
+    const avitoAds: Ad[] = [];
+    let skippedOther = 0;
+    let skippedStale = 0;
+    for (const ad of allAds) {
+      if (ad.id == null || !targetIds.has(ad.id)) continue;
+      if (!isActualizable(ad)) { skippedStale++; continue; }
+      if (ad.url?.includes('cian.ru')) cianAds.push(ad);
+      else if (ad.url?.includes('avito.ru')) avitoAds.push(ad);
+      else skippedOther++;
+    }
+
+    const total = cianAds.length + avitoAds.length;
+    if (total === 0) {
+      const reason = skippedStale > 0
+        ? `Все выбранные актуальны (не старее ${archiveDays} дн.)`
+        : 'Среди выбранных нет объявлений CIAN/Avito';
+      setToast({ message: `Нечего обновлять. ${reason}`, type: 'info' });
+      return;
+    }
+
+    let started = 0;
+    if (cianAds.length > 0) {
+      if (startCianBatchUpdate(cianAds, archiveDays)) started++;
+      else setToast({ message: 'CIAN: актуализация уже запущена', type: 'info' });
+    }
+    if (avitoAds.length > 0) {
+      if (startAvitoBatchUpdate(avitoAds, archiveDays)) started++;
+      else setToast({ message: 'Avito: актуализация уже запущена', type: 'info' });
+    }
+    if (started > 0) {
+      setToast({ message: `Запущено обновление: ${cianAds.length} CIAN, ${avitoAds.length} Avito`, type: 'success' });
     }
   };
 
@@ -2169,6 +2481,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       localStorage.removeItem('ret_ads_excluded_address_ids');
     }
 
+    // Полигон сброшен — обязательно выключаем инвест-фильтр, иначе
+    // bulk-расчёт пойдёт по всей базе (через fallback на радиус) и повесит страницу.
+    if (!polygons || polygons.length === 0) {
+      setShowLowMarket(false);
+      setLowMarketOnly(false);
+      setShowLowMarketSettings(false);
+    }
+
     // Всегда пересчитываем адреса внутри полигона по текущей базе адресов
     if (polygons && polygons.length > 0 && addresses.length > 0) {
       const ids = new Set<number>();
@@ -2216,7 +2536,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   };
 
   // ─── Форматтеры ───
-  const toggleSort = (col: 'price' | 'created' | 'updated') => {
+  const toggleSort = (col: 'price' | 'created' | 'updated' | 'status') => {
     if (sortColumn === col) {
       if (sortDir === 'desc') setSortDir('asc');
       else { setSortColumn(null); setSortDir('desc'); }
@@ -2225,7 +2545,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       setSortDir('desc');
     }
   };
-  const sortIcon = (col: 'price' | 'created' | 'updated') => {
+  const sortIcon = (col: 'price' | 'created' | 'updated' | 'status') => {
     if (sortColumn !== col) return ' ↕';
     return sortDir === 'desc' ? ' ↓' : ' ↑';
   };
@@ -2252,14 +2572,24 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const exposureDays = o.created && o.updated
         ? Math.floor((new Date(o.updated).getTime() - new Date(o.created).getTime()) / 86400000)
         : createdDays;
+      const lowMarketObjPos = lowMarketObjectMap.get(id) ?? null;
+      const isLowMarketObj = lowMarketObjPos != null && lowMarketObjPos.isLowMarket;
       return (
-        <tr key={`obj-${id}`} className={`cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
+        <tr key={`obj-${id}`} className={`${isLowMarketObj ? 'bg-emerald-50 dark:bg-emerald-900/15' : ''} cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
           onClick={() => openObjectDetail(o)}>
           <td className="px-2 py-1.5"><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(id, 'object')} onClick={e => e.stopPropagation()} className="h-3 w-3 rounded border-zinc-300 text-blue-600" /></td>
           <td className="px-1 py-1.5"><button onClick={e => { e.stopPropagation(); quickFilter(row); }} className="text-zinc-400 hover:text-blue-600" title="Быстрый фильтр"><FunnelIcon className="size-3.5" /></button></td>
           <td className="px-2 py-1.5 text-xs">
             <div className="flex items-center gap-1 flex-nowrap">
               <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${o.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'}`}>{o.status === 'active' ? 'Активен' : 'Архив'}</span>
+              {isLowMarketObj && lowMarketObjPos && (
+                <span
+                  className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white shrink-0"
+                  title={`p${Math.round(lowMarketObjPos.percentileRank ?? 0)} · ${lowMarketObjPos.deltaToMedian != null ? (lowMarketObjPos.deltaToMedian > 0 ? '+' : '') + lowMarketObjPos.deltaToMedian + '%' : ''} к медиане · ${lowMarketObjPos.comparablesCount} аналогов`}
+                >
+                  {lowMarketObjPos.deltaToMedian != null ? `${lowMarketObjPos.deltaToMedian > 0 ? '+' : ''}${lowMarketObjPos.deltaToMedian}%` : 'Низ'}
+                </span>
+              )}
               {o.sale_deal && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 shrink-0">Продажа</span>}
               <button onClick={e => { e.stopPropagation(); toggleExpand(id); }} className="inline-flex items-center gap-0.5 text-[10px] text-zinc-600 dark:text-zinc-400 hover:text-blue-600 whitespace-nowrap">
                 <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
@@ -2302,10 +2632,12 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     const createdDays = daysAgo(a.created);
     const updatedDays = daysAgo(a.updated);
     const addrFromDb = a.address_id ? addresses.find(x => x.id === a.address_id)?.address : null;
+    const lowMarketPos = lowMarketMap.get(id) ?? null;
+    const isLowMarket = lowMarketPos != null && lowMarketPos.isLowMarket;
 
     return (
       <tr key={`ad-${id}${isChild ? '-child' : ''}`}
-        className={`${isChild ? 'bg-orange-50/40 dark:bg-orange-900/5' : ''} cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
+        className={`${isLowMarket ? 'bg-emerald-50 dark:bg-emerald-900/15' : isChild ? 'bg-orange-50/40 dark:bg-orange-900/5' : ''} cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors ${isSelected ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
         onClick={() => setDetailAd(a)}>
         {isChild && (
           <td className="px-2 py-1.5" colSpan={2}>
@@ -2320,6 +2652,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         )}
         <td className="px-2 py-1.5 text-xs space-y-0.5">
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${a.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'}`}>{a.status === 'active' ? 'Активен' : 'Архив'}</span>
+          {isLowMarket && lowMarketPos && (
+            <span
+              className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white"
+              title={`p${Math.round(lowMarketPos.percentileRank ?? 0)} · ${lowMarketPos.deltaToMedian != null ? (lowMarketPos.deltaToMedian > 0 ? '+' : '') + lowMarketPos.deltaToMedian + '%' : ''} к медиане · ${lowMarketPos.comparablesCount} аналогов`}
+            >
+              {lowMarketPos.deltaToMedian != null ? `${lowMarketPos.deltaToMedian > 0 ? '+' : ''}${lowMarketPos.deltaToMedian}%` : 'Низ'}
+            </span>
+          )}
           {!a.object_id && (
             <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Обработать на дубли</span>
           )}
@@ -3179,11 +3519,53 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
         {/* Action buttons + table */}
         <div className="rounded-xl bg-white shadow-sm dark:bg-zinc-900 overflow-hidden">
-          {/* Toolbar */}
-          <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700 px-4 py-2">
+          {/* Toolbar: слева — действия с выбранными, справа — фильтры и тогглы панелей */}
+          <div className="relative flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700 px-4 py-2 flex-wrap">
+            {/* Полоса загрузки по нижнему бордюру — пока идёт расчёт позиции на рынке */}
+            {lowMarketComputing && (
+              <div className="absolute bottom-[-1px] left-0 right-0 h-[2px] overflow-hidden pointer-events-none">
+                <div className="low-market-loading-bar h-full w-1/4 bg-gradient-to-r from-transparent via-emerald-500 to-transparent" />
+              </div>
+            )}
+            {/* ── Левая часть: действия ── */}
             <input type="checkbox" checked={pagedRows.length > 0 && selectedIds.size > 0} onChange={toggleSelectAll} className="h-3 w-3 rounded border-zinc-300 text-blue-600" title="Выбрать все на странице" />
             <button disabled={selectedIds.size === 0} onClick={handleMergeSelected} className="px-2 py-1 rounded text-[11px] font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 disabled:opacity-30 disabled:cursor-not-allowed">Объединить</button>
             <button disabled={selectedIds.size === 0 || ![...selectedTypes.values()].some(t => t === 'object')} onClick={handleSplitSelected} className="px-2 py-1 rounded text-[11px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed">Разбить</button>
+            {(() => {
+              const unlinkCount = collectSelectedAdIds().length;
+              if (!unlinkSelectedConfirm) {
+                return (
+                  <button
+                    disabled={unlinkCount === 0}
+                    onClick={() => setUnlinkSelectedConfirm(true)}
+                    className="px-2 py-1 rounded text-[11px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Отвязать адрес у выбранных объявлений (и у объявлений выбранных объектов)"
+                  >
+                    Отвязать адрес{unlinkCount > 0 ? ` (${unlinkCount})` : ''}
+                  </button>
+                );
+              }
+              return (
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-amber-700 dark:text-amber-400">Отвязать {unlinkCount}?</span>
+                  <button onClick={handleUnlinkSelected} className="px-2 py-1 rounded text-[10px] font-medium bg-amber-600 text-white hover:bg-amber-700">Да</button>
+                  <button onClick={() => setUnlinkSelectedConfirm(false)} className="px-2 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300">Нет</button>
+                </div>
+              );
+            })()}
+            <button
+              disabled={selectedIds.size === 0 || importTasks.some(t => (t.type === 'cian-update' || t.type === 'avito-update') && t.status === 'running')}
+              onClick={handleActualizeSelected}
+              className="px-2 py-1 rounded text-[11px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+              title="Запустить обновление (CIAN/Avito) для выбранных объявлений и объявлений выбранных объектов"
+            >
+              {importTasks.some(t => (t.type === 'cian-update' || t.type === 'avito-update') && t.status === 'running') ? (
+                <svg className="size-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+              ) : (
+                <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              )}
+              {importTasks.some(t => (t.type === 'cian-update' || t.type === 'avito-update') && t.status === 'running') ? 'Обновляется…' : 'Обновить'}
+            </button>
             {!deleteSelectedConfirm ? (
               <button disabled={selectedIds.size === 0} onClick={() => setDeleteSelectedConfirm(true)} className="px-2 py-1 rounded text-[11px] font-medium bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 hover:bg-red-100 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"><TrashIcon className="size-3" />Удалить</button>
             ) : (
@@ -3193,29 +3575,185 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <button onClick={() => setDeleteSelectedConfirm(false)} className="px-2 py-1 rounded text-[10px] font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300">Нет</button>
               </div>
             )}
-            {selectedIds.size > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400 ml-2">{selectedIds.size} выбрано</span>}
-            <div className="flex items-center gap-0.5 ml-2">
-              {(['all', 'active', 'archived'] as const).map(s => (
-                <button
-                  key={s}
-                  onClick={() => { setLocalStatusFilter(s); setPage(1); }}
-                  className={`px-2 py-1 rounded text-[10px] font-medium border ${
-                    localStatusFilter === s
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  {s === 'all' ? 'Все' : s === 'active' ? 'Активные' : 'Архив'}
-                </button>
-              ))}
-            </div>
+            {selectedIds.size > 0 && <span className="text-[10px] text-blue-600 dark:text-blue-400 ml-1">{selectedIds.size} выбрано</span>}
+
+            {/* ── Центральный разделитель ── */}
             <div className="flex-1" />
-            <label className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
-              <input type="checkbox" checked={showProcessingFilter} onChange={e => setShowProcessingFilter(e.target.checked)} className="h-3 w-3 rounded border-zinc-300 text-blue-600" />
-              Фильтр обработки
-            </label>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">{loading ? 'Загрузка...' : `Всего: ${topLevelRows.length}`}</span>
+
+            {/* ── Правая часть: фильтры таблицы ── */}
+            <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-zinc-200 dark:border-zinc-700">
+              <span className="text-[10px] text-zinc-400 dark:text-zinc-500 mr-0.5 hidden sm:inline">Статус:</span>
+              <div className="flex items-center gap-0.5">
+                {(['all', 'active', 'archived'] as const).map(s => (
+                  <button
+                    key={s}
+                    onClick={() => { setLocalStatusFilter(s); setPage(1); }}
+                    className={`px-2 py-1 rounded text-[10px] font-medium border ${
+                      localStatusFilter === s
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    {s === 'all' ? 'Все' : s === 'active' ? 'Активные' : 'Архив'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {showLowMarket && (
+              <div className="flex items-center gap-1 pl-2 ml-1 border-l border-zinc-200 dark:border-zinc-700">
+                <button
+                  onClick={() => { setLowMarketOnly(v => !v); setPage(1); }}
+                  className={`px-2 py-1 rounded text-[10px] font-medium border ${
+                    lowMarketOnly
+                      ? 'bg-emerald-700 text-white border-emerald-700 hover:bg-emerald-800'
+                      : 'border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                  }`}
+                  title="Показывать только объявления и объекты ниже порога рынка"
+                >
+                  Только низ
+                </button>
+                <button
+                  onClick={() => setShowLowMarketSettings(v => !v)}
+                  className={`px-1.5 py-1 rounded text-[10px] border ${
+                    showLowMarketSettings
+                      ? 'bg-zinc-200 dark:bg-zinc-700 border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-200'
+                      : 'border-zinc-300 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                  }`}
+                  title="Настройки анализа рынка"
+                >
+                  <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pl-2 ml-1 border-l border-zinc-200 dark:border-zinc-700">
+              <label
+                className={`flex items-center gap-1 text-[11px] cursor-pointer ${polygonsCoords && polygonsCoords.length > 0 ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-300 dark:text-zinc-600 cursor-not-allowed'}`}
+                title={polygonsCoords && polygonsCoords.length > 0 ? 'Включить инвест-фильтр' : 'Сначала нарисуйте полигон на карте'}
+              >
+                <input
+                  type="checkbox"
+                  checked={showLowMarket}
+                  disabled={!polygonsCoords || polygonsCoords.length === 0}
+                  onChange={e => {
+                    const v = e.target.checked;
+                    if (v && (!polygonsCoords || polygonsCoords.length === 0)) return;
+                    setShowLowMarket(v);
+                    if (!v) { setLowMarketOnly(false); setShowLowMarketSettings(false); }
+                  }}
+                  className="h-3 w-3 rounded border-zinc-300 text-emerald-600"
+                />
+                Инвест-фильтр
+              </label>
+              <label className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400 cursor-pointer">
+                <input type="checkbox" checked={showProcessingFilter} onChange={e => setShowProcessingFilter(e.target.checked)} className="h-3 w-3 rounded border-zinc-300 text-blue-600" />
+                Фильтр обработки
+              </label>
+            </div>
+
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap min-w-[70px] text-right pl-2 ml-1 border-l border-zinc-200 dark:border-zinc-700">
+              {loading ? '…' : `Всего: ${topLevelRows.length}`}
+            </span>
           </div>
+
+          {/* Панель настроек анализа рынка */}
+          {showLowMarket && showLowMarketSettings && (
+            <div className="border-b border-zinc-200 dark:border-zinc-700 bg-emerald-50/40 dark:bg-emerald-900/10 px-4 py-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Гео-фильтр</label>
+                  <select
+                    value={lowMarketOptions.usePolygonInsteadOfRadius ? 'polygon' : 'radius'}
+                    onChange={e => setLowMarketOptions(o => ({ ...o, usePolygonInsteadOfRadius: e.target.value === 'polygon' }))}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-white"
+                  >
+                    <option value="radius">Радиус {lowMarketOptions.radiusKm} км</option>
+                    <option value="polygon">Полигон карты{!polygonsCoords ? ' (нет)' : ''}</option>
+                  </select>
+                </div>
+                <div className={lowMarketOptions.usePolygonInsteadOfRadius ? 'opacity-40 pointer-events-none' : ''}>
+                  <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Радиус, км</label>
+                  <select
+                    value={lowMarketOptions.radiusKm}
+                    onChange={e => setLowMarketOptions(o => ({ ...o, radiusKm: Number(e.target.value) }))}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-white"
+                  >
+                    {[0.5, 1, 1.5, 2, 3, 5].map(r => <option key={r} value={r}>{r} км</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Порог: дешевле, чем</label>
+                  <select
+                    value={lowMarketOptions.lowMarketThreshold}
+                    onChange={e => setLowMarketOptions(o => ({ ...o, lowMarketThreshold: Number(e.target.value) }))}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-white"
+                  >
+                    {[5, 10, 15, 20, 25, 30].map(p => <option key={p} value={p}>{p}% аналогов</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Допуск площади</label>
+                  <select
+                    value={lowMarketOptions.areaTolerance}
+                    onChange={e => setLowMarketOptions(o => ({ ...o, areaTolerance: Number(e.target.value) }))}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-white"
+                  >
+                    {[0.05, 0.1, 0.15, 0.2, 0.25, 0.3].map(t => <option key={t} value={t}>{Math.round(t * 100)}%</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Минимум аналогов</label>
+                  <select
+                    value={lowMarketOptions.minComparables}
+                    onChange={e => setLowMarketOptions(o => ({ ...o, minComparables: Number(e.target.value) }))}
+                    className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-white"
+                  >
+                    {[3, 5, 8, 10, 15].map(n => <option key={n} value={n}>{n} объявлений</option>)}
+                  </select>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                    <input type="checkbox" checked={lowMarketOptions.useWallMaterial} onChange={e => setLowMarketOptions(o => ({ ...o, useWallMaterial: e.target.checked }))} className="h-3 w-3 rounded border-zinc-300 text-emerald-600" />
+                    Материал стен
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                    <input type="checkbox" checked={lowMarketOptions.useYearBuilt} onChange={e => setLowMarketOptions(o => ({ ...o, useYearBuilt: e.target.checked }))} className="h-3 w-3 rounded border-zinc-300 text-emerald-600" />
+                    Год постройки
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer" title="Сегментация по этажности: 1-4, 5, 6-9, 10-16, 17+ этажей">
+                    <input type="checkbox" checked={lowMarketOptions.useFloorsTotal} onChange={e => setLowMarketOptions(o => ({ ...o, useFloorsTotal: e.target.checked }))} className="h-3 w-3 rounded border-zinc-300 text-emerald-600" />
+                    Этажность
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer" title="У первых этажей структурный дисконт ~10% — они искажают медиану вниз. Для target на 1-м этаже фильтр отключается автоматически.">
+                    <input type="checkbox" checked={lowMarketOptions.excludeFirstFloor} onChange={e => setLowMarketOptions(o => ({ ...o, excludeFirstFloor: e.target.checked }))} className="h-3 w-3 rounded border-zinc-300 text-emerald-600" />
+                    Искл. 1 этаж
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer" title="Удалять выбросы (битые цены) через межквартильный размах перед расчётом перцентилей">
+                    <input type="checkbox" checked={lowMarketOptions.useIqrFilter} onChange={e => setLowMarketOptions(o => ({ ...o, useIqrFilter: e.target.checked }))} className="h-3 w-3 rounded border-zinc-300 text-emerald-600" />
+                    IQR-фильтр
+                  </label>
+                </div>
+                {lowMarketOptions.useYearBuilt && (
+                  <div>
+                    <label className="block text-[10px] font-medium text-zinc-600 dark:text-zinc-400 mb-1">Допуск года, лет</label>
+                    <select
+                      value={lowMarketOptions.yearTolerance}
+                      onChange={e => setLowMarketOptions(o => ({ ...o, yearTolerance: Number(e.target.value) }))}
+                      className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-white"
+                    >
+                      {[3, 5, 10, 15, 20, 25].map(y => <option key={y} value={y}>±{y} лет</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+              {lowMarketOptions.usePolygonInsteadOfRadius && !polygonsCoords && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2">⚠ Полигон не выделен на карте — будет использован радиус {lowMarketOptions.radiusKm} км.</p>
+              )}
+            </div>
+          )}
 
           {/* Pagination top */}
           <PaginationBar
@@ -3232,7 +3770,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                 <tr className="text-left text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                   <th className="px-2 py-2 w-6"></th>
                   <th className="px-1 py-2 w-6"></th>
-                  <th className="px-2 py-2 w-32">Статус</th>
+                  <th className="px-2 py-2 w-32 cursor-pointer select-none whitespace-nowrap hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => toggleSort('status')}>Статус{sortIcon('status')}</th>
                   <th className="px-2 py-2 w-24 cursor-pointer select-none whitespace-nowrap hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => toggleSort('created')}>Создано{sortIcon('created')}</th>
                   <th className="px-2 py-2 w-24 cursor-pointer select-none whitespace-nowrap hover:text-zinc-700 dark:hover:text-zinc-200" onClick={() => toggleSort('updated')}>Обновлено{sortIcon('updated')}</th>
                   <th className="px-2 py-2">Характеристики</th>
@@ -3264,6 +3802,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
         <AdDetailModal
           ad={detailAd}
           addresses={addresses}
+          comparableAds={showLowMarket ? baseFilteredAds : undefined}
+          marketOptions={showLowMarket ? lowMarketOptions : undefined}
+          polygonsCoords={polygonsCoords}
           referenceData={{
             wallMaterials: refWallMaterials,
             houseSeries: refHouseSeries,
@@ -3315,6 +3856,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
           obj={detailObject}
           listings={objectAds.get(detailObject.id!) || []}
           addresses={addresses}
+          comparableAds={showLowMarket ? baseFilteredAds : undefined}
+          marketOptions={showLowMarket ? lowMarketOptions : undefined}
+          polygonsCoords={polygonsCoords}
           dealsModuleActive={dealsModuleActive}
           onClose={() => setDetailObject(null)}
           onAdClick={(ad) => { setDetailObject(null); setDetailAd(ad); }}

@@ -23,6 +23,7 @@ import { addressSyncService } from '@/services/address-sync-service';
 import { adsAddressService } from '@/services/ads-address-service';
 import { REGION_CENTERS } from '@/constants/regions';
 import { getAddressesStats, getModules, type ModuleInfo } from '@/services/api-service';
+import { loadInparsToken, setInparsToken, checkSubscription } from '@/services/inpars-service';
 import { applyFilterToAds } from '@/services/ads-filter-utils';
 import SharePanel from './SharePanel';
 import S3PhotoArchiveCard from './S3PhotoArchiveCard';
@@ -128,9 +129,21 @@ const AdsSettingsPage: React.FC = () => {
 
   // Экспорт/Импорт
   const [exportMode, setExportMode] = useState<'data' | 'prompt'>('data');
+  const [exportScope, setExportScope] = useState<'filters' | 'full'>('filters');
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState('');
+  const [importProgress, setImportProgress] = useState<{ phase: string; processed: number; total: number } | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+
+  // Inpars API-ключ (для регионов с source_mode === 'inpars_direct')
+  const [inparsTokenInput, setInparsTokenInput] = useState('');
+  const [inparsTokenReady, setInparsTokenReady] = useState<boolean | null>(null);
+  const [inparsSubStatus, setInparsSubStatus] = useState('');
+  const [inparsSubOk, setInparsSubOk] = useState<boolean | null>(null);
+  const [inparsChecking, setInparsChecking] = useState(false);
+  const [inparsSaving, setInparsSaving] = useState(false);
+  const [inparsError, setInparsError] = useState('');
 
   // Сохранённые фильтры для экспорта
   const [savedFilters, setSavedFilters] = useState<ExportSavedFilter[]>([]);
@@ -340,6 +353,92 @@ const AdsSettingsPage: React.FC = () => {
     saveToStorage(STORAGE_KEY_SELECTED_SOURCES, []);
   }, []);
 
+  // === Inpars direct API key ===
+
+  // Проверка подписки Inpars (вызывается после загрузки и после сохранения токена)
+  const checkInparsSubscription = useCallback(async () => {
+    setInparsChecking(true);
+    setInparsError('');
+    try {
+      const token = await loadInparsToken();
+      setInparsTokenReady(!!token);
+      if (!token) {
+        setInparsSubStatus('');
+        setInparsSubOk(null);
+        return;
+      }
+      try {
+        const sub = await checkSubscription();
+        setInparsSubOk(sub.subscribed);
+        if (sub.subscribed) {
+          const expires = sub.expires_at ? new Date(sub.expires_at).toLocaleDateString('ru-RU') : '—';
+          setInparsSubStatus(`Подписка активна до ${expires}${sub.plan ? ` (${sub.plan})` : ''}`);
+        } else {
+          setInparsSubStatus('Подписка Inpars неактивна');
+        }
+      } catch (e) {
+        setInparsSubOk(false);
+        setInparsSubStatus(`Ошибка проверки: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } finally {
+      setInparsChecking(false);
+    }
+  }, []);
+
+  // При монтировании — загрузить сохранённый токен и проверить статус
+  useEffect(() => {
+    (async () => {
+      const token = await loadInparsToken();
+      setInparsTokenReady(!!token);
+      if (token) {
+        // Покажем маску: первые 4 символа + ***
+        setInparsTokenInput(token.length > 4 ? token.slice(0, 4) + '••••••' : '••••••');
+        await checkInparsSubscription();
+      }
+    })();
+  }, [checkInparsSubscription]);
+
+  // Регионы с прямым подключением (для подсказки о необходимости ключа)
+  const hasInparsDirectRegions = useMemo(
+    () => regions.some(r => r.source_mode === 'inpars_direct'),
+    [regions],
+  );
+
+  const handleSaveInparsToken = useCallback(async () => {
+    const trimmed = inparsTokenInput.trim();
+    // Не сохраняем маску — только реальный ключ
+    if (!trimmed || trimmed.includes('•')) {
+      setInparsError('Введите реальный API-ключ Inpars');
+      return;
+    }
+    setInparsSaving(true);
+    setInparsError('');
+    try {
+      setInparsToken(trimmed);
+      setInparsTokenReady(true);
+      setInparsTokenInput(trimmed.length > 4 ? trimmed.slice(0, 4) + '••••••' : '••••••');
+      await checkInparsSubscription();
+    } catch (e) {
+      setInparsError(`Не удалось сохранить: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setInparsSaving(false);
+    }
+  }, [inparsTokenInput, checkInparsSubscription]);
+
+  const handleClearInparsToken = useCallback(async () => {
+    setInparsToken('');
+    setInparsTokenReady(false);
+    setInparsTokenInput('');
+    setInparsSubStatus('');
+    setInparsSubOk(null);
+    setInparsError('');
+  }, []);
+
+  const handleReplaceToken = useCallback(() => {
+    setInparsTokenInput('');
+    setInparsError('');
+  }, []);
+
   // Загрузка сохранённых фильтров для экспорта
   useEffect(() => {
     (async () => {
@@ -387,6 +486,18 @@ const AdsSettingsPage: React.FC = () => {
 
   // Предпросмотр количества при выборе фильтров
   useEffect(() => {
+    // В режиме «Вся база» предпросмотр — это просто количество всех объявлений
+    if (exportScope === 'full') {
+      (async () => {
+        try {
+          const count = await db.table('ads').count();
+          setFilteredPreviewCount(count);
+        } catch {
+          setFilteredPreviewCount(null);
+        }
+      })();
+      return;
+    }
     if (selectedFilterIds.size === 0) {
       setFilteredPreviewCount(null);
       return;
@@ -406,10 +517,10 @@ const AdsSettingsPage: React.FC = () => {
         setFilteredPreviewCount(null);
       }
     })();
-  }, [selectedFilterIds, savedFilters]);
+  }, [selectedFilterIds, savedFilters, exportScope]);
 
   const handleExport = async () => {
-    if (selectedFilterIds.size === 0) {
+    if (exportScope === 'filters' && selectedFilterIds.size === 0) {
       alert('Выберите хотя бы один фильтр');
       return;
     }
@@ -417,22 +528,44 @@ const AdsSettingsPage: React.FC = () => {
     try {
       const allAds = await db.table('ads').toArray() as any[];
       const allAddresses = await db.table('ad_addresses').toArray() as any[];
-      const selectedFilters = savedFilters.filter(f => selectedFilterIds.has(f.id));
 
-      // Объединяем результаты всех выбранных фильтров
-      const combinedAdIds = new Set<number>();
-      for (const filter of selectedFilters) {
-        const filtered = applyFilterToAds(allAds, filter.state, allAddresses);
-        for (const ad of filtered) { if (ad.id) combinedAdIds.add(ad.id); }
+      let filteredAds: any[];
+      let exportFilters: { name: string; groupName: string | null; state?: Record<string, unknown> }[];
+
+      if (exportScope === 'full') {
+        // Полный экспорт — все объявления, все объекты, все фильтры (с состоянием)
+        filteredAds = allAds;
+        exportFilters = savedFilters.map(f => ({
+          name: f.name,
+          groupName: savedGroups.find(g => g.id === f.groupId)?.name || null,
+          state: f.state,
+        }));
+      } else {
+        const selectedFilters = savedFilters.filter(f => selectedFilterIds.has(f.id));
+        const combinedAdIds = new Set<number>();
+        for (const filter of selectedFilters) {
+          const filtered = applyFilterToAds(allAds, filter.state, allAddresses);
+          for (const ad of filtered) { if (ad.id) combinedAdIds.add(ad.id); }
+        }
+        filteredAds = allAds.filter(a => combinedAdIds.has(a.id));
+        exportFilters = selectedFilters.map(f => ({
+          name: f.name,
+          groupName: savedGroups.find(g => g.id === f.groupId)?.name || null,
+        }));
       }
 
-      const filteredAds = allAds.filter(a => combinedAdIds.has(a.id));
       const objectIds = new Set(filteredAds.map(a => a.object_id).filter(Boolean));
 
       // Загружаем объекты
-      const allObjects = objectIds.size > 0
-        ? (await db.table('ad_objects').where('id').anyOf([...objectIds]).toArray()) as any[]
-        : [];
+      let allObjects: any[];
+      if (exportScope === 'full') {
+        // В полном экспорте — все объекты из БД
+        allObjects = await db.table('ad_objects').toArray() as any[];
+      } else if (objectIds.size > 0) {
+        allObjects = (await db.table('ad_objects').where('id').anyOf([...objectIds]).toArray()) as any[];
+      } else {
+        allObjects = [];
+      }
 
       // Собираем ссылки на адреса (server_id + текст для поиска при импорте)
       const addressIds = new Set<number>();
@@ -445,14 +578,21 @@ const AdsSettingsPage: React.FC = () => {
       const data: Record<string, any> = {
         version: 2,
         exportedAt: new Date().toISOString(),
-        filters: selectedFilters.map(f => ({
-          name: f.name,
-          groupName: savedGroups.find(g => g.id === f.groupId)?.name || null,
-        })),
+        scope: exportScope,
+        filters: exportFilters,
         ads: filteredAds.map(a => { const { id, ...rest } = a; return { _local_id: id, ...rest }; }),
         objects: allObjects.map(o => { const { id, ...rest } = o; return { _local_id: id, ...rest }; }),
         address_refs: addressRefs,
       };
+
+      // В полном экспорте добавляем группы фильтров — для полноценного переноса
+      if (exportScope === 'full') {
+        data.filter_groups = savedGroups.map(g => ({
+          name: g.name,
+          color: g.color,
+          sortOrder: g.sortOrder,
+        }));
+      }
 
       if (exportMode === 'prompt') {
         data.prompt = LLM_PROMPT;
@@ -464,7 +604,8 @@ const AdsSettingsPage: React.FC = () => {
       const a = document.createElement('a');
       a.href = url;
       const date = new Date().toISOString().slice(0, 10);
-      a.download = `neocenka-data-${date}.json`;
+      const suffix = exportScope === 'full' ? '-full' : '';
+      a.download = `neocenka-data${suffix}-${date}.json`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -476,8 +617,14 @@ const AdsSettingsPage: React.FC = () => {
 
   const handleImport = async (file: File) => {
     setImportResult('');
+    setImporting(true);
+    setImportProgress({ phase: 'Чтение файла', processed: 0, total: 0 });
     try {
+      // Чанковое чтение и парсинг — позволяет UI обновляться
       const text = await file.text();
+      setImportProgress({ phase: 'Разбор JSON', processed: 0, total: 0 });
+      // Даём UI отрисовать прогресс перед тяжёлым парсингом
+      await new Promise(r => setTimeout(r, 0));
       const data = JSON.parse(text);
 
       if (!data.version || data.version < 1) {
@@ -490,7 +637,10 @@ const AdsSettingsPage: React.FC = () => {
       let skippedAds = 0;
       let unresolvedAddresses = 0;
 
-      // Строим маппинг address_ref._local_id → локальный address.id
+      // === Фаза 1: маппинг адресов ===
+      setImportProgress({ phase: 'Сопоставление адресов', processed: 0, total: data.address_refs?.length || 0 });
+      await new Promise(r => setTimeout(r, 0));
+
       const addressRefMap = new Map<number, number>();
       if (data.address_refs && Array.isArray(data.address_refs)) {
         const existingAddresses = await db.table('ad_addresses').toArray() as any[];
@@ -501,7 +651,8 @@ const AdsSettingsPage: React.FC = () => {
           if (a.address) byAddrText.set(a.address.toLowerCase().trim(), a);
         }
 
-        for (const ref of data.address_refs) {
+        for (let i = 0; i < data.address_refs.length; i++) {
+          const ref = data.address_refs[i];
           const existing = (ref.server_id && byServerId.get(ref.server_id))
             || (ref.address && byAddrText.get(ref.address.toLowerCase().trim()));
           if (existing) {
@@ -509,64 +660,115 @@ const AdsSettingsPage: React.FC = () => {
           } else {
             unresolvedAddresses++;
           }
+          if (i % 1000 === 0) {
+            setImportProgress({ phase: 'Сопоставление адресов', processed: i, total: data.address_refs.length });
+            await new Promise(r => setTimeout(r, 0));
+          }
         }
       }
 
-      // Импорт объектов
+      // === Фаза 2: импорт объектов через bulkAdd (одна транзакция на батч) ===
       const objectIdMap = new Map<number, number>();
-      if (data.objects && Array.isArray(data.objects)) {
+      if (data.objects && Array.isArray(data.objects) && data.objects.length > 0) {
+        setImportProgress({ phase: 'Подготовка объектов', processed: 0, total: data.objects.length });
+        await new Promise(r => setTimeout(r, 0));
+
         const existingObjects = await db.table('ad_objects').toArray();
         const objKey = (o: any) => {
           const aid = addressRefMap.get(o.address_id) || o.address_id;
           return `${aid}_${o.property_type}_${o.area_total}`;
         };
-        const existingObjKeys = new Set(existingObjects.map(o => objKey(o)));
+        // Map для O(1) поиска существующих объектов
+        const existingObjByKey = new Map<string, any>();
+        for (const o of existingObjects) {
+          existingObjByKey.set(objKey(o), o);
+        }
 
-        for (const obj of data.objects) {
-          const { _local_id, ...fields } = obj;
+        const toAdd: any[] = [];
+        for (let i = 0; i < data.objects.length; i++) {
+          const { _local_id, ...fields } = data.objects[i];
           delete fields.id;
-
-          // Перемаппить address_id через refs
           if (fields.address_id && addressRefMap.has(fields.address_id)) {
             fields.address_id = addressRefMap.get(fields.address_id)!;
           }
-
           const key = objKey(fields);
-          if (existingObjKeys.has(key)) {
-            const existing = existingObjects.find(o => objKey(o) === key);
-            if (existing) objectIdMap.set(_local_id, existing.id!);
+          const existing = existingObjByKey.get(key);
+          if (existing) {
+            objectIdMap.set(_local_id, existing.id!);
             skippedObjects++;
           } else {
-            const newId = await db.table('ad_objects').add(fields);
-            objectIdMap.set(_local_id, newId as number);
-            importedObjects++;
+            toAdd.push({ _local_id, fields });
+          }
+          if (i % 5000 === 0) {
+            setImportProgress({ phase: 'Подготовка объектов', processed: i, total: data.objects.length });
+            await new Promise(r => setTimeout(r, 0));
+          }
+        }
+
+        // Bulk insert одним батчем
+        if (toAdd.length > 0) {
+          setImportProgress({ phase: 'Запись объектов в БД', processed: 0, total: toAdd.length });
+          await new Promise(r => setTimeout(r, 0));
+          // Чанками по 5000, чтобы держать транзакцию короткой
+          const CHUNK = 5000;
+          for (let i = 0; i < toAdd.length; i += CHUNK) {
+            const slice = toAdd.slice(i, i + CHUNK);
+            const newIds: number[] = await db.transaction('rw', db.table('ad_objects'), async () => {
+              const ids = await db.table('ad_objects').bulkAdd(slice.map(x => x.fields), { allKeys: true });
+              return ids as number[];
+            });
+            for (let j = 0; j < slice.length; j++) {
+              objectIdMap.set(slice[j]._local_id, newIds[j]);
+            }
+            importedObjects += slice.length;
+            setImportProgress({ phase: 'Запись объектов в БД', processed: Math.min(i + CHUNK, toAdd.length), total: toAdd.length });
+            await new Promise(r => setTimeout(r, 0));
           }
         }
       }
 
-      // Импорт объявлений
-      if (data.ads && Array.isArray(data.ads)) {
+      // === Фаза 3: импорт объявлений через bulkAdd ===
+      if (data.ads && Array.isArray(data.ads) && data.ads.length > 0) {
+        setImportProgress({ phase: 'Подготовка объявлений', processed: 0, total: data.ads.length });
+        await new Promise(r => setTimeout(r, 0));
+
         const existingAds = await db.table('ads').toArray();
         const adKeys = new Set(existingAds.map(a => `${a.source}__${a.external_id}`));
 
-        for (const ad of data.ads) {
-          const { _local_id, ...fields } = ad;
+        const toAdd: any[] = [];
+        for (let i = 0; i < data.ads.length; i++) {
+          const { _local_id, ...fields } = data.ads[i];
           delete fields.id;
-
-          // Перемаппить object_id и address_id
           if (fields.object_id && objectIdMap.has(fields.object_id)) {
             fields.object_id = objectIdMap.get(fields.object_id)!;
           }
           if (fields.address_id && addressRefMap.has(fields.address_id)) {
             fields.address_id = addressRefMap.get(fields.address_id)!;
           }
-
           const key = `${fields.source}__${fields.external_id}`;
           if (adKeys.has(key)) {
             skippedAds++;
           } else {
-            await db.table('ads').add(fields);
-            importedAds++;
+            toAdd.push(fields);
+          }
+          if (i % 5000 === 0) {
+            setImportProgress({ phase: 'Подготовка объявлений', processed: i, total: data.ads.length });
+            await new Promise(r => setTimeout(r, 0));
+          }
+        }
+
+        if (toAdd.length > 0) {
+          setImportProgress({ phase: 'Запись объявлений в БД', processed: 0, total: toAdd.length });
+          await new Promise(r => setTimeout(r, 0));
+          const CHUNK = 5000;
+          for (let i = 0; i < toAdd.length; i += CHUNK) {
+            const slice = toAdd.slice(i, i + CHUNK);
+            await db.transaction('rw', db.table('ads'), async () => {
+              await db.table('ads').bulkAdd(slice);
+            });
+            importedAds += slice.length;
+            setImportProgress({ phase: 'Запись объявлений в БД', processed: Math.min(i + CHUNK, toAdd.length), total: toAdd.length });
+            await new Promise(r => setTimeout(r, 0));
           }
         }
       }
@@ -578,6 +780,9 @@ const AdsSettingsPage: React.FC = () => {
       setImportResult(`Импортировано: ${parts.join(', ')}`);
     } catch (e) {
       setImportResult(`Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -769,6 +974,102 @@ const AdsSettingsPage: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Прямое подключение к Inpars */}
+        {(hasInparsDirectRegions || inparsTokenReady) && (
+          <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Прямое подключение к Inpars
+              </h2>
+              <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                Inpars API
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Для регионов с прямым подключением расширение обращается напрямую к API Inpars
+              от вашего имени. Это дешевле, но требует собственного API-ключа и активной подписки Inpars.
+              Ключ хранится только локально (chrome.storage) и не передаётся на сервер Неоценка.
+            </p>
+
+            {/* Подсказка, если таких регионов нет, но ключ сохранён */}
+            {!hasInparsDirectRegions && inparsTokenReady && (
+              <p className="text-[11px] text-zinc-400">
+                У вас нет регионов с прямым подключением — ключ сейчас не используется.
+              </p>
+            )}
+
+            {/* Поле ввода ключа */}
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                API-ключ Inpars
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={inparsTokenInput}
+                  onChange={(e) => setInparsTokenInput(e.target.value)}
+                  placeholder="Введите access-token из личного кабинета Inpars"
+                  className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-2 text-sm text-zinc-900 dark:text-white font-mono"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {inparsTokenReady && (
+                  <button
+                    onClick={handleReplaceToken}
+                    className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-600"
+                  >
+                    Заменить
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleSaveInparsToken}
+                  disabled={inparsSaving || !inparsTokenInput.trim() || inparsTokenInput.includes('•')}
+                  className="rounded-md bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {inparsSaving ? 'Сохранение...' : 'Сохранить ключ'}
+                </button>
+                {inparsTokenReady && (
+                  <button
+                    onClick={handleClearInparsToken}
+                    className="rounded-md border border-red-200 dark:border-red-800 bg-white dark:bg-zinc-700 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                    Удалить
+                  </button>
+                )}
+                {inparsTokenReady && (
+                  <button
+                    onClick={checkInparsSubscription}
+                    disabled={inparsChecking}
+                    className="rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-600 disabled:opacity-50"
+                  >
+                    {inparsChecking ? 'Проверка...' : 'Проверить подписку'}
+                  </button>
+                )}
+              </div>
+
+              {inparsError && (
+                <p className="text-xs text-red-600 dark:text-red-400">{inparsError}</p>
+              )}
+
+              {/* Статус подписки */}
+              {inparsTokenReady && inparsSubStatus && (
+                <div
+                  className={`rounded-md border p-2 text-xs ${
+                    inparsSubOk
+                      ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
+                      : 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
+                  }`}
+                >
+                  {inparsSubStatus}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Адресная база — синхронизация */}
         <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
@@ -1073,12 +1374,46 @@ const AdsSettingsPage: React.FC = () => {
             Адреса и сделки Росреестра должны быть загружены в целевом расширении до импорта.
           </p>
 
+          {/* Область экспорта: По фильтрам / Вся база */}
+          <div className="space-y-2">
+            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase">Что выгружать</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setExportScope('filters')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  exportScope === 'filters'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                }`}
+              >
+                По выбранным фильтрам
+              </button>
+              <button
+                onClick={() => setExportScope('full')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  exportScope === 'full'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                }`}
+                title="Все объявления и объекты из локальной базы, включая без адреса. Подходит для переноса данных между расширениями."
+              >
+                Всю базу
+              </button>
+            </div>
+            {exportScope === 'full' && (
+              <p className="text-[10px] text-zinc-400">
+                Выгружаются все объявления, объекты и фильтры из локальной базы (включая без адреса).
+                Используйте для полного переноса данных в новое расширение.
+              </p>
+            )}
+          </div>
+
           {/* Список сохранённых фильтров */}
-          {savedFilters.length === 0 ? (
+          {exportScope === 'filters' && savedFilters.length === 0 ? (
             <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3 text-xs text-zinc-500 dark:text-zinc-400 text-center">
               Нет сохранённых фильтров. Создайте фильтры на странице поиска объявлений.
             </div>
-          ) : (
+          ) : exportScope === 'filters' && (
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {/* Фильтры без группы */}
               {savedFilters
@@ -1164,12 +1499,18 @@ const AdsSettingsPage: React.FC = () => {
           )}
 
           {/* Выбрано / Предпросмотр */}
-          {selectedFilterIds.size > 0 && (
+          {exportScope === 'filters' && selectedFilterIds.size > 0 && (
             <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
               <span>Выбрано фильтров: {selectedFilterIds.size}</span>
               {filteredPreviewCount !== null && (
                 <span>Найдено объявлений: {filteredPreviewCount.toLocaleString('ru-RU')}</span>
               )}
+            </div>
+          )}
+          {exportScope === 'full' && filteredPreviewCount !== null && (
+            <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+              <span>Будут выгружены все данные</span>
+              <span>Всего объявлений: {filteredPreviewCount.toLocaleString('ru-RU')}</span>
             </div>
           )}
 
@@ -1209,7 +1550,7 @@ const AdsSettingsPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={handleExport}
-              disabled={selectedFilterIds.size === 0 || exporting}
+              disabled={(exportScope === 'filters' && selectedFilterIds.size === 0) || exporting || importing}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {exporting ? (
@@ -1229,10 +1570,18 @@ const AdsSettingsPage: React.FC = () => {
             </button>
             <button
               onClick={() => importRef.current?.click()}
-              className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2"
+              disabled={importing}
+              className="rounded-md bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              Импорт
+              {importing ? (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              ) : (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+              )}
+              {importing ? 'Импорт...' : 'Импорт'}
             </button>
             <input
               ref={importRef}
@@ -1249,6 +1598,39 @@ const AdsSettingsPage: React.FC = () => {
               <span className="text-xs text-green-600 dark:text-green-400">{importResult}</span>
             )}
           </div>
+
+          {/* Прогресс импорта */}
+          {importProgress && (
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-3 space-y-2">
+              <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300">
+                <span className="font-medium flex items-center gap-2">
+                  <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  {importProgress.phase}
+                </span>
+                {importProgress.total > 0 && (
+                  <span className="tabular-nums">
+                    {importProgress.processed.toLocaleString('ru-RU')} / {importProgress.total.toLocaleString('ru-RU')}
+                  </span>
+                )}
+              </div>
+              {importProgress.total > 0 && (
+                <div className="h-1.5 bg-blue-100 dark:bg-blue-900 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-200"
+                    style={{ width: `${Math.min(100, (importProgress.processed / importProgress.total) * 100)}%` }}
+                  />
+                </div>
+              )}
+              {importProgress.total === 0 && (
+                <p className="text-[10px] text-blue-600 dark:text-blue-400">
+                  Это может занять некоторое время для больших файлов. Не закрывайте окно.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Поделиться фильтром по ссылке */}

@@ -1,6 +1,6 @@
 {
   "name": "neocenka",
-  "version": "1.4.0",
+  "version": "1.7.0",
   "description": "Анализ сделок с недвижимостью",
   "type": "module",
   "scripts": {

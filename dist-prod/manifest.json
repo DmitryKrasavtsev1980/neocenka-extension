@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Неоценка",
-  "version": "1.4.0",
+  "version": "1.7.0",
   "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
@@ -13,6 +13,9 @@
   "host_permissions": [
     "https://neocenka.ru/*",
     "https://nominatim.openstreetmap.org/*",
+    "https://suggestions.dadata.ru/*",
+    "https://2gis.ru/*",
+    "https://*.2gis.ru/*",
     "https://*.cian.ru/*",
     "https://images.cdn-cian.ru/*",
     "https://*.avito.ru/*",

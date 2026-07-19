@@ -3,6 +3,8 @@
  * Обрабатывает chrome.scripting.executeScript вызовы от UI-страниц
  */
 
+import { extractBuildingLink, parseBuildingCard } from './2gis-parser';
+
 // Установка / обновление расширения
 chrome.runtime.onInstalled.addListener((details) => {
   const version = chrome.runtime.getManifest().version;
@@ -936,23 +938,36 @@ function parseAvitoHydrationData(pageData: {
     if (ppmText) result.pricePerMeter = parseInt(ppmText, 10);
   }
 
-  // 4. Фото
+  // 4. Фото — извлекаем полные URL из galleryInfo.media
+  // Avito отдаёт media[] с объектом images по размерам: { "896x592": "//staticavito..", "1280x960": "..." }
+  // Берём максимальный доступный размер; если size-ключей нет — fallback на defaultUrl.
+  // Старый fallback https://XX.img.avito.st/image/1/<id> удалён: Avito сменил схему CDN,
+  // и конструированные URL возвращают 400/404.
   const media = galleryInfo.media || [];
   const seenPhotoIds = new Set<string>();
   for (const m of media) {
+    if (!m) continue;
     const images = m.images || {};
-    const url = images['1280x960'] || images['640x480'] || m.defaultUrl || '';
-    if (!url) continue;
-    const idMatch = url.match(/\/img\/(\d+)/) || url.match(/\/(\d{10,})/);
-    const photoId = idMatch ? idMatch[1] : url.split('?')[0];
+    // Собираем все size-ключи вида "WxH" с непустым значением, сортируем по убыванию площади
+    const sizeKeys = Object.keys(images)
+      .filter(k => /^\d+x\d+$/.test(k) && images[k])
+      .sort((a, b) => {
+        const [aw, ah] = a.split('x').map(Number);
+        const [bw, bh] = b.split('x').map(Number);
+        return (bw * bh) - (aw * ah);
+      });
+    const rawUrl = sizeKeys.length > 0 ? images[sizeKeys[0]] : (m.defaultUrl || '');
+    if (!rawUrl || typeof rawUrl !== 'string') continue;
+    // Нормализуем протокол (Avito часто отдаёт protocol-relative URL: //staticavito...)
+    const fullUrl = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl;
+    // Дедупликация по ID фото
+    const idMatch = fullUrl.match(/\/img\/(\d+)/)
+      || fullUrl.match(/\/(\d{10,})/)
+      || fullUrl.match(/\/([^/?]+)$/);
+    const photoId = idMatch ? idMatch[1] : fullUrl.split('?')[0];
     if (seenPhotoIds.has(photoId)) continue;
     seenPhotoIds.add(photoId);
-    result.photos.push(url);
-  }
-  if (result.photos.length === 0 && Array.isArray(item.images)) {
-    for (const imgId of item.images) {
-      result.photos.push(`https://60.img.avito.st/image/1/${imgId}`);
-    }
+    result.photos.push(fullUrl);
   }
 
   // 5. Дата публикации
@@ -1667,8 +1682,137 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  // ─── Загрузка данных о здании из 2ГИС ───────────────────────────
+  // Открывает фоновую вкладку с поиском 2ГИС, находит ссылку на карточку здания,
+  // переходит на карточку, парсит данные, закрывает вкладку и возвращает результат.
+  if (message.type === 'FETCH_2GIS_BUILDING_DATA') {
+    const { city, address } = message as { city: string; address: string };
+    console.log(`[2GIS] FETCH_2GIS_BUILDING_DATA: city=${city}, address=${address}`);
+
+    let responded = false;
+    const safeRespond = (msg: unknown) => {
+      if (responded) return;
+      responded = true;
+      try { sendResponse(msg); } catch { /* channel closed */ }
+    };
+
+    const searchUrl = `https://2gis.ru/${city}/search/${encodeURIComponent(address)}`;
+    let tabId: number | null = null;
+
+    const cleanup = async () => {
+      if (tabId != null) {
+        try { await chrome.tabs.remove(tabId); } catch { /* ignore */ }
+      }
+    };
+
+    // Открываем фоновую вкладку
+    chrome.tabs.create({ url: searchUrl, active: false }).then(async (tab) => {
+      tabId = tab.id!;
+      console.log(`[2GIS] Открыта вкладка ${tabId}: ${searchUrl}`);
+
+      // Ждём, пока вкладка достигнет статуса complete
+      await waitForTabComplete(tabId, 20000).catch(() => {});
+
+      // Polling: ищем building link (SPA рендерит асинхронно)
+      let buildingUrl: string | null = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        try {
+          const res = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: extractBuildingLink,
+          });
+          if (res && res.length > 0 && res[0].result) {
+            buildingUrl = res[0].result as string;
+            break;
+          }
+        } catch (err) {
+          console.log(`[2GIS] Попытка ${attempt + 1} не удалась:`, err);
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
+      if (!buildingUrl) {
+        console.log(`[2GIS] Здание не найдено по адресу: ${address}`);
+        await cleanup();
+        safeRespond({ success: false, error: 'Здание не найдено в 2ГИС по этому адресу' });
+        return;
+      }
+
+      console.log(`[2GIS] Найдена карточка: ${buildingUrl}`);
+      // Переходим на карточку здания
+      await chrome.tabs.update(tabId, { url: buildingUrl });
+      await waitForTabComplete(tabId, 20000).catch(() => {});
+
+      // Ждём ещё 2 сек для гарантированного рендера SSR
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Парсим карточку
+      let parsed: ReturnType<typeof parseBuildingCard> | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const res = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: parseBuildingCard,
+          });
+          if (res && res.length > 0 && res[0].result) {
+            parsed = res[0].result as ReturnType<typeof parseBuildingCard>;
+            // ждём пока появятся минимум этажи или год
+            if (parsed.floors_count || parsed.build_year) break;
+          }
+        } catch (err) {
+          console.log(`[2GIS] Parse попытка ${attempt + 1} не удалась:`, err);
+        }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+
+      await cleanup();
+
+      if (!parsed) {
+        safeRespond({ success: false, error: 'Не удалось прочитать данные карточки здания' });
+        return;
+      }
+
+      console.log(`[2GIS] Спарсено:`, parsed);
+      safeRespond({ success: true, data: parsed });
+    }).catch(async (err) => {
+      await cleanup();
+      safeRespond({ success: false, error: err.message || String(err) });
+    });
+
+    return true;
+  }
+
   return false;
 });
+
+/**
+ * Ждёт, пока вкладка достигнет статуса complete.
+ * Резолвится при complete, rejects по таймауту.
+ */
+function waitForTabComplete(tabId: number, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const check = () => {
+      chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (tab.status === 'complete') {
+          resolve();
+          return;
+        }
+        if (Date.now() - start > timeoutMs) {
+          reject(new Error('Tab load timeout'));
+          return;
+        }
+        setTimeout(check, 300);
+      });
+    };
+    check();
+  });
+}
+
 
 // Импорт функций для работы с БД
 async function getDatabaseStats() {

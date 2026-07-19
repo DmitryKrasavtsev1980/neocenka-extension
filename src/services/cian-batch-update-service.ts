@@ -300,9 +300,22 @@ export async function batchUpdateCianAds(
           needFullParse.push(ad);
           progress.changed = needFullParse.length;
         } else {
-          // Без изменений — обновляем только parsed_at
-          await adsRepository.update(ad.id!, { parsed_at: new Date().toISOString() });
+          // Данные на CIAN не изменились.
+          // parsed_at — когда последний раз проверяли.
+          // updated для active — когда последний раз подтвердили, что объявление ещё активное
+          // (после архивации даст дату последнего подтверждения активности).
+          // Для archived updated не трогаем — там остаётся последняя подтверждённая активная дата.
+          const updates: Partial<Ad> = { parsed_at: new Date().toISOString() };
+          const bumpedUpdated = ad.status === 'active';
+          if (bumpedUpdated) {
+            updates.updated = new Date().toISOString();
+          }
+          await adsRepository.update(ad.id!, updates);
           result.unchanged++;
+          // Если updated сдвинулся — нужно пересчитать объект, чтобы его updated тоже обновился
+          if (bumpedUpdated && ad.object_id) {
+            await recalculateObject(ad.object_id);
+          }
         }
       } catch {
         // Ошибка — ставим в очередь на полный парсинг

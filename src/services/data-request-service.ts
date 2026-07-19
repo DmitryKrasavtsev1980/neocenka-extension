@@ -41,6 +41,9 @@ export interface RegionAdmin {
   title: string | null;
   name: string | null;
   parent_id: number | null;
+  region_code?: string | null;
+  /** Режим получения данных: server | inpars_direct | server_custom */
+  source_mode?: 'server' | 'inpars_direct' | 'server_custom';
 }
 
 export interface CategoryAdmin {

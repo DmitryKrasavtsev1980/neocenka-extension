@@ -232,10 +232,13 @@ export async function actualizeCianAd(ad: Ad): Promise<ActualizeResult> {
     }
 
     // 7. Добавляем новые фото (сравнение по ID фото из URL)
-    // CIAN URL формат: images.cdn-cian.ru/images/{ID}-{suffix}.jpg
-    // ID — уникальный идентификатор фото, суффикс (-1, -2) — размер
+    // CIAN URL форматы:
+    //   старый:  images.cdn-cian.ru/images/{ID}-{suffix}.jpg        (например: /images/2857424087-1.jpg)
+    //   новый:   images.cdn-cian.ru/images/{slug}-{ID}-{suffix}.jpg  (например: /images/kvartira-akademgorodok-...-2538842384-1.jpg)
+    // ID — числовой идентификатор фото, суффикс (-1, -2) — размер/превью
     const extractPhotoId = (url: string): string | null => {
-      const match = url.match(/\/images\/(\d+)-/);
+      // Берём последние «{digits}-{digits}.jpg» — это ID + суффикс размера
+      const match = url.match(/(\d+)-\d+\.(?:jpg|jpeg|png|webp)/i);
       return match ? match[1] : url.split('?')[0]; // fallback на полный URL без query
     };
     const existingPhotoIds = new Set((ad.photos || []).map(p => extractPhotoId(p)));

@@ -20,6 +20,8 @@ import { getMapConfig, createTileLayer } from '@/services/map-config';
 import { actualizeCianAd } from '@/services/cian-update-service';
 import { actualizeAvitoAd } from '@/services/avito-update-service';
 import { useArchivedPhotos } from '@/hooks/useArchivedPhotos';
+import { calculateMarketPosition, type MarketPosition, type MarketStatsOptions } from '@/services/market-stats-service';
+import MarketPositionWidget from '@/components/MarketPositionWidget';
 
 const SELLER_TYPE_LABELS: Record<string, string> = {
   owner: 'Собственник', agent: 'Агент', developer: 'Застройщик',
@@ -73,6 +75,9 @@ const fmtDate = (date: string | null): string => {
 interface AdDetailModalProps {
   ad: Ad;
   addresses: AdAddress[];
+  comparableAds?: Ad[];
+  marketOptions?: MarketStatsOptions;
+  polygonsCoords?: [number, number][][] | null;
   referenceData: {
     wallMaterials: ReferenceItem[];
     houseSeries: ReferenceItem[];
@@ -91,6 +96,9 @@ interface AdDetailModalProps {
 const AdDetailModal: React.FC<AdDetailModalProps> = ({
   ad: initialAd,
   addresses,
+  comparableAds,
+  marketOptions,
+  polygonsCoords,
   referenceData,
   onClose,
   onSave,
@@ -139,6 +147,22 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
   const currentAddress = ad.address_id
     ? addresses.find(a => a.id === ad.address_id)
     : null;
+
+  // Расчёт позиции на рынке относительно соседних объявлений
+  const marketPosition: MarketPosition = useMemo(() => {
+    if (!comparableAds || comparableAds.length === 0) {
+      return {
+        percentileRank: null,
+        isLowMarket: false,
+        deltaToMedian: null,
+        percentiles: null,
+        pricePerMeter: ad.price_per_meter ?? null,
+        comparablesCount: 0,
+        reason: 'too_few_comps',
+      };
+    }
+    return calculateMarketPosition(ad, comparableAds, addresses, marketOptions, polygonsCoords);
+  }, [ad, comparableAds, addresses, marketOptions, polygonsCoords]);
 
   // Координаты адреса и объявления (принудительно к number, защита от строк в JSON)
   const toNum = (v: unknown): number | null => {
@@ -423,6 +447,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
           address_match_method: null,
           address_match_score: null,
           address_distance: null,
+          processing_status: 'address_needed',
         };
         setAd(updated);
         onSave?.(updated);
@@ -461,6 +486,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
         address_match_method: null,
         address_match_score: null,
         address_distance: null,
+        processing_status: 'address_needed',
       };
       setAd(updated);
       setSelectedAddressId('');
@@ -699,6 +725,11 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
             <div className="text-lg font-semibold text-green-700 dark:text-green-400">{fmtPrice(ad.price)} ₽</div>
             {ad.price_per_meter != null && <div className="text-xs text-green-600 dark:text-green-500">{ad.price_per_meter.toLocaleString('ru-RU')} ₽/м²</div>}
           </div>
+
+          {/* Виджет «Позиция на рынке» */}
+          {comparableAds && comparableAds.length > 0 && (
+            <MarketPositionWidget position={marketPosition} />
+          )}
 
           {/* График цены */}
           {priceChartData.length > 0 && (

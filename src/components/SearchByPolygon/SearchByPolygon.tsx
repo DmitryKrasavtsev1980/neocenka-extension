@@ -59,6 +59,7 @@ import type { Feature, Polygon as TurfPolygon } from 'geojson';
 import { CadastralQuarter } from '../../types';
 import type { AdAddress, ReferenceItem } from '../../types';
 import { getMapConfig, createTileLayer } from '../../services/map-config';
+import { reverseGeocodeAddress } from '../../services/dadata-service';
 import './SearchByPolygon.css';
 
 // ─── Константы маркеров ───
@@ -141,6 +142,11 @@ interface SearchByPolygonProps {
   }>;
   onAdWithoutAddressClick?: (adId: number) => void;
   onAddressCreate?: (lat: number, lng: number) => void;
+  /**
+   * Включить слой «Кадастровые кварталы» по умолчанию (и выключить «Адреса»).
+   * Используется в модуле Росреестра, где адресов нет.
+   */
+  defaultShowQuarters?: boolean;
 }
 
 const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
@@ -162,6 +168,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   adsWithoutAddress,
   onAdWithoutAddressClick,
   onAddressCreate,
+  defaultShowQuarters,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -236,6 +243,8 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   addressCreateModeRef.current = addressCreateMode;
   const onAddressCreateRef = useRef(onAddressCreate);
   onAddressCreateRef.current = onAddressCreate;
+  const defaultShowQuartersRef = useRef(defaultShowQuarters);
+  defaultShowQuartersRef.current = defaultShowQuarters;
 
   // ─── Построение мапов справочников из пропсов ───
   useEffect(() => {
@@ -848,15 +857,11 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         return;
       }
     }
-    // Fallback: Nominatim обратное геокодирование
+    // Fallback: Dadata обратное геокодирование
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ru`,
-        { headers: { 'User-Agent': 'NeocenkaExtension/1.0' } }
-      );
-      const data = await res.json();
-      if (data.display_name) {
-        setAddressQuery(data.display_name);
+      const addressText = await reverseGeocodeAddress(lat, lng);
+      if (addressText) {
+        setAddressQuery(addressText);
       }
     } catch { /* ignore */ }
   }, []);
@@ -975,26 +980,49 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     map.addLayer(drawnItems);
     drawnItemsRef.current = drawnItems;
 
-    // Слой для кадастровых кварталов (выключен по умолчанию)
+    // Слой для кадастровых кварталов (включён по умолчанию в модуле Росреестра)
     const quarterLayerGroup = L.layerGroup();
     quarterLayerGroupRef.current = quarterLayerGroup;
 
-    // Слой для адресных маркеров (включён по умолчанию)
+    // Слой для адресных маркеров (включён по умолчанию в модуле Объявлений)
     const addressLayerGroup = L.layerGroup();
     addressLayerGroupRef.current = addressLayerGroup;
-    map.addLayer(addressLayerGroup);
 
     // Слой для объявлений без адреса (выключен по умолчанию)
     const adsNoAddrLayerGroup = L.layerGroup();
     adsNoAddrLayerGroupRef.current = adsNoAddrLayerGroup;
 
-    // Управление слоями (порядок: Адреса → Кадастровые кварталы → Объявления без адреса)
+    // Включаем только один из базовых слоёв по умолчанию
+    const showQuartersByDefault = !!defaultShowQuartersRef.current;
+    if (showQuartersByDefault) {
+      map.addLayer(quarterLayerGroup);
+    } else {
+      map.addLayer(addressLayerGroup);
+    }
+
+    // Управление слоями.
+    // В модуле Росреестра (defaultShowQuarters=true): показываем только релевантные слои
+    // (Адреса/Объявления без адреса — только если есть данные; Кадастровые кварталы — всегда).
+    // В модуле Объявлений (defaultShowQuarters=false): все три слоя всегда видимы (исходное поведение).
     const baseLayers: Record<string, L.Layer> = {};
-    const overlayLayers = {
-      'Адреса': addressLayerGroup,
-      'Кадастровые кварталы': quarterLayerGroup,
-      'Объявления без адреса': adsNoAddrLayerGroup,
-    };
+    let overlayLayers: Record<string, L.Layer>;
+    if (showQuartersByDefault) {
+      overlayLayers = {};
+      const hasAddressesInit = !!(addressesRef.current && addressesRef.current.length > 0);
+      if (hasAddressesInit) {
+        overlayLayers['Адреса'] = addressLayerGroup;
+      }
+      overlayLayers['Кадастровые кварталы'] = quarterLayerGroup;
+      if (adsNoAddrRef.current && adsNoAddrRef.current.length > 0) {
+        overlayLayers['Объявления без адреса'] = adsNoAddrLayerGroup;
+      }
+    } else {
+      overlayLayers = {
+        'Адреса': addressLayerGroup,
+        'Кадастровые кварталы': quarterLayerGroup,
+        'Объявления без адреса': adsNoAddrLayerGroup,
+      };
+    }
     L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);
 
     // Контроллер рисования
@@ -1086,6 +1114,10 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     setTimeout(() => {
       if (mapInstanceRef.current && mapRef.current && mapRef.current.offsetWidth > 0 && mapRef.current.offsetHeight > 0) {
         mapInstanceRef.current.invalidateSize();
+        // Если кварталы включены по умолчанию — запускаем первичный рендер
+        if (defaultShowQuartersRef.current) {
+          renderVisibleQuartersRef.current();
+        }
       }
     }, 100);
     };

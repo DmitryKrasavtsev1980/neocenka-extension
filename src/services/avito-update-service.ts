@@ -190,8 +190,26 @@ export async function actualizeAvitoAd(ad: Ad): Promise<AvitoActualizeResult> {
       const match = url.match(/\/img\/(\d+)/) || url.match(/\/(\d{10,})/);
       return match ? match[1] : url.split('?')[0];
     };
-    const existingPhotoIds = new Set((ad.photos || []).map(p => extractPhotoId(p)));
-    const newPhotos = parsed.photos.filter(p => {
+    // Фильтруем битые URL старого формата Avito: https://XX.img.avito.st/image/1/<id>
+    // (Avito сменил схему CDN, такие URL возвращают 400/404).
+    // Если при актуализации получили новые валидные фото — старые битые удаляем.
+    const isBrokenAvitoUrl = (url: string): boolean =>
+      typeof url === 'string' && /https?:\/\/\d+\.img\.avito\.st\/image\/1\//.test(url);
+
+    const newPhotosFromParser = parsed.photos || [];
+    const hasNewValidPhotos = newPhotosFromParser.some(p => !isBrokenAvitoUrl(p));
+
+    const existingPhotosFiltered = hasNewValidPhotos
+      ? (ad.photos || []).filter(p => !isBrokenAvitoUrl(p))
+      : (ad.photos || []);
+
+    if (hasNewValidPhotos && existingPhotosFiltered.length < (ad.photos || []).length) {
+      const removedCount = (ad.photos || []).length - existingPhotosFiltered.length;
+      changes.push(`Фото: удалено ${removedCount} битых URL старого формата`);
+    }
+
+    const existingPhotoIds = new Set(existingPhotosFiltered.map(p => extractPhotoId(p)));
+    const newPhotos = newPhotosFromParser.filter(p => {
       const id = extractPhotoId(p);
       return !existingPhotoIds.has(id);
     });
@@ -229,7 +247,7 @@ export async function actualizeAvitoAd(ad: Ad): Promise<AvitoActualizeResult> {
     }
 
     // 10. Формируем обновлённые данные
-    const mergedPhotos = [...(ad.photos || []), ...newPhotos];
+    const mergedPhotos = [...existingPhotosFiltered, ...newPhotos];
 
     const updates: Partial<Ad> = {
       status: parsed.status,
