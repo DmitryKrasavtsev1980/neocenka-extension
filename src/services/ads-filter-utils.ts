@@ -119,7 +119,11 @@ export function applyFilterToAds(
   const contactType = state.contactType || '';
   const processingCategoryId = state.processingCategoryId;
   const processingFloor = state.processingFloor || '';
-  const filterAddressIds = new Set(state.filterAddressIds || []);
+  // filterAddressIds НЕ используем как жёсткий фильтр — в сохранённом фильтре
+  // этот массив может быть устаревшим (адреса в IndexedDB могли быть пересозданы
+  // с другими ID). В AdsPage filterAddressIds пересчитывается через useEffect при
+  // каждом изменении polygonsCoords/addresses, поэтому там всегда актуальны.
+  // Здесь мы при наличии polygonsCoords проверяем адрес напрямую по координатам.
   const excludedAddressIds = new Set(state.excludedAddressIds || []);
   const houseSeriesIds = state.houseSeriesIds || [];
   const wallMaterialIds = state.wallMaterialIds || [];
@@ -156,7 +160,6 @@ export function applyFilterToAds(
   if (contactType) result = result.filter(a => (a.seller_info?.type || a.seller_type) === contactType);
   if (processingCategoryId) result = result.filter(a => a.category_id === processingCategoryId);
   if (processingFloor) result = result.filter(a => a.floor != null && a.floor === Number(processingFloor));
-  if (filterAddressIds.size > 0) result = result.filter(a => a.address_id != null && filterAddressIds.has(a.address_id) && !excludedAddressIds.has(a.address_id));
 
   if (houseSeriesIds.length > 0 || wallMaterialIds.length > 0 || floorsMin || floorsMax) {
     const addrMap = new Map<number, any>();
@@ -173,19 +176,25 @@ export function applyFilterToAds(
     });
   }
 
-  // Фильтр по полигону: сначала по координатам самого объявления,
-  // затем (если у объявления нет координат) по координатам привязанного адреса.
+  // Фильтр по полигону — эквивалент baseFilteredAds из AdsPage.
+  // Проверяем по факту: ad.coordinates или addr.coordinates внутри polygonsCoords.
+  // filterAddressIds из state игнорируем — в AdsPage они пересчитываются через
+  // useEffect, а в сохранённом фильтре могут быть устаревшими. excludedAddressIds
+  // используем (это чёрный список адресов, пользовательски исключённые дома).
   const polygonsCoords = state.polygonsCoords as [number, number][][] | null | undefined;
   if (polygonsCoords && polygonsCoords.length > 0) {
     const addrMap = new Map<number, any>();
     for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
     result = result.filter(a => {
+      // Пользовательски исключённые адреса — выкидываем сразу
+      if (a.address_id != null && excludedAddressIds.has(a.address_id)) return false;
+      // Сначала собственные координаты объявления
       const adLat = a.coordinates?.lat;
       const adLng = a.coordinates?.lng;
       if (adLat != null && adLng != null && isFinite(adLat) && isFinite(adLng)) {
         return pointInPolygons(adLat, adLng, polygonsCoords);
       }
-      // Нет координат у объявления — пробуем координаты адреса
+      // Нет координат у объявления — проверяем координаты адреса
       if (a.address_id) {
         const addr = addrMap.get(a.address_id);
         const aLat = addr?.coordinates?.lat;
