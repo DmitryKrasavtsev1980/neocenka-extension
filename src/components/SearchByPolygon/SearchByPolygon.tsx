@@ -147,6 +147,17 @@ interface SearchByPolygonProps {
    * Используется в модуле Росреестра, где адресов нет.
    */
   defaultShowQuarters?: boolean;
+  /**
+   * Общие фильтры для отображения на отдельном слое карты (модуль ads).
+   * Каждый фильтр рисуется цветом своей группы.
+   */
+  commonFiltersPolygons?: Array<{
+    id: string;
+    name: string;
+    groupName: string | null;
+    color: string;
+    polygons: [number, number][][];
+  }>;
 }
 
 const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
@@ -169,6 +180,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   onAdWithoutAddressClick,
   onAddressCreate,
   defaultShowQuarters,
+  commonFiltersPolygons,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -177,6 +189,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const quarterLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const adsNoAddrLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const addressLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const commonFiltersLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const quartersRef = useRef(quarters);
   const quarterStatsRef = useRef(quarterStats);
   const adsNoAddrRef = useRef(adsWithoutAddress);
@@ -798,6 +811,45 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
   const renderAdsWithoutAddressRef = useRef(renderAdsWithoutAddress);
   renderAdsWithoutAddressRef.current = renderAdsWithoutAddress;
 
+  // Рендер полигонов «общих» фильтров (слой commonFilters, модуль ads)
+  const renderCommonFiltersPolygons = useCallback(() => {
+    const layerGroup = commonFiltersLayerGroupRef.current;
+    if (!layerGroup) return;
+    layerGroup.clearLayers();
+
+    const filters = commonFiltersPolygons;
+    if (!filters || filters.length === 0) return;
+
+    for (const f of filters) {
+      for (const coords of f.polygons) {
+        if (!coords || coords.length < 3) continue;
+        const latLngs = coords.map((c) => L.latLng(c[0], c[1]));
+        const polygon = L.polygon(latLngs, {
+          color: f.color,
+          weight: 2,
+          fillColor: f.color,
+          fillOpacity: 0.15,
+        });
+        polygon.bindTooltip(f.name, { sticky: true, direction: 'top' });
+        polygon.bindPopup(`
+          <div style="font-size: 12px; min-width: 180px;">
+            <strong>${f.name}</strong><br/>
+            ${f.groupName ? `<span style="color: ${f.color};">●</span> ${f.groupName}<br/>` : ''}
+            Полигонов: ${f.polygons.length}
+          </div>
+        `);
+        polygon.addTo(layerGroup);
+      }
+    }
+  }, [commonFiltersPolygons]);
+
+  const renderCommonFiltersPolygonsRef = useRef(renderCommonFiltersPolygons);
+  renderCommonFiltersPolygonsRef.current = renderCommonFiltersPolygons;
+
+  useEffect(() => {
+    renderCommonFiltersPolygonsRef.current?.();
+  }, [renderCommonFiltersPolygons]);
+
   // Кастомная иконка маркера (SVG)
   const createMarkerIcon = useCallback(() => {
     return L.divIcon({
@@ -992,6 +1044,14 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
     const adsNoAddrLayerGroup = L.layerGroup();
     adsNoAddrLayerGroupRef.current = adsNoAddrLayerGroup;
 
+    // Слой для полигонов «общих» фильтров (выключен по умолчанию, модуль ads)
+    const commonFiltersLayerGroup = L.layerGroup();
+    commonFiltersLayerGroupRef.current = commonFiltersLayerGroup;
+    // Сразу рисуем общие фильтры, если они уже загружены из storage.
+    // Без этого Polygons не появятся, т.к. useEffect для renderCommonFiltersPolygons
+    // мог уже отработать до того, как layerGroup создан.
+    renderCommonFiltersPolygonsRef.current?.();
+
     // Включаем только один из базовых слоёв по умолчанию
     const showQuartersByDefault = !!defaultShowQuartersRef.current;
     if (showQuartersByDefault) {
@@ -1021,6 +1081,7 @@ const SearchByPolygon: React.FC<SearchByPolygonProps> = ({
         'Адреса': addressLayerGroup,
         'Кадастровые кварталы': quarterLayerGroup,
         'Объявления без адреса': adsNoAddrLayerGroup,
+        'Общие фильтры': commonFiltersLayerGroup,
       };
     }
     L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);

@@ -81,6 +81,7 @@ interface ExportSavedFilter {
   sortOrder: number;
   createdAt: number;
   state: Record<string, unknown>;
+  is_general?: boolean;
 }
 
 interface ExportFilterGroup {

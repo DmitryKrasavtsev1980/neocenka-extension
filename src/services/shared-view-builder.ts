@@ -34,6 +34,7 @@ export interface SavedFilterLite {
   sortOrder: number;
   createdAt: number;
   state: FilterState;
+  is_general?: boolean;
 }
 
 export interface SavedGroupLite {

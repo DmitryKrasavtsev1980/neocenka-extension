@@ -589,6 +589,7 @@ export interface SharedViewMeta {
   id: number;
   token: string;
   title: string;
+  filter_ids?: string[];
   has_password: boolean;
   expires_at: string | null;
   is_expired: boolean;

@@ -60,6 +60,8 @@ export interface FilterState {
   floorsMax?: string;
   /** Полигоны (массив контуров, каждый контур — массив [lat, lng]) */
   polygonsCoords?: [number, number][][] | null;
+  /** Общий фильтр: применяются только полигоны, остальные поля игнорируются */
+  is_general?: boolean;
   [key: string]: unknown;
 }
 
@@ -69,6 +71,31 @@ export function applyFilterToAds(
   state: FilterState,
   addresses: any[],
 ): any[] {
+  // Короткое замыкание для «общего» фильтра: игнорируем все поля кроме полигонов.
+  // Общий фильтр показывает все объекты и объявления, попадающие в его полигоны.
+  if (state.is_general === true) {
+    const polygonsCoords = state.polygonsCoords as [number, number][][] | null | undefined;
+    if (!polygonsCoords || polygonsCoords.length === 0) return ads;
+    const addrMap = new Map<number, any>();
+    for (const addr of addresses) { if (addr.id != null) addrMap.set(addr.id, addr); }
+    return ads.filter(a => {
+      const adLat = a.coordinates?.lat;
+      const adLng = a.coordinates?.lng;
+      if (adLat != null && adLng != null && isFinite(adLat) && isFinite(adLng)) {
+        return pointInPolygons(adLat, adLng, polygonsCoords);
+      }
+      if (a.address_id) {
+        const addr = addrMap.get(a.address_id);
+        const aLat = addr?.coordinates?.lat;
+        const aLng = addr?.coordinates?.lng;
+        if (aLat != null && aLng != null && isFinite(aLat) && isFinite(aLng)) {
+          return pointInPolygons(aLat, aLng, polygonsCoords);
+        }
+      }
+      return false;
+    });
+  }
+
   let result = ads;
 
   const sources = state.sources || [];

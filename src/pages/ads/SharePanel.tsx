@@ -77,6 +77,11 @@ const SharePanel: React.FC<SharePanelProps> = () => {
   // Уведомление об успешной операции
   const [notice, setNotice] = useState('');
 
+  // Массовое обновление: выбранные ссылки + прогресс
+  const [selectedViewIds, setSelectedViewIds] = useState<Set<number>>(new Set());
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; current?: string } | null>(null);
+
   // V2: выбор сравнительного анализа для каждого фильтра
   const [comparativeSelection, setComparativeSelection] = useState<Record<string, ComparativeSession | null>>({});
   const [comparativeSessionsCache, setComparativeSessionsCache] = useState<Record<string, ComparativeSession[]>>({});
@@ -121,7 +126,9 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     setPassword('');
     setTitle(view.title || `Поделиться от ${new Date().toLocaleDateString('ru-RU')}`);
     setExpiresIn(view.expires_at ? null : null); // при обновлении можно задать только новый срок
-    setSelectedFilterIds(new Set());
+    // Автоподстановка фильтров из метаданных ссылки — пользователь не должен выбирать их заново.
+    const initialFilterIds = new Set<string>(view.filter_ids ?? []);
+    setSelectedFilterIds(initialFilterIds);
     setComparativeSelection({});
     setComparativeSessionsCache({});
     if (filters.length === 0) {
@@ -129,6 +136,8 @@ const SharePanel: React.FC<SharePanelProps> = () => {
       setFilters(loaded.filters);
       setGroups(loaded.groups);
     }
+    // Подгружаем comparative-сессии для каждого выбранного фильтра (для выпадающих списков).
+    initialFilterIds.forEach(id => ensureSessionsLoaded(id));
   };
 
   const toggleFilter = (id: string) => {
@@ -276,6 +285,83 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     }
   };
 
+  /**
+   * Массовое обновление выбранных ссылок.
+   * Для каждой ссылки берём её сохранённые filter_ids (без модалки),
+   * строим новую data через buildSharedViewData и шлём PUT.
+   * Comparative НЕ передаём — сервер сохранит старый (см. SharedViewController::update).
+   * Ссылки без известных filter_ids пропускаются с уведомлением.
+   */
+  const handleBulkUpdate = async () => {
+    if (selectedViewIds.size === 0 || bulkUpdating) return;
+    const targets = views.filter(v => selectedViewIds.has(v.id) && !v.is_expired);
+    const withFilterIds = targets.filter(v => (v.filter_ids?.length ?? 0) > 0);
+    const skippedNoFilters = targets.filter(v => (v.filter_ids?.length ?? 0) === 0);
+    const skippedExpired = views.filter(v => selectedViewIds.has(v.id) && v.is_expired);
+
+    if (withFilterIds.length === 0) {
+      const reasons: string[] = [];
+      if (skippedNoFilters.length > 0) reasons.push(`${skippedNoFilters.length} без данных о фильтрах`);
+      if (skippedExpired.length > 0) reasons.push(`${skippedExpired.length} истекло`);
+      setError(`Нечего обновлять: ${reasons.join(', ') || 'неизвестная причина'}`);
+      return;
+    }
+
+    setBulkUpdating(true);
+    setBulkProgress({ done: 0, total: withFilterIds.length });
+    setError('');
+
+    // Предзагрузить filters и groups один раз — они нужны для построения data.
+    let localFilters = filters;
+    let localGroups = groups;
+    if (localFilters.length === 0) {
+      const loaded = await loadSavedFiltersForShare();
+      localFilters = loaded.filters;
+      localGroups = loaded.groups;
+      setFilters(localFilters);
+      setGroups(localGroups);
+    }
+
+    let success = 0;
+    let failed = 0;
+    for (let i = 0; i < withFilterIds.length; i++) {
+      const view = withFilterIds[i];
+      setBulkProgress({ done: i, total: withFilterIds.length, current: view.title || `#${view.id}` });
+      try {
+        // Comparative НЕ передаём — сервер мерджит старый comparative в новую data.
+        const data = await buildSharedViewData(view.filter_ids!, localFilters, localGroups);
+        await updateSharedView(view.id, { data });
+        success++;
+      } catch (e) {
+        failed++;
+        console.error(`Failed to bulk-update view ${view.id}:`, e);
+      }
+      setBulkProgress({ done: i + 1, total: withFilterIds.length, current: view.title || `#${view.id}` });
+    }
+
+    setBulkUpdating(false);
+    setBulkProgress(null);
+    setSelectedViewIds(new Set());
+
+    const messages: string[] = [`Обновлено: ${success}`];
+    if (failed > 0) messages.push(`ошибок: ${failed}`);
+    if (skippedNoFilters.length > 0) messages.push(`без фильтров (пропущено): ${skippedNoFilters.length}`);
+    if (skippedExpired.length > 0) messages.push(`истёкших (пропущено): ${skippedExpired.length}`);
+    setNotice(messages.join(' · '));
+    setTimeout(() => setNotice(''), 6000);
+
+    await refresh();
+  };
+
+  const toggleViewSelection = (id: number) => {
+    setSelectedViewIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handleCopy = async (view: SharedViewMeta) => {
     const finalUrl = `${APP_BASE_URL}/share/${view.token}`;
     try {
@@ -410,6 +496,48 @@ const SharePanel: React.FC<SharePanelProps> = () => {
         </div>
       ) : (
         <div className="space-y-2">
+          {/* Панель массового обновления */}
+          <div className="flex items-center gap-2 flex-wrap rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 px-3 py-2">
+            <button
+              onClick={handleBulkUpdate}
+              disabled={selectedViewIds.size === 0 || bulkUpdating}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              {bulkUpdating ? (
+                <>
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Обновление {bulkProgress ? `${bulkProgress.done}/${bulkProgress.total}` : '...'}
+                </>
+              ) : (
+                `Обновить выбранные (${selectedViewIds.size})`
+              )}
+            </button>
+            <button
+              onClick={() => setSelectedViewIds(new Set(views.filter(v => !v.is_expired).map(v => v.id)))}
+              disabled={bulkUpdating}
+              className="rounded-md bg-zinc-100 dark:bg-zinc-700 px-2.5 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 disabled:opacity-50"
+            >
+              Выбрать все
+            </button>
+            {selectedViewIds.size > 0 && (
+              <button
+                onClick={() => setSelectedViewIds(new Set())}
+                disabled={bulkUpdating}
+                className="rounded-md bg-zinc-100 dark:bg-zinc-700 px-2.5 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600 disabled:opacity-50"
+              >
+                Очистить
+              </button>
+            )}
+            {bulkProgress?.current && (
+              <span className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate ml-auto">
+                Текущая: {bulkProgress.current}
+              </span>
+            )}
+          </div>
+
           {views.map(view => (
             <div
               key={view.id}
@@ -420,20 +548,35 @@ const SharePanel: React.FC<SharePanelProps> = () => {
               }`}
             >
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-zinc-900 dark:text-white truncate">
-                    {view.title || 'Без названия'}
-                  </div>
-                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-                    <span>Создано: {formatDate(view.created_at)}</span>
-                    {view.has_password && <span className="text-amber-600 dark:text-amber-400">с паролем</span>}
-                    {view.expires_at && (
-                      <span className={view.is_expired ? 'text-red-600 dark:text-red-400' : ''}>
-                        {view.is_expired ? 'истекла' : 'до'}: {formatDate(view.expires_at)}
-                      </span>
-                    )}
-                    {!view.expires_at && <span>бессрочно</span>}
-                    <span>{formatSize(view.data_size)}</span>
+                <div className="flex items-start gap-2 flex-1 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={selectedViewIds.has(view.id)}
+                    onChange={() => toggleViewSelection(view.id)}
+                    disabled={bulkUpdating || view.is_expired}
+                    className="mt-1 rounded border-zinc-300 dark:border-zinc-600 text-blue-600 focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                    title={view.is_expired ? 'Ссылка истекла' : (view.filter_ids?.length ?? 0) === 0 ? 'Нет данных о фильтрах — обновление недоступно' : 'Выбрать для массового обновления'}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-zinc-900 dark:text-white truncate">
+                      {view.title || 'Без названия'}
+                    </div>
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                      <span>Создано: {formatDate(view.created_at)}</span>
+                      {view.has_password && <span className="text-amber-600 dark:text-amber-400">с паролем</span>}
+                      {view.expires_at && (
+                        <span className={view.is_expired ? 'text-red-600 dark:text-red-400' : ''}>
+                          {view.is_expired ? 'истекла' : 'до'}: {formatDate(view.expires_at)}
+                        </span>
+                      )}
+                      {!view.expires_at && <span>бессрочно</span>}
+                      <span>{formatSize(view.data_size)}</span>
+                      {(view.filter_ids?.length ?? 0) === 0 && (
+                        <span className="text-amber-600 dark:text-amber-400" title="Ссылка создана до обновления функционала. Обновление недоступно.">
+                          нет фильтров
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -450,6 +450,77 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [activeFilterName, setActiveFilterName] = useState<string | null>(null);
   const [activeFilterStateJson, setActiveFilterStateJson] = useState<string | null>(null);
+  const [activeFilterIsGeneral, setActiveFilterIsGeneral] = useState(false);
+
+  // ─── Общие фильтры для слоя карты (модуль ads) ───
+  // Загружаем сохранённые фильтры + группы из chrome.storage и преобразуем
+  // в формат для SearchByPolygon. Реагируем на изменения storage.
+  const [commonFiltersForMap, setCommonFiltersForMap] = useState<Array<{
+    id: string;
+    name: string;
+    groupName: string | null;
+    color: string;
+    polygons: [number, number][][];
+  }>>([]);
+
+  useEffect(() => {
+    const STORAGE_FILTERS = 'ret_ads_saved_filters_v2';
+    const STORAGE_GROUPS = 'ret_ads_filter_groups';
+    const FALLBACK_COLOR = '#3b82f6';
+
+    const rebuild = () => {
+      try {
+        chrome.storage.local.get([STORAGE_FILTERS, STORAGE_GROUPS], (r: any) => {
+          try {
+            const rawFilters = r?.[STORAGE_FILTERS];
+            const rawGroups = r?.[STORAGE_GROUPS];
+            const filters: Array<any> = rawFilters
+              ? (Array.isArray(rawFilters) ? rawFilters : JSON.parse(rawFilters))
+              : [];
+            const groups: Array<any> = rawGroups
+              ? (Array.isArray(rawGroups) ? rawGroups : JSON.parse(rawGroups))
+              : [];
+            const groupMap = new Map<string, { name: string; color: string }>();
+            for (const g of groups) {
+              if (g && g.id) groupMap.set(g.id, { name: g.name || '', color: g.color || FALLBACK_COLOR });
+            }
+            const result: Array<{
+              id: string; name: string; groupName: string | null;
+              color: string; polygons: [number, number][][];
+            }> = [];
+            for (const f of filters) {
+              if (!f || !f.id || f.is_general !== true) continue;
+              const polys = (f.state?.polygonsCoords ?? f.polygonsCoords) as [number, number][][] | null | undefined;
+              if (!polys || !Array.isArray(polys) || polys.length === 0) continue;
+              const group = f.groupId ? groupMap.get(f.groupId) : null;
+              result.push({
+                id: f.id,
+                name: f.name || 'Без названия',
+                groupName: group?.name ?? null,
+                color: group?.color ?? FALLBACK_COLOR,
+                polygons: polys,
+              });
+            }
+            setCommonFiltersForMap(result);
+          } catch { /* ignore parse errors */ }
+        });
+      } catch { /* chrome unavailable */ }
+    };
+
+    rebuild();
+    // Подписка на изменения storage — чтобы карта обновлялась при редактировании фильтров в панели
+    let listener: ((changes: any, areaName: string) => void) | null = null;
+    try {
+      listener = (changes: any, areaName: string) => {
+        if (areaName !== 'local') return;
+        if (changes[STORAGE_FILTERS] || changes[STORAGE_GROUPS]) rebuild();
+      };
+      chrome.storage.onChanged.addListener(listener);
+    } catch { /* ignore */ }
+    return () => {
+      try { if (listener) chrome.storage.onChanged.removeListener(listener); } catch {}
+    };
+  }, []);
 
   // ─── Загрузка данных ───
   const [showImportPanel, setShowImportPanel] = useState(false);
@@ -923,6 +994,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     applyFilterState(state);
     setActiveFilterId(filterId ?? null);
     setActiveFilterName(filterName ?? null);
+    setActiveFilterIsGeneral(state.is_general === true);
     // Откладываем snapshot до следующего рендера, когда все setState'ы применятся
     pendingFilterSnapshot.current = filterId ? 'pending' : null;
     setActiveFilterStateJson(null); // временно null, чтобы не мигало
@@ -950,6 +1022,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const handleSaveToActiveFilter = () => {
     if (!activeFilterId) return;
     const currentState = getFilterState();
+    // Сохраняем is_general в filter_data, чтобы не затирать флаг общего фильтра на сервере
+    const statePayload: Record<string, unknown> = {
+      ...(currentState as unknown as Record<string, unknown>),
+      is_general: activeFilterIsGeneral,
+    };
     const STORAGE_KEY = 'ret_ads_saved_filters_v2';
     chrome.storage.local.get(STORAGE_KEY, (result: any) => {
       const raw = result?.[STORAGE_KEY];
@@ -957,14 +1034,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       try {
         const filters = JSON.parse(raw);
         const updated = filters.map((f: any) =>
-          f.id === activeFilterId ? { ...f, state: currentState } : f
+          f.id === activeFilterId ? { ...f, state: currentState, is_general: activeFilterIsGeneral } : f
         );
         chrome.storage.local.set({ [STORAGE_KEY]: JSON.stringify(updated) });
         const target = updated.find((f: any) => f.id === activeFilterId);
         if (target?.serverId) {
           import('@/services/api-service').then(api => {
             api.updateSavedFilter(target.serverId, {
-              filter_data: currentState as unknown as Record<string, unknown>,
+              filter_data: statePayload,
             }).catch(() => {});
           });
         }
@@ -1061,6 +1138,22 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const baseFilteredAds = useMemo(() => {
     let result = allAds;
 
+    // Общий фильтр: применяем только фильтр по полигону, игнорируем все остальные поля.
+    if (activeFilterIsGeneral) {
+      if (polygonsCoords && polygonsCoords.length > 0) {
+        result = result.filter(a => {
+          if (a.address_id != null) {
+            return filterAddressIds.has(a.address_id) && !excludedAddressIds.has(a.address_id);
+          }
+          const lat = a.coordinates?.lat;
+          const lng = a.coordinates?.lng;
+          if (lat == null || lng == null || !isFinite(lat) || !isFinite(lng)) return false;
+          return polygonsCoords.some(poly => pointInPolygon(lat, lng, poly));
+        });
+      }
+      return result;
+    }
+
     // Основной фильтр
     if (filterStatus) result = result.filter(a => a.status === filterStatus);
     if (filterSources.length > 0) result = result.filter(a => filterSources.includes(normalizeSource(a.source)));
@@ -1114,7 +1207,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
 
     return result;
-  }, [allAds, filterStatus, filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax,
+  }, [allAds, activeFilterIsGeneral, filterStatus, filterSources, filterPropertyTypes, filterCategoryIds, filterPriceMin, filterPriceMax,
     filterAreaMin, filterAreaMax, filterFloorMin, filterFloorMax, filterYearMin, filterYearMax,
     filterSellerTypes, filterDateFrom, filterDateTo, searchQuery,
     filterAddressIds, excludedAddressIds, addresses, filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax, polygonsCoords]);
@@ -1662,7 +1755,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     setFilterSellerTypes([]); setFilterDateFrom(''); setFilterDateTo('');
     setFilterProcessingStatus(''); setFilterAddressId(''); setFilterContactType('');
     setFilterProcessingCategoryId(''); setFilterProcessingFloor('');
-    setSearchQuery(''); setActiveFilterId(null); setActiveFilterName(null);
+    setSearchQuery(''); setActiveFilterId(null); setActiveFilterName(null); setActiveFilterIsGeneral(false);
     setFilterAddressIds(new Set()); localStorage.removeItem('ret_ads_filter_address_ids');
     setExcludedAddressIds(new Set()); localStorage.removeItem('ret_ads_excluded_address_ids');
     setFilterHouseSeriesIds([]); setFilterWallMaterialIds([]); setFilterFloorsMin(''); setFilterFloorsMax('');
@@ -2774,7 +2867,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                   </button>
                 </>
               ) : null}
-              <button onClick={() => { setActiveFilterId(null); setActiveFilterName(null); setActiveFilterStateJson(null); }} className="text-blue-400 hover:text-blue-600 ml-0.5">&times;</button>
+              <button onClick={() => { setActiveFilterId(null); setActiveFilterName(null); setActiveFilterStateJson(null); setActiveFilterIsGeneral(false); }} className="text-blue-400 hover:text-blue-600 ml-0.5">&times;</button>
             </span>
           )}
           <div className="flex items-center gap-2">
@@ -3466,7 +3559,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
             );
           })()}
           {showMapFilter && (
-            <SearchByPolygon quarters={dealsModuleActive ? cadastralQuarters : []} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries, houseClasses: refHouseClasses, ceilingMaterials: refCeilingMaterials }} onAddressClick={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }} selectedAddressIds={filterAddressIds} highlightedAddressIds={highlightedAddressIds} excludedAddressIds={excludedAddressIds} onAddressToggle={handleAddressToggle} onSelectAllInPolygon={handleSelectAllInPolygon} polygonsCoords={polygonsCoords} adsWithoutAddress={adsWithoutAddress} onAdWithoutAddressClick={(adId) => { const ad = allAds.find(a => a.id === adId); if (ad) setDetailAd(ad); }} onAddressCreate={handleCreateAddressFromMap} />
+            <SearchByPolygon quarters={dealsModuleActive ? cadastralQuarters : []} quarterStats={{}} onQuartersSelected={(_c, p) => handlePolygonsChange(p ?? null)} initialPolygons={polygonsCoords} flyTo={flyToTarget} addresses={addresses} addressStats={addressStatsMap} referenceData={{ wallMaterials: refWallMaterials, houseSeries: refHouseSeries, houseClasses: refHouseClasses, ceilingMaterials: refCeilingMaterials }} onAddressClick={(addr) => { setAddressModalMode('edit'); setDetailAddress(addr); }} selectedAddressIds={filterAddressIds} highlightedAddressIds={highlightedAddressIds} excludedAddressIds={excludedAddressIds} onAddressToggle={handleAddressToggle} onSelectAllInPolygon={handleSelectAllInPolygon} polygonsCoords={polygonsCoords} adsWithoutAddress={adsWithoutAddress} onAdWithoutAddressClick={(adId) => { const ad = allAds.find(a => a.id === adId); if (ad) setDetailAd(ad); }} onAddressCreate={handleCreateAddressFromMap} commonFiltersPolygons={commonFiltersForMap} />
           )}
         </div>
 

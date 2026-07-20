@@ -68,6 +68,7 @@ export interface SavedFilter {
   sortOrder: number;
   createdAt: number;
   state: AdsFilterState;
+  is_general?: boolean;
   serverId?: number;
 }
 
@@ -115,17 +116,20 @@ interface SortableFilterCardProps {
   isActive: boolean;
   isEditing: boolean;
   editingName: string;
+  editingIsGeneral: boolean;
   onApply: () => void;
   onDelete: () => void;
   onStartEdit: () => void;
   onFinishEdit: () => void;
   onCancelEdit: () => void;
   onEditingNameChange: (name: string) => void;
+  onEditingIsGeneralChange: (value: boolean) => void;
 }
 
 const SortableFilterCard: React.FC<SortableFilterCardProps> = ({
-  filter, isActive, isEditing, editingName,
-  onApply, onDelete, onStartEdit, onFinishEdit, onCancelEdit, onEditingNameChange,
+  filter, isActive, isEditing, editingName, editingIsGeneral,
+  onApply, onDelete, onStartEdit, onFinishEdit, onCancelEdit,
+  onEditingNameChange, onEditingIsGeneralChange,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: filter.id,
@@ -148,20 +152,31 @@ const SortableFilterCard: React.FC<SortableFilterCardProps> = ({
       }`}
     >
       {isEditing ? (
-        <div className="flex items-center gap-1">
-          <input
-            value={editingName}
-            onChange={(e) => onEditingNameChange(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && onFinishEdit()}
-            className="py-1 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
-            autoFocus
-          />
-          <button onClick={onFinishEdit} className="rounded p-1 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
-            <CheckIcon className="size-3.5" />
-          </button>
-          <button onClick={onCancelEdit} className="rounded p-1 text-zinc-400 hover:bg-zinc-100 bg-transparent border-none cursor-pointer">
-            <XMarkIcon className="size-3.5" />
-          </button>
+        <div>
+          <div className="flex items-center gap-1">
+            <input
+              value={editingName}
+              onChange={(e) => onEditingNameChange(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && onFinishEdit()}
+              className="py-1 px-2 text-xs flex-1 rounded-md border border-zinc-200 bg-white focus:border-blue-400 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:focus:border-blue-500"
+              autoFocus
+            />
+            <button onClick={onFinishEdit} className="rounded p-1 text-green-600 hover:bg-green-50 bg-transparent border-none cursor-pointer">
+              <CheckIcon className="size-3.5" />
+            </button>
+            <button onClick={onCancelEdit} className="rounded p-1 text-zinc-400 hover:bg-zinc-100 bg-transparent border-none cursor-pointer">
+              <XMarkIcon className="size-3.5" />
+            </button>
+          </div>
+          <label className="mt-1 flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-400 cursor-pointer select-none" title="Показывает все объекты и объявления в полигонах фильтра, без учёта других полей">
+            <input
+              type="checkbox"
+              checked={editingIsGeneral}
+              onChange={(e) => onEditingIsGeneralChange(e.target.checked)}
+              className="size-2.5 cursor-pointer"
+            />
+            Общий фильтр
+          </label>
         </div>
       ) : (
         <div className="flex items-center justify-between mb-1">
@@ -171,6 +186,11 @@ const SortableFilterCard: React.FC<SortableFilterCardProps> = ({
             </span>
             <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate">
               {filter.name}
+              {filter.is_general && (
+                <span className="ml-1 inline-block px-1 py-px text-[9px] font-semibold uppercase rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 align-middle">
+                  Общий
+                </span>
+              )}
               {isActive && <span className="ml-1 text-[10px] text-blue-500 font-normal">активен</span>}
             </span>
           </div>
@@ -204,15 +224,17 @@ interface FilterGroupSectionProps {
   activeFilterId: string | null;
   editingId: string | null;
   editingName: string;
+  editingIsGeneral: boolean;
   isEditingGroup: boolean;
   editingGroupName: string;
   showColorPicker: boolean;
   onApply: (filter: SavedFilter) => void;
   onDelete: (id: string) => void;
-  onStartEdit: (id: string, name: string) => void;
+  onStartEdit: (id: string, name: string, isGeneral: boolean) => void;
   onFinishEdit: (id: string) => void;
   onCancelEdit: () => void;
   onEditingNameChange: (name: string) => void;
+  onEditingIsGeneralChange: (value: boolean) => void;
   onToggleCollapse: () => void;
   onStartEditGroup: () => void;
   onFinishEditGroup: () => void;
@@ -224,9 +246,10 @@ interface FilterGroupSectionProps {
 }
 
 const FilterGroupSection: React.FC<FilterGroupSectionProps> = ({
-  group, filters, activeFilterId, editingId, editingName,
+  group, filters, activeFilterId, editingId, editingName, editingIsGeneral,
   isEditingGroup, editingGroupName, showColorPicker,
-  onApply, onDelete, onStartEdit, onFinishEdit, onCancelEdit, onEditingNameChange,
+  onApply, onDelete, onStartEdit, onFinishEdit, onCancelEdit,
+  onEditingNameChange, onEditingIsGeneralChange,
   onToggleCollapse, onStartEditGroup, onFinishEditGroup, onCancelEditGroup,
   onEditingGroupNameChange, onDeleteGroup, onToggleColorPicker, onSelectColor,
 }) => {
@@ -325,12 +348,14 @@ const FilterGroupSection: React.FC<FilterGroupSectionProps> = ({
                 isActive={activeFilterId === filter.id}
                 isEditing={editingId === filter.id}
                 editingName={editingName}
+                editingIsGeneral={editingIsGeneral}
                 onApply={() => onApply(filter)}
                 onDelete={() => onDelete(filter.id)}
-                onStartEdit={() => onStartEdit(filter.id, filter.name)}
+                onStartEdit={() => onStartEdit(filter.id, filter.name, filter.is_general === true)}
                 onFinishEdit={() => onFinishEdit(filter.id)}
                 onCancelEdit={onCancelEdit}
                 onEditingNameChange={onEditingNameChange}
+                onEditingIsGeneralChange={onEditingIsGeneralChange}
               />
             ))}
             {filters.length === 0 && (
@@ -437,8 +462,10 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
   const [saving, setSaving] = useState(false);
   const [newName, setNewName] = useState('');
   const [newFilterGroupId, setNewFilterGroupId] = useState<string | null>(null);
+  const [newFilterIsGeneral, setNewFilterIsGeneral] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [editingIsGeneral, setEditingIsGeneral] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupName, setEditingGroupName] = useState('');
   const [colorPickerGroupId, setColorPickerGroupId] = useState<string | null>(null);
@@ -472,15 +499,19 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
           isCollapsed: sg.is_collapsed,
           serverId: sg.id,
         }));
-        const mappedFilters: SavedFilter[] = serverFilters.map(sf => ({
-          id: `f_${sf.id}`,
-          name: sf.name,
-          groupId: sf.saved_filter_group_id ? `g_${sf.saved_filter_group_id}` : null,
-          sortOrder: sf.sort_order,
-          createdAt: new Date(sf.created_at).getTime(),
-          state: sf.filter_data as unknown as AdsFilterState,
-          serverId: sf.id,
-        }));
+        const mappedFilters: SavedFilter[] = serverFilters.map(sf => {
+          const filterData = sf.filter_data as unknown as AdsFilterState & { is_general?: boolean } | null;
+          return {
+            id: `f_${sf.id}`,
+            name: sf.name,
+            groupId: sf.saved_filter_group_id ? `g_${sf.saved_filter_group_id}` : null,
+            sortOrder: sf.sort_order,
+            createdAt: new Date(sf.created_at).getTime(),
+            state: (filterData ?? {}) as unknown as AdsFilterState,
+            is_general: filterData?.is_general === true,
+            serverId: sf.id,
+          };
+        });
         setGroups(mappedGroups);
         setFilters(mappedFilters);
         // Cache locally
@@ -542,7 +573,11 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
 
   const handleApplyFilter = (filter: SavedFilter) => {
     const group = filter.groupId ? groups.find(g => g.id === filter.groupId) : null;
-    onApply(filter.state, filter.id, filter.name, group?.name);
+    // Прокидываем is_general в state, чтобы AdsPage мог понять, что это общий фильтр
+    const stateWithGeneral = filter.is_general
+      ? { ...(filter.state as unknown as Record<string, unknown>), is_general: true }
+      : filter.state;
+    onApply(stateWithGeneral, filter.id, filter.name, group?.name);
     // Закрываем с задержкой, чтобы клик не пробился на элементы под панелью
     setTimeout(() => onClose(), 50);
   };
@@ -560,14 +595,19 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
 
   const handleRenameFilter = async (id: string) => {
     if (!editingName.trim()) { setEditingId(null); return; }
-    const updated = filters.map(f => f.id === id ? { ...f, name: editingName.trim() } : f);
+    const updated = filters.map(f => f.id === id ? { ...f, name: editingName.trim(), is_general: editingIsGeneral } : f);
     setFilters(updated);
     setEditingId(null);
 
     if (isOnline) {
       const filter = updated.find(f => f.id === id);
       if (filter?.serverId) {
-        try { await api.updateSavedFilter(filter.serverId, { name: editingName.trim() }); } catch {}
+        try {
+          await api.updateSavedFilter(filter.serverId, {
+            name: editingName.trim(),
+            filter_data: { ...(filter.state as unknown as Record<string, unknown>), is_general: editingIsGeneral },
+          });
+        } catch {}
       }
     }
   };
@@ -581,19 +621,21 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
       sortOrder: filters.filter(f => f.groupId === newFilterGroupId).length,
       createdAt: Date.now(),
       state: currentState,
+      is_general: newFilterIsGeneral,
     };
     const updated = [...filters, filter];
     setFilters(updated);
     setNewName('');
     setSaving(false);
     setNewFilterGroupId(null);
+    setNewFilterIsGeneral(false);
 
     if (isOnline) {
       try {
         const serverFilter = await api.createSavedFilter({
           name: filter.name,
           saved_filter_group_id: filter.groupId ? groups.find(g => g.id === filter.groupId)?.serverId : null,
-          filter_data: currentState as unknown as Record<string, unknown>,
+          filter_data: { ...(currentState as unknown as Record<string, unknown>), is_general: newFilterIsGeneral },
           sort_order: filter.sortOrder,
         });
         setFilters(prev => prev.map(f => f.id === filter.id ? { ...f, serverId: serverFilter.id } : f));
@@ -863,12 +905,14 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
                   activeFilterId={activeFilterId}
                   editingId={editingId}
                   editingName={editingName}
+                  editingIsGeneral={editingIsGeneral}
                   onApply={handleApplyFilter}
                   onDelete={handleDeleteFilter}
-                  onStartEdit={(id, name) => { setEditingId(id); setEditingName(name); }}
+                  onStartEdit={(id, name, isGeneral) => { setEditingId(id); setEditingName(name); setEditingIsGeneral(isGeneral); }}
                   onFinishEdit={handleRenameFilter}
                   onCancelEdit={() => setEditingId(null)}
                   onEditingNameChange={setEditingName}
+                  onEditingIsGeneralChange={setEditingIsGeneral}
                   onToggleCollapse={() => handleToggleGroup(group.id)}
                   isEditingGroup={editingGroupId === group.id}
                   editingGroupName={editingGroupName}
@@ -898,12 +942,14 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
                       isActive={activeFilterId === filter.id}
                       isEditing={editingId === filter.id}
                       editingName={editingName}
+                      editingIsGeneral={editingIsGeneral}
                       onApply={() => handleApplyFilter(filter)}
                       onDelete={() => handleDeleteFilter(filter.id)}
-                      onStartEdit={() => { setEditingId(filter.id); setEditingName(filter.name); }}
+                      onStartEdit={() => { setEditingId(filter.id); setEditingName(filter.name); setEditingIsGeneral(filter.is_general === true); }}
                       onFinishEdit={() => handleRenameFilter(filter.id)}
                       onCancelEdit={() => setEditingId(null)}
                       onEditingNameChange={setEditingName}
+                      onEditingIsGeneralChange={setEditingIsGeneral}
                     />
                   ))}
                 </div>
@@ -936,10 +982,19 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
               <button onClick={handleSaveFilter} className="flex items-center justify-center h-7 w-7 rounded-md bg-blue-600 text-white border-none cursor-pointer hover:bg-blue-700 shrink-0">
                 <CheckIcon className="size-3.5" />
               </button>
-              <button onClick={() => { setSaving(false); setNewFilterGroupId(null); }} className="flex items-center justify-center h-7 w-7 rounded-md bg-zinc-100 text-zinc-600 border-none cursor-pointer hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600 shrink-0">
+              <button onClick={() => { setSaving(false); setNewFilterGroupId(null); setNewFilterIsGeneral(false); }} className="flex items-center justify-center h-7 w-7 rounded-md bg-zinc-100 text-zinc-600 border-none cursor-pointer hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600 shrink-0">
                 <XMarkIcon className="size-3.5" />
               </button>
             </div>
+            <label className="mb-1.5 flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-400 cursor-pointer select-none" title="Показывает все объекты и объявления в полигонах фильтра, без учёта других полей">
+              <input
+                type="checkbox"
+                checked={newFilterIsGeneral}
+                onChange={(e) => setNewFilterIsGeneral(e.target.checked)}
+                className="size-2.5 cursor-pointer"
+              />
+              Общий фильтр
+            </label>
             {groups.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 <button
