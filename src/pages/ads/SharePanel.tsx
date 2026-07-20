@@ -16,6 +16,7 @@ import {
   loadSavedFiltersForShare,
   type SavedFilterLite,
   type SavedGroupLite,
+  type SharedViewData,
 } from '@/services/shared-view-builder';
 import type { ComparativeSession } from '@/types/comparative';
 import { loadSessionsForFilter } from '@/pages/ads/reports/comparativeStorage';
@@ -52,6 +53,19 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} МБ`;
+}
+
+/**
+ * Суммарное количество объявлений во всех filters_data.
+ * Используется для защиты от перезаписи ссылок пустым результатом.
+ */
+function countTotalAds(data: SharedViewData | undefined | null): number {
+  if (!data?.filters_data) return 0;
+  let total = 0;
+  for (const payload of Object.values(data.filters_data)) {
+    total += payload.ads?.length ?? 0;
+  }
+  return total;
 }
 
 const SharePanel: React.FC<SharePanelProps> = () => {
@@ -217,6 +231,14 @@ const SharePanel: React.FC<SharePanelProps> = () => {
         groups,
         Object.keys(comparativeMap).length > 0 ? comparativeMap : undefined,
       );
+      const totalAds = countTotalAds(data);
+      if (totalAds === 0) {
+        setModalError(
+          'В памяти расширения нет объявлений по выбранным фильтрам (результат пуст). ' +
+          'Откройте страницу поиска объявлений, дождитесь загрузки данных и попробуйте снова.',
+        );
+        return;
+      }
       await createSharedView({
         title,
         password: password || null,
@@ -250,6 +272,15 @@ const SharePanel: React.FC<SharePanelProps> = () => {
         groups,
         Object.keys(comparativeMap).length > 0 ? comparativeMap : undefined,
       );
+      const totalAds = countTotalAds(data);
+      if (totalAds === 0) {
+        setModalError(
+          'В памяти расширения нет объявлений по выбранным фильтрам (результат пуст). ' +
+          'Откройте страницу поиска объявлений, дождитесь загрузки данных и попробуйте снова. ' +
+          'Текущие данные ссылки не изменены.',
+        );
+        return;
+      }
       await updateSharedView(editTarget.id, {
         title,
         password: password || null,
@@ -291,6 +322,8 @@ const SharePanel: React.FC<SharePanelProps> = () => {
    * строим новую data через buildSharedViewData и шлём PUT.
    * Comparative НЕ передаём — сервер сохранит старый (см. SharedViewController::update).
    * Ссылки без известных filter_ids пропускаются с уведомлением.
+   * Ссылки с пустым результатом (0 ads) пропускаются — чтобы не перезаписать
+   * актуальные данные пустым массивом при пустой IndexedDB расширения.
    */
   const handleBulkUpdate = async () => {
     if (selectedViewIds.size === 0 || bulkUpdating) return;
@@ -322,14 +355,41 @@ const SharePanel: React.FC<SharePanelProps> = () => {
       setGroups(localGroups);
     }
 
+    // Предзагрузить IndexedDB один раз: если ads пустые — дальше можно не идти,
+    // всё равно все фильтры дадут 0. Защита от ситуации, когда пользователь
+    // не открывал страницу поиска объявлений и IndexedDB пуста/устарела.
+    let allAdsCount = 0;
+    try {
+      allAdsCount = await db.table('ads').count();
+    } catch (e) {
+      console.error('Failed to count ads in IndexedDB:', e);
+    }
+    if (allAdsCount === 0) {
+      setBulkUpdating(false);
+      setBulkProgress(null);
+      setError(
+        'В памяти расширения нет объявлений. Откройте страницу поиска объявлений, ' +
+        'дождитесь загрузки данных и попробуйте снова. Обновление отменено — ссылки не изменены.',
+      );
+      return;
+    }
+
     let success = 0;
     let failed = 0;
+    let emptySkipped = 0;
     for (let i = 0; i < withFilterIds.length; i++) {
       const view = withFilterIds[i];
       setBulkProgress({ done: i, total: withFilterIds.length, current: view.title || `#${view.id}` });
       try {
         // Comparative НЕ передаём — сервер мерджит старый comparative в новую data.
         const data = await buildSharedViewData(view.filter_ids!, localFilters, localGroups);
+        const totalAds = countTotalAds(data);
+        if (totalAds === 0) {
+          // НЕ отправляем PUT — иначе перезапишем актуальные данные пустым массивом.
+          emptySkipped++;
+          console.warn(`Bulk-update: view ${view.id} skipped — empty result (0 ads)`);
+          continue;
+        }
         await updateSharedView(view.id, { data });
         success++;
       } catch (e) {
@@ -344,11 +404,18 @@ const SharePanel: React.FC<SharePanelProps> = () => {
     setSelectedViewIds(new Set());
 
     const messages: string[] = [`Обновлено: ${success}`];
+    if (emptySkipped > 0) messages.push(`пустой результат (пропущено): ${emptySkipped}`);
     if (failed > 0) messages.push(`ошибок: ${failed}`);
     if (skippedNoFilters.length > 0) messages.push(`без фильтров (пропущено): ${skippedNoFilters.length}`);
     if (skippedExpired.length > 0) messages.push(`истёкших (пропущено): ${skippedExpired.length}`);
     setNotice(messages.join(' · '));
     setTimeout(() => setNotice(''), 6000);
+    if (emptySkipped > 0 && success === 0) {
+      setError(
+        'Все выбранные ссылки дали пустой результат — данные в памяти расширения не соответствуют фильтрам. ' +
+        'Откройте страницу поиска объявлений, дождитесь загрузки и попробуйте снова.',
+      );
+    }
 
     await refresh();
   };
@@ -537,6 +604,9 @@ const SharePanel: React.FC<SharePanelProps> = () => {
               </span>
             )}
           </div>
+          <p className="text-[10px] text-zinc-500 dark:text-zinc-400 px-1 -mt-1">
+            Данные берутся из памяти расширения. Перед обновлением откройте страницу поиска объявлений и дождитесь загрузки — иначе ссылки могут быть пропущены как пустые.
+          </p>
 
           {views.map(view => (
             <div
