@@ -12,6 +12,7 @@
 
 import type { Ad, PriceHistoryItem } from '@/types';
 import { adsRepository } from '@/db/repositories/ads.repository';
+import { isBlockSignal } from '@/services/request-throttle';
 
 /** Результат актуализации */
 export interface AvitoActualizeResult {
@@ -135,6 +136,9 @@ export async function actualizeAvitoAd(ad: Ad): Promise<AvitoActualizeResult> {
       console.log(`[Avito Update] Попытка ${attempt + 1} ответ:`, response ? `success=${response.success}, error=${response.error || 'none'}` : 'null');
 
       if (response?.success && response.data) break;
+
+      // Блокировка/капча — повторы не помогут, лишь ускорят бан
+      if (isBlockSignal(response?.error || '')) break;
 
       if (attempt < 2) {
         console.log(`[Avito Update] Ожидание 3 сек перед повторной попыткой...`);

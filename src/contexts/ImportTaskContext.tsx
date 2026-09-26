@@ -16,6 +16,7 @@ import {
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
+import type { AdUpdateSettings } from '@/services/ad-update-settings';
 import type { Ad, AdObject } from '@/types';
 
 export interface ImportTask {
@@ -56,8 +57,8 @@ interface ImportTaskContextValue {
   startDealsImport: (files: ManifestFile[], moduleCode: string) => void;
   startCadastralImport: (moduleCode: string, regionCodes: string[], regionNames: string[]) => void;
   startAdsImport: (options: AdsImportOptions) => void;
-  startCianBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
-  startAvitoBatchUpdate: (ads: Ad[], archiveDays?: number) => boolean;
+  startCianBatchUpdate: (ads: Ad[], settings: AdUpdateSettings) => boolean;
+  startAvitoBatchUpdate: (ads: Ad[], settings: AdUpdateSettings) => boolean;
   startDeduplication: (scopeAds?: Ad[]) => boolean;
   startDealMatching: (scopeObjects?: AdObject[]) => boolean;
   removeTask: (taskId: string) => void;
@@ -389,7 +390,7 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
   );
 
   const startCianBatchUpdate = useCallback(
-    (ads: Ad[], archiveDays?: number) => {
+    (ads: Ad[], settings: AdUpdateSettings) => {
       if (tasksRef.current.some(t => t.type === 'cian-update' && t.status === 'running')) {
         return false;
       }
@@ -426,20 +427,22 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
                 changed: p.changed,
                 updated: p.updated,
                 errors: p.errors,
-                detail: p.phase === 'check'
+                detail: p.detail ?? (p.phase === 'check'
                   ? `Проверка: ${p.current}/${p.total}`
                   : p.phase === 'parse'
                     ? `Парсинг: ${p.current}/${p.total} (изменилось ${p.changed})`
-                    : 'Завершено',
+                    : 'Завершено'),
               });
             },
-            archiveDays,
+            settings,
           );
           updateTask(taskId, {
-            status: 'done',
+            status: result.aborted ? 'error' : 'done',
             progress: 100,
             phase: 'done',
-            detail: `Готово: проверено ${result.checked}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок ${result.errors.length}` : ''}`,
+            detail: result.aborted
+              ? `${result.aborted} Проверено ${result.checked}, обновлено ${result.updated}`
+              : `Готово: проверено ${result.checked}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок ${result.errors.length}` : ''}`,
           });
           setTimeout(() => removeTask(taskId), 8000);
         } catch (e) {
@@ -457,7 +460,7 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
   );
 
   const startAvitoBatchUpdate = useCallback(
-    (ads: Ad[], archiveDays?: number) => {
+    (ads: Ad[], settings: AdUpdateSettings) => {
       if (tasksRef.current.some(t => t.type === 'avito-update' && t.status === 'running')) {
         return false;
       }
@@ -494,20 +497,22 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
                 changed: p.changed,
                 updated: p.updated,
                 errors: p.errors,
-                detail: p.phase === 'check'
+                detail: p.detail ?? (p.phase === 'check'
                   ? `Проверка: ${p.current}/${p.total}`
                   : p.phase === 'parse'
                     ? `Парсинг: ${p.current}/${p.total} (изменилось ${p.changed})`
-                    : 'Завершено',
+                    : 'Завершено'),
               });
             },
-            archiveDays,
+            settings,
           );
           updateTask(taskId, {
-            status: 'done',
+            status: result.aborted ? 'error' : 'done',
             progress: 100,
             phase: 'done',
-            detail: `Готово: проверено ${result.checked}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок ${result.errors.length}` : ''}`,
+            detail: result.aborted
+              ? `${result.aborted} Проверено ${result.checked}, обновлено ${result.updated}`
+              : `Готово: проверено ${result.checked}, обновлено ${result.updated}${result.errors.length > 0 ? `, ошибок ${result.errors.length}` : ''}`,
           });
           setTimeout(() => removeTask(taskId), 8000);
         } catch (e) {

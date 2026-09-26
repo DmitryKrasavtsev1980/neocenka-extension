@@ -11,6 +11,13 @@ import type { Ad, AdObject, PriceHistoryItem } from '@/types';
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
 import { actualizeCianAd } from '@/services/cian-update-service';
+import { DEFAULT_AD_UPDATE_SETTINGS, type AdUpdateSettings } from '@/services/ad-update-settings';
+import {
+  BLOCK_PAUSE_MS,
+  MAX_CONSECUTIVE_BLOCKS,
+  delayWithJitter,
+  isBlockSignal,
+} from '@/services/request-throttle';
 
 /** Прогресс batch-обновления */
 export interface BatchProgress {
@@ -28,6 +35,8 @@ export interface BatchProgress {
   errors: Array<{ url: string; error: string }>;
   /** URL текущего объявления */
   currentUrl?: string;
+  /** Текущее состояние: пауза, ожидание и т.п. */
+  detail?: string;
 }
 
 /** Колбэк прогресса */
@@ -41,6 +50,8 @@ export interface BatchResult {
   updated: number;
   unchanged: number;
   errors: Array<{ url: string; error: string }>;
+  /** Причина прерывания прогона (площадка ограничивает запросы) */
+  aborted?: string;
 }
 
 /** Отправить сообщение в service worker */
@@ -213,13 +224,13 @@ async function recalculateObject(objectId: number): Promise<void> {
 export async function batchUpdateCianAds(
   ads: Ad[],
   onProgress?: ProgressCallback,
-  archiveDays?: number,
+  settings: AdUpdateSettings = DEFAULT_AD_UPDATE_SETTINGS,
 ): Promise<BatchResult> {
   // Фильтруем CIAN объявления:
   // - Активные — всегда
   // - Архивные — только если обновлялись не более N дней назад
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - (archiveDays ?? 7));
+  cutoff.setDate(cutoff.getDate() - settings.archiveDays);
 
   const cianAds = ads.filter(ad => {
     if (!ad.url?.includes('cian.ru')) return false;
@@ -259,6 +270,35 @@ export async function batchUpdateCianAds(
   };
 
   let tabId: number | undefined;
+  // Сколько блокировок подряд получили: после MAX_CONSECUTIVE_BLOCKS — прерываем прогон
+  let consecutiveBlocks = 0;
+  let abortReason: string | undefined;
+
+  /**
+   * Сигнал блокировки от площадки (403/429/капча).
+   * Объявление специально НЕ отправляем в полный парсинг: тяжёлые запросы
+   * при бане лишь ускоряют блокировку. Вместо этого пауза, чтобы площадка успокоилась.
+   * @return false — прогон нужно прервать
+   */
+  const noteBlock = async (ad: Ad, message: string): Promise<boolean> => {
+    consecutiveBlocks++;
+    result.errors.push({ url: ad.url || '', error: `${message} — пауза` });
+    progress.errors = [...result.errors];
+
+    if (consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) {
+      abortReason = `CIAN ограничивает запросы (${consecutiveBlocks} блокировки подряд). Прогон остановлен.`;
+      progress.detail = abortReason;
+      emit();
+      return false;
+    }
+
+    progress.detail = `Пауза ${Math.round(BLOCK_PAUSE_MS / 1000)} с: площадка ограничивает запросы…`;
+    emit();
+    await new Promise((r) => setTimeout(r, BLOCK_PAUSE_MS));
+    progress.detail = undefined;
+    emit();
+    return true;
+  };
 
   try {
     // ФАЗА 1: Быстрая проверка всех объявлений
@@ -275,6 +315,13 @@ export async function batchUpdateCianAds(
         const checked = await checkAdQuick(tabId, ad);
 
         if (checked.error) {
+          // Капча/лимит — отдельная ветка: ни в архив, ни в полный парсинг
+          if (isBlockSignal(checked.error)) {
+            if (!(await noteBlock(ad, checked.error))) break;
+            continue;
+          }
+          consecutiveBlocks = 0;
+
           // HTTP 404/410 или редирект — объявление удалено/снято, сразу в архив
           if (checked.error.includes('HTTP 404') || checked.error.includes('HTTP 410') || checked.error.includes('Redirect to non-ad page')) {
             await adsRepository.update(ad.id!, {
@@ -291,6 +338,8 @@ export async function batchUpdateCianAds(
           }
           continue;
         }
+
+        consecutiveBlocks = 0;
 
         // Сравниваем с текущими данными
         const priceChanged = checked.price !== null && checked.price !== ad.price;
@@ -317,7 +366,13 @@ export async function batchUpdateCianAds(
             await recalculateObject(ad.object_id);
           }
         }
-      } catch {
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isBlockSignal(msg)) {
+          if (!(await noteBlock(ad, msg))) break;
+          continue;
+        }
+        consecutiveBlocks = 0;
         // Ошибка — ставим в очередь на полный парсинг
         needFullParse.push(ad);
       }
@@ -326,7 +381,7 @@ export async function batchUpdateCianAds(
 
       // Задержка между запросами, чтобы не получить бан от CIAN
       if (i < cianAds.length - 1) {
-        await new Promise(r => setTimeout(r, 1500));
+        await delayWithJitter(settings.cianCheckDelayMs);
       }
     }
 
@@ -337,7 +392,7 @@ export async function batchUpdateCianAds(
     }
 
     // ФАЗА 2: Полный парсинг изменившихся
-    if (needFullParse.length > 0) {
+    if (!abortReason && needFullParse.length > 0) {
       progress.phase = 'parse';
       progress.total = needFullParse.length;
       progress.current = 0;
@@ -352,6 +407,7 @@ export async function batchUpdateCianAds(
         try {
           const actualizeResult = await actualizeCianAd(ad);
           if (actualizeResult.success && actualizeResult.ad) {
+            consecutiveBlocks = 0;
             result.updated++;
             // Пересчитываем объект, если объявление привязано
             if (actualizeResult.ad.object_id) {
@@ -359,6 +415,11 @@ export async function batchUpdateCianAds(
             }
           } else {
             const errMsg = actualizeResult.error || 'Неизвестная ошибка';
+            if (isBlockSignal(errMsg)) {
+              if (!(await noteBlock(ad, errMsg))) break;
+              continue;
+            }
+            consecutiveBlocks = 0;
             // Если объявление удалено (404/не найдено) — помечаем как архивное
             if (errMsg.includes('404') || errMsg.includes('не найдено') || errMsg.includes('удалено')) {
               await adsRepository.update(ad.id!, {
@@ -376,6 +437,11 @@ export async function batchUpdateCianAds(
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          if (isBlockSignal(msg)) {
+            if (!(await noteBlock(ad, msg))) break;
+            continue;
+          }
+          consecutiveBlocks = 0;
           // Если объявление удалено (404/не найдено) — помечаем как архивное
           if (msg.includes('404') || msg.includes('не найдено') || msg.includes('удалено')) {
             await adsRepository.update(ad.id!, {
@@ -394,7 +460,7 @@ export async function batchUpdateCianAds(
 
         // Задержка между полными парсингами (каждый и так ~5-10 сек из-за загрузки)
         if (i < needFullParse.length - 1) {
-          await new Promise(r => setTimeout(r, 2000));
+          await delayWithJitter(settings.cianParseDelayMs);
         }
       }
     }
@@ -408,6 +474,10 @@ export async function batchUpdateCianAds(
     progress.phase = 'done';
     progress.currentUrl = undefined;
     emit();
+  }
+
+  if (abortReason) {
+    result.aborted = abortReason;
   }
 
   return result;

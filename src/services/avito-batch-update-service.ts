@@ -11,6 +11,13 @@ import type { Ad, PriceHistoryItem } from '@/types';
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
 import { actualizeAvitoAd } from '@/services/avito-update-service';
+import { DEFAULT_AD_UPDATE_SETTINGS, type AdUpdateSettings } from '@/services/ad-update-settings';
+import {
+  BLOCK_PAUSE_MS,
+  MAX_CONSECUTIVE_BLOCKS,
+  delayWithJitter,
+  isBlockSignal,
+} from '@/services/request-throttle';
 
 /** Прогресс batch-обновления */
 export interface AvitoBatchProgress {
@@ -21,6 +28,8 @@ export interface AvitoBatchProgress {
   updated: number;
   errors: Array<{ url: string; error: string }>;
   currentUrl?: string;
+  /** Текущее состояние: пауза, ожидание и т.п. */
+  detail?: string;
 }
 
 /** Колбэк прогресса */
@@ -34,6 +43,8 @@ export interface AvitoBatchResult {
   updated: number;
   unchanged: number;
   errors: Array<{ url: string; error: string }>;
+  /** Причина прерывания прогона (площадка ограничивает запросы) */
+  aborted?: string;
 }
 
 /** Отправить сообщение в service worker */
@@ -198,10 +209,10 @@ async function recalculateObject(objectId: number): Promise<void> {
 export async function batchUpdateAvitoAds(
   ads: Ad[],
   onProgress?: AvitoProgressCallback,
-  archiveDays?: number,
+  settings: AdUpdateSettings = DEFAULT_AD_UPDATE_SETTINGS,
 ): Promise<AvitoBatchResult> {
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - (archiveDays ?? 7));
+  cutoff.setDate(cutoff.getDate() - settings.archiveDays);
 
   const avitoAds = ads.filter(ad => {
     if (!ad.url?.includes('avito.ru')) return false;
@@ -238,6 +249,35 @@ export async function batchUpdateAvitoAds(
   };
 
   let tabId: number | undefined;
+  // Сколько блокировок подряд получили: после MAX_CONSECUTIVE_BLOCKS — прерываем прогон
+  let consecutiveBlocks = 0;
+  let abortReason: string | undefined;
+
+  /**
+   * Сигнал блокировки от площадки (403/429/капча).
+   * Объявление специально НЕ отправляем в полный парсинг: тяжёлые запросы
+   * при бане лишь ускоряют блокировку. Вместо этого пауза, чтобы площадка успокоилась.
+   * @return false — прогон нужно прервать
+   */
+  const noteBlock = async (ad: Ad, message: string): Promise<boolean> => {
+    consecutiveBlocks++;
+    result.errors.push({ url: ad.url || '', error: `${message} — пауза` });
+    progress.errors = [...result.errors];
+
+    if (consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) {
+      abortReason = `Avito ограничивает запросы (${consecutiveBlocks} блокировки подряд). Прогон остановлен.`;
+      progress.detail = abortReason;
+      emit();
+      return false;
+    }
+
+    progress.detail = `Пауза ${Math.round(BLOCK_PAUSE_MS / 1000)} с: площадка ограничивает запросы…`;
+    emit();
+    await new Promise((r) => setTimeout(r, BLOCK_PAUSE_MS));
+    progress.detail = undefined;
+    emit();
+    return true;
+  };
 
   try {
     // ФАЗА 1: Быстрая проверка всех объявлений
@@ -254,6 +294,13 @@ export async function batchUpdateAvitoAds(
         const checked = await checkAdQuick(tabId, ad);
 
         if (checked.error) {
+          // Капча/лимит — отдельная ветка: ни в архив, ни в полный парсинг
+          if (isBlockSignal(checked.error)) {
+            if (!(await noteBlock(ad, checked.error))) break;
+            continue;
+          }
+          consecutiveBlocks = 0;
+
           // Редирект или 404/410 — объявление точно архивировано
           if (checked.error.includes('Redirect to non-ad page') || checked.error.includes('HTTP 404') || checked.error.includes('HTTP 410')) {
             await adsRepository.update(ad.id!, {
@@ -269,6 +316,8 @@ export async function batchUpdateAvitoAds(
           }
           continue;
         }
+
+        consecutiveBlocks = 0;
 
         const priceChanged = checked.price !== null && checked.price !== ad.price;
         const statusChanged = checked.status !== ad.status;
@@ -294,7 +343,13 @@ export async function batchUpdateAvitoAds(
             await recalculateObject(ad.object_id);
           }
         }
-      } catch {
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (isBlockSignal(msg)) {
+          if (!(await noteBlock(ad, msg))) break;
+          continue;
+        }
+        consecutiveBlocks = 0;
         needFullParse.push(ad);
       }
 
@@ -302,7 +357,7 @@ export async function batchUpdateAvitoAds(
 
       // Задержка между запросами (Авито строже с rate limit)
       if (i < avitoAds.length - 1) {
-        await new Promise(r => setTimeout(r, 2000));
+        await delayWithJitter(settings.avitoCheckDelayMs);
       }
     }
 
@@ -313,7 +368,7 @@ export async function batchUpdateAvitoAds(
     }
 
     // ФАЗА 2: Полный парсинг изменившихся
-    if (needFullParse.length > 0) {
+    if (!abortReason && needFullParse.length > 0) {
       progress.phase = 'parse';
       progress.total = needFullParse.length;
       progress.current = 0;
@@ -328,23 +383,35 @@ export async function batchUpdateAvitoAds(
         try {
           const actualizeResult = await actualizeAvitoAd(ad);
           if (actualizeResult.success && actualizeResult.ad) {
+            consecutiveBlocks = 0;
             result.updated++;
             if (actualizeResult.ad.object_id) {
               await recalculateObject(actualizeResult.ad.object_id);
             }
           } else {
-            result.errors.push({ url: ad.url || '', error: actualizeResult.error || 'Неизвестная ошибка' });
+            const errMsg = actualizeResult.error || 'Неизвестная ошибка';
+            if (isBlockSignal(errMsg)) {
+              if (!(await noteBlock(ad, errMsg))) break;
+              continue;
+            }
+            consecutiveBlocks = 0;
+            result.errors.push({ url: ad.url || '', error: errMsg });
             progress.errors = [...result.errors];
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          if (isBlockSignal(msg)) {
+            if (!(await noteBlock(ad, msg))) break;
+            continue;
+          }
+          consecutiveBlocks = 0;
           result.errors.push({ url: ad.url || '', error: msg });
           progress.errors = [...result.errors];
         }
 
         // Задержка между полными парсингами
         if (i < needFullParse.length - 1) {
-          await new Promise(r => setTimeout(r, 3000));
+          await delayWithJitter(settings.avitoParseDelayMs);
         }
       }
     }
@@ -357,6 +424,10 @@ export async function batchUpdateAvitoAds(
     progress.phase = 'done';
     progress.currentUrl = undefined;
     emit();
+  }
+
+  if (abortReason) {
+    result.aborted = abortReason;
   }
 
   return result;

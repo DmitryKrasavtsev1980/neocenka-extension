@@ -12,6 +12,7 @@
 
 import type { Ad, PriceHistoryItem } from '@/types';
 import { adsRepository } from '@/db/repositories/ads.repository';
+import { isBlockSignal } from '@/services/request-throttle';
 
 /** Результат актуализации */
 export interface ActualizeResult {
@@ -193,6 +194,9 @@ export async function actualizeCianAd(ad: Ad): Promise<ActualizeResult> {
       });
 
       if (response?.success && response.data) break;
+
+      // Блокировка/капча — повторы не помогут, лишь ускорят бан
+      if (isBlockSignal(response?.error || '')) break;
 
       // Не удалось — ждём и пробуем снова
       if (attempt < 2) {

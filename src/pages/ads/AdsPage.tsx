@@ -10,6 +10,16 @@ import { cadastralRepository } from '@/db';
 import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem, CadastralQuarter } from '@/types';
 import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
 import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
+import {
+  AD_UPDATE_SETTINGS_LIMITS,
+  DEFAULT_AD_UPDATE_SETTINGS,
+  DELAY_LIMITS_SEC,
+  delayMsFromSecondsInput,
+  intSettingValue,
+  loadAdUpdateSettings,
+  saveAdUpdateSettings,
+  type AdUpdateSettings,
+} from '@/services/ad-update-settings';
 import { useImportTasks, type ImportTask } from '@/contexts/ImportTaskContext';
 import { getModules, sendDedupFeedbackBatch } from '@/services/api-service';
 import AdsReportsPanel from './reports/AdsReportsPanel';
@@ -546,7 +556,26 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const avitoTask = importTasks.find(t => t.type === 'avito-update' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const dedupTask = importTasks.find(t => t.type === 'deduplicate' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
   const dealMatchTask = importTasks.find(t => t.type === 'deal-matching' && (t.status === 'running' || t.status === 'done' || t.status === 'error'));
-  const [archiveDays, setArchiveDays] = useState(7);
+  const [updateSettings, setUpdateSettings] = useState<AdUpdateSettings>(DEFAULT_AD_UPDATE_SETTINGS);
+
+  // Настройки обновления объявляем сразу дефолтами и подменяем сохранёнными,
+  // чтобы инпуты не мигали пустыми при открытии панели.
+  useEffect(() => {
+    let cancelled = false;
+    loadAdUpdateSettings().then((loaded) => {
+      if (!cancelled) setUpdateSettings(loaded);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  /** Изменить одно поле настроек и сразу сохранить */
+  const changeUpdateSetting = useCallback(
+    <K extends keyof AdUpdateSettings>(key: K, value: AdUpdateSettings[K]) => {
+      setUpdateSettings((prev) => ({ ...prev, [key]: value }));
+      void saveAdUpdateSettings({ [key]: value } as Partial<AdUpdateSettings>);
+    },
+    [],
+  );
   const [showReports, setShowReports] = useState(false);
   const [dealsModuleActive, setDealsModuleActive] = useState(false);
   const [cadastralQuarters, setCadastralQuarters] = useState<CadastralQuarter[]>([]);
@@ -2312,7 +2341,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
   /** Собрать CIAN-объявления из текущего фильтра и запустить batch-обновление */
   const handleBatchUpdate = () => {
-    const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
+    const archiveCutoff = new Date(Date.now() - updateSettings.archiveDays * 24 * 60 * 60 * 1000);
     const isActualizable = (ad: Ad) =>
       ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
     const cianAdsSet = new Set<number>();
@@ -2334,14 +2363,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       setToast({ message: 'Нет CIAN объявлений для обновления', type: 'info' });
       return;
     }
-    if (!startCianBatchUpdate(cianAds, archiveDays)) {
+    if (!startCianBatchUpdate(cianAds, updateSettings)) {
       setToast({ message: 'CIAN: актуализация уже запущена', type: 'info' });
     }
   };
 
   /** Собрать Avito-объявления из текущего фильтра и запустить batch-обновление */
   const handleAvitoBatchUpdate = () => {
-    const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
+    const archiveCutoff = new Date(Date.now() - updateSettings.archiveDays * 24 * 60 * 60 * 1000);
     const isActualizable = (ad: Ad) =>
       ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
     const avitoAdsSet = new Set<number>();
@@ -2363,7 +2392,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       setToast({ message: 'Нет Avito объявлений для обновления', type: 'info' });
       return;
     }
-    if (!startAvitoBatchUpdate(avitoAds, archiveDays)) {
+    if (!startAvitoBatchUpdate(avitoAds, updateSettings)) {
       setToast({ message: 'Avito: актуализация уже запущена', type: 'info' });
     }
   };
@@ -2372,7 +2401,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
    *  Берём прямые выбранные объявления + все объявления из выбранных объектов,
    *  фильтруем по критерию «требует обновления» и запускаем batch по источникам. */
   const handleActualizeSelected = () => {
-    const archiveCutoff = new Date(Date.now() - archiveDays * 24 * 60 * 60 * 1000);
+    const archiveCutoff = new Date(Date.now() - updateSettings.archiveDays * 24 * 60 * 60 * 1000);
     const isActualizable = (ad: Ad) =>
       ad.status === 'active' || (ad.updated && new Date(ad.updated) >= archiveCutoff);
 
@@ -2404,7 +2433,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     const total = cianAds.length + avitoAds.length;
     if (total === 0) {
       const reason = skippedStale > 0
-        ? `Все выбранные актуальны (не старее ${archiveDays} дн.)`
+        ? `Все выбранные актуальны (не старее ${updateSettings.archiveDays} дн.)`
         : 'Среди выбранных нет объявлений CIAN/Avito';
       setToast({ message: `Нечего обновлять. ${reason}`, type: 'info' });
       return;
@@ -2412,11 +2441,11 @@ const AdsPage: React.FC<AdsPageProps> = () => {
 
     let started = 0;
     if (cianAds.length > 0) {
-      if (startCianBatchUpdate(cianAds, archiveDays)) started++;
+      if (startCianBatchUpdate(cianAds, updateSettings)) started++;
       else setToast({ message: 'CIAN: актуализация уже запущена', type: 'info' });
     }
     if (avitoAds.length > 0) {
-      if (startAvitoBatchUpdate(avitoAds, archiveDays)) started++;
+      if (startAvitoBatchUpdate(avitoAds, updateSettings)) started++;
       else setToast({ message: 'Avito: актуализация уже запущена', type: 'info' });
     }
     if (started > 0) {
@@ -3116,13 +3145,44 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                     <label className="text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap">Архивные не старше</label>
                     <input
                       type="number"
-                      min={1}
-                      max={90}
-                      value={archiveDays}
-                      onChange={e => setArchiveDays(Math.max(1, Number(e.target.value) || 7))}
+                      min={AD_UPDATE_SETTINGS_LIMITS.archiveDays[0]}
+                      max={AD_UPDATE_SETTINGS_LIMITS.archiveDays[1]}
+                      value={updateSettings.archiveDays}
+                      onChange={e => changeUpdateSetting('archiveDays', intSettingValue('archiveDays', e.target.value, updateSettings.archiveDays))}
                       className="w-14 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-xs text-zinc-900 dark:text-white text-center"
                     />
                     <span className="text-xs text-zinc-500 dark:text-zinc-400">дней</span>
+                  </div>
+
+                  {/* Задержки между запросами к площадкам: короткие интервалы приводят к бану */}
+                  <div className="space-y-1.5 pt-1">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Задержки между запросами, сек</p>
+                    {([
+                      { id: 'cian', label: 'CIAN', check: 'cianCheckDelayMs', parse: 'cianParseDelayMs' },
+                      { id: 'avito', label: 'Avito', check: 'avitoCheckDelayMs', parse: 'avitoParseDelayMs' },
+                    ] as const).map(({ id, label, check, parse }) => (
+                      <div key={id} className="flex items-center gap-2">
+                        <span className="w-10 text-xs font-medium text-zinc-600 dark:text-zinc-300">{label}</span>
+                        <label className="text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap">проверка</label>
+                        <input
+                          type="number"
+                          min={DELAY_LIMITS_SEC[0]}
+                          max={DELAY_LIMITS_SEC[1]}
+                          value={Math.round(updateSettings[check] / 1000)}
+                          onChange={e => changeUpdateSetting(check, delayMsFromSecondsInput(e.target.value, updateSettings[check]))}
+                          className="w-14 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-xs text-zinc-900 dark:text-white text-center"
+                        />
+                        <label className="text-xs text-zinc-500 dark:text-zinc-400 whitespace-nowrap">парсинг</label>
+                        <input
+                          type="number"
+                          min={DELAY_LIMITS_SEC[0]}
+                          max={DELAY_LIMITS_SEC[1]}
+                          value={Math.round(updateSettings[parse] / 1000)}
+                          onChange={e => changeUpdateSetting(parse, delayMsFromSecondsInput(e.target.value, updateSettings[parse]))}
+                          className="w-14 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-1.5 py-1 text-xs text-zinc-900 dark:text-white text-center"
+                        />
+                      </div>
+                    ))}
                   </div>
                 </>
               )}
