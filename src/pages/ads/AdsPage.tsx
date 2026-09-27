@@ -30,6 +30,8 @@ import {
 } from '@/services/listing-transform';
 import {
   getAvailableCategories,
+  getAvailableRegions,
+  type RegionAdmin,
 } from '@/services/data-request-service';
 import { recalculateObjectFromAds, mergePriceHistory } from '@/services/ad-object-utils';
 import { calculateMarketPositionsBulk, DEFAULT_MARKET_OPTIONS, type MarketPosition, type MarketStatsOptions } from '@/services/market-stats-service';
@@ -621,6 +623,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [showMapFilter, setShowMapFilter] = useState(false);
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lon: number; zoom: number } | null>(null);
   const [subscriptionRegionCodes, setSubscriptionRegionCodes] = useState<string[]>([]);
+  /** Регионы из админки: в них задан source_mode — откуда качать объявления. */
+  const [adminRegions, setAdminRegions] = useState<RegionAdmin[]>([]);
   const [polygonsCoords, setPolygonsCoords] = useState<[number, number][][] | null>(() => {
     try {
       const saved = localStorage.getItem('ret_ads_polygon_coords');
@@ -706,6 +710,39 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       }
     }).catch(() => {});
   }, []);
+
+  // Справочник регионов админки — в них source_mode: откуда качать объявления
+  // (сервер Неоценки или Inpars напрямую). Кэшируем локально, чтобы прямой
+  // режим не зависел от доступности админки в момент нажатия.
+  useEffect(() => {
+    const CACHE_KEY = 'ret_admin_regions';
+    getAvailableRegions()
+      .then((regions) => {
+        setAdminRegions(regions);
+        chrome.storage.local.set({ [CACHE_KEY]: regions });
+      })
+      .catch(() => {
+        chrome.storage.local.get(CACHE_KEY, (result: any) => {
+          setAdminRegions(result?.[CACHE_KEY] || []);
+        });
+      });
+  }, []);
+
+  // Откуда качать объявления — из настройки региона в админке (source_mode).
+  // Полигону regionId не нужен: Inpars отбирает по координатам, режим лишь
+  // решает, идти ли в API Inpars или на сервер Неоценки. Смешанная настройка
+  // регионов — остаёмся на сервере: он универсален, а однозначно выбрать
+  // источник для полигона, лежащего в разных регионах, нельзя.
+  const adsImportSource = useMemo(() => {
+    const subscribed = adminRegions.filter(
+      r => r.region_code && subscriptionRegionCodes.includes(r.region_code)
+    );
+    const pool = subscribed.length > 0 ? subscribed : adminRegions;
+    const mode = pool.length > 0 && pool.every(r => (r.source_mode ?? 'server') === 'inpars_direct')
+      ? 'inpars_direct' as const
+      : 'server' as const;
+    return { mode, region: pool.length === 1 ? pool[0] : undefined };
+  }, [adminRegions, subscriptionRegionCodes]);
 
   // Загрузка кадастровых кварталов (только при активном модуле dealsrosreestr)
   useEffect(() => {
@@ -1920,8 +1957,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const handleImport = () => {
     if (!polygonsCoords || polygonsCoords.length === 0) { setImportError('Нарисуйте полигон на карте'); return; }
     setImportError('');
+
+    const { mode: sourceMode, region } = adsImportSource;
+
     startAdsImport({
       polygons: polygonsCoords,
+      sourceMode,
+      regionId: region?.source_id,
+      regionCode: region?.region_code ?? undefined,
       sourceIds: importSourceIds.length > 0 ? importSourceIds : undefined,
       categoryIds: importCategoryIds.length > 0 ? importCategoryIds : undefined,
       sellerTypes: importSellerTypeIds.length > 0 ? importSellerTypeIds : undefined,
@@ -3011,6 +3054,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
                   </div>
                 </div>
                 <div><label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Дата до</label><input type="date" value={importDateTo} onChange={e => setImportDateTo(e.target.value)} className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-2 py-1.5 text-sm text-zinc-900 dark:text-white" /></div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Источник:{' '}
+                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                    {adsImportSource.mode === 'inpars_direct' ? 'Inpars напрямую' : 'сервер'}
+                  </span>
+                </span>
               </div>
               <button onClick={handleImport} disabled={adsImportRunning || !polygonsCoords} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                 {adsImportRunning && <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}

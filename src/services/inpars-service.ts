@@ -237,7 +237,7 @@ export async function getListingsByPolygon(
       limit: MAX_LIMIT,
       expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house',
       sortBy: 'updated_asc',
-      isNew: 0,
+      isNew: options.isNew ?? 0,
       sellerType: options.sellerType || '1,2,3',
     };
     if (timeStart) body.timeStart = timeStart;

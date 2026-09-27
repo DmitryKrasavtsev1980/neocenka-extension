@@ -10,6 +10,7 @@ import {
 import {
   loadInparsToken,
   getListingsByRegion,
+  getListingsByPolygon,
   transformInparsListing,
   type InparsListingRaw,
 } from '@/services/inpars-service';
@@ -69,6 +70,7 @@ const ImportTaskContext = createContext<ImportTaskContextValue | null>(null);
 // ─── Helpers ───
 
 interface DirectImportParams {
+  polygons?: [number, number][][];
   regionId?: number;
   regionName?: string;
   regionCode?: string;
@@ -93,9 +95,11 @@ async function runInparsDirectImport(
   updateTask: (id: string, updates: Partial<ImportTask>) => void,
   removeTask: (id: string) => void,
 ): Promise<void> {
-  const { regionId, regionName, regionCode, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew } = params;
+  const { polygons, regionId, regionName, regionCode, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew } = params;
 
-  if (!regionId) {
+  // Полигону regionId не нужен: Inpars отбирает по координатам.
+  const hasPolygons = !!polygons && polygons.length > 0;
+  if (!hasPolygons && !regionId) {
     throw new Error('Регион не выбран');
   }
 
@@ -108,31 +112,51 @@ async function runInparsDirectImport(
     );
   }
 
-  updateTask(taskId, { progress: 5, detail: `Inpars: запрос по региону ${regionName || regionCode || regionId}...` });
+  const scopeLabel = hasPolygons
+    ? `${polygons!.length} полигон(ов)`
+    : (regionName || regionCode || String(regionId));
+  updateTask(taskId, { progress: 5, detail: `Inpars: запрос по ${scopeLabel}...` });
 
   // 2. Загружаем объявления (с пагинацией и rate limit внутри inpars-service)
   const batchSize = 500; // Inpars MAX_LIMIT — для аппроксимации прогресса
   let estimatedTotal: number | undefined;
 
-  const rawListings: InparsListingRaw[] = await getListingsByRegion(
-    regionId,
-    {
-      sourceId: sourceIds?.join(','),
-      categoryId: categoryIds?.join(','),
-      sellerType: sellerTypes?.join(','),
-      timeStart: dateFrom ? Math.floor(new Date(dateFrom).getTime() / 1000) : undefined,
-      timeEnd: dateTo ? Math.floor(new Date(dateTo).getTime() / 1000) : undefined,
-      isNew,
-    },
-    (loaded) => {
-      if (!estimatedTotal || loaded > estimatedTotal) estimatedTotal = loaded + batchSize;
-      const pct = Math.min(90, 5 + Math.round((loaded / Math.max(estimatedTotal, 1)) * 85));
-      updateTask(taskId, {
-        progress: pct,
-        detail: `Inpars: загружено ${loaded} объявлений...`,
+  const onProgress = (loaded: number) => {
+    if (!estimatedTotal || loaded > estimatedTotal) estimatedTotal = loaded + batchSize;
+    const pct = Math.min(90, 5 + Math.round((loaded / Math.max(estimatedTotal, 1)) * 85));
+    updateTask(taskId, {
+      progress: pct,
+      detail: `Inpars: загружено ${loaded} объявлений...`,
+    });
+  };
+
+  const filters = {
+    sourceId: sourceIds?.join(','),
+    categoryId: categoryIds?.join(','),
+    sellerType: sellerTypes?.join(','),
+    timeStart: dateFrom ? Math.floor(new Date(dateFrom).getTime() / 1000) : undefined,
+    timeEnd: dateTo ? Math.floor(new Date(dateTo).getTime() / 1000) : undefined,
+    isNew,
+  };
+
+  let rawListings: InparsListingRaw[];
+  if (hasPolygons) {
+    // Полигоны на карте могут пересекаться и частично накладываться —
+    // объединяем по id, иначе одно и то же объявление заедет в базу дважды.
+    const byId = new Map<number, InparsListingRaw>();
+    for (const poly of polygons!) {
+      let polyLoaded = 0;
+      const { listings } = await getListingsByPolygon(poly, filters, (loaded) => {
+        polyLoaded = loaded;
+        onProgress(byId.size + polyLoaded);
       });
-    },
-  );
+      for (const listing of listings) byId.set(listing.id, listing);
+      onProgress(byId.size);
+    }
+    rawListings = Array.from(byId.values());
+  } else {
+    rawListings = await getListingsByRegion(regionId!, filters, onProgress);
+  }
 
   if (rawListings.length === 0) {
     updateTask(taskId, {
@@ -154,6 +178,7 @@ async function runInparsDirectImport(
     source: 'inpars_direct',
     params: JSON.stringify({
       regionId, regionCode, count: rawListings.length,
+      polygons: hasPolygons ? polygons!.length : undefined,
       filters: { sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew },
     }),
     count: result.inserted,
@@ -316,7 +341,7 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
           if (sourceMode === 'inpars_direct') {
             await runInparsDirectImport(
               taskId,
-              { regionId, regionName, regionCode, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew },
+              { polygons, regionId, regionName, regionCode, sourceIds, categoryIds, sellerTypes, dateFrom, dateTo, isNew },
               updateTask,
               removeTask,
             );
