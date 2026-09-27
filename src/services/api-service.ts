@@ -201,25 +201,32 @@ export async function apiRequest<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, options);
 
   if (response.status === 401) {
-    if (retry && refreshTokenValue) {
-      const refreshed = await refreshAuthToken();
-      if (refreshed) {
-        return apiRequest<T>(method, path, body, false);
-      }
+    if (!retry) {
+      // Повтор после восстановления или служебный вызов (login) — без восстановления.
+      // Сознательно НЕ трогаем сессию: токен мог быть только что выдан сервером.
+      throw { status: 401, message: 'Требуется авторизация', error: 'unauthorized' };
     }
-    // Refresh failed — try auto-login with saved credentials
-    if (retry) {
-      const creds = await loadCredentials();
-      if (creds) {
-        try {
-          await login(creds.email, creds.password);
-          return apiRequest<T>(method, path, body, false);
-        } catch {
-          // Auto-login failed
-        }
-      }
+
+    // 1. Обновить токен (или забрать уже обновлённый другим контекстом) — см. refreshAuthToken.
+    const refreshed = await refreshAuthToken();
+    if (refreshed === 'ok') {
+      return apiRequest<T>(method, path, body, false);
     }
-    // All attempts failed — clear auth and redirect
+    // Сервер недоступен/5xx — это не повод затирать сохранённую сессию
+    if (refreshed === 'unavailable') {
+      throw {
+        status: 401,
+        message: 'Сервер недоступен, авторизация сохранена',
+        error: 'unavailable',
+      };
+    }
+
+    // 2. Refresh отвергнут или его не было — авто-логин по сохранённым данным
+    if (await tryAutoLogin()) {
+      return apiRequest<T>(method, path, body, false);
+    }
+
+    // Токен действительно невалиден — выходим
     await clearAuth();
     onUnauthorizedCallback?.();
     throw { status: 401, message: 'Требуется авторизация', error: 'unauthorized' };
@@ -240,7 +247,77 @@ export async function apiRequest<T>(
   return data as T;
 }
 
-async function refreshAuthToken(): Promise<boolean> {
+/** Итог обновления токена.
+ *  'ok'          — новый токен получен;
+ *  'rejected'    — сервер отверг refresh-токен (протух или уже инвалидирован);
+ *  'unavailable' — сеть/5xx, состояние сессии трогать нельзя. */
+type RefreshOutcome = 'ok' | 'rejected' | 'unavailable';
+
+/**
+ * Refresh выполняется в один экземпляр на все параллельные 401.
+ *
+ * Зачем: сервер при refresh инвалидирует старый refresh-токен (blacklist).
+ * Если при загрузке страницы несколько запросов одновременно получили 401 и
+ * каждый полез обновляться, первый выиграет и сделает токен неактивным,
+ * второй получит 401 — а его обработчик через clearAuth() затрёт только что
+ * сохранённый победителем валидный токен. Вместо тихого восстановления
+ * пользователь вылетает из аккаунта.
+ *
+ * Один refreshInFlight покрывает только один JS-контекст (popup и search.html
+ * живут в разных), поэтому дополнительно сверяемся с chrome.storage.local —
+ * победитель гонки кладёт новый токен именно туда. См. adoptTokensFromStorage.
+ */
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+async function refreshAuthToken(): Promise<RefreshOutcome> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    // Кто-то из соседних контекстов уже обновился — забираем его токен без запроса.
+    if (await adoptTokensFromStorage()) return 'ok';
+
+    const outcome = await doRefreshAuthToken();
+
+    // Проиграли межконтекстную гонку: сервер ответил «токен в чёрном списке»,
+    // но победитель успел записать новый. Это не повод выходить из аккаунта.
+    if (outcome === 'rejected' && (await adoptTokensFromStorage())) return 'ok';
+
+    return outcome;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+/**
+ * Перечитать токены из chrome.storage.local и взять их, если они новее наших.
+ *
+ * popup.html и search.html — разные JS-контексты: у каждого своя переменная
+ * authToken и свой refreshInFlight, а хранилище у них общее. Чужое обновление
+ * обнаруживается именно по нему.
+ *
+ * true — новый токен принят и записан в память.
+ */
+async function adoptTokensFromStorage(): Promise<boolean> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([TOKEN_KEY, REFRESH_TOKEN_KEY], (result: any) => {
+      const storedToken = result?.[TOKEN_KEY];
+      const storedRefresh = result?.[REFRESH_TOKEN_KEY];
+      // Пусто (вышли из аккаунта) или значения наши собственные — брать нечего.
+      if (!storedToken || !storedRefresh || storedRefresh === refreshTokenValue) {
+        resolve(false);
+        return;
+      }
+      authToken = storedToken;
+      refreshTokenValue = storedRefresh;
+      resolve(true);
+    });
+  });
+}
+
+async function doRefreshAuthToken(): Promise<RefreshOutcome> {
+  if (!refreshTokenValue) return 'rejected'; // брать нечего
+
   try {
     const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
@@ -248,7 +325,8 @@ async function refreshAuthToken(): Promise<boolean> {
       body: JSON.stringify({ refresh_token: refreshTokenValue }),
     });
 
-    if (!response.ok) return false;
+    if (response.status === 401 || response.status === 422) return 'rejected';
+    if (!response.ok) return 'unavailable';
 
     const data = await response.json();
     authToken = data.token;
@@ -261,10 +339,32 @@ async function refreshAuthToken(): Promise<boolean> {
       }, () => resolve());
     });
 
-    return true;
+    return 'ok';
   } catch {
-    return false;
+    return 'unavailable';
   }
+}
+
+/** Авто-логин по сохранённым данным — тоже один на все параллельные 401. */
+let loginInFlight: Promise<boolean> | null = null;
+
+async function tryAutoLogin(): Promise<boolean> {
+  if (loginInFlight) return loginInFlight;
+
+  loginInFlight = (async () => {
+    const creds = await loadCredentials();
+    if (!creds) return false;
+    try {
+      await login(creds.email, creds.password);
+      return true;
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    loginInFlight = null;
+  });
+
+  return loginInFlight;
 }
 
 // === Public API ===
@@ -290,7 +390,7 @@ export async function login(email: string, password: string): Promise<{
     password,
     device_id: deviceId,
     device_name: navigator.userAgent,
-  });
+  }, false); // без восстановления сессии: логин сам является восстановлением
 
   await saveAuth(data.token, data.refresh_token, data.user);
   saveCredentials(email, password);
@@ -914,9 +1014,9 @@ export async function uploadArchivedPhoto(originalUrl: string, webpBlob: Blob): 
     body: formData,
   });
 
-  if (response.status === 401 && refreshTokenValue) {
+  if (response.status === 401) {
     const refreshed = await refreshAuthToken();
-    if (refreshed) {
+    if (refreshed === 'ok') {
       headers['Authorization'] = `Bearer ${authToken}`;
       response = await fetch(`${API_BASE_URL}/photo-archive/upload`, {
         method: 'POST',
