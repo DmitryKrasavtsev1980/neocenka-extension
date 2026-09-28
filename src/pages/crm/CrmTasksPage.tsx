@@ -212,11 +212,6 @@ const CrmTasksPage: React.FC<CrmTasksPageProps> = () => {
     return (task.status === 'pending' || task.status === 'in_progress') && task.due_date < new Date().toISOString();
   };
 
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  };
-
   const formatDateTime = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });

@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { crmRepository } from '@/db/repositories/crm.repository';
-import type { CrmDashboardStats, CrmTask } from '@/types';
+import type { CrmDashboardStats } from '@/types';
 import { Button } from '@/components/catalyst/button';
 import {
   CurrencyDollarIcon,

@@ -9,8 +9,6 @@ import type { AdAddress, ReferenceItem } from '@/types';
 import {
   getAddresses,
   getAddressRefs,
-  getAddressesStats,
-  postAddresses,
   postAddressChanges,
   getAddressChanges,
   type AddressResponse,

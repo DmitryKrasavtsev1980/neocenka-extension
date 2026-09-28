@@ -215,7 +215,7 @@ export function ImportTaskProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const startDealsImport = useCallback(
-    (files: ManifestFile[], moduleCode: string) => {
+    (files: ManifestFile[], _moduleCode: string) => {
       const taskId = crypto.randomUUID();
 
       setTasks((prev) => [

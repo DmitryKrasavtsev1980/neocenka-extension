@@ -7,9 +7,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
 import { cadastralRepository } from '@/db';
-import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, PriceHistoryItem, CadastralQuarter } from '@/types';
-import { batchUpdateCianAds, type BatchProgress } from '@/services/cian-batch-update-service';
-import { batchUpdateAvitoAds, type AvitoBatchProgress } from '@/services/avito-batch-update-service';
+import type { Ad, AdObject, AdAddress, AdStats, ReferenceItem, CadastralQuarter } from '@/types';
 import {
   AD_UPDATE_SETTINGS_LIMITS,
   DEFAULT_AD_UPDATE_SETTINGS,
@@ -20,7 +18,7 @@ import {
   saveAdUpdateSettings,
   type AdUpdateSettings,
 } from '@/services/ad-update-settings';
-import { useImportTasks, type ImportTask } from '@/contexts/ImportTaskContext';
+import { useImportTasks } from '@/contexts/ImportTaskContext';
 import { getModules, sendDedupFeedbackBatch } from '@/services/api-service';
 import AdsReportsPanel from './reports/AdsReportsPanel';
 import { REGION_CENTERS } from '@/constants/regions';
@@ -33,9 +31,8 @@ import {
   getAvailableRegions,
   type RegionAdmin,
 } from '@/services/data-request-service';
-import { recalculateObjectFromAds, mergePriceHistory } from '@/services/ad-object-utils';
+import { recalculateObjectFromAds } from '@/services/ad-object-utils';
 import { calculateMarketPositionsBulk, DEFAULT_MARKET_OPTIONS, type MarketPosition, type MarketStatsOptions } from '@/services/market-stats-service';
-import MarketPositionWidget from '@/components/MarketPositionWidget';
 import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
 import { Button } from '@/components/catalyst/button';
 import { Badge } from '@/components/catalyst/badge';
@@ -43,7 +40,7 @@ import AdDetailModal from './AdDetailModal';
 import AdObjectDetailModal from './AdObjectDetailModal';
 import AdAddressModal from './AdAddressModal';
 import AddressCombobox from './AddressCombobox';
-import AdsSavedFiltersPanel from './AdsSavedFiltersPanel';
+import AdsSavedFiltersPanel, { type AdsFilterState } from './AdsSavedFiltersPanel';
 import AdAddressAssignModal from './AdAddressAssignModal';
 import { adsAddressService } from '@/services/ads-address-service';
 import {
@@ -236,14 +233,6 @@ const normalizeSource = (s: string | null | undefined): string => {
   }
   return s;
 };
-const SOURCE_COLORS: Record<string, string> = {
-  avito: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  cian: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  domclick: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  yandex: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  youla: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  unknown: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300',
-};
 const SECTION_LABELS: Record<number, string> = {
   1: 'Жилая', 4: 'Коммерческая', 5: 'Загородная', 9: 'Гараж', 11: 'Готовый бизнес',
 };
@@ -386,8 +375,8 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   const [allAds, setAllAds] = useState<Ad[]>([]);
   const [allObjects, setAllObjects] = useState<AdObject[]>([]);
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState<AdStats | null>(null);
-  const [totalAds, setTotalAds] = useState(0);
+  const [, setStats] = useState<AdStats | null>(null);
+  const [, setTotalAds] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   // Локальный фильтр статуса в таблице (не сохраняется в общий фильтр)
@@ -903,9 +892,10 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   // Объявления без адреса с координатами — для слоя на карте
   const adsWithoutAddress = useMemo(() => {
     return allAds
-      .filter(a => !a.address_id && a.coordinates?.lat != null && a.coordinates?.lng != null)
+      // id нужен маркеру на карте; в типе Ad он опционален (присваивается Dexie при вставке)
+      .filter(a => a.id != null && !a.address_id && a.coordinates?.lat != null && a.coordinates?.lng != null)
       .map(a => ({
-        id: a.id,
+        id: a.id!,
         title: a.title || a.name || '',
         address: a.address || '',
         source: a.source || '',
@@ -970,7 +960,9 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     filterProcessingCategoryId, filterProcessingFloor, filterAddressIds, excludedAddressIds, polygonsCoords,
     filterHouseSeriesIds, filterWallMaterialIds, filterFloorsMin, filterFloorsMax]);
 
-  const applyFilterState = useCallback((state: Record<string, unknown>) => {
+  // Принимает и сохранённый фильтр, и сырой JSON из localStorage —
+  // поэтому поля опциональны, а ниже каждое значение берётся с запасным вариантом
+  const applyFilterState = useCallback((state: Partial<AdsFilterState>) => {
     setFilterSources((state.sources as string[]) || []);
     setFilterPropertyTypes((state.propertyTypes as string[]) || []);
     setFilterCategoryIds((state.categoryIds as number[]) || []);
@@ -1056,7 +1048,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     }
   });
 
-  const handleApplySavedFilter = (state: Record<string, unknown>, filterId?: string, filterName?: string, _groupName?: string) => {
+  const handleApplySavedFilter = (state: AdsFilterState, filterId?: string, filterName?: string, _groupName?: string) => {
     applyFilterState(state);
     setActiveFilterId(filterId ?? null);
     setActiveFilterName(filterName ?? null);
@@ -1584,9 +1576,6 @@ const AdsPage: React.FC<AdsPageProps> = () => {
     for (const [id, pos] of lowMarketObjectMap) if (pos.isLowMarket) set.add(id);
     return set;
   }, [lowMarketObjectMap]);
-
-  // Количество подсвеченных (для тултипа на кнопке)
-  const lowMarketCount = lowMarketAdIds.size + lowMarketObjectIds.size;
 
   // ─── Строки таблицы ───
   const tableRows = useMemo(() => {
@@ -2141,7 +2130,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       const allAdIds = allMergeAds.map(a => a.id).filter((id): id is number => id != null);
       for (const adId of allAdIds) {
         const ad = allMergeAds.find(a => a.id === adId);
-        const updates: Record<string, unknown> = { object_id: newObjectId as number };
+        const updates: Partial<Ad> = { object_id: newObjectId as number };
         // Если дубли обработаны — переводим в processed
         if (ad && ad.processing_status === 'duplicate_check_needed') {
           updates.processing_status = 'processed';
@@ -2203,14 +2192,14 @@ const AdsPage: React.FC<AdsPageProps> = () => {
       await db.table('ad_objects').bulkDelete(objectIds);
 
       // Отправляем feedback на сервер (silent — не блокирует UI)
-      for (const objId of objectIds) {
-        const objAds = adsBeforeSplit.get(objId);
-        // TODO: раскомментировать после завершения тестирования
-        // if (objAds && objAds.length > 1) {
-        //   const feedbackContext = objAds[0]?.address_id ? { address_id: objAds[0].address_id } : undefined;
-        //   sendDedupFeedbackBatch('split', objAds, feedbackContext).catch(() => {});
-        // }
-      }
+      // TODO: раскомментировать после завершения тестирования
+      // for (const objId of objectIds) {
+      //   const objAds = adsBeforeSplit.get(objId);
+      //   if (objAds && objAds.length > 1) {
+      //     const feedbackContext = objAds[0]?.address_id ? { address_id: objAds[0].address_id } : undefined;
+      //     sendDedupFeedbackBatch('split', objAds, feedbackContext).catch(() => {});
+      //   }
+      // }
 
       setSelectedIds(new Set());
       setSelectedTypes(new Map());
@@ -2725,7 +2714,7 @@ const AdsPage: React.FC<AdsPageProps> = () => {
   };
 
   // ─── Рендер строки ───
-  const renderRow = (row: TableRow, idx: number) => {
+  const renderRow = (row: TableRow, _idx: number) => {
     if (row.kind === 'object') {
       const o = row.data;
       const id = o.id!;

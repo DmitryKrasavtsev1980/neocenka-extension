@@ -28,11 +28,6 @@ import { applyFilterToAds } from '@/services/ads-filter-utils';
 import SharePanel from './SharePanel';
 import S3PhotoArchiveCard from './S3PhotoArchiveCard';
 
-const TYPE_ID_LABELS: Record<number, string> = {
-  1: 'Аренда',
-  2: 'Продажа',
-};
-
 const SECTION_LABELS: Record<number, string> = {
   1: 'Жилая', 4: 'Коммерческая', 5: 'Загородная',
   9: 'Гараж', 11: 'Готовый бизнес',
@@ -95,7 +90,7 @@ interface ExportFilterGroup {
 const AdsSettingsPage: React.FC = () => {
   // Справочники
   const [regions, setRegions] = useState<RegionAdmin[]>([]);
-  const [sources, setSources] = useState<SourceAdmin[]>([]);
+  const [, setSources] = useState<SourceAdmin[]>([]);
 
   // Подписка на модуль ads
   const [adsModule, setAdsModule] = useState<ModuleInfo | null>(null);

@@ -5,6 +5,17 @@
 
 import { extractBuildingLink, parseBuildingCard } from './2gis-parser';
 
+/**
+ * Ошибка из результата executeScript — если внедрённая функция упала.
+ * @types/chrome это поле не описывает (там только documentId/frameId/result),
+ * поэтому читаем его безопасно: если браузер его не вернул — будет undefined.
+ */
+function injectionError(
+  res: chrome.scripting.InjectionResult<unknown>,
+): { message?: string; description?: string } | string | undefined {
+  return (res as { error?: { message?: string; description?: string } | string }).error;
+}
+
 // Установка / обновление расширения
 chrome.runtime.onInstalled.addListener((details) => {
   const version = chrome.runtime.getManifest().version;
@@ -254,7 +265,7 @@ async function reapplyAvitoSellerFilter(): Promise<boolean> {
         if (text === 'Неважно') nevazhno = (label || r) as HTMLElement;
         if (text === 'Частные') chastnye = (label || r) as HTMLElement;
       }
-      return { nevazhno: marker0 || nevazhno, chastnye: marker1 || chastnye };
+      return { nevazhno: (marker0 as HTMLElement) || nevazhno, chastnye: (marker1 as HTMLElement) || chastnye };
     }
 
     return { nevazhno: marker0 as HTMLElement, chastnye: marker1 as HTMLElement };
@@ -318,6 +329,9 @@ async function reapplyAvitoSellerFilter(): Promise<boolean> {
     await new Promise(r => setTimeout(r, 1000));
     // ВАЖНО: после клика React перерисовывает radio group — старые ссылки не валидны!
     sellerRadios = findSellerRadios();
+    if (!sellerRadios.chastnye) {
+      return false; // после перерисовки «Частные» пропали
+    }
   }
 
   sellerRadios.chastnye.click();
@@ -408,61 +422,6 @@ interface CianDetailParsed {
   priceHistory: Array<{ date: string; price: number }>;
 }
 
-/** Парсинг русской даты: "25 мая 2026", "27 апр, 10:55", "вчера, 13:30" и т.д. */
-function parseRussianDate(dateStr: string): Date | null {
-  const now = new Date();
-  const months: Record<string, number> = {
-    'января': 0, 'янв': 0,
-    'февраля': 1, 'фев': 1,
-    'марта': 2, 'мар': 2,
-    'апреля': 3, 'апр': 3,
-    'мая': 4, 'май': 4,
-    'июня': 5, 'июн': 5,
-    'июля': 6, 'июл': 6,
-    'августа': 7, 'авг': 7,
-    'сентября': 8, 'сен': 8,
-    'октября': 9, 'окт': 9,
-    'ноября': 10, 'ноя': 10,
-    'декабря': 11, 'дек': 11,
-  };
-
-  if (dateStr.startsWith('вчера')) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 1);
-    const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
-    if (timeMatch) d.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
-    return d;
-  }
-
-  if (dateStr.startsWith('сегодня')) {
-    const d = new Date(now);
-    const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
-    if (timeMatch) d.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
-    return d;
-  }
-
-  // "27 апр, 10:55" или "25 мая 2026" или "25 мая"
-  const parts = dateStr.match(/(\d{1,2})\s+([a-zA-Zа-яА-ЯёЁ]+)\s*(\d{4})?/);
-  if (!parts) return null;
-
-  const day = parseInt(parts[1]);
-  const monthStr = parts[2].toLowerCase();
-  const month = months[monthStr];
-  if (month === undefined) return null;
-
-  let year: number;
-  if (parts[3]) {
-    year = parseInt(parts[3]);
-  } else {
-    year = now.getFullYear();
-    if (new Date(year, month, day) > now) year--;
-  }
-
-  const d = new Date(year, month, day);
-  const timeMatch = dateStr.match(/(\d{1,2}):(\d{2})/);
-  if (timeMatch) d.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]), 0, 0);
-  return d;
-}
 
 /** Парсинг страницы объявления ЦИАН (инъекция через executeScript — ВСЁ внутри одной функции!) */
 function parseCianDetailPage(): CianDetailParsed {
@@ -1142,14 +1101,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // Прокрутка Авито для подгрузки всех карточек (on-map вид)
   if (message.type === 'SCROLL_AVITO_LIST') {
-    const injection: chrome.scripting.ScriptInjection = {
+    // scrollAvitoList(undefined) эквивалентен вызову без аргумента: limit = maxCards || 9999
+    const maxCards = message.maxCards != null ? message.maxCards : undefined;
+    chrome.scripting.executeScript({
       target: { tabId: message.tabId },
       func: scrollAvitoList,
-    };
-    if (message.maxCards != null) {
-      injection.args = [message.maxCards];
-    }
-    chrome.scripting.executeScript(injection).then(results => {
+      args: [maxCards],
+    }).then(results => {
       const loaded = (results && results.length > 0) ? results[0].result || 0 : 0;
       sendResponse({ success: true, loaded });
     }).catch(err => {
@@ -1316,7 +1274,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       target: { tabId },
       world: 'MAIN' as any,
       func: (text: string) => {
-        const ta = document.querySelector('[data-marker="icebreakers/textarea"]');
+        const ta = document.querySelector<HTMLTextAreaElement>('[data-marker="icebreakers/textarea"]');
         if (!ta) return { found: false };
 
         // Ключевой момент: React — controlled component.
@@ -1415,12 +1373,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ success: false, error: 'executeScript вернул пустой результат. Возможно вкладка ещё загружается.' });
         return;
       }
-      const parsed: CianDetailParsed | null = results[0].result;
+      // executeScript отдаёт result?: T (undefined, если функция ничего не вернула) — нормализуем к null
+      const parsed: CianDetailParsed | null = results[0].result ?? null;
       if (!parsed) {
         // Функция либо бросила ошибку (results[0].error), либо вернула undefined
-        const errObj = results[0].error;
+        const errObj = injectionError(results[0]);
         const errMsg = errObj
-          ? (errObj.message || errObj.description || JSON.stringify(errObj))
+          ? (typeof errObj === 'string' ? errObj : errObj.message || errObj.description || JSON.stringify(errObj))
           : 'Результат пуст. Возможно страница ещё загружается.';
         sendResponse({ success: false, error: errMsg });
         return;
@@ -1454,7 +1413,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             target: { tabId },
             func: parseCianDetailPage,
           });
-          const reparsed: CianDetailParsed | null = (histResults && histResults.length > 0) ? histResults[0].result : null;
+          const reparsed: CianDetailParsed | null = (histResults && histResults.length > 0) ? (histResults[0].result ?? null) : null;
           domHistory = reparsed?.priceHistory || [];
         } catch { /* не удалось */ }
       }
@@ -1498,8 +1457,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
       const data = results[0].result;
-      if (results[0].error) {
-        sendResponse({ success: false, error: results[0].error.message || String(results[0].error) });
+      const execError = injectionError(results[0]);
+      if (execError) {
+        sendResponse({ success: false, error: typeof execError === 'string' ? execError : execError.message || String(execError) });
         return;
       }
       sendResponse({ success: true, data });
@@ -1601,7 +1561,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         func: readAvitoPageData,
         world: 'MAIN',
       });
-      return (res && res.length > 0) ? res[0].result : null;
+      return (res && res.length > 0) ? (res[0].result ?? null) : null;
     };
 
     readPageData().then(async (pageData) => {
@@ -1671,8 +1631,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
       const data = results[0].result;
-      if (results[0].error) {
-        sendResponse({ success: false, error: results[0].error.message || String(results[0].error) });
+      const execError = injectionError(results[0]);
+      if (execError) {
+        sendResponse({ success: false, error: typeof execError === 'string' ? execError : execError.message || String(execError) });
         return;
       }
       sendResponse({ success: true, data });

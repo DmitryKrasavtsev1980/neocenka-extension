@@ -13,7 +13,7 @@
 import { db } from '@/db/database';
 import { apiRequest } from '@/services/api-service';
 import { recalculateObjectFromAds } from '@/services/ad-object-utils';
-import type { Ad, AdObject } from '@/types';
+import type { Ad } from '@/types';
 
 // --- Типы ---
 

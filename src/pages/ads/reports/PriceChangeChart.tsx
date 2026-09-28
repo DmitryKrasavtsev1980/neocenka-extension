@@ -97,7 +97,7 @@ const PriceChangeChart: React.FC<Props> = ({ objects }) => {
             <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={formatYPrice} />
             <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} tickFormatter={formatYM2} />
             <Tooltip
-              formatter={(value: number | null, name: string) => {
+              formatter={(value: any, name: any) => {
                 if (value == null) return ['—', name];
                 return [formatPriceTooltip(value), name];
               }}

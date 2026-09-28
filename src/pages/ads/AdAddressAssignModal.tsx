@@ -5,7 +5,6 @@
 
 import React, { useState, useMemo } from 'react';
 import type { Ad, AdAddress, ReferenceItem } from '@/types';
-import { adsAddressService } from '@/services/ads-address-service';
 
 const CONFIDENCE_COLORS: Record<string, string> = {
   perfect: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -47,7 +46,6 @@ interface Props {
 const AdAddressAssignModal: React.FC<Props> = ({
   ad,
   addresses,
-  referenceData,
   onClose,
   onLink,
   onUnlink,

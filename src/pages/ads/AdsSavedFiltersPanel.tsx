@@ -59,6 +59,11 @@ export interface AdsFilterState {
   wallMaterialIds: string[];
   floorsMin: string;
   floorsMax: string;
+  /**
+   * Прокидывается в state при применении общего фильтра (см. handleApplyFilter),
+   * чтобы принимающая страница могла отличить общий фильтр от своего.
+   */
+  is_general?: boolean;
 }
 
 export interface SavedFilter {
@@ -574,8 +579,8 @@ const AdsSavedFiltersPanel: React.FC<AdsSavedFiltersPanelProps> = ({ open, onClo
   const handleApplyFilter = (filter: SavedFilter) => {
     const group = filter.groupId ? groups.find(g => g.id === filter.groupId) : null;
     // Прокидываем is_general в state, чтобы AdsPage мог понять, что это общий фильтр
-    const stateWithGeneral = filter.is_general
-      ? { ...(filter.state as unknown as Record<string, unknown>), is_general: true }
+    const stateWithGeneral: AdsFilterState = filter.is_general
+      ? { ...filter.state, is_general: true }
       : filter.state;
     onApply(stateWithGeneral, filter.id, filter.name, group?.name);
     // Закрываем с задержкой, чтобы клик не пробился на элементы под панелью

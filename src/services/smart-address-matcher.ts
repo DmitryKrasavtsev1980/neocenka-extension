@@ -10,9 +10,19 @@ import type { Ad, AdAddress } from '@/types';
 
 // ========== Типы ==========
 
+/** Уровень уверенности сопоставления */
+export type MatchConfidence = 'perfect' | 'high' | 'medium' | 'low' | 'very_low' | 'none';
+
+/**
+ * Адрес с известными координатами.
+ * Такие адреса проходят отбор в getAddressesInRadius — значит,
+ * расстояние до них считать можно, и null в calculateDistance не уедет.
+ */
+type LocatedAddress = AdAddress & { coordinates: { lat: number; lng: number } };
+
 export interface MatchResult {
   address: AdAddress | null;
-  confidence: 'perfect' | 'high' | 'medium' | 'low' | 'very_low' | 'none';
+  confidence: MatchConfidence;
   method: string;
   distance: number | null;
   score: number;
@@ -45,7 +55,7 @@ interface CandidateResult {
   structuralSimilarity: number;
   fuzzyScore: number;
   method: string;
-  confidence?: string;
+  confidence?: MatchConfidence;
 }
 
 // ========== Класс ==========
@@ -330,9 +340,10 @@ export class SmartAddressMatcher {
 
   /** ≤20м = 90% уверенность (perfect) */
   private applyProximityRule(result: CandidateResult, coords: { lat: number; lng: number }): CandidateResult {
-    if (!result.address.coordinates?.lat || !result.address.coordinates?.lng) return result;
+    const candCoords = this.normalizeCoordinates(result.address.coordinates?.lat, result.address.coordinates?.lng);
+    if (!candCoords) return result;
 
-    const distance = this.calculateDistance(coords, result.address.coordinates);
+    const distance = this.calculateDistance(coords, candCoords);
     if (distance <= 20) {
       return {
         ...result,
@@ -373,7 +384,7 @@ export class SmartAddressMatcher {
 
   private rankCandidates(
     sourceData: PreprocessedAddress,
-    candidates: AdAddress[],
+    candidates: LocatedAddress[],
     sourceCoords: { lat: number; lng: number },
   ): CandidateResult[] {
     const results: CandidateResult[] = [];
@@ -633,10 +644,14 @@ export class SmartAddressMatcher {
     return { lat: latN, lng: lngN };
   }
 
-  private getAddressesInRadius(addresses: AdAddress[], center: { lat: number; lng: number }, radius: number): AdAddress[] {
-    return addresses.filter(addr => {
-      if (addr.coordinates.lat == null || addr.coordinates.lng == null) return false;
-      return this.calculateDistance(center, addr.coordinates) <= radius;
+  private getAddressesInRadius(addresses: AdAddress[], center: { lat: number; lng: number }, radius: number): LocatedAddress[] {
+    // Type predicate: сужаем до адресов с непустыми координатами,
+    // чтобы вызывающие коды могли передавать candidate.coordinates в calculateDistance.
+    // normalizeCoordinates даёт {lat,lng} — сужение через него, т.к. проверка
+    // addr.coordinates.lat == null не сужает сам объект addr.coordinates
+    return addresses.filter((addr): addr is LocatedAddress => {
+      const c = this.normalizeCoordinates(addr.coordinates?.lat, addr.coordinates?.lng);
+      return c != null && this.calculateDistance(center, c) <= radius;
     });
   }
 

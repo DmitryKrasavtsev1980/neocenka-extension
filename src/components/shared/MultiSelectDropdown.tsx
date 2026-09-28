@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Input } from '@/components/catalyst/input';
 
 interface MultiSelectDropdownProps {
   label: string;

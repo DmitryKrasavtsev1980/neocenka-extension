@@ -191,7 +191,6 @@ const AppLayout: React.FC = () => {
   const [crmCounts, setCrmCounts] = useState({ deals: 0, clients: 0, leads: 0, tasks: 0 });
   const [sidebarOrder, setSidebarOrder] = useState<SidebarOrder>(defaultSidebarOrder);
   const dragItem = useRef<string | null>(null);
-  const dragOverItem = useRef<string | null>(null);
   const user = getCurrentUser();
   const { theme, toggleTheme } = useTheme();
 
@@ -359,7 +358,10 @@ const AppLayout: React.FC = () => {
     }
   };
 
-  const handleNavigate = (page: ActivePage) => {
+  // Страницы декларируют onNavigate как (page: string) => void и передают только
+  // известные литералы ('ads-settings', 'crm-deals', …) — сужаем один раз здесь,
+  // чтобы обработчик можно было отдать в проп с широкой сигнатурой
+  const handleNavigate = (page: string) => {
     if (page !== 'import') {
       setImportModuleCode(undefined);
     }
@@ -371,7 +373,7 @@ const AppLayout: React.FC = () => {
     if (page.startsWith('crm-')) {
       loadCrmCounts();
     }
-    setActivePage(page);
+    setActivePage(page as ActivePage);
   };
 
   const renderContent = () => {

@@ -11,16 +11,23 @@ export function Text({ className, ...props }: React.ComponentPropsWithoutRef<'p'
   )
 }
 
-export function TextLink({ className, ...props }: React.ComponentPropsWithoutRef<typeof Link>) {
-  return (
-    <Link
-      {...props}
-      className={clsx(
-        className,
-        'text-zinc-950 underline decoration-zinc-950/50 data-hover:decoration-zinc-950 dark:text-white dark:decoration-white/50 dark:data-hover:decoration-white'
-      )}
-    />
+/**
+ * Текст-ссылка. Если href не передан, рендерится кнопкой:
+ * контрол без адреса не должен быть якорем без href.
+ */
+type TextLinkProps =
+  | ({ href: string } & React.ComponentPropsWithoutRef<'a'>)
+  | ({ href?: undefined } & React.ComponentPropsWithoutRef<'button'>)
+
+export function TextLink(props: TextLinkProps) {
+  const className = clsx(
+    props.className,
+    'text-zinc-950 underline decoration-zinc-950/50 data-hover:decoration-zinc-950 dark:text-white dark:decoration-white/50 dark:data-hover:decoration-white'
   )
+  if (props.href !== undefined) {
+    return <Link {...props} className={className} />
+  }
+  return <button {...props} type="button" className={className} />
 }
 
 export function Strong({ className, ...props }: React.ComponentPropsWithoutRef<'strong'>) {

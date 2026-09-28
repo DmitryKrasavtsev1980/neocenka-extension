@@ -188,7 +188,7 @@ class PhotoArchiveService {
    */
   async saveMappings(mappings: { original_url: string; s3_url: string }[]): Promise<void> {
     if (mappings.length === 0) return;
-    const table = db.table<{ original_url: string; s3_url: string; archived_at: string }>('archived_photos');
+    const table = db.table<{ id?: number; original_url: string; s3_url: string; archived_at: string }>('archived_photos');
 
     for (const m of mappings) {
       const existing = await table.where('original_url').equals(m.original_url).first();

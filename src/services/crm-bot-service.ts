@@ -3,11 +3,11 @@
  */
 
 import { crmRepository } from '@/db/repositories/crm.repository';
-import type { CrmClient, CrmMessage } from '@/types';
-import { getPrimaryPhone, formatPhone } from '@/types';
+import type { CrmClientContext, CrmMessage } from '@/types';
+import { formatClientPhone } from '@/types';
 
 interface BotGenerateOptions {
-  client: CrmClient;
+  client: CrmClientContext;
   messages: CrmMessage[];
   userMessage?: string;
 }
@@ -27,10 +27,10 @@ export async function getBotSettings() {
 /**
  * Заменить переменные в шаблоне контекста
  */
-export function fillTemplate(template: string, client: CrmClient): string {
+export function fillTemplate(template: string, client: CrmClientContext): string {
   return template
     .replace(/\{client_name\}/g, client.full_name || 'Клиент')
-    .replace(/\{phone\}/g, formatPhone(getPrimaryPhone(client.phones || [])) || '—')
+    .replace(/\{phone\}/g, formatClientPhone(client.phones))
     .replace(/\{address\}/g, client.ad_data?.address || '—')
     .replace(/\{price\}/g, client.ad_data?.price ? `${client.ad_data.price.toLocaleString('ru-RU')} ₽` : '—')
     .replace(/\{property_type\}/g, client.ad_data?.property_type || '—')

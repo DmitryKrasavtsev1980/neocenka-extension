@@ -1,5 +1,6 @@
 import Papa from 'papaparse';
-import { Deal, RawCsvRow, ImportStatus, S3ManifestFile } from '@/types';
+import type { ParseResult, Parser as PapaParser } from 'papaparse';
+import { Deal, RawCsvRow, ImportStatus } from '@/types';
 import { dealsRepository, importsRepository, db, invalidateDatabaseStatsCache } from '@/db';
 import { getDownloadUrl, getAuthHeader } from '@/services/api-service';
 
@@ -91,7 +92,7 @@ export function previewRegions(file: File): Promise<string[]> {
         header: true,
         skipEmptyLines: true,
         chunkSize: 1024 * 1024, // 1MB chunks
-        chunk: (results, parser) => {
+        chunk: (results) => {
           for (const row of results.data) {
             rowsProcessed++;
 
@@ -228,7 +229,7 @@ export async function importCsvFile(params: ImportParams): Promise<{ importId: n
       header: true,
       skipEmptyLines: true,
       chunkSize: 1024 * 1024, // 1MB chunks
-      chunk: async (results, parser) => {
+      chunk: async (results: ParseResult<RawCsvRow>, parser: PapaParser) => {
         parser.pause();
 
         for (const row of results.data) {
@@ -385,7 +386,7 @@ export async function importFromUrl(params: S3ImportParams): Promise<{ importId:
       delimiter,
       header: true,
       skipEmptyLines: true,
-      chunk: async (results, parser) => {
+      chunk: async (results: ParseResult<RawCsvRow>, parser: PapaParser) => {
         parser.pause();
 
         for (const row of results.data) {
@@ -416,7 +417,7 @@ export async function importFromUrl(params: S3ImportParams): Promise<{ importId:
         }
         resolve();
       },
-      error: (error) => {
+      error: (error: Error) => {
         console.error('[S3 Import] Ошибка парсинга:', error);
         reject(error);
       },

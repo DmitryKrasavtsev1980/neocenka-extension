@@ -173,9 +173,13 @@ export async function actualizeAvitoAd(ad: Ad): Promise<AvitoActualizeResult> {
       const day = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
       return `${day}|${price}`;
     };
-    const existingKeys = new Set(
-      (ad.price_history || []).map(h => toDayPriceKey(h.date, h.new_price ?? h.price))
-    );
+    const existingKeys = new Set<string>();
+    for (const h of ad.price_history || []) {
+      // В старых записях цена живёт либо в new_price, либо в price —
+      // запись без цены в ключ дедупликации не берём
+      const price = h.new_price ?? h.price;
+      if (price != null) existingKeys.add(toDayPriceKey(h.date, price));
+    }
     const newHistoryEntries: PriceHistoryItem[] = [];
     for (const entry of parsed.priceHistory) {
       const key = toDayPriceKey(entry.date, entry.price);

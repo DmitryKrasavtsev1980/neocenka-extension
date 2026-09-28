@@ -390,7 +390,10 @@ export const crmRepository = {
   async getKnownLeadUrls(): Promise<Set<string>> {
     const all = await db.crm_leads.toArray();
     return new Set(
-      all.map(l => l.source_url).filter(Boolean).map(normalizeUrl) as string[]
+      all
+        .map(l => l.source_url)
+        .filter((u): u is string => !!u)
+        .map(normalizeUrl)
     );
   },
 
@@ -491,8 +494,8 @@ export const crmRepository = {
     const sortBy = filters.sort_by || 'created_at';
     const sortDir = filters.sort_dir || 'desc';
     filtered.sort((a, b) => {
-      let va = (a as Record<string, unknown>)[sortBy];
-      let vb = (b as Record<string, unknown>)[sortBy];
+      let va = (a as unknown as Record<string, unknown>)[sortBy];
+      let vb = (b as unknown as Record<string, unknown>)[sortBy];
       if (typeof va === 'string') va = va.toLowerCase();
       if (typeof vb === 'string') vb = vb.toLowerCase();
       if (va == null && vb == null) return 0;

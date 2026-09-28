@@ -6,16 +6,27 @@ import { Link } from './link'
 const styles = {
   base: [
     // Base
-    'relative isolate inline-flex items-baseline justify-center gap-x-2 rounded-lg border text-base/6 font-semibold',
-    // Sizing
-    'px-[calc(--spacing(3.5)-1px)] py-[calc(--spacing(2.5)-1px)] sm:px-[calc(--spacing(3)-1px)] sm:py-[calc(--spacing(1.5)-1px)] sm:text-sm/6',
+    'relative isolate inline-flex items-baseline justify-center gap-x-2 rounded-lg border font-semibold',
     // Focus
     'focus:not-data-focus:outline-hidden data-focus:outline-2 data-focus:outline-offset-2 data-focus:outline-blue-500',
     // Disabled
     'data-disabled:opacity-50',
-    // Icon
-    '*:data-[slot=icon]:-mx-0.5 *:data-[slot=icon]:my-0.5 *:data-[slot=icon]:size-5 *:data-[slot=icon]:shrink-0 *:data-[slot=icon]:self-center *:data-[slot=icon]:text-(--btn-icon) sm:*:data-[slot=icon]:my-1 sm:*:data-[slot=icon]:size-4 forced-colors:[--btn-icon:ButtonText] forced-colors:data-hover:[--btn-icon:ButtonText]',
+    // Icon (цвет и выравнивание; размер — в styles.sizes)
+    '*:data-[slot=icon]:-mx-0.5 *:data-[slot=icon]:shrink-0 *:data-[slot=icon]:self-center *:data-[slot=icon]:text-(--btn-icon) forced-colors:[--btn-icon:ButtonText] forced-colors:data-hover:[--btn-icon:ButtonText]',
   ],
+  // Размеры. Классы перечислены целиком, чтобы Tailwind их видел при сканировании.
+  sizes: {
+    md: [
+      'text-base/6',
+      'px-[calc(--spacing(3.5)-1px)] py-[calc(--spacing(2.5)-1px)] sm:px-[calc(--spacing(3)-1px)] sm:py-[calc(--spacing(1.5)-1px)] sm:text-sm/6',
+      '*:data-[slot=icon]:my-0.5 *:data-[slot=icon]:size-5 sm:*:data-[slot=icon]:my-1 sm:*:data-[slot=icon]:size-4',
+    ],
+    sm: [
+      'text-sm/6',
+      'px-[calc(--spacing(2.5)-1px)] py-[calc(--spacing(1.5)-1px)]',
+      '*:data-[slot=icon]:my-0.5 *:data-[slot=icon]:size-4',
+    ],
+  },
   solid: [
     // Optical border, implemented as the button background to avoid corner artifacts
     'border-transparent bg-(--btn-border)',
@@ -162,18 +173,19 @@ type ButtonProps = (
   | { color?: keyof typeof styles.colors; outline?: never; plain?: never }
   | { color?: never; outline: true; plain?: never }
   | { color?: never; outline?: never; plain: true }
-) & { className?: string; children: React.ReactNode } & (
+) & { className?: string; children: React.ReactNode; size?: keyof typeof styles.sizes } & (
     | ({ href?: never } & Omit<Headless.ButtonProps, 'as' | 'className'>)
     | ({ href: string } & Omit<React.ComponentPropsWithoutRef<typeof Link>, 'className'>)
   )
 
 export const Button = forwardRef(function Button(
-  { color, outline, plain, className, children, ...props }: ButtonProps,
+  { color, outline, plain, size = 'md', className, children, ...props }: ButtonProps,
   ref: React.ForwardedRef<HTMLElement>
 ) {
   let classes = clsx(
     className,
     styles.base,
+    styles.sizes[size],
     outline ? styles.outline : plain ? styles.plain : clsx(styles.solid, styles.colors[color ?? 'dark/zinc'])
   )
 

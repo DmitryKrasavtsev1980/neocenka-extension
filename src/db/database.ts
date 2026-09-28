@@ -428,7 +428,7 @@ export class DealsDatabase extends Dexie {
     }).upgrade(tx => {
       // Обновляем существующие шаблоны — оставляем общими (без привязки)
       const tmplTable = tx.table('crm_message_templates');
-      return tmplTable.toCollection().modify((tmpl: any) => {
+      return tmplTable.toCollection().modify((_tmpl: any) => {
         // pipeline_id и source оставляем undefined — шаблон общий
       });
     });
@@ -534,7 +534,7 @@ export async function clearDatabase(): Promise<void> {
 }
 
 // Кэш статистики — years и регионы меняются только при импорте
-let statsCache: Promise<ReturnType<typeof computeDatabaseStats>> | null = null;
+let statsCache: ReturnType<typeof computeDatabaseStats> | null = null;
 
 async function computeDatabaseStats() {
   const [totalDeals, totalImports, lastImport] = await Promise.all([

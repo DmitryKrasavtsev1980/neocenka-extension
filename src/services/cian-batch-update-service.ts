@@ -7,7 +7,7 @@
  * Фаза 3 — Пересчёт объектов
  */
 
-import type { Ad, AdObject, PriceHistoryItem } from '@/types';
+import type { Ad, PriceHistoryItem } from '@/types';
 import { adsRepository } from '@/db/repositories/ads.repository';
 import { db } from '@/db/database';
 import { actualizeCianAd } from '@/services/cian-update-service';
@@ -302,7 +302,12 @@ export async function batchUpdateCianAds(
 
   try {
     // ФАЗА 1: Быстрая проверка всех объявлений
-    tabId = (await createCianBackgroundTab()).id;
+    // chrome.tabs.Tab.id может быть undefined — без вкладки весь прогон бессмыслен
+    const openedTab = await createCianBackgroundTab();
+    if (openedTab.id == null) {
+      throw new Error('Не удалось создать фоновую вкладку ЦИАН');
+    }
+    tabId = openedTab.id;
     const needFullParse: Ad[] = [];
 
     for (let i = 0; i < cianAds.length; i++) {

@@ -30,6 +30,20 @@ export function formatPhone(phone: string): string {
   return formatted;
 }
 
+/**
+ * Основной телефон для вывода: '+7 (983) 629-94-88' или '—'.
+ * formatPhone('') даёт '+7', поэтому пустой номер проверяем до форматирования.
+ */
+export function formatClientPhone(phones: CrmPhone[] | undefined): string {
+  const number = getPrimaryPhone(phones || []);
+  return number ? formatPhone(number) : '—';
+}
+
+/** Все номера одной строкой — для поиска по телефону */
+export function getPhonesText(phones: CrmPhone[] | undefined): string {
+  return (phones || []).map((p) => p.number).join(' ');
+}
+
 /** Клиент CRM — контактная информация, без привязки к воронке */
 export interface CrmClient {
   id?: number;
@@ -96,6 +110,19 @@ export interface CrmClientAdData {
   floors_total?: number;
   url?: string;
   description?: string;
+}
+
+/**
+ * Контекст для подстановки в шаблоны сообщений и промпты AI-бота.
+ * Это не сущность БД: хватает контактных данных и данных объекта,
+ * поэтому сюда подходит и CrmClient, и синтетический клиент из лида.
+ */
+export interface CrmClientContext {
+  full_name: string;
+  phones: CrmPhone[];
+  source: string;
+  email?: string;
+  ad_data?: CrmClientAdData;
 }
 
 /** Документ/сущность, привязанная к сделке */

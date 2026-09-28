@@ -281,7 +281,12 @@ export async function batchUpdateAvitoAds(
 
   try {
     // ФАЗА 1: Быстрая проверка всех объявлений
-    tabId = (await createAvitoBackgroundTab()).id;
+    // chrome.tabs.Tab.id может быть undefined — без вкладки весь прогон бессмыслен
+    const openedTab = await createAvitoBackgroundTab();
+    if (openedTab.id == null) {
+      throw new Error('Не удалось создать фоновую вкладку Авито');
+    }
+    tabId = openedTab.id;
     const needFullParse: Ad[] = [];
 
     for (let i = 0; i < avitoAds.length; i++) {

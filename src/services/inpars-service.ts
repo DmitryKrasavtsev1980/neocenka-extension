@@ -462,6 +462,7 @@ export function transformInparsListing(raw: InparsListingRaw): Ad {
     url: raw.url || '',
     segment_id: null,
     object_id: null,
+    dedup_score: null,
 
     title: raw.title || '',
     name: '',

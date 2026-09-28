@@ -16,7 +16,7 @@ const CrmKanbanPage: React.FC = () => {
   const [dealsByStage, setDealsByStage] = useState<Record<number, CrmDeal[]>>({});
   const [clientMap, setClientMap] = useState<Map<number, CrmClient>>(new Map());
   const [dragDealId, setDragDealId] = useState<number | null>(null);
-  const [dragFromStage, setDragFromStage] = useState<number | null>(null);
+  const [, setDragFromStage] = useState<number | null>(null);
   const [showPipelineSelect, setShowPipelineSelect] = useState(false);
 
   // Drag-to-scroll для канбан-доски

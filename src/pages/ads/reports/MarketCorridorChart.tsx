@@ -454,7 +454,9 @@ const MarketCorridorChart: React.FC<Props> = ({ objects, addresses, onObjectClic
                 <XAxis dataKey="x" type="number" domain={effectiveDomain} allowDataOverflow tickFormatter={formatX} tick={{ fontSize: 11 }} />
                 <YAxis domain={[yMin, yMax]} tickFormatter={formatY} tick={{ fontSize: 11 }} />
                 <Tooltip content={<ScatterTooltip />} cursor={false} />
-                {!showHistory && <Legend payload={legendPayload} wrapperStyle={{ fontSize: 12 }} />}
+                {/* payload у Legend убран из публичных пропсов Recharts, но для наших
+                    маркеров (круг/ромб) нужен именно он — отдаём напрямую */}
+                {!showHistory && <Legend {...{ payload: legendPayload, wrapperStyle: { fontSize: 12 } } as any} />}
 
                 {/* Линии активных объектов (режим История) */}
                 {activeLines.map((line, i) => {

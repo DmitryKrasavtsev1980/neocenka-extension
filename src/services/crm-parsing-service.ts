@@ -209,25 +209,6 @@ function avitoItemToParsedListing(item: any): ParsedListing {
   };
 }
 
-async function getNextPageUrl(tabId: number): Promise<string | null> {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
-      { type: 'GET_NEXT_PAGE_URL', tabId },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        if (!response?.success) {
-          reject(new Error(response?.error || 'Ошибка получения URL'));
-          return;
-        }
-        resolve(response.url || null);
-      },
-    );
-  });
-}
-
 // ─── Сохранение лидов (общее) ───────────────────────────────────────
 
 async function saveListings(
@@ -500,7 +481,6 @@ async function parseCianSource(
       const prevNewCount = totalNew.value;
 
       // ── Навигация + загрузка страницы ──
-      let pageLoaded = false;
       for (let navAttempt = 0; navAttempt <= 1; navAttempt++) {
         try {
           if (pageNum > 1) {
@@ -509,7 +489,6 @@ async function parseCianSource(
           }
           await waitForTabLoad(tabId);
           await sleep(6000);
-          pageLoaded = true;
           break;
         } catch (navErr) {
           const errMsg = navErr instanceof Error ? navErr.message : String(navErr);

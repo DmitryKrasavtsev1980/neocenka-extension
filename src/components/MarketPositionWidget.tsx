@@ -20,11 +20,6 @@ interface MarketPositionWidgetProps {
 }
 
 const fmtRub = (v: number): string => v.toLocaleString('ru-RU');
-const fmtK = (v: number): string => {
-  if (v >= 1000) return `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}к`;
-  return String(v);
-};
-
 const MarketPositionWidget: React.FC<MarketPositionWidgetProps> = ({ position, compact = false }) => {
   const { percentiles, percentileRank, deltaToMedian, comparablesCount, reason, isLowMarket } = position;
 

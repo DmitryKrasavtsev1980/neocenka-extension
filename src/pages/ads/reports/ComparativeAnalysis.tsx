@@ -104,6 +104,8 @@ const ACTIVE_EVAL: { [k in Evaluation]: string } = {
   fake:           'bg-red-600 text-white border-red-600',
   'not-competitor': 'bg-zinc-500 text-white border-zinc-500',
   'not-sold':     'bg-purple-600 text-white border-purple-600',
+  overpriced:     'bg-orange-600 text-white border-orange-600',
+  underpriced:    'bg-cyan-600 text-white border-cyan-600',
 };
 
 /* ─── Кастомная точка scatter ─── */

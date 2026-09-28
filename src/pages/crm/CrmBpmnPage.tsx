@@ -8,8 +8,6 @@ import { crmRepository } from '@/db/repositories/crm.repository';
 import type { CrmPipeline, CrmStage, CrmStageAction } from '@/types';
 import { Button } from '@/components/catalyst/button';
 import {
-  ChevronLeftIcon,
-  PlusIcon,
   TrashIcon,
   BoltIcon,
   ArrowsPointingOutIcon,
@@ -44,7 +42,6 @@ const NODE_WIDTH = 180;
 const NODE_HEIGHT = 60;
 const ACTION_HEIGHT = 28;
 const H_GAP = 80;
-const V_GAP = 20;
 
 const CrmBpmnPage: React.FC<CrmBpmnPageProps> = () => {
   const [pipelines, setPipelines] = useState<CrmPipeline[]>([]);
@@ -434,8 +431,6 @@ const CrmBpmnPage: React.FC<CrmBpmnPageProps> = () => {
               const lastPos = nodePositions[stages[stages.length - 1].id!];
               const endX = lastPos.x + NODE_WIDTH + 20;
               const endY = lastPos.y + NODE_HEIGHT / 2;
-              const lastActions = actionsMap[stages[stages.length - 1].id!] || [];
-              const lastTotalH = NODE_HEIGHT + lastActions.length * ACTION_HEIGHT;
               return (
                 <g>
                   <path

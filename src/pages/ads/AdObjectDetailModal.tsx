@@ -14,13 +14,13 @@ import {
 } from 'recharts';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { AdObject, Ad, AdAddress, SaleDeal } from '@/types';
+import type { AdObject, Ad, AdAddress, SaleDeal, CadastralQuarter } from '@/types';
 import type { Deal } from '@/types';
 import { getMapConfig, createTileLayer } from '@/services/map-config';
 import { useArchivedPhotos } from '@/hooks/useArchivedPhotos';
 import { dealsRepository } from '@/db/repositories/deals.repository';
 import { cadastralRepository } from '@/db/repositories/cadastral.repository';
-import { REAL_ESTATE_TYPES, WALL_MATERIALS, getWallMaterialName } from '@/constants/catalogs';
+import { REAL_ESTATE_TYPES, getWallMaterialName } from '@/constants/catalogs';
 import { calculateMarketPosition, type MarketPosition, type MarketStatsOptions } from '@/services/market-stats-service';
 import MarketPositionWidget from '@/components/MarketPositionWidget';
 
@@ -90,7 +90,8 @@ function polygonArea(polygon: [number, number][]): number {
 }
 
 // Кэш кадастровых кварталов — загружаем один раз при первом обращении
-let quartersCache: Promise<{ cad_number: string; geojson: any }[]> | null = null;
+// getAllWithGeojson() уже отфильтровывает кварталы без геометрии
+let quartersCache: Promise<CadastralQuarter[]> | null = null;
 function getCachedQuarters() {
   if (!quartersCache) {
     quartersCache = cadastralRepository.getAllWithGeojson();
@@ -128,7 +129,7 @@ interface AdObjectDetailModalProps {
 }
 
 const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
-  obj, listings, addresses, comparableAds, marketOptions, polygonsCoords, dealsModuleActive, onClose, onAdClick, onLinkDeal, onUnlinkDeal,
+  obj, listings, addresses, comparableAds, marketOptions, polygonsCoords, dealsModuleActive, onClose, onLinkDeal, onUnlinkDeal,
 }) => {
   const [selectedAd, setSelectedAd] = useState<Ad | null>(listings[0] || null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -276,7 +277,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
     setLoadingDeals(true);
     try {
       // Найти кадастровый квартал (из кэша)
-      const quarters = await getCachedQuarters();
+      const quarters = (await getCachedQuarters()) ?? [];
       // Фильтруем «мусорные» кварталы вида "54:00:000000" — это областные/районные охваты
       const realQuarters = quarters.filter(q => {
         const parts = q.cad_number.split(':');
@@ -622,7 +623,7 @@ const AdObjectDetailModal: React.FC<AdObjectDetailModalProps> = ({
                     <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} stroke="#9ca3af" />
                     <YAxis tick={{ fontSize: 10 }} stroke="#9ca3af" tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}к`} />
                     <Tooltip
-                      formatter={(value: number) => [`${value.toLocaleString('ru-RU')} ₽`, 'Цена']}
+                      formatter={(value: any) => [`${value.toLocaleString('ru-RU')} ₽`, 'Цена']}
                       contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                     />
                     <Line type="stepAfter" dataKey="price" stroke="#16a34a" strokeWidth={2} dot={{ r: 3, fill: '#16a34a' }} />

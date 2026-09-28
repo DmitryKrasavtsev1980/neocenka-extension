@@ -9,10 +9,10 @@ import type {
   CrmDeal,
   CrmPipeline,
   CrmStage,
-  CrmClientAdData,
   CrmDealFilters,
   CrmSource,
 } from '@/types';
+import { formatClientPhone, getPhonesText, normalizePhone } from '@/types';
 import { Button } from '@/components/catalyst/button';
 import CrmChatPage from './CrmChatPage';
 import {
@@ -43,7 +43,7 @@ const DEAL_STATUS_LABELS: Record<string, { label: string; color: string }> = {
 
 const PAGE_SIZE = 30;
 
-const CrmDealsPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
+const CrmDealsPage: React.FC<CrmPageProps> = () => {
   const [deals, setDeals] = useState<CrmDeal[]>([]);
   const [clientsMap, setClientsMap] = useState<Record<number, CrmClient>>({});
   const [totalDeals, setTotalDeals] = useState(0);
@@ -337,7 +337,7 @@ const CrmDealsPage: React.FC<CrmPageProps> = ({ onNavigate }) => {
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{client?.phone || '—'}</td>
+                      <td className="px-3 py-2 text-[11px] text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{formatClientPhone(client?.phones)}</td>
                       <td className="px-3 py-2 text-[11px]">
                         <div className="text-zinc-700 dark:text-zinc-300">{getPipelineName(deal.pipeline_id)}</div>
                         <div className="text-[10px] text-zinc-400">{getStageName(deal.pipeline_id, deal.stage_id)}</div>
@@ -465,7 +465,7 @@ const CrmDealModal: React.FC<{
   const filteredClients = clientSearch
     ? clientList.filter(c =>
         c.full_name.toLowerCase().includes(clientSearch.toLowerCase()) ||
-        c.phone.toLowerCase().includes(clientSearch.toLowerCase())
+        getPhonesText(c.phones).toLowerCase().includes(clientSearch.toLowerCase())
       )
     : clientList;
 
@@ -508,7 +508,7 @@ const CrmDealModal: React.FC<{
       setDuplicateWarning('');
       const phoneDups = await crmRepository.findClientByPhone(newPhone.trim());
       if (phoneDups.length > 0) {
-        const names = phoneDups.map(c => `${c.full_name} (${c.phone})`).join(', ');
+        const names = phoneDups.map(c => `${c.full_name} (${formatClientPhone(c.phones)})`).join(', ');
         setDuplicateWarning(`Клиент с таким телефоном уже существует: ${names}`);
         return;
       }
@@ -526,7 +526,7 @@ const CrmDealModal: React.FC<{
       // Создаём нового клиента
       clientId = await crmRepository.addClient({
         full_name: newFullName.trim(),
-        phone: newPhone.trim(),
+        phones: newPhone.trim() ? [{ number: normalizePhone(newPhone.trim()) }] : [],
         email: newEmail.trim() || undefined,
         source: newSource,
         status: 'active',
@@ -574,7 +574,7 @@ const CrmDealModal: React.FC<{
             <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800/50 p-3">
               <div className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">Клиент</div>
               <div className="text-xs font-medium text-zinc-900 dark:text-white">{currentClient?.full_name || '—'}</div>
-              <div className="text-[11px] text-zinc-500">{currentClient?.phone || '—'}{currentClient?.email ? ` · ${currentClient.email}` : ''}</div>
+              <div className="text-[11px] text-zinc-500">{formatClientPhone(currentClient?.phones)}{currentClient?.email ? ` · ${currentClient.email}` : ''}</div>
               <div className="flex items-center gap-2 mt-1">
                 {currentClient?.source && (
                   <span
@@ -630,7 +630,7 @@ const CrmDealModal: React.FC<{
                           className={`w-full text-left px-2 py-1.5 text-[11px] hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex items-center justify-between ${selectedClientId === c.id ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
                         >
                           <span className="font-medium text-zinc-900 dark:text-white">{c.full_name}</span>
-                          <span className="text-zinc-400">{c.phone}</span>
+                          <span className="text-zinc-400">{formatClientPhone(c.phones)}</span>
                         </button>
                       ))}
                     </div>

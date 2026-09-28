@@ -82,7 +82,7 @@ const ModulesPage: React.FC<ModulesPageProps> = ({ onModuleOpen, isCompanyAdmin 
           const hasPending = !!mod.pending_payment;
           const isExpired = mod.access?.status === 'expired';
           const isActive = !!mod.access && mod.access.status === 'active';
-          const isTrial = isActive && mod.access.period === 'trial';
+          const isTrial = isActive && mod.access!.period === 'trial';
 
           const regionNames = (codes: string[]) => {
             if (!codes || codes.length === 0) return 'Все';
@@ -134,20 +134,20 @@ const ModulesPage: React.FC<ModulesPageProps> = ({ onModuleOpen, isCompanyAdmin 
                   <div className="mb-3 text-[13px] text-zinc-700 dark:text-zinc-300">
                     <div className="font-medium mb-1">
                       {isTrial
-                        ? `Пробный период (${mod.trial_days || 3} ${((mod.trial_days || 3) === 1 ? 'день' : (mod.trial_days || 3) < 5 ? 'дня' : 'дней')}) до ${new Date(mod.access.expires_at!).toLocaleDateString('ru-RU')}`
-                        : mod.access.expires_at
-                          ? `До ${new Date(mod.access.expires_at).toLocaleDateString('ru-RU')}`
+                        ? `Пробный период (${mod.trial_days || 3} ${((mod.trial_days || 3) === 1 ? 'день' : (mod.trial_days || 3) < 5 ? 'дня' : 'дней')}) до ${new Date(mod.access!.expires_at!).toLocaleDateString('ru-RU')}`
+                        : mod.access!.expires_at
+                          ? `До ${new Date(mod.access!.expires_at).toLocaleDateString('ru-RU')}`
                           : 'Бессрочный доступ'
                       }
                     </div>
                     <div className="text-xs text-zinc-400 dark:text-zinc-500">
-                      {mod.access.source === 'company' ? (
+                      {mod.access!.source === 'company' ? (
                         <span className="text-blue-500 dark:text-blue-400">Корпоративная лицензия</span>
                       ) : (
                         <span>Персональная подписка</span>
                       )}
                       {' · '}
-                      Тариф: {periodLabels[mod.access.period] || mod.access.period} | Регионы: {regionNames(mod.access.regions)}
+                      Тариф: {periodLabels[mod.access!.period] || mod.access!.period} | Регионы: {regionNames(mod.access!.regions)}
                     </div>
                   </div>
                   {hasPending && (
@@ -173,7 +173,7 @@ const ModulesPage: React.FC<ModulesPageProps> = ({ onModuleOpen, isCompanyAdmin 
               ) : isExpired ? (
                 <div className="px-3 py-2.5 bg-red-100 dark:bg-red-900/20 rounded-lg text-[13px] text-red-800 dark:text-red-300">
                   <div className="font-medium mb-0.5">
-                    Подписка истекла {mod.access!.expires_at ? new Date(mod.access.expires_at).toLocaleDateString('ru-RU') : ''}
+                    Подписка истекла {mod.access!.expires_at ? new Date(mod.access!.expires_at).toLocaleDateString('ru-RU') : ''}
                   </div>
                   <div className="text-xs text-red-600 dark:text-red-400">
                     {periodLabels[mod.access!.period] || mod.access!.period} · Регионы: {regionNames(mod.access!.regions)}

@@ -21,7 +21,6 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/16/solid';
 
-const COLORS = ['#6b7280', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6'];
 
 const CrmSettingsPage: React.FC = () => {
   const [pipelines, setPipelines] = useState<CrmPipeline[]>([]);
@@ -29,7 +28,7 @@ const CrmSettingsPage: React.FC = () => {
   const [selectedPipeline, setSelectedPipeline] = useState<CrmPipeline | null>(null);
 
   // Bot settings
-  const [botSettings, setBotSettings] = useState<CrmBotSettings | null>(null);
+  const [, setBotSettings] = useState<CrmBotSettings | null>(null);
   const [zaiToken, setZaiToken] = useState('');
   const [contextTemplate, setContextTemplate] = useState('');
   const [botMode, setBotMode] = useState<'suggest' | 'semi-auto' | 'auto'>('suggest');

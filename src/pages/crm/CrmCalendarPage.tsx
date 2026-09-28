@@ -80,7 +80,7 @@ const CrmCalendarPage: React.FC<CrmCalendarPageProps> = () => {
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [clientsMap, setClientsMap] = useState<Record<number, CrmClient>>({});
-  const [dealsMap, setDealsMap] = useState<Record<number, CrmDeal>>({});
+  const [, setDealsMap] = useState<Record<number, CrmDeal>>({});
 
   // Модалка дня
   const [selectedDay, setSelectedDay] = useState<string | null>(null);

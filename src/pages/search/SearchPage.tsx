@@ -15,7 +15,6 @@ import DealMap from '@/components/DealMap';
 import SearchByPolygon from '@/components/SearchByPolygon/SearchByPolygon';
 import { Button } from '@/components/catalyst/button';
 import { Input } from '@/components/catalyst/input';
-import { Checkbox, CheckboxField } from '@/components/catalyst/checkbox';
 import { Badge } from '@/components/catalyst/badge';
 import { Heading } from '@/components/catalyst/heading';
 import {
@@ -472,7 +471,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     if (!pendingFilterSyncRef.current || !activeFilterId) return;
     const timer = setTimeout(() => {
       pendingFilterSyncRef.current = false;
-      setActiveFilterStateJson(JSON.stringify(getCurrentFilterStateRef.current()));
+      const state = getCurrentFilterStateRef.current?.();
+      if (state) setActiveFilterStateJson(JSON.stringify(state));
     }, 300);
     return () => clearTimeout(timer);
   }, [getCurrentFilterState, activeFilterId]);

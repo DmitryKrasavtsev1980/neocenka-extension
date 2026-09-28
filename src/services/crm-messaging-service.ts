@@ -10,8 +10,7 @@
 
 import { crmRepository } from '@/db/repositories/crm.repository';
 import { fillTemplate } from '@/services/crm-bot-service';
-import type { CrmLead, CrmClient, CrmStageAction } from '@/types';
-import { getPrimaryPhone, formatPhone } from '@/types';
+import type { CrmLead, CrmClientContext, CrmStageAction } from '@/types';
 
 // ─── Типы ──────────────────────────────────────────────────────────────
 
@@ -39,8 +38,8 @@ function pg(stage: MessagingProgress['stage'], detail: string): MessagingProgres
   return { stage, detail };
 }
 
-/** Адаптер CrmLead → CrmClient для fillTemplate */
-function leadToClientLike(lead: CrmLead): CrmClient {
+/** Адаптер CrmLead → контекст для fillTemplate */
+function leadToClientLike(lead: CrmLead): CrmClientContext {
   return {
     full_name: lead.contact_name || 'Клиент',
     phones: lead.phones || [],
@@ -51,7 +50,7 @@ function leadToClientLike(lead: CrmLead): CrmClient {
       property_type: lead.ad_data.property_type,
       area_total: lead.ad_data.area_total,
     } : undefined,
-  } as CrmClient;
+  };
 }
 
 /** Подстановка переменных из лида в шаблон */
@@ -158,7 +157,7 @@ export async function sendMessageToLead(options: SendMessageOptions): Promise<Se
 
       // Вставляем текст в чат (без отправки — пользователь сам нажмёт кнопку)
       onProgress?.(pg('typing', 'Ввод текста сообщения...'));
-      const fillResult = await typeAndSend(tabId, '__FILL_ONLY__' + messageText);
+      await typeAndSend(tabId, '__FILL_ONLY__' + messageText);
       // Не проверяем результат — даже если не удалось вставить, вкладка открыта
 
       // Активируем вкладку, чтобы пользователь увидел чат

@@ -215,8 +215,9 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
       // Маппинг материала стен по тексту
       if (data.wall_material_text && referenceData.wallMaterials.length > 0) {
         const matched = matchWallMaterial(data.wall_material_text, referenceData.wallMaterials);
+        // В wall_material_id лежит server_id (string), а не локальный id справочника
         if (matched) {
-          update('wall_material_id', matched.id);
+          update('wall_material_id', matched.server_id ?? null);
           filled.push(`материал: ${matched.name}`);
         } else {
           filled.push(`материал «${data.wall_material_text}» (нет в справочнике)`);
@@ -226,7 +227,7 @@ const AdAddressModal: React.FC<AdAddressModalProps> = ({ address: initialAddress
       if (data.ceiling_material_text && referenceData.ceilingMaterials?.length) {
         const matched = matchWallMaterial(data.ceiling_material_text, referenceData.ceilingMaterials);
         if (matched) {
-          update('ceiling_material_id', matched.id);
+          update('ceiling_material_id', matched.server_id ?? null);
         }
       }
       setFeedback2gis(filled.length > 0 ? `Заполнено: ${filled.join(', ')}` : 'Данные не найдены в карточке здания');

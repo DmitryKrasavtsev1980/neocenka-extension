@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { WALL_MATERIALS, getWallMaterialName } from '@/constants/catalogs';
+import { getWallMaterialName } from '@/constants/catalogs';
 import { Button } from '@/components/catalyst/button';
 import { ChevronDownIcon } from '@heroicons/react/16/solid';
 

@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import ChartBox from '@/components/shared/ChartBox';
 import {
-  BarChart,
   Bar,
   XAxis,
   YAxis,
@@ -14,7 +13,6 @@ import {
 } from 'recharts';
 import { SearchAggregates } from '@/types';
 import {
-  REAL_ESTATE_TYPES,
   DOCUMENT_TYPES,
   getRealEstateTypeName,
   getWallMaterialName,
@@ -50,7 +48,7 @@ const InteractivePieChart: React.FC<{
   const r = 65;
 
   let cumAngle = -90;
-  const sliceData = data.map((d, i) => {
+  const sliceData = data.map((d) => {
     const pct = d.value / total;
     const startAngle = cumAngle;
     const endAngle = cumAngle + pct * 360;
@@ -378,7 +376,9 @@ const Dashboard = React.memo(({ aggregates, totalDeals }: DashboardProps) => {
                       contentStyle={tooltipStyle}
                       itemStyle={{ color: '#333' }}
                       labelStyle={{ color: '#333', fontWeight: 'bold' }}
-                      formatter={(value: number) => formatNumber(value)}
+                      // any: тип Formatter у Recharts — пересечение двух сигнатур,
+                      // узкие параметры с ним несовместимы
+                      formatter={(value: any) => formatNumber(value)}
                       labelFormatter={(label) => `Период: ${label}`}
                     />
                     <Legend />
@@ -411,7 +411,7 @@ const Dashboard = React.memo(({ aggregates, totalDeals }: DashboardProps) => {
                       contentStyle={tooltipStyle}
                       itemStyle={{ color: '#333' }}
                       labelStyle={{ color: '#333', fontWeight: 'bold' }}
-                      formatter={(value: number, name: string) => {
+                      formatter={(value: any, name: any) => {
                         if (name === 'Средняя цена') return formatPrice(value);
                         if (name === 'Цена за м²') return `${formatNumber(value)} ₽/м²`;
                         return formatNumber(value);

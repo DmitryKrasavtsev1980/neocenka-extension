@@ -99,7 +99,6 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
   comparableAds,
   marketOptions,
   polygonsCoords,
-  referenceData,
   onClose,
   onSave,
   onDelete,
@@ -615,7 +614,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
                       <div className="flex items-center gap-2 mt-1">
                         <div className="flex-1">
                           <AddressCombobox
-                            addresses={addresses}
+                            addresses={addresses.filter(a => a.id != null).map(a => ({ id: a.id!, address: a.address }))}
                             value={selectedAddressId ? Number(selectedAddressId) : ''}
                             onChange={(id) => setSelectedAddressId(id === '' ? '' : String(id))}
                             placeholder="Поиск адреса…"
@@ -742,7 +741,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
                     <XAxis dataKey="shortDate" tick={{ fontSize: 10 }} stroke="#9ca3af" />
                     <YAxis tick={{ fontSize: 10 }} stroke="#9ca3af" tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}к`} />
                     <Tooltip
-                      formatter={(value: number) => [`${value.toLocaleString('ru-RU')} ₽`, 'Цена']}
+                      formatter={(value: any) => [`${value.toLocaleString('ru-RU')} ₽`, 'Цена']}
                       contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
                     />
                     <Line type="stepAfter" dataKey="price" stroke="#16a34a" strokeWidth={2} dot={{ r: 3, fill: '#16a34a' }} />
@@ -800,7 +799,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
                             ) : isDeleting ? (
                               <>
                                 <td className="px-2 py-1 text-zinc-500">{fmtDate(h.date)}</td>
-                                <td className="px-2 py-1 text-right font-medium text-red-600 dark:text-red-400">{fmtPrice(h.new_price || h.price)}</td>
+                                <td className="px-2 py-1 text-right font-medium text-red-600 dark:text-red-400">{fmtPrice(h.new_price ?? h.price ?? null)}</td>
                                 <td className="px-2 py-1 text-center">
                                   <button onClick={() => { handleDeleteHistoryEntry(idx); setDeleteConfirmIdx(null); }} className="text-red-600 hover:text-red-700 text-[10px] mr-1 font-medium">Удалить?</button>
                                   <button onClick={() => setDeleteConfirmIdx(null)} className="text-zinc-500 hover:text-zinc-700 text-[10px]">Отмена</button>
@@ -809,7 +808,7 @@ const AdDetailModal: React.FC<AdDetailModalProps> = ({
                             ) : (
                               <>
                                 <td className="px-2 py-1 text-zinc-500">{fmtDate(h.date)}</td>
-                                <td className="px-2 py-1 text-right font-medium text-green-600 dark:text-green-400">{fmtPrice(h.new_price || h.price)}</td>
+                                <td className="px-2 py-1 text-right font-medium text-green-600 dark:text-green-400">{fmtPrice(h.new_price ?? h.price ?? null)}</td>
                                 <td className="px-2 py-1 text-center">
                                   <button onClick={() => { setEditHistoryIdx(idx); setEditHistoryDate(h.date ? h.date.slice(0, 10) : ''); setEditHistoryPrice(String(h.new_price || h.price || '')); }} className="text-blue-500 hover:text-blue-700 text-[10px] mr-1">изм.</button>
                                   <button onClick={() => setDeleteConfirmIdx(idx)} className="text-red-400 hover:text-red-600 text-[10px]">уд.</button>

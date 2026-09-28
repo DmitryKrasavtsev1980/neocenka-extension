@@ -7,12 +7,6 @@ export const APP_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
 
 // === Interfaces ===
 
-interface ApiResponse<T = unknown> {
-  data: T;
-  error?: string;
-  errors?: Record<string, string[]>;
-}
-
 interface User {
   id: number;
   name: string;
@@ -399,6 +393,25 @@ export async function login(email: string, password: string): Promise<{
 
 export async function forgotPassword(email: string): Promise<{ message: string }> {
   return apiRequest<{ message: string }>('POST', '/auth/forgot-password', { email });
+}
+
+/**
+ * Регистрация нового пользователя.
+ * Это только первый шаг: сервер создаёт пользователя со статусом
+ * pending_verification и шлёт код на email — входа не происходит.
+ */
+export async function register(
+  name: string,
+  email: string,
+  password: string,
+  passwordConfirmation: string,
+): Promise<{ message: string; email: string }> {
+  return apiRequest<{ message: string; email: string }>('POST', '/auth/register', {
+    name,
+    email,
+    password,
+    password_confirmation: passwordConfirmation,
+  }, false);
 }
 
 export async function resetPassword(token: string, email: string, password: string, passwordConfirmation: string): Promise<{ message: string }> {
@@ -885,7 +898,8 @@ async function sendDedupFeedbackPair(
 export async function sendDedupFeedbackBatch(
   action: 'merge' | 'split',
   ads: Array<{
-    id: number;
+    /** Опционален в типе Ad (присваивается Dexie при вставке) — записи без id пропускаем */
+    id?: number;
     property_type: string | null;
     floor: number | null;
     floors_total: number | null;
@@ -904,8 +918,9 @@ export async function sendDedupFeedbackBatch(
   }>,
   context?: Record<string, unknown>
 ): Promise<void> {
-  const payloads: DedupFeedbackPayload[] = ads.map(ad => ({
-    id: ad.id,
+  // Записи без id серверу не нужны — их в payload не берём
+  const payloads: DedupFeedbackPayload[] = ads.filter(a => a.id != null).map(ad => ({
+    id: ad.id!,
     property_type: ad.property_type ?? null,
     floor: ad.floor ?? null,
     floors_total: ad.floors_total ?? null,

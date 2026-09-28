@@ -12,7 +12,7 @@
 import { db } from '@/db/database';
 import { dealsRepository } from '@/db/repositories/deals.repository';
 import { cadastralRepository } from '@/db/repositories/cadastral.repository';
-import type { AdObject, AdAddress, SaleDeal } from '@/types';
+import type { AdObject, AdAddress, SaleDeal, CadastralQuarter } from '@/types';
 import type { Deal } from '@/types';
 
 // --- Геометрия ---
@@ -56,12 +56,7 @@ function getRelevantYearQuarters(dateStr: string | null): string[] {
 
 // --- Поиск кадастрового квартала ---
 
-interface QuarterGeo {
-  cad_number: string;
-  geojson: any;
-}
-
-function findCadQuarter(lat: number, lng: number, quarters: QuarterGeo[]): string | null {
+function findCadQuarter(lat: number, lng: number, quarters: CadastralQuarter[]): string | null {
   // Фильтруем мусорные кварталы (XX:YY:000000)
   const realQuarters = quarters.filter(q => {
     const parts = q.cad_number.split(':');
