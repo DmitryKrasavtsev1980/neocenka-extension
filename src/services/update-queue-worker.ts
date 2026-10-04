@@ -246,8 +246,9 @@ export class UpdateQueueWorker {
         const handled = await this.processBatch();
         if (this.shouldStop) break;
         if (handled === 0) {
-          // очередь пуста — досоздаём задачу и ждём
-          await this.ensureQueue();
+          // Очередь пуста. Ничего не досоздаём: её наполняет конвейер области
+          // (кнопка «Запустить» в кабинете / areas:cron) — авто-обновление всей
+          // базы региона здесь вредно (вместо области воркер увезёт тысячи).
           await this.sleep(60_000);
         }
       }
@@ -393,20 +394,6 @@ export class UpdateQueueWorker {
     this.ctx.pausedReason = null;
     await saveState({ pausedUntil: null, pausedReason: null });
     this.notify();
-  }
-
-  /** Поручить серверу сложить в очередь всё (если пусто) */
-  private async ensureQueue() {
-    try {
-      const result = await updateQueueApi.createTask({
-        name: `Авто-обновление ${this.ctx.sourceDomain}`,
-        source: this.ctx.sourceDomain,
-        filter_data: { update_all: true },
-      });
-      console.log(`[UpdateQueueWorker] Enqueued task #${result.task.id}, ads: ${result.ads_found}`);
-    } catch (err) {
-      console.warn('[UpdateQueueWorker] Enqueue failed:', err);
-    }
   }
 
   private async sendHeartbeat(browserId: string, queueIds: number[]) {
