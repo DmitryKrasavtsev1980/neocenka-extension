@@ -13,6 +13,7 @@
   "host_permissions": [
     "http://admin.test/*",
     "https://neocenka.ru/*",
+    "https://*.neocenka.ru/*",
     "https://inpars.ru/*",
     "https://nominatim.openstreetmap.org/*",
     "https://suggestions.dadata.ru/*",
