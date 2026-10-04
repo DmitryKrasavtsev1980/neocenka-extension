@@ -59,6 +59,15 @@ interface PersistedState {
 
 const STORAGE_KEY = 'ret_update_queue_worker_v1';
 
+/**
+ * Ключ состояния — с суффиксом площадки.
+ * ЦИАН и Авито обычно идут в двух вкладках одного профиля: без раздельных
+ * ключей воркеры затирают друг другу browserId и счётчик дневного капа.
+ */
+function storageKey(site: WorkerSite): string {
+  return `${STORAGE_KEY}:${site}`;
+}
+
 /** Сегодняшний день в локальной зоне — ключ дневного капа */
 function todayKey(): string {
   const d = new Date();
@@ -66,19 +75,20 @@ function todayKey(): string {
 }
 
 /** Устойчивый id воркера — живёт между перезапусками, виден в queue-stats */
-async function getBrowserId(): Promise<string> {
-  const state = await loadState();
+async function getBrowserId(site: WorkerSite): Promise<string> {
+  const state = await loadState(site);
   return state.browserId;
 }
 
-async function loadState(): Promise<PersistedState> {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
-  const prev = (stored[STORAGE_KEY] || {}) as Partial<PersistedState>;
+async function loadState(site: WorkerSite): Promise<PersistedState> {
+  const key = storageKey(site);
+  const stored = await chrome.storage.local.get(key);
+  const prev = (stored[key] || {}) as Partial<PersistedState>;
   // Дневной кап обнуляется с новым календарным днём
   const day = prev.day === todayKey() ? prev.day : todayKey();
   const todayCount = prev.day === todayKey() ? (prev.todayCount ?? 0) : 0;
   return {
-    browserId: prev.browserId ?? `updater-${Math.random().toString(36).slice(2, 10)}`,
+    browserId: prev.browserId ?? `${site}-updater-${Math.random().toString(36).slice(2, 10)}`,
     day,
     todayCount,
     pausedUntil: prev.pausedUntil ?? null,
@@ -86,10 +96,10 @@ async function loadState(): Promise<PersistedState> {
   };
 }
 
-async function saveState(patch: Partial<PersistedState>): Promise<PersistedState> {
-  const current = await loadState();
+async function saveState(site: WorkerSite, patch: Partial<PersistedState>): Promise<PersistedState> {
+  const current = await loadState(site);
   const next = { ...current, ...patch, day: todayKey() };
-  await chrome.storage.local.set({ [STORAGE_KEY]: next });
+  await chrome.storage.local.set({ [storageKey(site)]: next });
   return next;
 }
 
@@ -204,7 +214,7 @@ export class UpdateQueueWorker {
     this.shouldStop = false;
 
     try {
-      const state = await loadState();
+      const state = await loadState(this.ctx.site);
       this.ctx.todayCount = state.todayCount;
       this.ctx.pausedUntil = state.pausedUntil;
       this.ctx.pausedReason = state.pausedReason;
@@ -214,7 +224,7 @@ export class UpdateQueueWorker {
         throw new Error(`API региона недоступен: ${updateQueueApi.getBaseUrl()}`);
       }
 
-      const browserId = await getBrowserId();
+      const browserId = await getBrowserId(this.ctx.site);
       console.log(`[UpdateQueueWorker] Started as ${browserId}, site=${this.ctx.site}`);
 
       while (!this.shouldStop) {
@@ -226,7 +236,7 @@ export class UpdateQueueWorker {
         if (this.ctx.pausedUntil && Date.now() >= this.ctx.pausedUntil) {
           this.ctx.pausedUntil = null;
           this.ctx.pausedReason = null;
-          await saveState({ pausedUntil: null, pausedReason: null });
+          await saveState(this.ctx.site, { pausedUntil: null, pausedReason: null });
           this.notify();
         }
 
@@ -265,7 +275,7 @@ export class UpdateQueueWorker {
 
   /** Портция в аренду: быстрая проверка каждой карточки, парсинг — только при изменении */
   private async processBatch(): Promise<number> {
-    const browserId = await getBrowserId();
+    const browserId = await getBrowserId(this.ctx.site);
     const ads = await updateQueueApi.claim(browserId, this.ctx.sourceDomain, 5);
     if (ads.length === 0) return 0;
 
@@ -285,7 +295,7 @@ export class UpdateQueueWorker {
         if (update) this.ctx.matched++;
         this.ctx.processed++;
         this.ctx.todayCount++;
-        await saveState({ todayCount: this.ctx.todayCount });
+        await saveState(this.ctx.site, { todayCount: this.ctx.todayCount });
         this.ctx.consecutiveBlocks = 0;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -383,7 +393,7 @@ export class UpdateQueueWorker {
     this.ctx.pausedUntil = until;
     this.ctx.pausedReason = reason;
     this.ctx.consecutiveBlocks = 0;
-    await saveState({ pausedUntil: until, pausedReason: reason });
+    await saveState(this.ctx.site, { pausedUntil: until, pausedReason: reason });
     console.warn(`[UpdateQueueWorker] Site paused until ${new Date(until).toISOString()}: ${reason}`);
     this.notify();
   }
@@ -392,7 +402,7 @@ export class UpdateQueueWorker {
   async resumeAfterIpChange() {
     this.ctx.pausedUntil = null;
     this.ctx.pausedReason = null;
-    await saveState({ pausedUntil: null, pausedReason: null });
+    await saveState(this.ctx.site, { pausedUntil: null, pausedReason: null });
     this.notify();
   }
 
