@@ -33,7 +33,11 @@ export interface AdUpdateData {
   price_history?: { date: string; price?: number; old_price?: number; new_price?: number }[];
   seller_name?: string;
   seller_type?: string;
-  updated_at?: string;
+  /**
+   * Дата изменения объявления на площадке (ad.updated).
+   * Не updated_at — на сервере это Laravel-таймстамп правки строки.
+   */
+  updated?: string;
 }
 
 /** Сводка по очереди (GET /api/update/queue-stats) */

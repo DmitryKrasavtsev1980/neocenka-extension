@@ -383,7 +383,10 @@ export class UpdateQueueWorker {
       price_history: mergedHistory.length > 0 ? mergedHistory : undefined,
       seller_name: updated.seller_name ?? undefined,
       seller_type: updated.seller_type ?? undefined,
-      updated_at: updated.updated_at || new Date().toISOString(),
+      // Дата изменения на площадке. Шлём только если actualize её определил —
+      // как в локальной IndexedDB (cian/avito-update-service не трогают updated
+      // без даты). updated_at — таймстамп строки, на сервер он не нужен.
+      updated: updated.updated ?? undefined,
     };
   }
 
