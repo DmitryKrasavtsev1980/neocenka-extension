@@ -27,7 +27,6 @@ import { loadInparsToken, setInparsToken, checkSubscription } from '@/services/i
 import { applyFilterToAds } from '@/services/ads-filter-utils';
 import SharePanel from './SharePanel';
 import S3PhotoArchiveCard from './S3PhotoArchiveCard';
-import UpdateQueueWorkerCard from './UpdateQueueWorkerCard';
 
 const SECTION_LABELS: Record<number, string> = {
   1: 'Жилая', 4: 'Коммерческая', 5: 'Загородная',
@@ -1632,9 +1631,6 @@ const AdsSettingsPage: React.FC = () => {
 
         {/* Поделиться фильтром по ссылке */}
         <SharePanel />
-
-        {/* Воркер очереди актуализации (пилот) */}
-        <UpdateQueueWorkerCard />
 
         {/* S3-фотоархив */}
         <S3PhotoArchiveCard />
