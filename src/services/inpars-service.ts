@@ -371,6 +371,20 @@ export interface InparsListingRaw {
 // ========== Трансформация Inpars → Ad ==========
 
 /** Определить property_type из rooms */
+/**
+ * InPars отдаёт isNew булевым (true/false), иногда числом или строкой.
+ * Строгое `=== 1` / `=== 0` для boolean всегда давало null.
+ */
+function parseIsNew(value: unknown): boolean | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  const s = String(value).toLowerCase().trim();
+  if (s === 'true' || s === 'yes' || s === '1') return true;
+  if (s === 'false' || s === 'no' || s === '0') return false;
+  return null;
+}
+
 function getPropertyType(rooms: number | undefined | null): string {
   if (!rooms || rooms === 0) return 'studio';
   if (rooms === 1) return '1k';
@@ -527,7 +541,7 @@ export function transformInparsListing(raw: InparsListingRaw): Ad {
     section_id: raw.sectionId || null,
     category_id: raw.categoryId || null,
     original_source_id: null,
-    is_new_building: raw.isNew === 1 ? true : raw.isNew === 0 ? false : null,
+    is_new_building: parseIsNew(raw.isNew),
     is_apartments: null,
 
     house_details: houseDetails,
