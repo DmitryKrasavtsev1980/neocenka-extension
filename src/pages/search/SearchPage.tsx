@@ -1123,6 +1123,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     }
 
     let tileLayerFactory = null;
+    const PMTILES_URL = 'https://s3-990149.s3.spb.sprinthost.ru/maps/russia_z14.pmtiles';
+
+    function osmTileLayer(map) {
+      return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(map);
+    }
 
     async function initTileSystem() {
       try {
@@ -1134,22 +1142,38 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
           import('https://esm.sh/@protomaps/basemaps@5.7.2')
         ]);
         tileLayerFactory = (map) => {
-          return leafletLayer({
-            url: 'https://55ff837e6c44-neo-maps.s3.ru1.storage.beget.cloud/maps/russia_z14.pmtiles',
+          const layer = leafletLayer({
+            url: PMTILES_URL,
             attribution: 'OpenStreetMap, Protomaps',
             paintRules: paintRules(LIGHT),
             labelRules: labelRules(LIGHT, 'ru'),
             maxDataZoom: 14,
-          }).addTo(map);
+          });
+          // Если наша подложка не грузится — резервная подложка OSM
+          let swapped = false;
+          const swapToOsm = function() {
+            if (swapped) return;
+            swapped = true;
+            map.removeLayer(layer);
+            osmTileLayer(map);
+          };
+          layer.on('add', () => {
+            try {
+              fetch(PMTILES_URL, {
+                headers: { Range: 'bytes=0-0' },
+                signal: AbortSignal.timeout(6000),
+              }).then((r) => {
+                if (!r.ok) swapToOsm();
+              }).catch(() => swapToOsm());
+            } catch(_e) {
+              swapToOsm();
+            }
+          });
+          return layer.addTo(map);
         };
       } catch(_e) {
         // Protomaps failed, falling back to OSM
-        tileLayerFactory = (map) => {
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 19,
-          }).addTo(map);
-        };
+        tileLayerFactory = osmTileLayer;
       }
     }
 
