@@ -235,7 +235,7 @@ export async function getListingsByPolygon(
     const body: Record<string, unknown> = {
       polygon: polygonString,
       limit: MAX_LIMIT,
-      expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house',
+      expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house,repairType',
       sortBy: 'updated_asc',
       isNew: options.isNew ?? 0,
       sellerType: options.sellerType || '1,2,3',
@@ -288,7 +288,7 @@ export async function getListingsByRegion(
     const body: Record<string, unknown> = {
       regionId,
       limit: MAX_LIMIT,
-      expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house',
+      expand: 'region,city,type,section,category,metro,material,rentTime,isNew,rooms,history,phoneProtected,parseId,isApartments,house,repairType',
       sortBy: 'updated_asc',
       ...options,
     };
@@ -365,6 +365,8 @@ export interface InparsListingRaw {
   dateUpdate?: string | number;
   dateUpdated?: string | number;
   isNew?: number;
+  /** Тип ремонта: 1 — без ремонта, 2 — косметический, 3 — дизайнерский, 4 — евро */
+  repairType?: number | string | null;
   [key: string]: unknown;
 }
 
@@ -383,6 +385,17 @@ function parseIsNew(value: unknown): boolean | null {
   if (s === 'true' || s === 'yes' || s === '1') return true;
   if (s === 'false' || s === 'no' || s === '0') return false;
   return null;
+}
+
+/** InPars repairType → renovation_type (маппинг MVP-4, admin#37) */
+function parseRepairType(value: unknown): string | null {
+  switch (String(value ?? '').trim()) {
+    case '1': return 'without';
+    case '2': return 'cosmetic';
+    case '3': return 'designer';
+    case '4': return 'euro';
+    default: return null;
+  }
 }
 
 function getPropertyType(rooms: number | undefined | null): string {
@@ -545,7 +558,7 @@ export function transformInparsListing(raw: InparsListingRaw): Ad {
     is_apartments: null,
 
     house_details: houseDetails,
-    renovation_type: null,
+    renovation_type: parseRepairType(raw.repairType),
     bathroom_details: null,
     balcony_details: null,
     views_count: null,
