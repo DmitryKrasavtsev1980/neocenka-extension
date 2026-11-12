@@ -454,9 +454,31 @@ const MarketCorridorChart: React.FC<Props> = ({ objects, addresses, onObjectClic
                 <XAxis dataKey="x" type="number" domain={effectiveDomain} allowDataOverflow tickFormatter={formatX} tick={{ fontSize: 11 }} />
                 <YAxis domain={[yMin, yMax]} tickFormatter={formatY} tick={{ fontSize: 11 }} />
                 <Tooltip content={<ScatterTooltip />} cursor={false} />
-                {/* payload у Legend убран из публичных пропсов Recharts, но для наших
-                    маркеров (круг/ромб) нужен именно он — отдаём напрямую */}
-                {!showHistory && <Legend {...{ payload: legendPayload, wrapperStyle: { fontSize: 12 } } as any} />}
+                {/* payload у Legend убран из публичных пропсов Recharts 3 —
+                    передача «as any» молча игнорируется (легенда пустая).
+                    Рисуем маркеры сами через content. */}
+                {!showHistory && (
+                  <Legend
+                    content={() => (
+                      <ul style={{ display: 'flex', gap: 16, justifyContent: 'center', listStyle: 'none', padding: 0, margin: '4px 0 0', fontSize: 12 }}>
+                        {legendPayload.map(item => (
+                          <li key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {item.type === 'diamond' ? (
+                              <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden>
+                                <rect x={3} y={3} width={6} height={6} fill={item.color} transform="rotate(45 6 6)" />
+                              </svg>
+                            ) : (
+                              <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden>
+                                <circle cx={6} cy={6} r={4.5} fill={item.color} />
+                              </svg>
+                            )}
+                            <span>{item.value}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  />
+                )}
 
                 {/* Линии активных объектов (режим История) */}
                 {activeLines.map((line, i) => {
