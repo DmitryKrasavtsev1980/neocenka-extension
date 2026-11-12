@@ -76,31 +76,49 @@ export function getMonthRange(objects: AdObject[]): { start: string; end: string
   if (minMs === Infinity) return null;
   const start = new Date(minMs);
   start.setDate(1); start.setHours(0, 0, 0, 0);
-  const end = new Date(maxMs);
-  end.setMonth(end.getMonth() + 1); end.setDate(1); end.setHours(0, 0, 0, 0);
+  // Правая граница — текущий месяц («сегодня и назад»); если данные новее — по данным.
+  const endIncl = new Date(Math.max(maxMs, Date.now()));
+  endIncl.setDate(1); endIncl.setHours(0, 0, 0, 0);
+  // end эксклюзивный — месяц ПОСЛЕ последнего показываемого (generateMonthBuckets не включает его)
+  const end = new Date(endIncl);
+  end.setMonth(end.getMonth() + 1);
   return { start: toMonthKey(start), end: toMonthKey(end) };
 }
 
+/**
+ * Бакеты по месяцам в диапазоне [startMonth, endMonth) — endMonth НЕ включается,
+ * как возвращает getMonthRange.
+ * Раньше endMonth считался включительным через `em++; if (em > 12) em -= 12` —
+ * при endMonth=«ГГГГ-12» обёртка давала em=1 без инкремента года, и цикл
+ * обрывался на декабре предыдущего года (на графике пропадал целый год данных).
+ */
 export function generateMonthBuckets(startMonth: string, endMonth: string): MonthBucket[] {
   const buckets: MonthBucket[] = [];
   let [y, m] = startMonth.split('-').map(Number);
-  const [ey] = endMonth.split('-').map(Number);
-  let em = Number(endMonth.split('-')[1]);
-  // Включаем последний месяц
-  em++;
-  if (em > 12) { em -= 12; }
+  const [ey, em] = endMonth.split('-').map(Number);
+  const endIdx = ey * 12 + em; // эксклюзивная граница в «линейных» месяцах
 
-  while (y < ey || (y === ey && m < em)) {
+  while (y * 12 + m < endIdx) {
     const month = `${y}-${String(m).padStart(2, '0')}`;
     const monthStart = new Date(y, m - 1, 1);
-    const nextM = m + 1;
-    const nextY = nextM > 12 ? y + 1 : y;
-    const monthEnd = new Date(nextY, nextM > 12 ? 0 : nextM - 1, 1);
+    const monthEnd = new Date(y, m, 1); // m=12 → Янв следующего года, Date переносит сам
     buckets.push({ month, label: formatMonthLabel(month), monthStart, monthEnd });
     m++;
     if (m > 12) { m = 1; y++; }
   }
   return buckets;
+}
+
+/**
+ * Медиана по ВОЗРАСТАЮЩЕМУ массиву.
+ * Раньше брался элемент [Math.floor(n/2)] — верхний из двух центральных:
+ * при чётном n медиана систематически завышалась (n=2 → максимум выборки!),
+ * и график «Медиана» противоречил графику «Среднее» (непонятные скачки).
+ */
+export function calcMedian(sortedAsc: number[]): number {
+  const n = sortedAsc.length;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 1 ? sortedAsc[mid] : (sortedAsc[mid - 1] + sortedAsc[mid]) / 2;
 }
 
 /**
@@ -167,7 +185,7 @@ export function computePriceChangeData(objects: AdObject[], months: MonthBucket[
 
       const priceValues = prices.map(p => p.price!).sort((a, b) => a - b);
       const avgPrice = Math.round(priceValues.reduce((s, p) => s + p, 0) / priceValues.length);
-      const medianPrice = Math.round(priceValues[Math.floor(priceValues.length / 2)]);
+      const medianPrice = Math.round(calcMedian(priceValues));
 
       const withArea = prices.filter(p => p.area);
       let avgPerM2: number | null = null;
@@ -175,7 +193,7 @@ export function computePriceChangeData(objects: AdObject[], months: MonthBucket[
       if (withArea.length > 0) {
         const perM2Values = withArea.map(p => p.price! / p.area!).sort((a, b) => a - b);
         avgPerM2 = Math.round(perM2Values.reduce((s, p) => s + p, 0) / perM2Values.length);
-        medianPerM2 = Math.round(perM2Values[Math.floor(perM2Values.length / 2)]);
+        medianPerM2 = Math.round(calcMedian(perM2Values));
       }
 
       return { avgPrice, avgPerM2, medianPrice, medianPerM2 };
