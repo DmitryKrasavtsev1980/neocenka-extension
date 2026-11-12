@@ -56,7 +56,7 @@ const LiquidityChart: React.FC<Props> = ({ objects }) => {
       {/* График */}
       <ChartBox height={300}>
         {({ width }) => (
-          <ComposedChart width={width} height={300} data={data} margin={{ top: 10, right: 20, bottom: 5, left: 0 }}>
+          <ComposedChart width={width} height={300} data={data} margin={{ top: 10, right: 20, bottom: 5, left: 0 }} barGap={6} barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="label" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} />
@@ -65,8 +65,8 @@ const LiquidityChart: React.FC<Props> = ({ objects }) => {
               contentStyle={{ fontSize: 12 }}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="newObjects" name="Новые" fill="#22c55e" barSize={20} />
-            <Bar dataKey="closedObjects" name="Закрытые" fill="#ef4444" barSize={20} />
+            <Bar dataKey="newObjects" name="Новые" fill="#22c55e" barSize={12} />
+            <Bar dataKey="closedObjects" name="Закрытые" fill="#ef4444" barSize={12} />
             <Line type="monotone" dataKey="activeAtStart" name="Активные на начало" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
           </ComposedChart>
         )}

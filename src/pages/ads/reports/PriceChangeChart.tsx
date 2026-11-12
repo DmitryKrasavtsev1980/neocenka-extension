@@ -91,7 +91,7 @@ const PriceChangeChart: React.FC<Props> = ({ objects }) => {
       {/* График */}
       <ChartBox height={300}>
         {({ width }) => (
-          <ComposedChart width={width} height={300} data={data} margin={{ top: 10, right: 60, bottom: 5, left: 0 }}>
+          <ComposedChart width={width} height={300} data={data} margin={{ top: 10, right: 60, bottom: 5, left: 0 }} barGap={6} barCategoryGap="30%">
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="label" tick={{ fontSize: 11 }} />
             <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={formatYPrice} />
@@ -104,8 +104,8 @@ const PriceChangeChart: React.FC<Props> = ({ objects }) => {
               contentStyle={{ fontSize: 12 }}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar yAxisId="right" dataKey={activePerM2Key} name={`${metricLabel} цена/м² (акт.)`} fill="#22c55e" opacity={0.5} barSize={16} />
-            <Bar yAxisId="right" dataKey={archivedPerM2Key} name={`${metricLabel} цена/м² (арх.)`} fill="#ff9800" opacity={0.5} barSize={16} />
+            <Bar yAxisId="right" dataKey={activePerM2Key} name={`${metricLabel} цена/м² (акт.)`} fill="#22c55e" opacity={0.5} barSize={12} />
+            <Bar yAxisId="right" dataKey={archivedPerM2Key} name={`${metricLabel} цена/м² (арх.)`} fill="#ff9800" opacity={0.5} barSize={12} />
             <Line yAxisId="left" type="monotone" dataKey={activePriceKey} name={`${metricLabel} цена (акт.)`} stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
             <Line yAxisId="left" type="monotone" dataKey={archivedPriceKey} name={`${metricLabel} цена (арх.)`} stroke="#e91e63" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
           </ComposedChart>
