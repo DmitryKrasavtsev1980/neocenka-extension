@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Неоценка",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "Анализ сделок с недвижимостью",
   "permissions": [
     "storage",
