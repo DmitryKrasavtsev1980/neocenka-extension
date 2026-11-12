@@ -316,11 +316,15 @@ export const dealsRepository = {
     const totalPages = Math.ceil(totalCount / pageSize);
     const pageDeals = matched.slice(pageStart, pageEnd);
 
-    // Медиана
+    // Медиана: при чётном n — среднее двух центральных (не верхний элемент!)
+    const medianOf = (s: number[]): number => {
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    };
     const sortedPrices = prices.sort((a, b) => a - b);
     const sortedAreas = areas.sort((a, b) => a - b);
-    const priceMedian = sortedPrices.length > 0 ? sortedPrices[Math.floor(sortedPrices.length / 2)] : 0;
-    const areaMedian = sortedAreas.length > 0 ? sortedAreas[Math.floor(sortedAreas.length / 2)] : 0;
+    const priceMedian = sortedPrices.length > 0 ? medianOf(sortedPrices) : 0;
+    const areaMedian = sortedAreas.length > 0 ? medianOf(sortedAreas) : 0;
     const priceAvg = sortedPrices.length > 0 ? Math.round(priceSum / sortedPrices.length) : 0;
     const areaAvg = sortedAreas.length > 0 ? Math.round(areaSum / sortedAreas.length) : 0;
 

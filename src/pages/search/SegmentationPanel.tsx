@@ -112,6 +112,9 @@ const SegmentationPanel = React.memo(({ dealsCount, areasByWallMaterial, onSetAr
 
     return entries.map(([code, areas], idx) => {
       const sorted = [...areas].sort((a, b) => a - b);
+      // Медиана: при чётном n — среднее двух центральных (не верхний элемент)
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
       return {
         code,
         name: getWallMaterialName(code),
@@ -119,7 +122,7 @@ const SegmentationPanel = React.memo(({ dealsCount, areasByWallMaterial, onSetAr
         areas,
         min: sorted[0],
         max: sorted[sorted.length - 1],
-        median: sorted[Math.floor(sorted.length / 2)],
+        median,
         color: SEGMENT_COLORS[idx % SEGMENT_COLORS.length],
         globalMin,
         globalMax,

@@ -663,7 +663,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onNavigate }) => {
     const totalSum = deals.reduce((acc, d) => acc + d.deal_price, 0);
     const avgPrice = Math.round(totalSum / deals.length);
     const prices = deals.map(d => d.deal_price).filter(p => p > 0).sort((a, b) => a - b);
-    const medianPrice = prices.length > 0 ? prices[Math.floor(prices.length / 2)] : 0;
+    // Медиана: при чётном n — среднее двух центральных (не верхний элемент)
+    const midP = Math.floor(prices.length / 2);
+    const medianPrice = prices.length > 0 ? (prices.length % 2 === 1 ? prices[midP] : (prices[midP - 1] + prices[midP]) / 2) : 0;
     const areas = deals.map(d => d.area).filter(a => a > 0);
     const avgArea = areas.length > 0 ? Math.round(areas.reduce((a, b) => a + b, 0) / areas.length) : 0;
 
