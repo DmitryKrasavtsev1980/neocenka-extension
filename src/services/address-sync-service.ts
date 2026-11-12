@@ -38,12 +38,21 @@ function setLastSync(regions: string[] | undefined, date: string): void {
 }
 
 /** Маппинг серверного Address → AdAddress для IndexedDB */
+// Числовое поле из API data-server: сервер отдаёт числа строками ("55.75", "37.6"),
+// при арифметике без Number() строка склеивается в NaN («x += lat»). null → null.
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function mapServerAddress(a: AddressResponse): Omit<AdAddress, 'id'> {
   return {
     server_id: a.id,
     house_id: a.house_id,
     address: a.address,
-    coordinates: { lat: a.lat, lng: a.lon },
+    // ext#12: lat/lon приходят строками — нормализуем на границе API
+    coordinates: { lat: numOrNull(a.lat), lng: numOrNull(a.lon) },
     type: a.type,
     region: a.region,
     cadno: a.cadno,
@@ -54,12 +63,12 @@ function mapServerAddress(a: AddressResponse): Omit<AdAddress, 'id'> {
     ceiling_material_id: a.ceiling_material_id,
     wall_material_id: a.wall_material_id,
     house_problem_id: a.house_problem_id,
-    floors_count: a.levels,
-    build_year: a.build_year,
-    entrances_count: a.entrances_count,
-    living_spaces_count: a.living_spaces_count,
-    area_total: a.area_total,
-    area_live: a.area_live,
+    floors_count: numOrNull(a.levels),
+    build_year: numOrNull(a.build_year),
+    entrances_count: numOrNull(a.entrances_count),
+    living_spaces_count: numOrNull(a.living_spaces_count),
+    area_total: numOrNull(a.area_total),
+    area_live: numOrNull(a.area_live),
     ceiling_height: a.ceiling_height,
     gas_supply: a.gas_supply,
     individual_heating: a.individual_heating,
