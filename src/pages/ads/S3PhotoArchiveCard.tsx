@@ -29,7 +29,8 @@ const S3PhotoArchiveCard: React.FC = () => {
   const [allowed, setAllowed] = useState(true);
 
   // Форма
-  const [endpoint, setEndpoint] = useState('https://s3.ru1.storage.beget.cloud');
+  // ext#6: Beget S3 мёртв — дефолт на SprintHost (s3-990149, s3.spb.sprinthost.ru)
+  const [endpoint, setEndpoint] = useState('https://s3.spb.sprinthost.ru');
   const [region, setRegion] = useState('ru-1');
   const [bucket, setBucket] = useState('');
   const [accessKey, setAccessKey] = useState('');
@@ -315,7 +316,7 @@ const S3PhotoArchiveCard: React.FC = () => {
             type="text"
             value={endpoint}
             onChange={e => setEndpoint(e.target.value)}
-            placeholder="https://s3.ru1.storage.beget.cloud"
+            placeholder="https://s3.spb.sprinthost.ru"
             className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-700 px-3 py-1.5 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>

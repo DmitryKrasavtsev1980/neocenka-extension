@@ -3,3 +3,9 @@ dist/
 data/
 *.log
 .DS_Store
+
+# Секреты и артефакты
+.env
+.env.production
+*.zip
+paramiko-temp/
